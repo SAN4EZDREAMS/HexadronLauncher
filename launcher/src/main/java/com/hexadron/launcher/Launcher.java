@@ -101,7 +101,7 @@ public class Launcher extends Application {
 		Gson gson = new Gson();
 		JsonObject fabricJson = gson.fromJson(Files.readString(fabricJsonPath), JsonObject.class);
 
-		String mainClass = fabricJson.get("mainClass").getAsJsonObject().get("client").getAsString();
+		String mainClass = fabricJson.get("mainClass").getAsString();
 
 		List<String> classpath = new ArrayList<>();
 		classpath.add(gameDir.resolve("client.jar").toString());
