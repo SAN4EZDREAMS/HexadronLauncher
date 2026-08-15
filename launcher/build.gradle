@@ -24,3 +24,5 @@ javafx {
 	version = '25'
 	modules = ['javafx.controls']
 }
+
+//yml test (launcher only)
