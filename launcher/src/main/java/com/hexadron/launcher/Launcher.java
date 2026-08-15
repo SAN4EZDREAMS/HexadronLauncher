@@ -2,7 +2,8 @@ package com.hexadron.launcher;
 
 import fr.flowarg.flowupdater.FlowUpdater;
 import fr.flowarg.flowupdater.versions.VanillaVersion;
-import fr.flowarg.flowupdater.versions.FabricVersion;
+import fr.flowarg.flowupdater.versions.fabric.FabricVersion;
+import fr.flowarg.flowupdater.versions.fabric.FabricVersionBuilder;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
@@ -40,7 +41,7 @@ public class Launcher extends Application {
 
 			// Без .withFabricVersion(...) — бібліотека сама візьме найсвіжіший
 			// доступний Fabric Loader, той самий принцип, що і з fabric.mod.json раніше
-			FabricVersion fabricVersion = new FabricVersion.FabricVersionBuilder()
+			FabricVersion fabricVersion = new FabricVersionBuilder()
 					.build();
 
 			FlowUpdater updater = new FlowUpdater.FlowUpdaterBuilder()
