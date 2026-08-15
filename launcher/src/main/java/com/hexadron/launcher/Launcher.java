@@ -2,6 +2,7 @@ package com.hexadron.launcher;
 
 import fr.flowarg.flowupdater.FlowUpdater;
 import fr.flowarg.flowupdater.versions.VanillaVersion;
+import fr.flowarg.flowupdater.versions.FabricVersion;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
@@ -17,7 +18,7 @@ public class Launcher extends Application {
 
 	@Override
 	public void start(Stage stage) {
-		statusLabel = new Label("Завантажую Minecraft 26.2...");
+		statusLabel = new Label("Завантажую Minecraft 26.2 + Fabric...");
 		StackPane root = new StackPane(statusLabel);
 
 		stage.setScene(new Scene(root, 400, 300));
@@ -37,8 +38,14 @@ public class Launcher extends Application {
 					.withName("26.2")
 					.build();
 
+			// Без .withFabricVersion(...) — бібліотека сама візьме найсвіжіший
+			// доступний Fabric Loader, той самий принцип, що і з fabric.mod.json раніше
+			FabricVersion fabricVersion = new FabricVersion.FabricVersionBuilder()
+					.build();
+
 			FlowUpdater updater = new FlowUpdater.FlowUpdaterBuilder()
 					.withVanillaVersion(version)
+					.withModLoaderVersion(fabricVersion)
 					.build();
 
 			updater.update(gameDir);
