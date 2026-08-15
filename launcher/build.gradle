@@ -13,6 +13,7 @@ repositories {
 dependencies {
 	// Перевіряємо, чи резолвиться взагалі — логіку запуску напишемо наступним кроком
 	implementation 'fr.flowarg:openlauncherlib:3.2.11'
+	implementation 'fr.flowarg:flowupdater:1.9.3'
 }
 
 java {
