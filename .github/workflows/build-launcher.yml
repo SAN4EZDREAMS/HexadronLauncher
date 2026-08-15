@@ -1,0 +1,35 @@
+# Збирає ЛИШЕ лаунчер, і лише якщо змінились файли всередині launcher/
+# (або сам цей workflow-файл). Зміни в mod/ чи README цей build не запускають.
+
+name: build-launcher
+on:
+  push:
+    paths:
+      - 'launcher/**'
+      - '.github/workflows/build-launcher.yml'
+  pull_request:
+    paths:
+      - 'launcher/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+      - name: validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+      - name: build launcher
+        run: ./gradlew :launcher:build
+      - name: capture build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: hexadron-launcher-jar
+          path: launcher/build/libs/*.jar

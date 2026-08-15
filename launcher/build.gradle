@@ -1,0 +1,26 @@
+plugins {
+	id 'application'
+	id 'org.openjfx.javafxplugin' version '0.1.0'
+}
+
+group = 'com.hexadron'
+version = '0.1.0'
+
+repositories {
+	mavenCentral()
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}
+
+application {
+	mainClass = 'com.hexadron.launcher.Launcher'
+}
+
+javafx {
+	version = '25'
+	modules = ['javafx.controls']
+}

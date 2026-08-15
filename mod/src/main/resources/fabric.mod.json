@@ -1,0 +1,41 @@
+{
+	"schemaVersion": 1,
+	"id": "hexadron-optimise",
+	"version": "${version}",
+	"name": "Hexadron Optimise",
+	"description": "Мій власний Minecraft-клієнт з фокусом на оптимізацію",
+	"authors": [
+		"Твоє ім'я"
+	],
+	"license": "LGPL-2.1",
+	"icon": "assets/hexadron-optimise/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.hexadron.optimise.HexadronOptimise"
+		],
+		"client": [
+			"com.hexadron.optimise.client.HexadronOptimiseClient"
+		]
+	},
+	"mixins": [
+		"hexadron-optimise.mixins.json",
+		{
+			"config": "hexadron-optimise.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*",
+		"sodium": "*",
+		"lithium": "*",
+		"ferritecore": "*",
+		"krypton": "*",
+		"entityculling": "*",
+		"iris": "*",
+		"modmenu": "*"
+	}
+}
