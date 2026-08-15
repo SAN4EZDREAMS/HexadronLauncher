@@ -26,6 +26,11 @@ application {
 	mainClass = 'com.hexadron.launcher.Launcher'
 }
 
+tasks.named('run') {
+	// Перш ніж запускати лаунчер — переконайся, що мод зібраний і свіжий
+	dependsOn(':mod:build')
+}
+
 javafx {
 	version = '25'
 	modules = ['javafx.controls']

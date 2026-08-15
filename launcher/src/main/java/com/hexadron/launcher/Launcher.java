@@ -11,8 +11,10 @@ import javafx.scene.control.Label;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 
 public class Launcher extends Application {
 	private Label statusLabel;
@@ -51,7 +53,17 @@ public class Launcher extends Application {
 
 			updater.update(gameDir);
 
-			Platform.runLater(() -> statusLabel.setText("Готово! Minecraft 26.2 у " + gameDir));
+			// Тимчасовий шлях, поки нема нормального публічного релізу мода —
+			// беремо свіжозібраний jar прямо з сусіднього підпроєкту в цьому ж репо.
+			// Це працює тільки в нас, для розробки; для реальних користувачів
+			// пізніше знадобиться хостити jar десь публічно (напр. GitHub Releases)
+			// і качати його через FlowUpdater.Mod, як і решту модів.
+			Path modJar = Paths.get("..", "mod", "build", "libs", "hexadron-optimise-1.0.0.jar");
+			Path modsDir = gameDir.resolve("mods");
+			Files.createDirectories(modsDir);
+			Files.copy(modJar, modsDir.resolve("hexadron-optimise-1.0.0.jar"), StandardCopyOption.REPLACE_EXISTING);
+
+			Platform.runLater(() -> statusLabel.setText("Готово! Minecraft 26.2 + Fabric + наш мод у " + gameDir));
 		} catch (Exception e) {
 			e.printStackTrace();
 			Platform.runLater(() -> statusLabel.setText("Помилка: " + e.getMessage()));

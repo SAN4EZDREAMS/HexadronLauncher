@@ -3,6 +3,10 @@ plugins {
 	id 'maven-publish'
 }
 
+base {
+	archivesName = 'hexadron-optimise'
+}
+
 repositories {
 	exclusiveContent {
 		forRepository {
