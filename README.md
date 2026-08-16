@@ -10,8 +10,8 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Area | State |
 |---|---|
 | Minecraft versions | Every version in Mojang's `version_manifest_v2` - releases, snapshots, old_beta, old_alpha |
-| Loaders | Fabric and Quilt install and launch. Forge and NeoForge list their builds but do not install yet |
-| Accounts | Offline accounts work. Microsoft sign-in is implemented and needs an approved Azure client ID |
+| Loaders | Fabric and Quilt install and launch. Forge and NeoForge list their builds but do not install yet. The version picker offers only versions the chosen loader has builds for |
+| Accounts | Offline accounts work and can be removed. Microsoft sign-in is implemented and needs an approved Azure client ID |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments and Java path |
 | Mods | A browser window per instance: search, sort, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one. Required dependencies resolve automatically |
 | Java | The launcher finds the installed runtimes and selects one that the version requires |
@@ -166,6 +166,27 @@ The instance list is searchable by name, Minecraft version or loader. The Play
 button never moves: it sits in the footer next to the account, so the one action
 the launcher exists for is always in the same place.
 
+## Version and loader compatibility
+
+Choosing a loader narrows the Minecraft version list to versions that loader
+can actually run. Before this, every version Mojang ever published sat next to
+every loader, so Minecraft 1.0 with Fabric selected looked like a valid choice
+and only failed at install time.
+
+The filter is built from each project's own data, never from a rule of thumb:
+
+| Loader | Source of truth | Filters? |
+|---|---|---|
+| Fabric, Quilt | `/versions/game` on their meta APIs. No intermediary mappings means the loader cannot run at all | yes |
+| Forge | maven metadata: a build id **is** `<minecraftVersion>-<forgeVersion>` | yes |
+| NeoForge | build numbers, where `21.1.66` means Minecraft 1.21.1 | **no** |
+
+NeoForge is deliberately excluded. That convention is only documented for the
+`1.x` era, and there is no rule this code can point at for Minecraft's 2026
+calendar versions. An incomplete list is never used to hide anything: hiding the
+one version the user wanted is a worse failure than offering one that turns out
+to have no build, and that case is reported by name when the build list loads.
+
 ## The mod browser
 
 `Mods...` opens a window of its own for the selected instance. It is not a
@@ -192,6 +213,12 @@ loader, so anything listed is a build that will actually load. That is the
 point of browsing from inside a launcher rather than on a website. Sorting is
 by best match, downloads, popularity, last update or newest; the source filter
 picks one platform or both.
+
+Results are paged. The status line shows the platform's own total - "showing 40
+of 3812" - and **Show more** fetches the next page. The first version of this
+window asked for 40 results and showed 40 for every Minecraft version and every
+loader, which read as "there are 40 mods" and made a version with four thousand
+mods look identical to one with fifty.
 
 The **Installed** tab lists what the launcher put in the folder, with a badge
 saying where each file came from. The instance summary in the main window shows
@@ -279,8 +306,9 @@ cli/      headless entry point
 ```
 
 `SelfCheck` verifies the metadata layer, the player-name rule, JVM-argument
-splitting, mod ownership and the language files with 221 assertions. It needs no
-network, no display and no test framework.
+splitting, mod ownership, loader/version compatibility, search paging and the
+language files with 247 assertions. It needs no network, no display and no test
+framework.
 
 ## Not done yet
 

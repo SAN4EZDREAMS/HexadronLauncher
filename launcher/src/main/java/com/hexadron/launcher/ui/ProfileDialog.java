@@ -51,6 +51,13 @@ public final class ProfileDialog {
         List<String> load(boolean includeAll) throws Exception;
     }
 
+    /** Supplies the Minecraft versions a loader actually has builds for. */
+    @FunctionalInterface
+    public interface LoaderSupportSource {
+        com.hexadron.launcher.install.loader.LoaderInstaller.SupportedVersions load(LoaderType loader)
+                throws Exception;
+    }
+
     private final TextField nameField = new TextField();
     private final ComboBox<String> versionBox = new ComboBox<>();
     private final CheckBox showAllVersions = new CheckBox();
@@ -61,14 +68,19 @@ public final class ProfileDialog {
     private final TextField javaField = new TextField();
     private final TextField jvmArgumentsField = new TextField();
 
+    private final Label versionNote = new Label();
+
     private final VersionSource versions;
+    private final LoaderSupportSource loaderSupport;
     private final LoaderVersionSource loaderVersions;
     private final boolean startWithAllVersions;
 
     public ProfileDialog(VersionSource versions,
+                         LoaderSupportSource loaderSupport,
                          LoaderVersionSource loaderVersions,
                          boolean startWithAllVersions) {
         this.versions = versions;
+        this.loaderSupport = loaderSupport;
         this.loaderVersions = loaderVersions;
         this.startWithAllVersions = startWithAllVersions;
     }
@@ -93,7 +105,7 @@ public final class ProfileDialog {
         ButtonType cancel = new ButtonType(I18n.t("dialog.cancel"), ButtonBar.ButtonData.CANCEL_CLOSE);
         dialog.getDialogPane().getButtonTypes().addAll(save, cancel);
         dialog.getDialogPane().setContent(buildForm());
-        dialog.getDialogPane().setPrefWidth(560);
+        dialog.getDialogPane().setPrefWidth(640);
         Theme.apply(dialog.getDialogPane());
 
         prefill(existing);
@@ -132,6 +144,12 @@ public final class ProfileDialog {
         showAllVersions.setSelected(startWithAllVersions);
         showAllVersions.setOnAction(event -> loadVersionsAsync());
 
+        versionNote.getStyleClass().add("muted");
+        versionNote.setWrapText(true);
+        // Without an explicit maximum a wrapping Label in a GridPane keeps
+        // growing the column instead of wrapping, and the note gets clipped.
+        versionNote.setMaxWidth(400);
+
         loaderBox.setItems(FXCollections.observableArrayList(Loaders.allLoaders()));
         loaderBox.setMaxWidth(Double.MAX_VALUE);
         // Without this the list shows the enum constants - FABRIC, NEOFORGE -
@@ -149,7 +167,12 @@ public final class ProfileDialog {
                         .findFirst().orElse(null);
             }
         });
-        loaderBox.valueProperty().addListener((observable, previous, value) -> loadLoaderVersionsAsync());
+        // Changing the loader changes which Minecraft versions are installable
+        // at all, so the version list is rebuilt, not just the build list.
+        loaderBox.valueProperty().addListener((observable, previous, value) -> {
+            loadVersionsAsync();
+            loadLoaderVersionsAsync();
+        });
 
         loaderVersionBox.setMaxWidth(Double.MAX_VALUE);
         loaderVersionBox.setEditable(true);
@@ -171,7 +194,7 @@ public final class ProfileDialog {
         grid.setPadding(new Insets(16, 16, 8, 16));
 
         ColumnConstraints labels = new ColumnConstraints();
-        labels.setMinWidth(150);
+        labels.setMinWidth(200);
         ColumnConstraints fields = new ColumnConstraints();
         fields.setHgrow(Priority.ALWAYS);
         fields.setFillWidth(true);
@@ -181,6 +204,7 @@ public final class ProfileDialog {
         grid.addRow(row++, formLabel(I18n.t("editor.name")), nameField);
         grid.addRow(row++, formLabel(I18n.t("editor.version")), versionBox);
         grid.addRow(row++, new Label(), showAllVersions);
+        grid.addRow(row++, new Label(), versionNote);
         grid.addRow(row++, formLabel(I18n.t("editor.loader")), loaderBox);
         grid.addRow(row++, formLabel(I18n.t("editor.loaderVersion")), loaderVersionBox);
 
@@ -256,17 +280,56 @@ public final class ProfileDialog {
 
     // ---------------------------------------------------------------- loading
 
+    /**
+     * Loads the Minecraft version list, narrowed to what the chosen loader can
+     * actually run.
+     *
+     * <p>Without this the picker offered every version Mojang ever published
+     * next to every loader, so Minecraft 1.0 with Fabric selected looked like a
+     * valid choice and only failed at install time. Fabric and Quilt publish
+     * the exact list (no intermediary mappings, no loader), and a Forge build id
+     * names its Minecraft version outright, so all three can be filtered from
+     * data rather than from a rule.
+     *
+     * <p>NeoForge reports its list as incomplete - its build numbers only map to
+     * Minecraft versions for the {@code 1.x} era - and an incomplete list is
+     * never used to hide anything. Hiding the right version is worse than
+     * showing one that turns out to have no build, which is reported by name
+     * when the build list loads.
+     */
     private void loadVersionsAsync() {
         boolean all = showAllVersions.isSelected();
+        LoaderType loader = loaderBox.getValue();
         runOffThread(() -> {
             List<String> ids = versions.load(all);
+            var support = loader == null || loader == LoaderType.VANILLA
+                    ? com.hexadron.launcher.install.loader.LoaderInstaller.SupportedVersions.unknown()
+                    : loaderSupport.load(loader);
+
+            List<String> offered = support.isUsableAsFilter()
+                    ? ids.stream().filter(support::supports).toList()
+                    : ids;
+            int hidden = ids.size() - offered.size();
+
             Platform.runLater(() -> {
                 String previous = versionBox.getValue();
-                versionBox.setItems(FXCollections.observableArrayList(ids));
-                if (previous != null && ids.contains(previous)) {
+                versionBox.setItems(FXCollections.observableArrayList(offered));
+                if (previous != null && offered.contains(previous)) {
                     versionBox.setValue(previous);
-                } else if (!ids.isEmpty()) {
-                    versionBox.setValue(ids.get(0));
+                } else if (!offered.isEmpty()) {
+                    versionBox.setValue(offered.get(0));
+                } else {
+                    versionBox.setValue(null);
+                }
+
+                if (hidden > 0) {
+                    versionNote.setText(I18n.t("dialog.versionsFiltered",
+                            loader.displayName(), offered.size()));
+                } else if (offered.isEmpty()) {
+                    versionNote.setText(I18n.t("dialog.versionsNone",
+                            loader == null ? "" : loader.displayName()));
+                } else {
+                    versionNote.setText("");
                 }
             });
         });

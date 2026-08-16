@@ -72,8 +72,11 @@ public final class ModBrowserWindow {
     private final ComboBox<ModSort> sortBox = new ComboBox<>();
     private final ComboBox<SourceChoice> sourceBox = new ComboBox<>();
     private final Button searchButton = new Button();
-    private final ListView<ModProvider.SearchResult> resultList = new ListView<>();
+    private final javafx.collections.ObservableList<ModProvider.SearchResult> results =
+            FXCollections.observableArrayList();
+    private final ListView<ModProvider.SearchResult> resultList = new ListView<>(results);
     private final Label browseEmpty = new Label();
+    private final Button moreButton = new Button();
 
     private final ListView<InstalledMod> installedList = new ListView<>();
     private final Label installedEmpty = new Label();
@@ -85,6 +88,10 @@ public final class ModBrowserWindow {
     private final Label statusLabel = new Label();
     private final ProgressBar progressBar = new ProgressBar(0);
     private final BrowserProgress progress;
+
+    /** Where the next page starts, and how many matches the platforms report. */
+    private int nextOffset;
+    private int totalMatches = -1;
 
     private ModLibrary library;
     private ModPack pack;
@@ -128,6 +135,8 @@ public final class ModBrowserWindow {
         applyTexts();
         refreshInstalled();
         loadPackStateAsync();
+        nextOffset = 0;
+        totalMatches = -1;
         runSearch();
 
         stage.show();
@@ -264,7 +273,14 @@ public final class ModBrowserWindow {
         resultList.setPlaceholder(browseEmpty);
         VBox.setVgrow(resultList, Priority.ALWAYS);
 
-        VBox pane = new VBox(10, controls, resultList);
+        // Paging rather than a bigger page. A single huge request is slower to
+        // first result and still has a ceiling; this one has none the user meets.
+        moreButton.setMaxWidth(Double.MAX_VALUE);
+        moreButton.setVisible(false);
+        moreButton.setManaged(false);
+        moreButton.setOnAction(event -> loadPage(false));
+
+        VBox pane = new VBox(10, controls, resultList, moreButton);
         pane.getStyleClass().add("browse-pane");
         return pane;
     }
@@ -392,27 +408,61 @@ public final class ModBrowserWindow {
 
     // ---------------------------------------------------------------- actions
 
+    /** Starts a new search from the first page. */
     private void runSearch() {
+        loadPage(true);
+    }
+
+    /**
+     * Fetches one page.
+     *
+     * <p>The page size is a request size, not a result cap. Before paging, the
+     * browser asked for 40 and showed 40 whatever the version, which made a
+     * Minecraft version with four thousand mods look exactly like one with
+     * fifty. Now the platform's own total is shown, and the rest is one click
+     * away.
+     */
+    private void loadPage(boolean fresh) {
         if (profile.loader() == LoaderType.VANILLA) {
             browseEmpty.setText(I18n.t("mods.vanilla"));
-            resultList.setItems(FXCollections.observableArrayList());
+            results.clear();
             return;
         }
         String query = searchField.getText() == null ? "" : searchField.getText().trim();
         ModSort sort = sortBox.getValue() == null ? ModSort.POPULAR : sortBox.getValue();
         ModProvider.Source only = sourceBox.getValue() == null ? null : sourceBox.getValue().source();
+        int offset = fresh ? 0 : nextOffset;
 
-        browseEmpty.setText(I18n.t("mods.searching"));
+        if (fresh) {
+            browseEmpty.setText(I18n.t("mods.searching"));
+        }
+        moreButton.setDisable(true);
+
         // A search never pops a dialog. It is the one action the user repeats
         // constantly, and a modal error for a dropped connection would be in the
         // way of the retry.
         run(I18n.t("mods.task.search"), false, () -> {
-            List<ModProvider.SearchResult> hits =
-                    service.searchMods(profile, query, sort, only, PAGE_SIZE);
+            ModProvider.SearchPage page =
+                    service.searchMods(profile, query, sort, only, PAGE_SIZE, offset);
             Platform.runLater(() -> {
-                resultList.setItems(FXCollections.observableArrayList(hits));
+                if (fresh) {
+                    results.setAll(page.results());
+                } else {
+                    results.addAll(page.results());
+                }
+                nextOffset = offset + PAGE_SIZE;
+                totalMatches = page.total();
                 browseEmpty.setText(I18n.t("mods.noResults"));
-                progress.done(I18n.t("mods.found", hits.size()));
+
+                boolean more = page.hasMore() && !page.results().isEmpty();
+                moreButton.setVisible(more);
+                moreButton.setManaged(more);
+                moreButton.setDisable(false);
+                moreButton.setText(I18n.t("mods.more"));
+
+                progress.done(totalMatches >= 0
+                        ? I18n.t("mods.foundOf", results.size(), totalMatches)
+                        : I18n.t("mods.found", results.size()));
             });
         });
     }

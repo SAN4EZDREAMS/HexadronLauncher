@@ -3,6 +3,10 @@ package com.hexadron.launcher;
 import com.hexadron.launcher.auth.Account;
 import com.hexadron.launcher.core.GameDirs;
 import com.hexadron.launcher.i18n.I18n;
+import com.hexadron.launcher.install.loader.ForgeInstaller;
+import com.hexadron.launcher.install.loader.LoaderInstaller;
+import com.hexadron.launcher.install.loader.LoaderType;
+import com.hexadron.launcher.install.loader.NeoForgeInstaller;
 import com.hexadron.launcher.i18n.Language;
 import com.hexadron.launcher.json.Json;
 import com.hexadron.launcher.json.JsonException;
@@ -63,6 +67,8 @@ public final class SelfCheck {
         versionManifestParsing();
         playerNamesAndArguments();
         modOwnership();
+        loaderCompatibility();
+        searchPaging();
         translations();
 
         System.out.println();
@@ -825,6 +831,96 @@ public final class SelfCheck {
         } catch (IOException ignored) {
             // Same.
         }
+    }
+
+    // ---------------------------------------------------------------- loader compatibility
+
+    /**
+     * The rules that decide which Minecraft versions a loader is offered for.
+     *
+     * <p>An error here is not a crash, it is a version quietly missing from the
+     * picker - the failure mode that is hardest to notice and hardest to report,
+     * because the user cannot see what is not there.
+     */
+    private static void loaderCompatibility() {
+        section("Loader compatibility");
+
+        // A Forge build id carries its Minecraft version outright.
+        check("forge build names its version",
+                "1.20.1".equals(ForgeInstaller.minecraftVersionOf("1.20.1-47.3.0")));
+        check("forge build with a suffix",
+                "1.12.2".equals(ForgeInstaller.minecraftVersionOf("1.12.2-14.23.5.2860")));
+        check("forge build without a dash is rejected",
+                ForgeInstaller.minecraftVersionOf("47.3.0") == null);
+        check("forge build ending in a dash is rejected",
+                ForgeInstaller.minecraftVersionOf("1.20.1-") == null);
+
+        // NeoForge: the derivation must be the exact inverse of the filter, or
+        // the picker offers a version whose builds it then hides.
+        check("neoforge build maps to a patch version",
+                "1.21.1".equals(NeoForgeInstaller.legacyMinecraftVersionOf("21.1.66")));
+        check("neoforge build with patch 0 maps to the base version",
+                "1.21".equals(NeoForgeInstaller.legacyMinecraftVersionOf("21.0.167")));
+        check("neoforge build with a suffix still maps",
+                "1.20.4".equals(NeoForgeInstaller.legacyMinecraftVersionOf("20.4.100-beta")));
+        check("a calendar-scheme build maps to nothing",
+                NeoForgeInstaller.legacyMinecraftVersionOf("nonsense") == null);
+        for (String build : List.of("21.1.66", "21.0.167", "20.4.100")) {
+            String derived = NeoForgeInstaller.legacyMinecraftVersionOf(build);
+            check("neoforge round trip for " + build,
+                    build.startsWith(NeoForgeInstaller.legacyPrefixFor(derived)));
+        }
+        check("a calendar Minecraft version has no neoforge prefix",
+                NeoForgeInstaller.legacyPrefixFor("26.2") == null);
+
+        // An incomplete list must never be used to hide a version.
+        var complete = new LoaderInstaller.SupportedVersions(List.of("1.21.1", "26.2"), true);
+        check("a complete list filters", complete.isUsableAsFilter());
+        check("a supported version passes", complete.supports("26.2"));
+        check("an unsupported version does not", !complete.supports("1.0"));
+
+        var derived = new LoaderInstaller.SupportedVersions(List.of("1.21.1"), false);
+        check("an incomplete list never filters", !derived.isUsableAsFilter());
+        check("an empty complete list does not filter either",
+                !new LoaderInstaller.SupportedVersions(List.of(), true).isUsableAsFilter());
+        check("unknown filters nothing", !LoaderInstaller.SupportedVersions.unknown().isUsableAsFilter());
+        check("vanilla is not a loader with builds", LoaderType.VANILLA.isModded() == false);
+    }
+
+    // ---------------------------------------------------------------- search paging
+
+    /**
+     * Paging arithmetic for the mod browser.
+     *
+     * <p>Before paging existed the browser asked for 40 results and showed 40,
+     * for every Minecraft version and every loader, which read as "there are 40
+     * mods". These checks cover the boundary where "show more" must and must not
+     * appear.
+     */
+    private static void searchPaging() {
+        section("Search paging");
+
+        var first = new ModProvider.SearchPage(List.of(hit("a"), hit("b")), 10, 0);
+        check("a first page of a larger set has more", first.hasMore());
+
+        var last = new ModProvider.SearchPage(List.of(hit("a"), hit("b")), 10, 8);
+        check("the last page has no more", !last.hasMore());
+
+        var exact = new ModProvider.SearchPage(List.of(hit("a")), 1, 0);
+        check("a single-result set has no more", !exact.hasMore());
+
+        var unknownTotal = new ModProvider.SearchPage(List.of(hit("a")), -1, 0);
+        check("an unreported total assumes more while results keep arriving",
+                unknownTotal.hasMore());
+        check("an unreported total stops at an empty page",
+                !new ModProvider.SearchPage(List.of(), -1, 40).hasMore());
+        check("an empty result set has no more", !ModProvider.SearchPage.empty().hasMore());
+        check("the page remembers where it started", last.offset() == 8);
+    }
+
+    private static ModProvider.SearchResult hit(String id) {
+        return new ModProvider.SearchResult(id, id, id, "", "", 0, null,
+                ModProvider.Source.MODRINTH);
     }
 
     // ---------------------------------------------------------------- names and arguments

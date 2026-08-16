@@ -91,14 +91,15 @@ public final class CurseForgeProvider implements ModProvider {
     }
 
     @Override
-    public List<SearchResult> search(String query, String minecraftVersion, LoaderType loader,
-                                     ModSort sort, int limit)
+    public SearchPage search(String query, String minecraftVersion, LoaderType loader,
+                             ModSort sort, int limit, int offset)
             throws IOException, InterruptedException {
 
         StringBuilder url = new StringBuilder(API + "/mods/search")
                 .append("?gameId=").append(GAME_MINECRAFT)
                 .append("&classId=").append(CLASS_MODS)
                 .append("&pageSize=").append(Math.max(1, Math.min(limit, 50)))
+                .append("&index=").append(Math.max(0, offset))
                 .append("&sortField=").append((sort == null ? ModSort.RELEVANCE : sort).curseForgeSortField())
                 .append("&sortOrder=desc");
 
@@ -126,7 +127,9 @@ public final class CurseForgeProvider implements ModProvider {
                     mod.get("logo").get("thumbnailUrl").asString(null),
                     Source.CURSEFORGE));
         }
-        return List.copyOf(results);
+        return new SearchPage(results,
+                response.get("pagination").get("totalCount").asInt(-1),
+                Math.max(0, offset));
     }
 
     @Override

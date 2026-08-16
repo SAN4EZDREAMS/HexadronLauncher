@@ -32,10 +32,50 @@ public final class NeoForgeInstaller implements LoaderInstaller {
             MAVEN_ROOT + "net/neoforged/neoforge/maven-metadata.xml";
 
     private static final Pattern LEGACY_MC_VERSION = Pattern.compile("^1\\.(\\d+)(?:\\.(\\d+))?$");
+    private static final Pattern LEGACY_BUILD = Pattern.compile("^(\\d+)\\.(\\d+)\\.(\\d+).*$");
 
     @Override
     public LoaderType type() {
         return LoaderType.NEOFORGE;
+    }
+
+    /**
+     * Minecraft versions derived from NeoForge build numbers.
+     *
+     * <p>Deliberately marked incomplete. The {@code x.y.z -> 1.x.y} convention
+     * is only documented for the {@code 1.x} era; builds for Minecraft's 2026
+     * calendar versions cannot be mapped by any rule this code can point at.
+     * Returning the derived set as if it were the whole truth would hide those
+     * versions from the picker, which is a worse failure than showing one that
+     * turns out to have no build - that case is reported when the build list is
+     * fetched, with the version named.
+     */
+    @Override
+    public SupportedVersions supportedMinecraftVersions() throws IOException, InterruptedException {
+        java.util.LinkedHashSet<String> versions = new java.util.LinkedHashSet<>();
+        for (String build : MavenVersionList.fetchNewestFirst(METADATA_URL)) {
+            String minecraftVersion = legacyMinecraftVersionOf(build);
+            if (minecraftVersion != null) {
+                versions.add(minecraftVersion);
+            }
+        }
+        return new SupportedVersions(List.copyOf(versions), false);
+    }
+
+    /**
+     * The inverse of {@link #legacyPrefixFor}: build {@code 21.1.66} targets
+     * Minecraft {@code 1.21.1}, and {@code 21.0.167} targets {@code 1.21}.
+     *
+     * @return null when the build number does not follow that convention
+     */
+    public static String legacyMinecraftVersionOf(String build) {
+        Matcher matcher = LEGACY_BUILD.matcher(build.trim());
+        if (!matcher.matches()) {
+            return null;
+        }
+        String minor = matcher.group(1);
+        String patch = matcher.group(2);
+        return "0".equals(patch) ? "1." + minor : "1." + minor + "." + patch;
     }
 
     @Override
@@ -67,7 +107,7 @@ public final class NeoForgeInstaller implements LoaderInstaller {
      * The build-number prefix for a {@code 1.x.y} Minecraft version, or null when
      * the version does not follow that scheme and no filter can be justified.
      */
-    static String legacyPrefixFor(String minecraftVersion) {
+    public static String legacyPrefixFor(String minecraftVersion) {
         Matcher matcher = LEGACY_MC_VERSION.matcher(minecraftVersion.trim());
         if (!matcher.matches()) {
             return null;

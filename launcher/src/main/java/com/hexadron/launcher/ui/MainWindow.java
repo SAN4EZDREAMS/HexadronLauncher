@@ -120,6 +120,7 @@ public final class MainWindow {
     private final Button detectJavaButton = new Button();
     private final Button addAccountButton = new Button();
     private final Button signInButton = new Button();
+    private final Button removeAccountButton = new Button();
 
     private final Label brandLabel = new Label();
     private final Label instancesTitle = new Label();
@@ -403,10 +404,14 @@ public final class MainWindow {
 
         addAccountButton.setOnAction(event -> addOfflineAccount());
         signInButton.setOnAction(event -> signInWithMicrosoft());
+        removeAccountButton.getStyleClass().add("danger");
+        removeAccountButton.setOnAction(event -> removeSelectedAccount());
         accountBox.setPrefWidth(230);
+        accountBox.valueProperty().addListener((observable, previous, value) ->
+                removeAccountButton.setDisable(value == null));
 
         HBox controls = new HBox(8, accountTitle, accountBox, addAccountButton, signInButton,
-                spacer(), playButton);
+                removeAccountButton, spacer(), playButton);
         controls.setAlignment(Pos.CENTER_LEFT);
 
         stageLabel.getStyleClass().add("muted");
@@ -468,6 +473,7 @@ public final class MainWindow {
         detectJavaButton.setText(I18n.t("editor.java.detect"));
         addAccountButton.setText(I18n.t("action.addOffline"));
         signInButton.setText(I18n.t("action.signIn"));
+        removeAccountButton.setText(I18n.t("action.removeAccount"));
         playButton.setText(I18n.t(playing ? "action.stop" : "action.play"));
 
         accountTitle.setText(I18n.t("label.account"));
@@ -496,6 +502,7 @@ public final class MainWindow {
                     return (includeAll ? manifest.versions() : manifest.releases())
                             .stream().map(VersionManifest.Entry::id).toList();
                 },
+                service::loaderSupport,
                 (loader, minecraftVersion) -> service.loaderVersions(loader, minecraftVersion)
                         .stream().map(LoaderVersion::version).toList(),
                 service.settings().showAllVersions());
@@ -666,6 +673,38 @@ public final class MainWindow {
         });
     }
 
+    /**
+     * Removes the selected account.
+     *
+     * <p>Worth a confirmation for two different reasons, so the text names both:
+     * a Microsoft account has to be signed in again afterwards, and an offline
+     * account's identity is derived from its name - recreating it with the same
+     * spelling restores the same worlds, with a different spelling does not.
+     */
+    private void removeSelectedAccount() {
+        Account account = accountBox.getValue();
+        if (account == null) {
+            return;
+        }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                I18n.t(account.isOffline() ? "account.remove.offlineBody" : "account.remove.msaBody",
+                        account.username()));
+        confirm.initOwner(stage);
+        Theme.apply(confirm.getDialogPane());
+        confirm.setHeaderText(I18n.t("account.remove.header"));
+        if (confirm.showAndWait().filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {
+            return;
+        }
+        service.accounts().remove(account);
+        try {
+            service.accounts().save();
+        } catch (IOException e) {
+            showError(I18n.t("account.remove.failed"), e);
+        }
+        refreshAccounts();
+        progress.log(I18n.t("account.removed", account.username()));
+    }
+
     private void signInWithMicrosoft() {
         if (!service.settings().hasMicrosoftClientId()) {
             showWarning(I18n.t("ms.notConfigured.header"), I18n.t("ms.notConfigured.body"));
@@ -739,6 +778,7 @@ public final class MainWindow {
     private void refreshAccounts() {
         accountBox.setItems(FXCollections.observableArrayList(service.accounts().all()));
         service.accounts().selected().ifPresent(accountBox.getSelectionModel()::select);
+        removeAccountButton.setDisable(accountBox.getValue() == null);
     }
 
     /** Renders the selected instance. Read-only: every value here is changed in the dialog. */

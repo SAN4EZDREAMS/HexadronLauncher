@@ -104,6 +104,21 @@ public final class LauncherService {
         return VersionManifest.fetch(dirs);
     }
 
+    /**
+     * Which Minecraft versions a loader has builds for.
+     *
+     * <p>Used to keep the version picker honest: offering Minecraft 1.0 with
+     * Fabric selected is offering a combination that cannot be installed, and
+     * the user only finds out after choosing it.
+     */
+    public LoaderInstaller.SupportedVersions loaderSupport(LoaderType loader)
+            throws IOException, InterruptedException {
+        if (loader == null || loader == LoaderType.VANILLA) {
+            return LoaderInstaller.SupportedVersions.unknown();
+        }
+        return Loaders.installerFor(loader).supportedMinecraftVersions();
+    }
+
     public List<LoaderVersion> loaderVersions(LoaderType loader, String minecraftVersion)
             throws IOException, InterruptedException {
         if (loader == LoaderType.VANILLA) {
@@ -180,14 +195,14 @@ public final class LauncherService {
     }
 
     /** Searches the mod platforms for builds matching this profile. */
-    public List<com.hexadron.launcher.mods.ModProvider.SearchResult> searchMods(
+    public ModProvider.SearchPage searchMods(
             Profile profile, String query, com.hexadron.launcher.mods.ModSort sort,
-            com.hexadron.launcher.mods.ModProvider.Source only, int limitPerProvider)
+            ModProvider.Source only, int limitPerProvider, int offset)
             throws IOException, InterruptedException {
 
         requireModdedLoader(profile);
         return modInstaller.search(query, profile.minecraftVersion(), profile.loader(),
-                sort, limitPerProvider, only);
+                sort, limitPerProvider, offset, only);
     }
 
     /** Installs one mod, with its required dependencies, into a profile. */

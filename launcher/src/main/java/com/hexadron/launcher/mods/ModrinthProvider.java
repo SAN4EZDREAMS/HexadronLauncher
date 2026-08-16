@@ -32,8 +32,8 @@ public final class ModrinthProvider implements ModProvider {
     }
 
     @Override
-    public List<SearchResult> search(String query, String minecraftVersion, LoaderType loader,
-                                     ModSort sort, int limit)
+    public SearchPage search(String query, String minecraftVersion, LoaderType loader,
+                             ModSort sort, int limit, int offset)
             throws IOException, InterruptedException {
 
         // Modrinth facets are an array of OR-groups that are ANDed together.
@@ -50,6 +50,7 @@ public final class ModrinthProvider implements ModProvider {
         String url = API + "/search"
                 + "?query=" + encode(query == null ? "" : query)
                 + "&limit=" + Math.max(1, Math.min(limit, 100))
+                + "&offset=" + Math.max(0, offset)
                 + "&index=" + (sort == null ? ModSort.RELEVANCE : sort).modrinthIndex()
                 + "&facets=" + encode(facets);
 
@@ -66,7 +67,8 @@ public final class ModrinthProvider implements ModProvider {
                     hit.get("icon_url").asString(null),
                     Source.MODRINTH));
         }
-        return List.copyOf(results);
+        // total_hits counts every match for these facets, not just this page.
+        return new SearchPage(results, response.get("total_hits").asInt(-1), Math.max(0, offset));
     }
 
     @Override

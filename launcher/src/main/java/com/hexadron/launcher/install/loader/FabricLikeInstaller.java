@@ -48,8 +48,15 @@ public final class FabricLikeInstaller implements LoaderInstaller {
         return type;
     }
 
-    /** Minecraft versions this loader publishes intermediary mappings for. */
-    public List<String> supportedMinecraftVersions() throws IOException, InterruptedException {
+    /**
+     * Minecraft versions this loader publishes intermediary mappings for.
+     *
+     * <p>Authoritative: without intermediary there is nothing for the loader to
+     * map against, so a version absent from {@code /versions/game} genuinely
+     * cannot run Fabric or Quilt. This is the list, not a heuristic.
+     */
+    @Override
+    public SupportedVersions supportedMinecraftVersions() throws IOException, InterruptedException {
         Json response = Http.getJson(metaRoot + "/versions/game");
         List<String> versions = new ArrayList<>(response.size());
         for (Json entry : response.elements()) {
@@ -58,7 +65,7 @@ public final class FabricLikeInstaller implements LoaderInstaller {
                 versions.add(version);
             }
         }
-        return List.copyOf(versions);
+        return new SupportedVersions(versions, true);
     }
 
     @Override

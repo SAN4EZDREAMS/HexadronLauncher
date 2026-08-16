@@ -19,6 +19,46 @@ public interface LoaderInstaller {
 
     LoaderType type();
 
+    /**
+     * The Minecraft versions this loader actually has builds for.
+     *
+     * @param versions the supported ids
+     * @param complete true when the list is the whole truth. False means the
+     *                 loader publishes no usable version index and what is here
+     *                 was derived from build numbers, so a version missing from
+     *                 it is "not known to be supported", not "known to be
+     *                 unsupported" - and must therefore not be hidden
+     */
+    record SupportedVersions(List<String> versions, boolean complete) {
+
+        public SupportedVersions {
+            versions = List.copyOf(versions);
+        }
+
+        /** Nothing could be determined; every Minecraft version stays on offer. */
+        public static SupportedVersions unknown() {
+            return new SupportedVersions(List.of(), false);
+        }
+
+        public boolean isUsableAsFilter() {
+            return complete && !versions.isEmpty();
+        }
+
+        public boolean supports(String minecraftVersion) {
+            return versions.contains(minecraftVersion);
+        }
+    }
+
+    /**
+     * Which Minecraft versions this loader can be installed on.
+     *
+     * <p>Default: unknown. An installer that cannot answer honestly says so
+     * rather than returning a guess the version picker would then enforce.
+     */
+    default SupportedVersions supportedMinecraftVersions() throws IOException, InterruptedException {
+        return SupportedVersions.unknown();
+    }
+
     /** Loader builds available for {@code minecraftVersion}, newest first. */
     List<LoaderVersion> availableVersions(String minecraftVersion) throws IOException, InterruptedException;
 

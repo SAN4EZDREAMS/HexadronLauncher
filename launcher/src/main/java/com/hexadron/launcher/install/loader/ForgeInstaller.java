@@ -33,6 +33,34 @@ public final class ForgeInstaller implements LoaderInstaller {
     }
 
     /**
+     * Minecraft versions Forge has builds for.
+     *
+     * <p>Authoritative, and it needs no mapping table: a Forge build id is
+     * literally {@code <minecraftVersion>-<forgeVersion>}, so the set of
+     * supported Minecraft versions is the set of distinct prefixes.
+     */
+    @Override
+    public SupportedVersions supportedMinecraftVersions() throws IOException, InterruptedException {
+        java.util.LinkedHashSet<String> versions = new java.util.LinkedHashSet<>();
+        for (String build : MavenVersionList.fetchNewestFirst(METADATA_URL)) {
+            String minecraftVersion = minecraftVersionOf(build);
+            if (minecraftVersion != null) {
+                versions.add(minecraftVersion);
+            }
+        }
+        return new SupportedVersions(List.copyOf(versions), true);
+    }
+
+    /** The Minecraft version a Forge build id targets, or null if it is malformed. */
+    public static String minecraftVersionOf(String build) {
+        int dash = build.indexOf('-');
+        if (dash <= 0 || dash == build.length() - 1) {
+            return null;
+        }
+        return build.substring(0, dash);
+    }
+
+    /**
      * Forge build ids are {@code <minecraftVersion>-<forgeVersion>}, so the
      * builds for a Minecraft version are exactly those with that prefix.
      */

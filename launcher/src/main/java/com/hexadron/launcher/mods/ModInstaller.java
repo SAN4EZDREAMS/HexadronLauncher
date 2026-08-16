@@ -356,18 +356,24 @@ public final class ModInstaller {
     // ---------------------------------------------------------------- search
 
     /**
-     * Searches the configured providers and concatenates the results.
+     * Searches the configured providers and concatenates one page from each.
      *
-     * <p>One platform being unreachable must not empty the browser, so a failure
-     * is only raised when every provider failed and there is nothing to show.
+     * <p>The totals are summed so the browser can say how much it is not
+     * showing. One platform being unreachable must not empty the browser, so a
+     * failure is only raised when every provider failed and there is nothing to
+     * show.
      */
-    public List<ModProvider.SearchResult> search(String query, String minecraftVersion,
-                                                 LoaderType loader, ModSort sort,
-                                                 int limitPerProvider, ModProvider.Source only)
+    public ModProvider.SearchPage search(String query, String minecraftVersion,
+                                         LoaderType loader, ModSort sort,
+                                         int limitPerProvider, int offset,
+                                         ModProvider.Source only)
             throws IOException, InterruptedException {
 
         List<ModProvider.SearchResult> results = new ArrayList<>();
+        int total = 0;
+        boolean totalKnown = false;
         IOException firstFailure = null;
+
         for (ModProvider provider : providers.values()) {
             if (only != null && provider.source() != only) {
                 continue;
@@ -376,7 +382,13 @@ public final class ModInstaller {
                 continue;
             }
             try {
-                results.addAll(provider.search(query, minecraftVersion, loader, sort, limitPerProvider));
+                ModProvider.SearchPage page = provider.search(
+                        query, minecraftVersion, loader, sort, limitPerProvider, offset);
+                results.addAll(page.results());
+                if (page.total() >= 0) {
+                    total += page.total();
+                    totalKnown = true;
+                }
             } catch (IOException e) {
                 if (firstFailure == null) {
                     firstFailure = e;
@@ -386,7 +398,7 @@ public final class ModInstaller {
         if (results.isEmpty() && firstFailure != null) {
             throw firstFailure;
         }
-        return List.copyOf(results);
+        return new ModProvider.SearchPage(results, totalKnown ? total : -1, offset);
     }
 
     private Optional<ModFile> resolve(ModProvider provider, Pending pending,
