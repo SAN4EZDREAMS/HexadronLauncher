@@ -14,9 +14,15 @@ import com.hexadron.launcher.meta.Library;
 import com.hexadron.launcher.meta.Rule;
 import com.hexadron.launcher.meta.VersionJson;
 import com.hexadron.launcher.meta.VersionManifest;
+import com.hexadron.launcher.mods.InstalledMod;
+import com.hexadron.launcher.mods.ModFile;
+import com.hexadron.launcher.mods.ModLibrary;
+import com.hexadron.launcher.mods.ModOrigin;
+import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.util.MavenCoordinate;
 import com.hexadron.launcher.util.Platform;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -56,6 +62,7 @@ public final class SelfCheck {
         javaVersionParsing();
         versionManifestParsing();
         playerNamesAndArguments();
+        modOwnership();
         translations();
 
         System.out.println();
@@ -720,6 +727,104 @@ public final class SelfCheck {
         check("a region suffix is ignored", Language.byCode("de-AT").orElseThrow() == Language.GERMAN);
         check("an unknown code is empty", Language.byCode("xx").isEmpty());
         check("a blank preference falls back", Language.resolve("  ") != null);
+    }
+
+    // ---------------------------------------------------------------- mod ownership
+
+    /**
+     * The rules that decide which jars the launcher may delete.
+     *
+     * <p>This is the only place in the launcher where a wrong answer destroys
+     * something the user cannot get back from inside it: a mod they installed by
+     * hand, or a world-critical mod pulled out of a set. Every branch is checked
+     * here because none of them can be checked safely by trying it.
+     */
+    private static void modOwnership() {
+        section("Mod ownership");
+
+        check("a pack mod cannot be removed alone", !ModOrigin.PACK.isRemovableAlone());
+        check("a chosen mod can", ModOrigin.MANUAL.isRemovableAlone());
+        check("a dependency can", ModOrigin.DEPENDENCY.isRemovableAlone());
+        check("an unknown origin reads as the user's",
+                ModOrigin.parse("something-else") == ModOrigin.MANUAL);
+        check("a null origin reads as the user's", ModOrigin.parse(null) == ModOrigin.MANUAL);
+
+        check("the key is per provider and project",
+                "MODRINTH:AANobbMI".equals(
+                        InstalledMod.keyOf(ModProvider.Source.MODRINTH, "AANobbMI")));
+        check("the same project on two platforms is two entries",
+                !InstalledMod.keyOf(ModProvider.Source.MODRINTH, "x")
+                        .equals(InstalledMod.keyOf(ModProvider.Source.CURSEFORGE, "x")));
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-mods-check");
+
+            // A version-1 lock had no origin field, and only the pack installer
+            // ever wrote one. Reading it as "the user's" would let the next
+            // click delete a mod out of the middle of the optimisation set.
+            java.nio.file.Files.writeString(dir.resolve(ModLibrary.LOCK_FILE), """
+                    {"version":1,"mods":{"MODRINTH:AANobbMI":{
+                      "source":"MODRINTH","projectId":"AANobbMI","versionId":"v1",
+                      "fileName":"sodium.jar","displayName":"Sodium 0.9.1","size":1,
+                      "dependencies":[]}}}""");
+            java.nio.file.Files.writeString(dir.resolve("sodium.jar"), "jar");
+
+            ModLibrary legacy = ModLibrary.read(dir);
+            check("a version-1 entry is read", legacy.size() == 1);
+            InstalledMod migrated = legacy.get("MODRINTH:AANobbMI").orElseThrow();
+            check("a version-1 entry is pack-owned", migrated.origin() == ModOrigin.PACK);
+            check("a version-1 entry is attributed to the optimisation pack",
+                    migrated.belongsTo("hexadron-optimise"));
+            check("a migrated entry is protected", !migrated.origin().isRemovableAlone());
+            check("the pack reads as installed", legacy.isPackInstalled("hexadron-optimise"));
+
+            // Round-tripping must not lose ownership; if it did, one save would
+            // quietly turn every pack mod into a removable one.
+            legacy.put(new InstalledMod("Mine", new ModFile("P1", "mine", "v2", "Mine 1.0",
+                    "mine.jar", "https://example/mine.jar", null, 2, List.of(),
+                    ModProvider.Source.MODRINTH), ModOrigin.MANUAL, null));
+            java.nio.file.Files.writeString(dir.resolve("mine.jar"), "jar");
+            legacy.write();
+
+            ModLibrary reread = ModLibrary.read(dir);
+            check("both entries survive a save", reread.size() == 2);
+            check("pack ownership survives a save",
+                    reread.get("MODRINTH:AANobbMI").orElseThrow().origin() == ModOrigin.PACK);
+            check("the user's mod stays the user's",
+                    reread.get("MODRINTH:P1").orElseThrow().origin() == ModOrigin.MANUAL);
+            check("the pack owns only its own entry", reread.ofPack("hexadron-optimise").size() == 1);
+            check("titles are listed for the summary", reread.titles().size() == 2);
+
+            // A jar deleted in a file manager must disappear from the list too,
+            // rather than being reported as installed for ever.
+            java.nio.file.Files.delete(dir.resolve("mine.jar"));
+            ModLibrary pruned = ModLibrary.read(dir).pruneMissingFiles();
+            check("an entry whose jar is gone is dropped", pruned.size() == 1);
+            check("the remaining entry is the one still on disk",
+                    pruned.contains(ModProvider.Source.MODRINTH, "AANobbMI"));
+        } catch (IOException e) {
+            check("mod library checks ran (" + e.getMessage() + ")", false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
+    private static void deleteRecursively(Path dir) {
+        if (dir == null) {
+            return;
+        }
+        try (var walk = java.nio.file.Files.walk(dir)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    java.nio.file.Files.deleteIfExists(path);
+                } catch (IOException ignored) {
+                    // A leftover temp file is not worth failing a check over.
+                }
+            });
+        } catch (IOException ignored) {
+            // Same.
+        }
     }
 
     // ---------------------------------------------------------------- names and arguments

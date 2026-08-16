@@ -91,14 +91,15 @@ public final class CurseForgeProvider implements ModProvider {
     }
 
     @Override
-    public List<SearchResult> search(String query, String minecraftVersion, LoaderType loader, int limit)
+    public List<SearchResult> search(String query, String minecraftVersion, LoaderType loader,
+                                     ModSort sort, int limit)
             throws IOException, InterruptedException {
 
         StringBuilder url = new StringBuilder(API + "/mods/search")
                 .append("?gameId=").append(GAME_MINECRAFT)
                 .append("&classId=").append(CLASS_MODS)
                 .append("&pageSize=").append(Math.max(1, Math.min(limit, 50)))
-                .append("&sortField=2")   // popularity
+                .append("&sortField=").append((sort == null ? ModSort.RELEVANCE : sort).curseForgeSortField())
                 .append("&sortOrder=desc");
 
         if (query != null && !query.isBlank()) {

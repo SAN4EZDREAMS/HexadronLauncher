@@ -172,6 +172,61 @@ public final class LauncherService {
                 profiles.modsDirectory(profile), progress);
     }
 
+    /** What the launcher installed into this profile, and why. */
+    public com.hexadron.launcher.mods.ModLibrary installedMods(Profile profile) {
+        return com.hexadron.launcher.mods.ModLibrary
+                .read(profiles.modsDirectory(profile))
+                .pruneMissingFiles();
+    }
+
+    /** Searches the mod platforms for builds matching this profile. */
+    public List<com.hexadron.launcher.mods.ModProvider.SearchResult> searchMods(
+            Profile profile, String query, com.hexadron.launcher.mods.ModSort sort,
+            com.hexadron.launcher.mods.ModProvider.Source only, int limitPerProvider)
+            throws IOException, InterruptedException {
+
+        requireModdedLoader(profile);
+        return modInstaller.search(query, profile.minecraftVersion(), profile.loader(),
+                sort, limitPerProvider, only);
+    }
+
+    /** Installs one mod, with its required dependencies, into a profile. */
+    public ModInstaller.Result installMod(Profile profile,
+                                          com.hexadron.launcher.mods.ModProvider.Source source,
+                                          String projectId, String title, Progress progress)
+            throws IOException, InterruptedException {
+
+        requireModdedLoader(profile);
+        return modInstaller.installMod(source, projectId, title, profile.minecraftVersion(),
+                profile.loader(), profiles.modsDirectory(profile), progress);
+    }
+
+    /** Removes one mod the user installed. Pack-owned mods are refused here. */
+    public void removeMod(Profile profile, String key, Progress progress) throws IOException {
+        modInstaller.removeMod(key, profiles.modsDirectory(profile), progress);
+    }
+
+    /** Removes every mod a pack owns. */
+    public int removePack(Profile profile, String packId, Progress progress) throws IOException {
+        return modInstaller.removePack(packId, profiles.modsDirectory(profile), progress);
+    }
+
+    /** Whether a pack has a build for every required entry on this profile. */
+    public ModInstaller.PackAvailability packAvailability(Profile profile, ModPack pack)
+            throws InterruptedException {
+        if (profile.loader() == LoaderType.VANILLA) {
+            return new ModInstaller.PackAvailability(false, List.of());
+        }
+        return modInstaller.checkPack(pack, profile.minecraftVersion(), profile.loader());
+    }
+
+    private void requireModdedLoader(Profile profile) throws IOException {
+        if (profile.loader() == LoaderType.VANILLA) {
+            throw new IOException("mods need a loader - set this profile to Fabric, Quilt, "
+                    + "Forge or NeoForge first");
+        }
+    }
+
     /**
      * Copies a locally built mod jar into a profile's mods folder.
      *

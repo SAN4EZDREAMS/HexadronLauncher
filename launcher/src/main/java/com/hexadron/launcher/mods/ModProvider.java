@@ -39,8 +39,14 @@ public interface ModProvider {
      *
      * @param limit maximum results
      */
-    List<SearchResult> search(String query, String minecraftVersion, LoaderType loader, int limit)
-            throws IOException, InterruptedException;
+    List<SearchResult> search(String query, String minecraftVersion, LoaderType loader,
+                              ModSort sort, int limit) throws IOException, InterruptedException;
+
+    /** Relevance-ordered search, for callers that do not offer a sort. */
+    default List<SearchResult> search(String query, String minecraftVersion, LoaderType loader, int limit)
+            throws IOException, InterruptedException {
+        return search(query, minecraftVersion, loader, ModSort.RELEVANCE, limit);
+    }
 
     /**
      * The newest file of {@code projectId} compatible with the given version and

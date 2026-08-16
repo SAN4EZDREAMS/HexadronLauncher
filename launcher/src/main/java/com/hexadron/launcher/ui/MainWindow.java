@@ -8,8 +8,9 @@ import com.hexadron.launcher.install.loader.LoaderType;
 import com.hexadron.launcher.install.loader.LoaderVersion;
 import com.hexadron.launcher.launch.GameLauncher;
 import com.hexadron.launcher.meta.VersionManifest;
-import com.hexadron.launcher.mods.ModInstaller;
-import com.hexadron.launcher.mods.ModPack;
+import com.hexadron.launcher.mods.InstalledMod;
+import com.hexadron.launcher.mods.ModLibrary;
+import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.profile.Profile;
 
 import javafx.application.Platform;
@@ -98,6 +99,11 @@ public final class MainWindow {
     private final Label summaryFolderTitle = new Label();
     private final Label summaryPlayedTitle = new Label();
 
+    /** What this profile actually loads. Read-only; the browser is where it changes. */
+    private final Label modsTitle = new Label();
+    private final ListView<InstalledMod> modsList = new ListView<>();
+    private final Label modsEmpty = new Label();
+
     private final Label stageLabel = new Label();
     private final ProgressBar progressBar = new ProgressBar(0);
     private final TextArea logArea = new TextArea();
@@ -126,6 +132,9 @@ public final class MainWindow {
 
     /** Cached so a language switch can re-render the summary without touching disk. */
     private Profile shown;
+
+    /** One browser window per profile, reused so a second click focuses it. */
+    private final java.util.Map<String, ModBrowserWindow> browsers = new java.util.HashMap<>();
 
     public MainWindow(LauncherService service, Stage stage) {
         this.service = service;
@@ -262,19 +271,10 @@ public final class MainWindow {
             Platform.runLater(() -> showProfile(profile));
         }));
 
-        modsButton.setOnAction(event -> runInBackground(I18n.t("task.mods"), () -> {
-            Profile profile = requireSelected();
-            ModInstaller.Result result = service.installPack(profile, ModPack.hexadronOptimise(), progress);
-            progress.log(I18n.t("log.installedMods",
-                    result.installed().size(), service.profiles().modsDirectory(profile)));
-            if (!result.isClean()) {
-                Platform.runLater(() -> showWarning(I18n.t("mods.attention.header"),
-                        String.join("\n",
-                                java.util.stream.Stream.concat(
-                                        result.skipped().stream(),
-                                        result.manualDownloads().stream()).toList())));
-            }
-        }));
+        // Installing mods moved into its own window. It needs a search, a sort,
+        // an installed list and a per-mod action - none of which fits beside an
+        // instance summary, and all of which is a task of its own.
+        modsButton.setOnAction(event -> openModBrowser());
 
         openFolderButton.setOnAction(event -> openGameFolder());
         detectJavaButton.setOnAction(event -> showDetectedJava());
@@ -295,8 +295,17 @@ public final class MainWindow {
                 openFolderButton, detectJavaButton);
         actions.setAlignment(Pos.CENTER_LEFT);
 
-        VBox pane = new VBox(14, detailName, detailSubtitle, summary, actions);
+        modsTitle.getStyleClass().add("section-title");
+        modsList.setCellFactory(view -> new ModCell());
+        modsList.setPlaceholder(modsEmpty);
+        modsList.setPrefHeight(150);
+        modsList.setFocusTraversable(false);
+        VBox modsBox = new VBox(6, modsTitle, modsList);
+        VBox.setVgrow(modsList, Priority.ALWAYS);
+
+        VBox pane = new VBox(14, detailName, detailSubtitle, summary, actions, modsBox);
         pane.getStyleClass().add("detail");
+        VBox.setVgrow(modsBox, Priority.ALWAYS);
         return pane;
     }
 
@@ -311,6 +320,67 @@ public final class MainWindow {
         detailEdit = new Button();
         detailEdit.setOnAction(event -> editSelectedProfile());
         return detailEdit;
+    }
+
+    /** One line per mod: what it is, and whether the pack owns it. */
+    private static final class ModCell extends ListCell<InstalledMod> {
+        private final Label name = new Label();
+        private final Label badge = new Label();
+        private final HBox box = new HBox(10, name, badge);
+
+        ModCell() {
+            name.getStyleClass().add("summary-value");
+            badge.getStyleClass().add("badge");
+            box.setAlignment(Pos.CENTER_LEFT);
+        }
+
+        @Override
+        protected void updateItem(InstalledMod mod, boolean empty) {
+            super.updateItem(mod, empty);
+            if (empty || mod == null) {
+                setGraphic(null);
+                setText(null);
+                return;
+            }
+            name.setText(mod.title());
+            badge.setText(switch (mod.origin()) {
+                case PACK -> I18n.t("mods.origin.pack");
+                case DEPENDENCY -> I18n.t("mods.origin.dependency");
+                case MANUAL -> I18n.t("mods.origin.manual");
+            });
+            badge.getStyleClass().removeAll("badge-pack");
+            if (mod.origin() == ModOrigin.PACK) {
+                badge.getStyleClass().add("badge-pack");
+            }
+            setGraphic(box);
+        }
+    }
+
+    private void openModBrowser() {
+        Profile profile = profileList.getSelectionModel().getSelectedItem();
+        if (profile == null) {
+            return;
+        }
+        if (profile.loader() == LoaderType.VANILLA) {
+            showWarning(I18n.t("mods.vanilla.header"), I18n.t("mods.vanilla"));
+            return;
+        }
+        browsers.computeIfAbsent(profile.id(),
+                        id -> new ModBrowserWindow(service, stage, profile, () -> refreshModsList(profile)))
+                .show();
+    }
+
+    /** Re-reads the lock file for the summary list. Cheap: one small JSON file. */
+    private void refreshModsList(Profile profile) {
+        if (profile == null) {
+            modsList.setItems(FXCollections.observableArrayList());
+            modsTitle.setText(I18n.t("instance.mods", 0));
+            return;
+        }
+        ModLibrary installed = service.installedMods(profile);
+        modsList.setItems(FXCollections.observableArrayList(installed.all()));
+        modsTitle.setText(I18n.t("instance.mods", installed.size()));
+        modsEmpty.setText(I18n.t("instance.mods.empty"));
     }
 
     private static Label styled(Label label) {
@@ -393,6 +463,7 @@ public final class MainWindow {
 
         installButton.setText(I18n.t("action.install"));
         modsButton.setText(I18n.t("action.mods"));
+        modsEmpty.setText(I18n.t("instance.mods.empty"));
         openFolderButton.setText(I18n.t("action.openFolder"));
         detectJavaButton.setText(I18n.t("editor.java.detect"));
         addAccountButton.setText(I18n.t("action.addOffline"));
@@ -452,6 +523,11 @@ public final class MainWindow {
         }
         ProfileDialog dialog = newDialog();
         dialog.show(stage, profile).ifPresent(edited -> {
+            // The browser is built around one version and one loader, and it
+            // asked the platforms about them when it opened. An edit can change
+            // both, so the window is discarded rather than left showing answers
+            // to a question that is no longer being asked.
+            closeBrowser(profile.id());
             saveProfilesQuietly();
             rememberVersionPreference(dialog);
             refreshProfiles();
@@ -481,9 +557,17 @@ public final class MainWindow {
         if (confirm.showAndWait().filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {
             return;
         }
+        closeBrowser(profile.id());
         service.profiles().remove(profile);
         saveProfilesQuietly();
         refreshProfiles();
+    }
+
+    private void closeBrowser(String profileId) {
+        ModBrowserWindow browser = browsers.remove(profileId);
+        if (browser != null) {
+            browser.close();
+        }
     }
 
     private void play() {
@@ -668,7 +752,7 @@ public final class MainWindow {
         }
         removeButton.setDisable(!present);
         installButton.setDisable(!present || busy);
-        modsButton.setDisable(!present || busy);
+        modsButton.setDisable(!present);
         playButton.setDisable(!present || busy);
 
         if (!present) {
@@ -678,6 +762,7 @@ public final class MainWindow {
                     summaryJavaValue, summaryPlayedValue, summaryFolderValue)) {
                 value.setText("-");
             }
+            refreshModsList(null);
             return;
         }
 
@@ -705,6 +790,7 @@ public final class MainWindow {
                         .withZone(ZoneId.systemDefault())
                         .format(Instant.ofEpochMilli(profile.lastPlayed())));
         summaryFolderValue.setText(service.profiles().gameDirectory(profile).toString());
+        refreshModsList(profile);
     }
 
     private Profile requireSelected() throws IOException {
@@ -770,7 +856,9 @@ public final class MainWindow {
         boolean hasProfile = profileList.getSelectionModel().getSelectedItem() != null;
         playButton.setDisable(value || !hasProfile);
         installButton.setDisable(value || !hasProfile);
-        modsButton.setDisable(value || !hasProfile);
+        // The browser runs its own downloads in its own window, so it stays
+        // reachable while the launcher is busy with something else.
+        modsButton.setDisable(!hasProfile);
     }
 
     private void saveProfilesQuietly() {

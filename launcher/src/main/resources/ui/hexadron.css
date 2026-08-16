@@ -276,3 +276,55 @@
 .dialog-pane .header-panel .label {
     -fx-text-fill: -fx-text-0;
 }
+
+/* ------------------------------------------------------------------ mod browser */
+
+.browse-pane {
+    -fx-padding: 14 0 0 0;
+}
+
+.tab-pane .tab-header-background {
+    -fx-background-color: -fx-base-0;
+}
+
+.tab-pane .tab {
+    -fx-background-color: transparent;
+    -fx-padding: 7 16 7 16;
+}
+
+.tab-pane .tab:selected {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8 8 0 0;
+}
+
+.tab-pane .tab .tab-label {
+    -fx-text-fill: -fx-text-1;
+}
+
+.tab-pane .tab:selected .tab-label {
+    -fx-text-fill: -fx-text-0;
+    -fx-font-weight: bold;
+}
+
+.tab-pane > .tab-content-area {
+    -fx-background-color: transparent;
+}
+
+.tab-pane:top > .tab-header-area > .headers-region > .tab:selected .focus-indicator {
+    -fx-border-color: transparent;
+}
+
+/* A badge says where a mod came from. The pack badge is the accent colour
+   because "you cannot delete this one on its own" is the thing worth noticing. */
+.badge {
+    -fx-background-color: -fx-base-3;
+    -fx-text-fill: -fx-text-1;
+    -fx-background-radius: 6;
+    -fx-padding: 2 8 2 8;
+    -fx-font-size: 11px;
+}
+
+.badge-pack {
+    -fx-background-color: -fx-accent-0;
+    -fx-text-fill: white;
+}

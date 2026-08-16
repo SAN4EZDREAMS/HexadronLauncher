@@ -13,7 +13,7 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Loaders | Fabric and Quilt install and launch. Forge and NeoForge list their builds but do not install yet |
 | Accounts | Offline accounts work. Microsoft sign-in is implemented and needs an approved Azure client ID |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments and Java path |
-| Mods | Modrinth works with no key. CurseForge works with an API key. Required dependencies resolve automatically |
+| Mods | A browser window per instance: search, sort, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one. Required dependencies resolve automatically |
 | Java | The launcher finds the installed runtimes and selects one that the version requires |
 | Assets | Modern, `virtual` (1.6) and `map_to_resources` (pre-1.6) layouts |
 | Languages | English, Ukrainian, Russian, Polish, German. The picker changes the window immediately, without a restart |
@@ -143,7 +143,10 @@ downloads them from Modrinth instead.
 |                     |  | Last played 16 Aug 2026, 14:47   |   |
 |                     |  | Folder      ...\instances\1-027f96|  |
 |                     |  +----------------------------------+   |
-| [New][Edit][Remove] |  [Edit] [Install] [Mods] [Folder]       |
+| [New][Edit][Remove] |  [Edit] [Install] [Mods...] [Folder]    |
+|                     |  Mods (5)                               |
+|                     |   Sodium        [Hexadron Optimise]     |
+|                     |   Jade          [your choice]           |
 +---------------------+----------------------------------------+
 | Account: [ v ] [Add offline] [Sign in]              [ PLAY ]  |
 | Ready                                                         |
@@ -162,6 +165,58 @@ Prism Launcher and MultiMC edit instances the same way.
 The instance list is searchable by name, Minecraft version or loader. The Play
 button never moves: it sits in the footer next to the account, so the one action
 the launcher exists for is always in the same place.
+
+## The mod browser
+
+`Mods...` opens a window of its own for the selected instance. It is not a
+dialog: choosing mods is a long, back-and-forth task, and a modal window would
+hold the launcher hostage for as long as it took.
+
+```
++--------------------------------------------------------------+
+| My world                          [ Install Hexadron Optimise]|
+| 26.2 · Fabric                                                 |
++--------------------------------------------------------------+
+| [ Browse ] [ Installed (5) ]                                  |
+|  [ search .......... ] [ Most popular v ] [ All sources v ]   |
+|  Sodium                    Modrinth · 40.1M downloads         |
+|  A modern rendering engine ...                    [ Install ] |
+|  ...                                                          |
++--------------------------------------------------------------+
+| Searching...                                                  |
++--------------------------------------------------------------+
+```
+
+Every result is already filtered to the instance's Minecraft version and
+loader, so anything listed is a build that will actually load. That is the
+point of browsing from inside a launcher rather than on a website. Sorting is
+by best match, downloads, popularity, last update or newest; the source filter
+picks one platform or both.
+
+The **Installed** tab lists what the launcher put in the folder, with a badge
+saying where each file came from. The instance summary in the main window shows
+the same list, so the answer to "what does this profile actually run" is visible
+without opening anything.
+
+### Hexadron Optimise
+
+The pack button lives in this window, not in the main one, and it appears only
+when every mod in the set has a build for the chosen version and loader. A
+button that always fails on an unsupported version reads as a broken launcher
+rather than as an unsupported version, so on those versions there is no button -
+only a line saying why.
+
+Once the set is installed the same button becomes **Remove Hexadron Optimise**,
+and the individual Remove buttons on those mods are disabled. A pack is a set
+that was chosen and tested together: pulling one mod out leaves something that
+is no longer the pack but still claims to be, and the first symptom is a crash
+nobody connects to the deletion. It goes in whole and comes out whole.
+
+Mods installed by hand are never touched by any of this. `mods/.hexadron-mods.json`
+records who installed what - `PACK`, `MANUAL` or `DEPENDENCY` - so reinstalling
+the pack cannot delete a mod the user chose, and removing the pack cannot take
+one with it. Jars the user copied into the folder themselves are not in that
+file at all, and are never deleted, moved or reported as managed.
 
 ## While the game runs
 
@@ -214,16 +269,18 @@ meta/     version manifest, version JSON, rules, libraries, assets
 install/  version installer, asset installer, native extraction, loaders
 auth/     accounts, offline UUIDs, Microsoft device code flow
 profile/  profiles and their isolated game folders
-mods/     Modrinth and CurseForge providers, pack installer
+mods/     Modrinth and CurseForge providers, pack and single-mod installer,
+          ownership records
 launch/   Java locator, command builder, process control
 core/     settings and the application service
-ui/       JavaFX window, instance dialog, theme, tray - no launch logic
+ui/       JavaFX window, mod browser, instance dialog, theme, tray -
+          no launch logic
 cli/      headless entry point
 ```
 
 `SelfCheck` verifies the metadata layer, the player-name rule, JVM-argument
-splitting and the language files with 202 assertions. It needs no network, no
-display and no test framework.
+splitting, mod ownership and the language files with 221 assertions. It needs no
+network, no display and no test framework.
 
 ## Not done yet
 
