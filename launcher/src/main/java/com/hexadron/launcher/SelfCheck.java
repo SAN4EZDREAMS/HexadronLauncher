@@ -55,6 +55,7 @@ public final class SelfCheck {
         accounts();
         javaVersionParsing();
         versionManifestParsing();
+        playerNamesAndArguments();
         translations();
 
         System.out.println();
@@ -573,7 +574,10 @@ public final class SelfCheck {
                 !steve.uuid().equals(Account.offline("Alex").uuid()));
         check("offline never needs a refresh", !steve.needsRefresh());
         check("offline user type is legacy", "legacy".equals(steve.type().userType()));
-        check("blank name falls back", "Player".equals(Account.offline("  ").username()));
+        // A blank name used to become "Player" silently. It is refused now:
+        // quietly renaming a player also quietly moves their offline UUID, and
+        // with it their inventory and position in every existing world.
+        checkThrows("blank name is refused", () -> Account.offline("  "));
 
         Json serialised = steve.toJson();
         Account restored = Account.fromJson(serialised);
@@ -670,6 +674,33 @@ public final class SelfCheck {
                     .allMatch(entry -> placeholders(entry.getValue())
                             .equals(placeholders(bundle.get(entry.getKey()))));
             check(code + ": placeholders match the reference", placeholdersMatch);
+
+            // Formatting each pattern for real catches what a textual check
+            // cannot: in MessageFormat a lone apostrophe starts a quoted run and
+            // silently swallows the placeholder after it. Ukrainian, Polish and
+            // French all use apostrophes in ordinary words, so this is the
+            // mistake a translator is most likely to make.
+            List<String> swallowed = new ArrayList<>();
+            for (Map.Entry<String, String> entry : bundle.entrySet()) {
+                var used = placeholders(entry.getValue());
+                if (used.isEmpty()) {
+                    continue;
+                }
+                Object[] arguments = new Object[used.stream().mapToInt(Integer::parseInt).max()
+                        .orElse(0) + 1];
+                for (int i = 0; i < arguments.length; i++) {
+                    arguments[i] = "<A" + i + ">";
+                }
+                String formatted = new java.text.MessageFormat(entry.getValue(), language.locale())
+                        .format(arguments);
+                for (String index : used) {
+                    if (!formatted.contains("<A" + index + ">")) {
+                        swallowed.add(entry.getKey());
+                        break;
+                    }
+                }
+            }
+            check(code + ": every placeholder survives formatting " + swallowed, swallowed.isEmpty());
         }
 
         // The active language must survive a switch and a switch back.
@@ -689,6 +720,62 @@ public final class SelfCheck {
         check("a region suffix is ignored", Language.byCode("de-AT").orElseThrow() == Language.GERMAN);
         check("an unknown code is empty", Language.byCode("xx").isEmpty());
         check("a blank preference falls back", Language.resolve("  ") != null);
+    }
+
+    // ---------------------------------------------------------------- names and arguments
+
+    /**
+     * The player-name rule, and the argument splitter that feeds the JVM.
+     *
+     * <p>Both sit between a text field and something that fails far away from
+     * it: a rejected name surfaces inside the game as a lost connection to the
+     * player's own world, and a mis-split argument list surfaces as a JVM that
+     * refuses to start.
+     */
+    private static void playerNamesAndArguments() {
+        section("Player names");
+
+        check("plain name", Account.isValidUsername("Steve"));
+        check("digits and underscore", Account.isValidUsername("San4ez_2026"));
+        check("shortest allowed", Account.isValidUsername("abc"));
+        check("longest allowed", Account.isValidUsername("abcdefghijklmnop"));
+        check("too short", !Account.isValidUsername("ab"));
+        check("too long", !Account.isValidUsername("abcdefghijklmnopq"));
+        check("Cyrillic rejected", !Account.isValidUsername("Гравець"));
+        check("space rejected", !Account.isValidUsername("Some One"));
+        check("dash rejected", !Account.isValidUsername("some-one"));
+        check("empty rejected", !Account.isValidUsername(""));
+        check("null rejected", !Account.isValidUsername(null));
+
+        checkThrows("an offline account refuses a rejected name",
+                () -> Account.offline("Гравець"));
+        check("an offline account accepts a valid name",
+                "Steve".equals(Account.offline("Steve").username()));
+        check("the offline UUID matches the server's derivation",
+                UUID.nameUUIDFromBytes("OfflinePlayer:Steve".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                        .equals(Account.offline("Steve").uuid()));
+        // A stored account is read back even when its name is one the game
+        // rejects, so the user can select a different one and delete it.
+        check("a stored bad name still parses",
+                "Гравець".equals(Account.fromJson(Json.parse("""
+                        {"type":"OFFLINE","username":"Гравець",
+                         "uuid":"00000000-0000-0000-0000-000000000001"}""")).username()));
+
+        section("Argument splitting");
+
+        check("empty is empty", com.hexadron.launcher.util.Arguments.split("  ").isEmpty());
+        check("plain split", com.hexadron.launcher.util.Arguments.split("-Xss1M  -XX:+UseG1GC")
+                .equals(List.of("-Xss1M", "-XX:+UseG1GC")));
+        check("quoted group stays whole",
+                com.hexadron.launcher.util.Arguments.split("-Dpath=\"C:\\Program Files\\x\" -Xmx2G")
+                        .equals(List.of("-Dpath=C:\\Program Files\\x", "-Xmx2G")));
+        check("join quotes what needs it",
+                "-Xmx2G \"-Da=b c\"".equals(
+                        com.hexadron.launcher.util.Arguments.join(List.of("-Xmx2G", "-Da=b c"))));
+        check("split and join round-trip",
+                com.hexadron.launcher.util.Arguments.split(
+                        com.hexadron.launcher.util.Arguments.join(List.of("-Xmx2G", "-Da=b c")))
+                        .equals(List.of("-Xmx2G", "-Da=b c")));
     }
 
     /** The set of {@code {0}}-style indices used by a MessageFormat pattern. */

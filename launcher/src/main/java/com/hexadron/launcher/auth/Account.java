@@ -58,15 +58,50 @@ public record Account(AccountType type, String username, UUID uuid, String acces
     }
 
     /**
+     * The names Minecraft accepts.
+     *
+     * <p>The integrated single-player server validates the name of the local
+     * player exactly as it validates a remote one. A name outside this pattern
+     * does not fail in the launcher; it fails inside the game, as
+     * {@code IllegalStateException: Invalid characters in username}, and the
+     * player is dropped from their own world as though a connection had been
+     * lost. The name is typed here, so this is the only place the failure can
+     * still be explained.
+     */
+    private static final java.util.regex.Pattern USERNAME =
+            java.util.regex.Pattern.compile("^[A-Za-z0-9_]{3,16}$");
+
+    /** True when Minecraft will accept {@code username} as a player name. */
+    public static boolean isValidUsername(String username) {
+        return username != null && USERNAME.matcher(username).matches();
+    }
+
+    /**
      * Builds an offline account.
      *
      * <p>The UUID is derived exactly as a Minecraft server in offline mode
      * derives it - {@code UUID.nameUUIDFromBytes("OfflinePlayer:" + name)} -
      * so worlds and player data stay attached to the same name across
      * launchers, and across a later switch to a real server.
+     *
+     * @throws IllegalArgumentException when Minecraft would reject the name
      */
     public static Account offline(String username) {
-        String name = username == null || username.isBlank() ? "Player" : username.trim();
+        String name = username == null ? "" : username.trim();
+        if (!isValidUsername(name)) {
+            throw new IllegalArgumentException(name);
+        }
+        return offlineUnchecked(name);
+    }
+
+    /**
+     * The same derivation, without the check.
+     *
+     * <p>Only for a name that is already stored. Refusing to parse
+     * {@code accounts.json} would leave the user with a launcher that will not
+     * start and no way to delete the offending entry from inside it.
+     */
+    private static Account offlineUnchecked(String name) {
         UUID uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes(StandardCharsets.UTF_8));
         return new Account(AccountType.OFFLINE, name, uuid, "0", null, Long.MAX_VALUE, "0");
     }
@@ -93,7 +128,7 @@ public record Account(AccountType type, String username, UUID uuid, String acces
         AccountType type = AccountType.valueOf(json.get("type").asString(AccountType.OFFLINE.name()));
         String username = json.get("username").asString("Player");
         String rawUuid = json.get("uuid").asString(null);
-        UUID uuid = rawUuid != null ? UUID.fromString(rawUuid) : Account.offline(username).uuid();
+        UUID uuid = rawUuid != null ? UUID.fromString(rawUuid) : offlineUnchecked(username).uuid();
         return new Account(
                 type,
                 username,

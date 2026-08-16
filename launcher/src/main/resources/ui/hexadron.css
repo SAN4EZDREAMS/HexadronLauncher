@@ -1,0 +1,278 @@
+/*
+ * HexadronLauncher theme.
+ *
+ * A dark surface is the default in every launcher people compare this one to,
+ * and it is the right default for a window that sits next to a full-screen
+ * game: a white panel behind an alt-tab is a flashbang at night.
+ *
+ * Colours are defined once, at the root, and referenced by name. Changing the
+ * accent means editing one line rather than hunting for hex codes.
+ */
+
+.root {
+    -fx-base-0: #14161a;   /* window background */
+    -fx-base-1: #1b1e24;   /* panels */
+    -fx-base-2: #23272f;   /* controls */
+    -fx-base-3: #2f343d;   /* borders, hover */
+    -fx-text-0: #e6e8ec;   /* primary text */
+    -fx-text-1: #9aa2b1;   /* secondary text */
+    -fx-accent-0: #2d7d46; /* Minecraft green, for the one action that matters */
+    -fx-accent-1: #359152;
+    -fx-danger-0: #b3403a;
+
+    -fx-background-color: -fx-base-0;
+    -fx-font-family: "Segoe UI", "Inter", "Noto Sans", sans-serif;
+    -fx-font-size: 13px;
+    -fx-text-fill: -fx-text-0;
+}
+
+.label {
+    -fx-text-fill: -fx-text-0;
+}
+
+.muted {
+    -fx-text-fill: -fx-text-1;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.header {
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: transparent transparent -fx-base-3 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 10 14 10 14;
+}
+
+.header .brand {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+}
+
+.header .brand-mark {
+    -fx-background-color: -fx-accent-0;
+    -fx-background-radius: 8;
+    -fx-min-width: 28;
+    -fx-min-height: 28;
+    -fx-max-width: 28;
+    -fx-max-height: 28;
+    -fx-alignment: center;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
+/* ------------------------------------------------------------------ sidebar */
+
+.sidebar {
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: transparent -fx-base-3 transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 12;
+}
+
+.section-title {
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.list-view {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.list-view .list-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 8 10 8 10;
+    -fx-background-radius: 8;
+}
+
+.list-view .list-cell:filled:hover {
+    -fx-background-color: -fx-base-2;
+}
+
+.list-view .list-cell:filled:selected {
+    -fx-background-color: -fx-base-3;
+}
+
+.instance-name {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.instance-subtitle {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-1;
+}
+
+/* ------------------------------------------------------------------ detail */
+
+.detail {
+    -fx-padding: 18 20 18 20;
+}
+
+.detail-title {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+}
+
+.detail-subtitle {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fx-text-1;
+}
+
+.summary {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 10;
+    -fx-padding: 14;
+}
+
+.summary .form-label,
+.form .form-label {
+    -fx-text-fill: -fx-text-1;
+}
+
+.summary-value {
+    -fx-text-fill: -fx-text-0;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+.button {
+    -fx-background-color: -fx-base-2;
+    -fx-text-fill: -fx-text-0;
+    -fx-background-radius: 8;
+    -fx-padding: 7 14 7 14;
+    -fx-cursor: hand;
+}
+
+.button:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+.button:disabled {
+    -fx-opacity: 0.45;
+}
+
+.button.primary {
+    -fx-background-color: -fx-accent-0;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 15px;
+    -fx-padding: 10 34 10 34;
+}
+
+.button.primary:hover {
+    -fx-background-color: -fx-accent-1;
+}
+
+.button.danger:hover {
+    -fx-background-color: -fx-danger-0;
+}
+
+.text-field, .combo-box, .text-area {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-text-fill: -fx-text-0;
+    -fx-prompt-text-fill: -fx-text-1;
+    -fx-border-color: transparent;
+}
+
+.text-field, .combo-box {
+    -fx-padding: 6 10 6 10;
+}
+
+.text-field:focused, .combo-box:focused {
+    -fx-border-color: -fx-accent-0;
+    -fx-border-radius: 8;
+}
+
+.combo-box .list-cell {
+    -fx-text-fill: -fx-text-0;
+    -fx-background-color: transparent;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: -fx-base-2;
+}
+
+.text-area {
+    -fx-background-insets: 0;
+}
+
+.text-area .content {
+    -fx-background-color: -fx-base-1;
+}
+
+.check-box {
+    -fx-text-fill: -fx-text-0;
+}
+
+.check-box .box {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 4;
+}
+
+.check-box:selected .box {
+    -fx-background-color: -fx-accent-0;
+}
+
+.slider .track {
+    -fx-background-color: -fx-base-2;
+}
+
+.slider .thumb {
+    -fx-background-color: -fx-accent-0;
+}
+
+.progress-bar {
+    -fx-accent: -fx-accent-0;
+}
+
+.progress-bar .track {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 6;
+}
+
+.titled-pane > .title {
+    -fx-background-color: -fx-base-1;
+    -fx-text-fill: -fx-text-1;
+}
+
+.titled-pane > *.content {
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: -fx-base-3;
+}
+
+.separator .line {
+    -fx-border-color: -fx-base-3;
+}
+
+/* ------------------------------------------------------------------ footer */
+
+.footer {
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: -fx-base-3 transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 10 14 10 14;
+}
+
+/* ------------------------------------------------------------------ dialogs */
+
+.dialog-pane {
+    -fx-background-color: -fx-base-0;
+}
+
+.dialog-pane > .content.label,
+.dialog-pane .label {
+    -fx-text-fill: -fx-text-0;
+}
+
+.dialog-pane .header-panel {
+    -fx-background-color: -fx-base-1;
+}
+
+.dialog-pane .header-panel .label {
+    -fx-text-fill: -fx-text-0;
+}

@@ -222,6 +222,17 @@ public final class LauncherService {
                                            Consumer<String> onOutput, IntConsumer onExit)
             throws IOException, InterruptedException {
 
+        // Checked before anything is downloaded. An unusable name otherwise
+        // surfaces minutes later, inside the game, as the player being dropped
+        // from their own single-player world with "Invalid characters in
+        // username" - a message that looks like a multiplayer fault.
+        if (account.isOffline() && !Account.isValidUsername(account.username())) {
+            throw new IOException("Minecraft will not accept the player name \""
+                    + account.username() + "\". A name is 3 to 16 characters and uses only "
+                    + "Latin letters, digits and underscore. Add an offline account with a "
+                    + "valid name and select it.");
+        }
+
         Account player = ensureFresh(account, progress);
         VersionJson version = installProfile(profile, progress);
 

@@ -150,7 +150,7 @@ public final class HexadronCli {
             }
             case "offline" -> {
                 requireArgs(args, 2, "offline <username>");
-                Account account = Account.offline(args[1]);
+                Account account = offlineAccount(args[1]);
                 service.accounts().add(account);
                 service.accounts().save();
                 System.out.println("added " + account + "  uuid=" + account.uuid());
@@ -166,7 +166,7 @@ public final class HexadronCli {
                 requireArgs(args, 2, "play <profile> [username]");
                 Profile profile = requireProfile(service, args[1]);
                 Account account = args.length > 2
-                        ? Account.offline(args[2])
+                        ? offlineAccount(args[2])
                         : service.accounts().selected().orElse(Account.offline("Player"));
 
                 CountDownLatch finished = new CountDownLatch(1);
@@ -189,6 +189,20 @@ public final class HexadronCli {
             }
         }
         return 0;
+    }
+
+    /**
+     * Builds an offline account, turning a rejected name into a message that
+     * says what is wrong. Minecraft itself reports such a name only after the
+     * world has loaded, as "Invalid characters in username".
+     */
+    private static Account offlineAccount(String username) throws IOException {
+        if (!Account.isValidUsername(username)) {
+            throw new IOException("Minecraft will not accept the player name \"" + username
+                    + "\". A name is 3 to 16 characters and uses only Latin letters, digits "
+                    + "and underscore.");
+        }
+        return Account.offline(username);
     }
 
     private static Profile requireProfile(LauncherService service, String idOrName) throws IOException {

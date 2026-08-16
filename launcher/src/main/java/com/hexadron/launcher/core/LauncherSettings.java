@@ -27,6 +27,15 @@ public final class LauncherSettings {
     /** Keep the launcher window open while the game runs, for reading the log. */
     private boolean keepOpenWhilePlaying = true;
 
+    /**
+     * Hide the window to the notification area while the game runs.
+     *
+     * <p>On by default. A launcher left on the taskbar is one more window to
+     * alt-tab past during a session, and the tray icon is also where the game
+     * can be stopped from. The window returns by itself when the game ends.
+     */
+    private boolean minimiseToTrayWhilePlaying = true;
+
     /** Simultaneous downloads. */
     private int downloadConcurrency = 12;
 
@@ -54,6 +63,8 @@ public final class LauncherSettings {
         microsoftClientId = json.get("microsoftClientId").asString(microsoftClientId);
         curseForgeApiKey = json.get("curseForgeApiKey").asString(curseForgeApiKey);
         keepOpenWhilePlaying = json.get("keepOpenWhilePlaying").asBool(keepOpenWhilePlaying);
+        minimiseToTrayWhilePlaying = json.get("minimiseToTrayWhilePlaying")
+                .asBool(minimiseToTrayWhilePlaying);
         downloadConcurrency = json.get("downloadConcurrency").asInt(downloadConcurrency);
         showAllVersions = json.get("showAllVersions").asBool(showAllVersions);
         language = json.get("language").asString(language);
@@ -65,6 +76,7 @@ public final class LauncherSettings {
                 .put("microsoftClientId", microsoftClientId)
                 .put("curseForgeApiKey", curseForgeApiKey)
                 .put("keepOpenWhilePlaying", keepOpenWhilePlaying)
+                .put("minimiseToTrayWhilePlaying", minimiseToTrayWhilePlaying)
                 .put("downloadConcurrency", downloadConcurrency)
                 .put("showAllVersions", showAllVersions)
                 .put("language", language)
@@ -99,6 +111,15 @@ public final class LauncherSettings {
 
     public LauncherSettings keepOpenWhilePlaying(boolean value) {
         this.keepOpenWhilePlaying = value;
+        return this;
+    }
+
+    public boolean minimiseToTrayWhilePlaying() {
+        return minimiseToTrayWhilePlaying;
+    }
+
+    public LauncherSettings minimiseToTrayWhilePlaying(boolean value) {
+        this.minimiseToTrayWhilePlaying = value;
         return this;
     }
 

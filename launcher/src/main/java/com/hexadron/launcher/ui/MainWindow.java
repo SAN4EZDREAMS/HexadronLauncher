@@ -6,7 +6,6 @@ import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.i18n.Language;
 import com.hexadron.launcher.install.loader.LoaderType;
 import com.hexadron.launcher.install.loader.LoaderVersion;
-import com.hexadron.launcher.install.loader.Loaders;
 import com.hexadron.launcher.launch.GameLauncher;
 import com.hexadron.launcher.meta.VersionManifest;
 import com.hexadron.launcher.mods.ModInstaller;
@@ -15,36 +14,50 @@ import com.hexadron.launcher.profile.Profile;
 
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.collections.transformation.FilteredList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.SelectionMode;
-import javafx.scene.control.Separator;
-import javafx.scene.control.Slider;
-import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
+import javafx.scene.control.TitledPane;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
 import javafx.stage.Stage;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 import java.util.List;
-import java.util.Optional;
+import java.util.Locale;
 
 /**
  * The launcher window.
+ *
+ * <p>Layout follows what every current launcher settled on: a header, a
+ * searchable instance list on the left, a read-only summary of the selected
+ * instance in the middle, and one persistent footer holding the account and the
+ * Play button. Nothing in the middle panel is an input. Instances are changed
+ * through {@link ProfileDialog}, which is the pattern Prism Launcher and
+ * MultiMC use - an edit with a Save and a Cancel, instead of fields that write
+ * to disk as they are typed.
  *
  * <p>Contains no launch logic: every action delegates to {@link LauncherService}
  * on a background thread and reports through {@link UiProgress}. That split is
@@ -58,41 +71,52 @@ public final class MainWindow {
 
     private final LauncherService service;
     private final Stage stage;
+    private final TrayIntegration tray;
 
-    private final ListView<Profile> profileList = new ListView<>();
+    /** Every profile, and the search-filtered view the list actually shows. */
+    private final ObservableList<Profile> allProfiles = FXCollections.observableArrayList();
+    private final FilteredList<Profile> visibleProfiles = new FilteredList<>(allProfiles, profile -> true);
+    private final ListView<Profile> profileList = new ListView<>(visibleProfiles);
+
+    private final TextField searchField = new TextField();
     private final ComboBox<Account> accountBox = new ComboBox<>();
-    private final TextField nameField = new TextField();
-    private final ComboBox<String> minecraftVersionBox = new ComboBox<>();
-    private final ComboBox<LoaderType> loaderBox = new ComboBox<>();
-    private final ComboBox<String> loaderVersionBox = new ComboBox<>();
     private final ComboBox<Language> languageBox = new ComboBox<>();
-    private final Slider memorySlider = new Slider(1024, 16384, 4096);
-    private final Label memoryLabel = new Label();
-    private final TextField javaPathField = new TextField();
-    private final CheckBox showAllVersions = new CheckBox();
+
+    private final Label detailName = new Label();
+    private final Label detailSubtitle = new Label();
+    private final Label summaryVersionValue = new Label();
+    private final Label summaryLoaderValue = new Label();
+    private final Label summaryMemoryValue = new Label();
+    private final Label summaryJavaValue = new Label();
+    private final Label summaryFolderValue = new Label();
+    private final Label summaryPlayedValue = new Label();
+
+    private final Label summaryVersionTitle = new Label();
+    private final Label summaryLoaderTitle = new Label();
+    private final Label summaryMemoryTitle = new Label();
+    private final Label summaryJavaTitle = new Label();
+    private final Label summaryFolderTitle = new Label();
+    private final Label summaryPlayedTitle = new Label();
 
     private final Label stageLabel = new Label();
     private final ProgressBar progressBar = new ProgressBar(0);
     private final TextArea logArea = new TextArea();
+    private final TitledPane logPane = new TitledPane();
     private final UiProgress progress;
 
     private final Button playButton = new Button();
+    private final Button newButton = new Button();
+    private final Button editButton = new Button();
+    private final Button removeButton = new Button();
     private final Button installButton = new Button();
     private final Button modsButton = new Button();
-    private final Button addProfileButton = new Button();
-    private final Button removeProfileButton = new Button();
+    private final Button openFolderButton = new Button();
     private final Button detectJavaButton = new Button();
     private final Button addAccountButton = new Button();
     private final Button signInButton = new Button();
-    private final Button openFolderButton = new Button();
 
-    private final Label profilesTitle = new Label();
-    private final Label nameTitle = new Label();
-    private final Label versionTitle = new Label();
-    private final Label loaderTitle = new Label();
-    private final Label loaderVersionTitle = new Label();
-    private final Label memoryTitle = new Label();
-    private final Label javaTitle = new Label();
+    private final Label brandLabel = new Label();
+    private final Label instancesTitle = new Label();
     private final Label accountTitle = new Label();
     private final Label languageTitle = new Label();
 
@@ -100,9 +124,13 @@ public final class MainWindow {
     private volatile boolean busy;
     private boolean playing;
 
+    /** Cached so a language switch can re-render the summary without touching disk. */
+    private Profile shown;
+
     public MainWindow(LauncherService service, Stage stage) {
         this.service = service;
         this.stage = stage;
+        this.tray = new TrayIntegration(stage);
         this.progress = new UiProgress(stageLabel, progressBar, logArea);
     }
 
@@ -112,93 +140,126 @@ public final class MainWindow {
         logArea.setFont(Font.font("Monospaced", 11));
 
         BorderPane root = new BorderPane();
-        root.setLeft(buildProfilePane());
-        root.setCenter(buildEditorPane());
-        root.setBottom(buildStatusPane());
+        root.setTop(buildHeader());
+        root.setLeft(buildSidebar());
+        root.setCenter(buildDetail());
+        root.setBottom(buildFooter());
+
+        Scene scene = new Scene(root, 1120, 740);
+        Theme.apply(scene);
 
         applyTexts();
         refreshProfiles();
         refreshAccounts();
-        loadMinecraftVersionsAsync();
-
-        return new Scene(root, 1080, 720);
+        showProfile(profileList.getSelectionModel().getSelectedItem());
+        return scene;
     }
 
-    // ---------------------------------------------------------------- panes
+    // ---------------------------------------------------------------- header
 
-    private VBox buildProfilePane() {
-        profileList.setPrefWidth(260);
+    private HBox buildHeader() {
+        Label mark = new Label("H");
+        mark.getStyleClass().add("brand-mark");
+        brandLabel.getStyleClass().add("brand");
+
+        searchField.setPrefWidth(260);
+        searchField.textProperty().addListener((observable, previous, value) -> applyFilter(value));
+
+        languageBox.setItems(FXCollections.observableArrayList(Language.all()));
+        languageBox.setValue(I18n.current());
+        languageBox.setPrefWidth(150);
+        languageBox.valueProperty().addListener((observable, previous, value) -> {
+            if (value == null || value == I18n.current()) {
+                return;
+            }
+            I18n.use(value);
+            service.settings().language(value.code());
+            saveSettingsQuietly();
+            applyTexts();
+            showProfile(shown);
+        });
+
+        HBox header = new HBox(10, mark, brandLabel, searchField, spacer(), languageTitle, languageBox);
+        header.getStyleClass().add("header");
+        header.setAlignment(Pos.CENTER_LEFT);
+        return header;
+    }
+
+    // ---------------------------------------------------------------- sidebar
+
+    private VBox buildSidebar() {
+        profileList.setPrefWidth(280);
         profileList.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
+        profileList.setCellFactory(view -> new InstanceCell());
         profileList.getSelectionModel().selectedItemProperty()
                 .addListener((observable, previous, selected) -> showProfile(selected));
+        // Double-click opens the editor, matching the list behaviour people expect.
+        profileList.setOnMouseClicked(event -> {
+            if (event.getClickCount() == 2 && profileList.getSelectionModel().getSelectedItem() != null) {
+                editSelectedProfile();
+            }
+        });
 
-        addProfileButton.setMaxWidth(Double.MAX_VALUE);
-        addProfileButton.setOnAction(event -> createProfile());
+        newButton.setMaxWidth(Double.MAX_VALUE);
+        newButton.setOnAction(event -> createProfile());
+        editButton.setMaxWidth(Double.MAX_VALUE);
+        editButton.setOnAction(event -> editSelectedProfile());
+        removeButton.setMaxWidth(Double.MAX_VALUE);
+        removeButton.getStyleClass().add("danger");
+        removeButton.setOnAction(event -> removeSelectedProfile());
 
-        removeProfileButton.setMaxWidth(Double.MAX_VALUE);
-        removeProfileButton.setOnAction(event -> removeSelectedProfile());
+        HBox buttons = new HBox(6, newButton, editButton, removeButton);
+        HBox.setHgrow(newButton, Priority.ALWAYS);
+        HBox.setHgrow(editButton, Priority.ALWAYS);
+        HBox.setHgrow(removeButton, Priority.ALWAYS);
 
-        HBox buttons = new HBox(6, addProfileButton, removeProfileButton);
-        HBox.setHgrow(addProfileButton, Priority.ALWAYS);
-        HBox.setHgrow(removeProfileButton, Priority.ALWAYS);
+        instancesTitle.getStyleClass().add("section-title");
 
-        profilesTitle.setStyle("-fx-font-weight: bold;");
-        VBox pane = new VBox(8, profilesTitle, profileList, buttons);
-        pane.setPadding(new Insets(10));
+        VBox pane = new VBox(8, instancesTitle, profileList, buttons);
+        pane.getStyleClass().add("sidebar");
         VBox.setVgrow(profileList, Priority.ALWAYS);
         return pane;
     }
 
-    private VBox buildEditorPane() {
-        nameField.textProperty().addListener((observable, previous, value) ->
-                withSelected(profile -> profile.name(value)));
+    /** Name on top, version and loader underneath - enough to tell instances apart at a glance. */
+    private static final class InstanceCell extends ListCell<Profile> {
+        private final Label name = new Label();
+        private final Label subtitle = new Label();
+        private final VBox box = new VBox(2, name, subtitle);
 
-        minecraftVersionBox.setMaxWidth(Double.MAX_VALUE);
-        minecraftVersionBox.valueProperty().addListener((observable, previous, value) -> {
-            if (value != null) {
-                withSelected(profile -> profile.minecraftVersion(value));
-                loadLoaderVersionsAsync();
+        InstanceCell() {
+            name.getStyleClass().add("instance-name");
+            subtitle.getStyleClass().add("instance-subtitle");
+        }
+
+        @Override
+        protected void updateItem(Profile profile, boolean empty) {
+            super.updateItem(profile, empty);
+            if (empty || profile == null) {
+                setGraphic(null);
+                setText(null);
+                return;
             }
-        });
+            name.setText(profile.name());
+            subtitle.setText(profile.minecraftVersion()
+                    + (profile.loader() == LoaderType.VANILLA
+                            ? ""
+                            : "  ·  " + profile.loader().displayName()));
+            setGraphic(box);
+        }
+    }
 
-        loaderBox.setItems(FXCollections.observableArrayList(Loaders.allLoaders()));
-        loaderBox.setMaxWidth(Double.MAX_VALUE);
-        loaderBox.valueProperty().addListener((observable, previous, value) -> {
-            if (value != null) {
-                withSelected(profile -> profile.loader(value));
-                loadLoaderVersionsAsync();
-            }
-        });
+    // ---------------------------------------------------------------- detail
 
-        loaderVersionBox.setMaxWidth(Double.MAX_VALUE);
-        loaderVersionBox.valueProperty().addListener((observable, previous, value) ->
-                withSelected(profile -> profile.loaderVersion(value)));
-
-        showAllVersions.setSelected(service.settings().showAllVersions());
-        showAllVersions.setOnAction(event -> {
-            service.settings().showAllVersions(showAllVersions.isSelected());
-            saveSettingsQuietly();
-            loadMinecraftVersionsAsync();
-        });
-
-        memorySlider.setMajorTickUnit(1024);
-        memorySlider.setBlockIncrement(512);
-        memorySlider.setShowTickMarks(true);
-        memorySlider.valueProperty().addListener((observable, previous, value) -> {
-            int megabytes = (int) (Math.round(value.doubleValue() / 256.0) * 256);
-            memoryLabel.setText(I18n.t("unit.megabytes", String.valueOf(megabytes)));
-            withSelected(profile -> profile.memoryMegabytes(megabytes));
-        });
-
-        javaPathField.textProperty().addListener((observable, previous, value) ->
-                withSelected(profile -> profile.javaPath(value)));
-
-        detectJavaButton.setOnAction(event -> showDetectedJava());
+    private VBox buildDetail() {
+        detailName.getStyleClass().add("detail-title");
+        detailSubtitle.getStyleClass().add("detail-subtitle");
 
         installButton.setOnAction(event -> runInBackground(I18n.t("task.install"), () -> {
             Profile profile = requireSelected();
             service.installProfile(profile, progress);
             progress.log(I18n.t("log.installed", profile.effectiveVersionId()));
+            Platform.runLater(() -> showProfile(profile));
         }));
 
         modsButton.setOnAction(event -> runInBackground(I18n.t("task.mods"), () -> {
@@ -215,142 +276,194 @@ public final class MainWindow {
             }
         }));
 
-        VBox pane = new VBox(10,
-                labelled(nameTitle, nameField),
-                labelled(versionTitle, minecraftVersionBox),
-                showAllVersions,
-                labelled(loaderTitle, loaderBox),
-                labelled(loaderVersionTitle, loaderVersionBox),
-                labelled(memoryTitle, new HBox(10, memorySlider, memoryLabel)),
-                labelled(javaTitle, new HBox(6, javaPathField, detectJavaButton)),
-                new Separator(),
-                new HBox(8, installButton, modsButton));
+        openFolderButton.setOnAction(event -> openGameFolder());
+        detectJavaButton.setOnAction(event -> showDetectedJava());
 
-        HBox.setHgrow(memorySlider, Priority.ALWAYS);
-        HBox.setHgrow(javaPathField, Priority.ALWAYS);
-        pane.setPadding(new Insets(10));
+        GridPane summary = new GridPane();
+        summary.getStyleClass().add("summary");
+        summary.setHgap(24);
+        summary.setVgap(8);
+        int row = 0;
+        summary.addRow(row++, styled(summaryVersionTitle), styled(summaryVersionValue));
+        summary.addRow(row++, styled(summaryLoaderTitle), styled(summaryLoaderValue));
+        summary.addRow(row++, styled(summaryMemoryTitle), styled(summaryMemoryValue));
+        summary.addRow(row++, styled(summaryJavaTitle), styled(summaryJavaValue));
+        summary.addRow(row++, styled(summaryPlayedTitle), styled(summaryPlayedValue));
+        summary.addRow(row, styled(summaryFolderTitle), styled(summaryFolderValue));
+
+        HBox actions = new HBox(8, editButtonProxy(), installButton, modsButton,
+                openFolderButton, detectJavaButton);
+        actions.setAlignment(Pos.CENTER_LEFT);
+
+        VBox pane = new VBox(14, detailName, detailSubtitle, summary, actions);
+        pane.getStyleClass().add("detail");
         return pane;
     }
 
-    private BorderPane buildStatusPane() {
+    /**
+     * The detail panel needs an Edit button too, but a JavaFX node lives in one
+     * place only, so this is a second button wired to the same action rather
+     * than the sidebar's button moved.
+     */
+    private Button detailEdit;
+
+    private Button editButtonProxy() {
+        detailEdit = new Button();
+        detailEdit.setOnAction(event -> editSelectedProfile());
+        return detailEdit;
+    }
+
+    private static Label styled(Label label) {
+        if (label.getStyleClass().contains("form-label") || label.getStyleClass().contains("summary-value")) {
+            return label;
+        }
+        label.getStyleClass().add("summary-value");
+        return label;
+    }
+
+    // ---------------------------------------------------------------- footer
+
+    private VBox buildFooter() {
         progressBar.setMaxWidth(Double.MAX_VALUE);
-        logArea.setPrefRowCount(14);
+        logArea.setPrefRowCount(10);
 
         playButton.setDefaultButton(true);
-        playButton.setPrefWidth(140);
+        playButton.getStyleClass().add("primary");
         playButton.setOnAction(event -> play());
 
         addAccountButton.setOnAction(event -> addOfflineAccount());
         signInButton.setOnAction(event -> signInWithMicrosoft());
-        openFolderButton.setOnAction(event -> openGameFolder());
-
-        accountBox.setPrefWidth(220);
-
-        languageBox.setItems(FXCollections.observableArrayList(Language.all()));
-        languageBox.setValue(I18n.current());
-        languageBox.setPrefWidth(140);
-        languageBox.valueProperty().addListener((observable, previous, value) -> {
-            if (value == null || value == I18n.current()) {
-                return;
-            }
-            I18n.use(value);
-            service.settings().language(value.code());
-            saveSettingsQuietly();
-            applyTexts();
-        });
+        accountBox.setPrefWidth(230);
 
         HBox controls = new HBox(8, accountTitle, accountBox, addAccountButton, signInButton,
-                openFolderButton, spacer(), languageTitle, languageBox, playButton);
+                spacer(), playButton);
         controls.setAlignment(Pos.CENTER_LEFT);
-        controls.setPadding(new Insets(8, 10, 8, 10));
 
-        VBox status = new VBox(4, stageLabel, progressBar);
-        status.setPadding(new Insets(0, 10, 6, 10));
+        stageLabel.getStyleClass().add("muted");
 
-        SplitPane splitPane = new SplitPane(logArea);
-        splitPane.setPrefHeight(240);
+        logPane.setContent(logArea);
+        logPane.setExpanded(false);
+        logPane.setAnimated(false);
 
-        BorderPane pane = new BorderPane();
-        pane.setTop(new VBox(controls, status));
-        pane.setCenter(splitPane);
-        return pane;
+        VBox footer = new VBox(8, controls, stageLabel, progressBar, logPane);
+        footer.getStyleClass().add("footer");
+        return footer;
     }
+
+    private static Region spacer() {
+        Region region = new Region();
+        HBox.setHgrow(region, Priority.ALWAYS);
+        return region;
+    }
+
+    // ---------------------------------------------------------------- texts
 
     /**
      * Writes every visible string from the active language.
      *
      * <p>Called once when the window is built, and again after each language
-     * change. Only static text is touched: nothing here reads or writes profile
-     * state, so switching language cannot disturb what the user is editing.
+     * change. Only static text is touched; the instance summary is re-rendered
+     * separately from the selected profile.
      */
     private void applyTexts() {
         stage.setTitle(I18n.t("app.title"));
+        brandLabel.setText(I18n.t("app.title"));
+        searchField.setPromptText(I18n.t("search.prompt"));
 
-        profilesTitle.setText(I18n.t("profiles.header"));
-        addProfileButton.setText(I18n.t("profiles.new"));
-        removeProfileButton.setText(I18n.t("profiles.remove"));
+        instancesTitle.setText(I18n.t("profiles.header"));
+        newButton.setText(I18n.t("profiles.new"));
+        editButton.setText(I18n.t("action.edit"));
+        removeButton.setText(I18n.t("profiles.remove"));
+        if (detailEdit != null) {
+            detailEdit.setText(I18n.t("action.edit"));
+        }
 
-        nameTitle.setText(I18n.t("editor.name"));
-        nameField.setPromptText(I18n.t("editor.name.prompt"));
-        versionTitle.setText(I18n.t("editor.version"));
-        showAllVersions.setText(I18n.t("editor.showAll"));
-        loaderTitle.setText(I18n.t("editor.loader"));
-        loaderVersionTitle.setText(I18n.t("editor.loaderVersion"));
-        memoryTitle.setText(I18n.t("editor.memory"));
-        memoryLabel.setText(I18n.t("unit.megabytes", String.valueOf((int) memorySlider.getValue())));
-        javaTitle.setText(I18n.t("editor.java"));
-        javaPathField.setPromptText(I18n.t("editor.java.prompt"));
-        detectJavaButton.setText(I18n.t("editor.java.detect"));
+        summaryVersionTitle.setText(I18n.t("instance.summary.version"));
+        summaryLoaderTitle.setText(I18n.t("instance.summary.loader"));
+        summaryMemoryTitle.setText(I18n.t("instance.summary.memory"));
+        summaryJavaTitle.setText(I18n.t("instance.summary.java"));
+        summaryPlayedTitle.setText(I18n.t("instance.summary.lastPlayed"));
+        summaryFolderTitle.setText(I18n.t("instance.summary.folder"));
+        for (Label title : List.of(summaryVersionTitle, summaryLoaderTitle, summaryMemoryTitle,
+                summaryJavaTitle, summaryPlayedTitle, summaryFolderTitle)) {
+            if (!title.getStyleClass().contains("form-label")) {
+                title.getStyleClass().add("form-label");
+            }
+        }
 
         installButton.setText(I18n.t("action.install"));
         modsButton.setText(I18n.t("action.mods"));
+        openFolderButton.setText(I18n.t("action.openFolder"));
+        detectJavaButton.setText(I18n.t("editor.java.detect"));
         addAccountButton.setText(I18n.t("action.addOffline"));
         signInButton.setText(I18n.t("action.signIn"));
-        openFolderButton.setText(I18n.t("action.openFolder"));
         playButton.setText(I18n.t(playing ? "action.stop" : "action.play"));
 
         accountTitle.setText(I18n.t("label.account"));
         languageTitle.setText(I18n.t("label.language"));
+        logPane.setText(I18n.t("log.title"));
 
         if (!busy) {
             stageLabel.setText(I18n.t("status.ready"));
         }
     }
 
-    private static VBox labelled(Label title, javafx.scene.Node control) {
-        title.setStyle("-fx-font-weight: bold;");
-        return new VBox(4, title, control);
-    }
-
-    private static javafx.scene.Node spacer() {
-        javafx.scene.layout.Region region = new javafx.scene.layout.Region();
-        HBox.setHgrow(region, Priority.ALWAYS);
-        return region;
-    }
-
     // ---------------------------------------------------------------- actions
 
+    private void applyFilter(String query) {
+        String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        visibleProfiles.setPredicate(profile -> needle.isEmpty()
+                || profile.name().toLowerCase(Locale.ROOT).contains(needle)
+                || profile.minecraftVersion().toLowerCase(Locale.ROOT).contains(needle)
+                || profile.loader().displayName().toLowerCase(Locale.ROOT).contains(needle));
+    }
+
+    private ProfileDialog newDialog() {
+        return new ProfileDialog(
+                includeAll -> {
+                    VersionManifest manifest = service.minecraftVersions();
+                    return (includeAll ? manifest.versions() : manifest.releases())
+                            .stream().map(VersionManifest.Entry::id).toList();
+                },
+                (loader, minecraftVersion) -> service.loaderVersions(loader, minecraftVersion)
+                        .stream().map(LoaderVersion::version).toList(),
+                service.settings().showAllVersions());
+    }
+
     private void createProfile() {
-        TextInputDialog dialog = new TextInputDialog(I18n.t("profiles.new.default"));
-        dialog.setTitle(I18n.t("profiles.new.title"));
-        dialog.setHeaderText(I18n.t("profiles.new.header"));
-        Optional<String> name = dialog.showAndWait();
-        if (name.isEmpty() || name.get().isBlank()) {
+        ProfileDialog dialog = newDialog();
+        dialog.show(stage, null).ifPresent(profile -> {
+            try {
+                service.profiles().add(profile);
+                service.profiles().save();
+                rememberVersionPreference(dialog);
+                refreshProfiles();
+                profileList.getSelectionModel().select(profile);
+            } catch (IOException e) {
+                showError(I18n.t("profiles.create.failed"), e);
+            }
+        });
+    }
+
+    private void editSelectedProfile() {
+        Profile profile = profileList.getSelectionModel().getSelectedItem();
+        if (profile == null) {
             return;
         }
-        String version = minecraftVersionBox.getValue();
-        if (version == null) {
-            showWarning(I18n.t("profiles.noVersions.header"), I18n.t("profiles.noVersions.body"));
-            return;
-        }
-        try {
-            Profile profile = service.profiles().add(
-                    Profile.create(name.get().trim(), version, LoaderType.FABRIC));
-            service.profiles().save();
+        ProfileDialog dialog = newDialog();
+        dialog.show(stage, profile).ifPresent(edited -> {
+            saveProfilesQuietly();
+            rememberVersionPreference(dialog);
             refreshProfiles();
-            profileList.getSelectionModel().select(profile);
-        } catch (IOException e) {
-            showError(I18n.t("profiles.create.failed"), e);
+            profileList.getSelectionModel().select(edited);
+            showProfile(edited);
+        });
+    }
+
+    private void rememberVersionPreference(ProfileDialog dialog) {
+        if (dialog.showsAllVersions() != service.settings().showAllVersions()) {
+            service.settings().showAllVersions(dialog.showsAllVersions());
+            saveSettingsQuietly();
         }
     }
 
@@ -362,6 +475,8 @@ public final class MainWindow {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
                 I18n.t("profiles.remove.body", profile.name(),
                         service.profiles().gameDirectory(profile)));
+        confirm.initOwner(stage);
+        Theme.apply(confirm.getDialogPane());
         confirm.setHeaderText(I18n.t("profiles.remove.header"));
         if (confirm.showAndWait().filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {
             return;
@@ -381,16 +496,28 @@ public final class MainWindow {
             showWarning(I18n.t("account.none.header"), I18n.t("account.none.body"));
             return;
         }
+        // The same rule the game enforces, checked here so the message names the
+        // account rather than arriving as a lost connection inside the world.
+        if (account.isOffline() && !Account.isValidUsername(account.username())) {
+            showWarning(I18n.t("account.invalid.header"),
+                    I18n.t("account.invalid.body", account.username()));
+            return;
+        }
         runInBackground(I18n.t("task.play"), () -> {
             Profile profile = requireSelected();
             session = service.launch(profile, account, progress,
                     progress::log,
                     exitCode -> {
                         progress.log(GameLauncher.describeExit(exitCode));
+                        // The launcher comes back by itself: leaving it in the
+                        // notification area after the game has closed is a window
+                        // the player has to go and find.
+                        tray.restore();
                         Platform.runLater(() -> {
                             playing = false;
                             playButton.setText(I18n.t("action.play"));
                             setBusy(false);
+                            showProfile(shown);
                         });
                     });
             Platform.runLater(() -> {
@@ -399,20 +526,50 @@ public final class MainWindow {
                 // The game is running; the launcher itself is free again.
                 setBusy(false);
                 playButton.setDisable(false);
-                if (!service.settings().keepOpenWhilePlaying()) {
-                    stage.setIconified(true);
-                }
+                goToTray();
             });
         }, false);
     }
 
+    /** Hides to the notification area, or minimises where there is no tray. */
+    private void goToTray() {
+        if (!service.settings().minimiseToTrayWhilePlaying()) {
+            if (!service.settings().keepOpenWhilePlaying()) {
+                stage.setIconified(true);
+            }
+            return;
+        }
+        boolean hidden = tray.hide(
+                I18n.t("tray.tooltip"),
+                I18n.t("tray.show"),
+                I18n.t("tray.stop"),
+                () -> {
+                    if (session != null && session.isRunning()) {
+                        session.terminate();
+                    }
+                });
+        if (hidden) {
+            progress.log(I18n.t("log.toTray"));
+        } else {
+            stage.setIconified(true);
+        }
+    }
+
     private void addOfflineAccount() {
         TextInputDialog dialog = new TextInputDialog(I18n.t("account.offline.default"));
+        dialog.initOwner(stage);
+        Theme.apply(dialog.getDialogPane());
         dialog.setTitle(I18n.t("account.offline.title"));
         dialog.setHeaderText(I18n.t("account.offline.header"));
         dialog.setContentText(I18n.t("account.offline.body"));
         dialog.showAndWait().ifPresent(name -> {
-            Account account = Account.offline(name);
+            String trimmed = name == null ? "" : name.trim();
+            if (!Account.isValidUsername(trimmed)) {
+                showWarning(I18n.t("account.invalid.header"),
+                        I18n.t("account.invalid.body", trimmed));
+                return;
+            }
+            Account account = Account.offline(trimmed);
             service.accounts().add(account);
             try {
                 service.accounts().save();
@@ -454,6 +611,7 @@ public final class MainWindow {
             var runtimes = service.javaLocator().discover();
             progress.log(I18n.t("log.javaFound", runtimes.size()));
             runtimes.forEach(runtime -> progress.log("  %s", runtime));
+            Platform.runLater(() -> logPane.setExpanded(true));
         });
     }
 
@@ -476,64 +634,20 @@ public final class MainWindow {
         }
     }
 
-    // ---------------------------------------------------------------- data loading
-
-    private void loadMinecraftVersionsAsync() {
-        runInBackground(I18n.t("task.versions"), () -> {
-            VersionManifest manifest = service.minecraftVersions();
-            List<String> ids = (service.settings().showAllVersions()
-                    ? manifest.versions()
-                    : manifest.releases())
-                    .stream().map(VersionManifest.Entry::id).toList();
-            Platform.runLater(() -> {
-                String previous = minecraftVersionBox.getValue();
-                minecraftVersionBox.setItems(FXCollections.observableArrayList(ids));
-                if (previous != null && ids.contains(previous)) {
-                    minecraftVersionBox.setValue(previous);
-                } else if (!ids.isEmpty()) {
-                    minecraftVersionBox.setValue(
-                            manifest.latestRelease() != null && ids.contains(manifest.latestRelease())
-                                    ? manifest.latestRelease()
-                                    : ids.get(0));
-                }
-            });
-            progress.log(I18n.t("log.versionsLoaded", ids.size()));
-        });
-    }
-
-    private void loadLoaderVersionsAsync() {
-        LoaderType loader = loaderBox.getValue();
-        String minecraftVersion = minecraftVersionBox.getValue();
-        if (loader == null || minecraftVersion == null || loader == LoaderType.VANILLA) {
-            Platform.runLater(() -> {
-                loaderVersionBox.setItems(FXCollections.observableArrayList());
-                loaderVersionBox.setDisable(loader == LoaderType.VANILLA);
-            });
-            return;
-        }
-        runInBackground(I18n.t("task.loaderVersions", loader.displayName()), () -> {
-            List<LoaderVersion> versions = service.loaderVersions(loader, minecraftVersion);
-            List<String> ids = versions.stream().map(LoaderVersion::version).toList();
-            Platform.runLater(() -> {
-                loaderVersionBox.setDisable(false);
-                loaderVersionBox.setItems(FXCollections.observableArrayList(ids));
-                versions.stream().filter(LoaderVersion::stable).findFirst()
-                        .ifPresentOrElse(
-                                stable -> loaderVersionBox.setValue(stable.version()),
-                                () -> {
-                                    if (!ids.isEmpty()) {
-                                        loaderVersionBox.setValue(ids.get(0));
-                                    }
-                                });
-            });
-        });
-    }
+    // ---------------------------------------------------------------- data
 
     private void refreshProfiles() {
-        List<Profile> all = service.profiles().byRecency();
-        profileList.setItems(FXCollections.observableArrayList(all));
-        service.profiles().selected().ifPresent(profileList.getSelectionModel()::select);
-        if (profileList.getSelectionModel().getSelectedItem() == null && !all.isEmpty()) {
+        Profile previous = profileList.getSelectionModel().getSelectedItem();
+        allProfiles.setAll(service.profiles().byRecency());
+        applyFilter(searchField.getText());
+        if (previous != null && visibleProfiles.contains(previous)) {
+            profileList.getSelectionModel().select(previous);
+        } else {
+            service.profiles().selected()
+                    .filter(visibleProfiles::contains)
+                    .ifPresent(profileList.getSelectionModel()::select);
+        }
+        if (profileList.getSelectionModel().getSelectedItem() == null && !visibleProfiles.isEmpty()) {
             profileList.getSelectionModel().selectFirst();
         }
     }
@@ -543,34 +657,54 @@ public final class MainWindow {
         service.accounts().selected().ifPresent(accountBox.getSelectionModel()::select);
     }
 
+    /** Renders the selected instance. Read-only: every value here is changed in the dialog. */
     private void showProfile(Profile profile) {
+        shown = profile;
         boolean present = profile != null;
-        nameField.setDisable(!present);
-        minecraftVersionBox.setDisable(!present);
-        loaderBox.setDisable(!present);
-        memorySlider.setDisable(!present);
-        javaPathField.setDisable(!present);
-        installButton.setDisable(!present);
-        modsButton.setDisable(!present);
-        playButton.setDisable(!present);
+
+        editButton.setDisable(!present);
+        if (detailEdit != null) {
+            detailEdit.setDisable(!present);
+        }
+        removeButton.setDisable(!present);
+        installButton.setDisable(!present || busy);
+        modsButton.setDisable(!present || busy);
+        playButton.setDisable(!present || busy);
+
         if (!present) {
+            detailName.setText(I18n.t("instance.none.title"));
+            detailSubtitle.setText(I18n.t("instance.none.body"));
+            for (Label value : List.of(summaryVersionValue, summaryLoaderValue, summaryMemoryValue,
+                    summaryJavaValue, summaryPlayedValue, summaryFolderValue)) {
+                value.setText("-");
+            }
             return;
         }
-        service.profiles().select(profile);
-        nameField.setText(profile.name());
-        minecraftVersionBox.setValue(profile.minecraftVersion());
-        loaderBox.setValue(profile.loader());
-        memorySlider.setValue(profile.memoryMegabytes());
-        memoryLabel.setText(I18n.t("unit.megabytes", String.valueOf(profile.memoryMegabytes())));
-        javaPathField.setText(profile.javaPath() == null ? "" : profile.javaPath());
-    }
 
-    private void withSelected(java.util.function.Consumer<Profile> action) {
-        Profile profile = profileList.getSelectionModel().getSelectedItem();
-        if (profile != null) {
-            action.accept(profile);
-            saveProfilesQuietly();
-        }
+        service.profiles().select(profile);
+        detailName.setText(profile.name());
+        detailSubtitle.setText(profile.versionId() == null
+                ? I18n.t("instance.summary.notInstalled")
+                : profile.effectiveVersionId());
+
+        summaryVersionValue.setText(profile.minecraftVersion());
+        summaryLoaderValue.setText(profile.loader() == LoaderType.VANILLA
+                ? profile.loader().displayName()
+                : profile.loader().displayName()
+                        + (profile.loaderVersion() == null
+                                ? "  ·  " + I18n.t("dialog.loaderVersion.auto")
+                                : "  ·  " + profile.loaderVersion()));
+        summaryMemoryValue.setText(I18n.t("unit.megabytes", String.valueOf(profile.memoryMegabytes())));
+        summaryJavaValue.setText(profile.javaPath() == null
+                ? I18n.t("instance.summary.java.auto")
+                : profile.javaPath());
+        summaryPlayedValue.setText(profile.lastPlayed() <= 0
+                ? I18n.t("instance.summary.never")
+                : DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
+                        .withLocale(I18n.current().locale())
+                        .withZone(ZoneId.systemDefault())
+                        .format(Instant.ofEpochMilli(profile.lastPlayed())));
+        summaryFolderValue.setText(service.profiles().gameDirectory(profile).toString());
     }
 
     private Profile requireSelected() throws IOException {
@@ -620,6 +754,7 @@ public final class MainWindow {
                     stageLabel.setText(I18n.t("status.failed", name));
                     progressBar.setProgress(0);
                     setBusy(false);
+                    logPane.setExpanded(true);
                     showError(I18n.t("status.failed", name), e);
                 });
             }
@@ -632,9 +767,10 @@ public final class MainWindow {
 
     private void setBusy(boolean value) {
         busy = value;
-        playButton.setDisable(value);
-        installButton.setDisable(value);
-        modsButton.setDisable(value);
+        boolean hasProfile = profileList.getSelectionModel().getSelectedItem() != null;
+        playButton.setDisable(value || !hasProfile);
+        installButton.setDisable(value || !hasProfile);
+        modsButton.setDisable(value || !hasProfile);
     }
 
     private void saveProfilesQuietly() {
@@ -654,32 +790,31 @@ public final class MainWindow {
     }
 
     private void showInfo(String header, String message) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION, message);
-        alert.setHeaderText(header);
-        alert.setTitle(header);
-        alert.getDialogPane().setPrefWidth(520);
-        alert.showAndWait();
+        alert(Alert.AlertType.INFORMATION, header, message, 520);
     }
 
     private void showWarning(String header, String message) {
-        Alert alert = new Alert(Alert.AlertType.WARNING, message);
-        alert.setHeaderText(header);
-        alert.setTitle(header);
-        alert.getDialogPane().setPrefWidth(520);
-        alert.showAndWait();
+        alert(Alert.AlertType.WARNING, header, message, 520);
     }
 
     private void showError(String header, Throwable error) {
-        Alert alert = new Alert(Alert.AlertType.ERROR,
-                error.getMessage() == null ? error.toString() : error.getMessage());
+        alert(Alert.AlertType.ERROR, header,
+                error.getMessage() == null ? error.toString() : error.getMessage(), 600);
+    }
+
+    private void alert(Alert.AlertType type, String header, String message, int width) {
+        Alert alert = new Alert(type, message);
+        alert.initOwner(stage);
+        Theme.apply(alert.getDialogPane());
         alert.setHeaderText(header);
         alert.setTitle(header);
-        alert.getDialogPane().setPrefWidth(600);
+        alert.getDialogPane().setPrefWidth(width);
         alert.showAndWait();
     }
 
-    /** Called when the window closes: stop the game if the user wants it stopped with the launcher. */
+    /** Called when the window closes: drop the tray icon and stop the game if wanted. */
     public void shutdown() {
+        tray.dispose();
         if (session != null && session.isRunning() && !service.settings().keepOpenWhilePlaying()) {
             session.terminate();
         }

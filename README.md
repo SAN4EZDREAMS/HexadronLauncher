@@ -17,6 +17,8 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Java | The launcher finds the installed runtimes and selects one that the version requires |
 | Assets | Modern, `virtual` (1.6) and `map_to_resources` (pre-1.6) layouts |
 | Languages | English, Ukrainian, Russian, Polish, German. The picker changes the window immediately, without a restart |
+| Interface | Searchable instance list, read-only instance summary, one Play button. Instances are edited in a dialog with Save and Cancel |
+| While playing | The launcher hides to the notification area and returns by itself when the game closes |
 
 ## Build
 
@@ -73,6 +75,7 @@ its own folder under `instances/`, so mods and worlds stay separate.
 | Key | Purpose |
 |---|---|
 | `language` | Interface language: `en`, `uk`, `ru`, `pl`, `de`. Empty follows the operating system |
+| `minimiseToTrayWhilePlaying` | Hide the window to the notification area while the game runs. `true` by default |
 | `microsoftClientId` | Azure application ID for Microsoft sign-in. Empty by default |
 | `curseForgeApiKey` | CurseForge API key. Empty by default. Modrinth needs no key |
 | `showAllVersions` | Show snapshots and old versions in the version list |
@@ -124,6 +127,66 @@ The mods are not bundled into the mod jar with `include`. Bundling other
 people's mods is a licensing decision, not a build setting. The launcher
 downloads them from Modrinth instead.
 
+## The window
+
+```
++--------------------------------------------------------------+
+| H  HexadronLauncher   [ search ]              Language: [ v ] |
++---------------------+----------------------------------------+
+| Instances           |  Instance name                          |
+|  My world           |  fabric-loader-0.19.3-26.2              |
+|  26.2 · Fabric      |  +----------------------------------+   |
+|  ...                |  | Minecraft   26.2                 |   |
+|                     |  | Loader      Fabric · 0.19.3      |   |
+|                     |  | Memory      4096 MB              |   |
+|                     |  | Java        Detected automatically|  |
+|                     |  | Last played 16 Aug 2026, 14:47   |   |
+|                     |  | Folder      ...\instances\1-027f96|  |
+|                     |  +----------------------------------+   |
+| [New][Edit][Remove] |  [Edit] [Install] [Mods] [Folder]       |
++---------------------+----------------------------------------+
+| Account: [ v ] [Add offline] [Sign in]              [ PLAY ]  |
+| Ready                                                         |
+| [=========================================================]   |
+| > Log                                                         |
++--------------------------------------------------------------+
+```
+
+Nothing in the middle panel is an input. An instance is changed in a dialog
+reached by the Edit button or by double-clicking the list entry, and that dialog
+has a Save and a Cancel. The previous window edited the selected profile's
+fields in place, which meant a mistyped name was written to disk before it could
+be noticed and there was no point at which the values could be checked together.
+Prism Launcher and MultiMC edit instances the same way.
+
+The instance list is searchable by name, Minecraft version or loader. The Play
+button never moves: it sits in the footer next to the account, so the one action
+the launcher exists for is always in the same place.
+
+## While the game runs
+
+The launcher hides to the notification area, not to the taskbar. A minimised
+launcher is still a window to alt-tab past during a session; a hidden one is
+not. The tray icon's menu can show the launcher again or stop the game, and the
+window comes back on its own the moment the game closes.
+
+Where a system has no notification area - a headless session, some Linux
+desktops - the launcher falls back to minimising. Set
+`minimiseToTrayWhilePlaying` to `false` in `launcher.json` to keep the window
+on screen instead.
+
+## Offline accounts
+
+An offline name must be what Minecraft itself accepts: 3 to 16 characters, and
+only Latin letters, digits and underscore. The launcher refuses anything else
+when the account is added and again before a launch.
+
+This is not a preference. The integrated single-player server validates the
+local player's name exactly as it validates a remote one, so a name such as
+`Гравець` loads the world and then drops the player out of it with
+`Invalid characters in username` - a message that reads like a multiplayer
+fault and gives no hint that the account name caused it.
+
 ## Languages
 
 Strings live in `launcher/src/main/resources/lang/<code>.properties`, read as
@@ -154,12 +217,13 @@ profile/  profiles and their isolated game folders
 mods/     Modrinth and CurseForge providers, pack installer
 launch/   Java locator, command builder, process control
 core/     settings and the application service
-ui/       JavaFX window - contains no launch logic
+ui/       JavaFX window, instance dialog, theme, tray - no launch logic
 cli/      headless entry point
 ```
 
-`SelfCheck` verifies the metadata layer and the language files with 177
-assertions. It needs no network, no display and no test framework.
+`SelfCheck` verifies the metadata layer, the player-name rule, JVM-argument
+splitting and the language files with 202 assertions. It needs no network, no
+display and no test framework.
 
 ## Not done yet
 
