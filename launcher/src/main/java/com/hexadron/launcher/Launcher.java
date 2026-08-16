@@ -106,19 +106,101 @@ public class Launcher extends Application {
 		List<String> classpath = new ArrayList<>();
 		classpath.add(gameDir.resolve("client.jar").toString());
 
-		JsonArray libraries = fabricJson.getAsJsonArray("libraries");
-		for (JsonElement el : libraries) {
-			String name = el.getAsJsonObject().get("name").getAsString();
-			// "group:artifact:version" -> group/із/крапками/як/слеші/artifact/version/artifact-version.jar
-			String[] parts = name.split(":");
-			String path = parts[0].replace('.', '/') + "/" + parts[1] + "/" + parts[2] + "/" + parts[1] + "-" + parts[2] + ".jar";
-			classpath.add(gameDir.resolve("libraries").resolve(path).toString());
+		// Спершу ванільні бібліотеки (успадковані через inheritsFrom) —
+		// саме тут живуть LWJGL, Netty тощо, і саме тут трапляються
+		// ОС-специфічні rules, яких у fabric-json немає
+		Path vanillaJsonPath = gameDir.resolve("26.2.json");
+		if (Files.exists(vanillaJsonPath)) {
+			JsonObject vanillaJson = gson.fromJson(Files.readString(vanillaJsonPath), JsonObject.class);
+			addLibraries(vanillaJson.getAsJsonArray("libraries"), gameDir, classpath);
+		} else {
+			System.out.println("УВАГА: не знайшов 26.2.json поруч — класпас буде неповний.");
 		}
 
-		System.out.println("=== Знайдений mainClass ===");
+		addLibraries(fabricJson.getAsJsonArray("libraries"), gameDir, classpath);
+
+		// JVM-аргументи з fabric json (той самий -DFabricMcEmu=..., без якого Fabric не стартує)
+		List<String> jvmArgs = new ArrayList<>();
+		if (fabricJson.has("arguments") && fabricJson.getAsJsonObject("arguments").has("jvm")) {
+			for (JsonElement el : fabricJson.getAsJsonObject("arguments").getAsJsonArray("jvm")) {
+				jvmArgs.add(el.getAsString().trim());
+			}
+		}
+		jvmArgs.add("-Djava.library.path=" + gameDir.resolve("natives"));
+
+		// assetIndex беремо з ванільного 26.2.json — у fabric json його нема
+		String assetIndex = "";
+		if (Files.exists(vanillaJsonPath)) {
+			JsonObject vanillaJson = gson.fromJson(Files.readString(vanillaJsonPath), JsonObject.class);
+			assetIndex = vanillaJson.getAsJsonObject("assetIndex").get("id").getAsString();
+		}
+
+		// Мінімальний набір game-аргументів для локального офлайн-тесту (не справжній акаунт) —
+		// повний список правил з 26.2.json (демо-режим, роздільна здатність тощо) поки не парсимо,
+		// це свідоме спрощення тільки для першої перевірки запуску
+		List<String> gameArgs = List.of(
+				"--username", "HexadronTester",
+				"--version", "26.2",
+				"--gameDir", gameDir.toString(),
+				"--assetsDir", gameDir.resolve("assets").toString(),
+				"--assetIndex", assetIndex,
+				"--uuid", "00000000-0000-0000-0000-000000000000",
+				"--accessToken", "0",
+				"--userType", "legacy",
+				"--versionType", "release"
+		);
+
+		System.out.println("=== mainClass ===");
 		System.out.println(mainClass);
+		System.out.println("=== JVM-аргументи ===");
+		jvmArgs.forEach(System.out::println);
+		System.out.println("=== Game-аргументи ===");
+		System.out.println(String.join(" ", gameArgs));
 		System.out.println("=== Класпас (" + classpath.size() + " записів) ===");
 		classpath.forEach(System.out::println);
+	}
+
+	private void addLibraries(JsonArray libraries, Path gameDir, List<String> classpath) {
+		if (libraries == null) return;
+		for (JsonElement el : libraries) {
+			JsonObject lib = el.getAsJsonObject();
+
+			if (!passesOsRules(lib)) continue;
+
+			String relativePath;
+			if (lib.has("downloads") && lib.getAsJsonObject("downloads").has("artifact")) {
+				// Ванільні бібліотеки часто дають готовий шлях напряму —
+				// надійніше, ніж вираховувати його самим з "name"
+				relativePath = lib.getAsJsonObject("downloads").getAsJsonObject("artifact").get("path").getAsString();
+			} else {
+				String name = lib.get("name").getAsString();
+				String[] parts = name.split(":");
+				relativePath = parts[0].replace('.', '/') + "/" + parts[1] + "/" + parts[2] + "/" + parts[1] + "-" + parts[2] + ".jar";
+			}
+			classpath.add(gameDir.resolve("libraries").resolve(relativePath).toString());
+		}
+	}
+
+	private boolean passesOsRules(JsonObject lib) {
+		if (!lib.has("rules")) return true;
+
+		String currentOs = System.getProperty("os.name").toLowerCase().contains("win") ? "windows"
+				: System.getProperty("os.name").toLowerCase().contains("mac") ? "osx" : "linux";
+
+		boolean allowed = false;
+		for (JsonElement ruleEl : lib.getAsJsonArray("rules")) {
+			JsonObject rule = ruleEl.getAsJsonObject();
+			boolean isAllow = rule.get("action").getAsString().equals("allow");
+			if (!rule.has("os")) {
+				allowed = isAllow;
+				continue;
+			}
+			String osName = rule.getAsJsonObject("os").has("name") ? rule.getAsJsonObject("os").get("name").getAsString() : null;
+			if (osName == null || osName.equals(currentOs)) {
+				allowed = isAllow;
+			}
+		}
+		return allowed;
 	}
 
 	public static void main(String[] args) {
