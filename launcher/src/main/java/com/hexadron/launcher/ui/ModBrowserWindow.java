@@ -99,16 +99,46 @@ public final class ModBrowserWindow {
         this.progress = new BrowserProgress(statusLabel, progressBar);
     }
 
-    /** Opens the window, or focuses it if this instance is already showing. */
+    /**
+     * True once the stage has been configured and given a scene.
+     *
+     * <p>{@code initOwner} and {@code initModality} may only be called before a
+     * stage is shown for the first time, and calling them again afterwards
+     * throws {@code IllegalStateException: Cannot set owner once stage has been
+     * set visible}. A closed stage still counts as having been shown, so
+     * {@code isShowing()} is not the right question to ask - this flag is.
+     * Closing the window and pressing Mods again used to take exactly that path.
+     */
+    private boolean built;
+
+    /** Opens the window, or focuses it if it is already up. */
     public void show() {
+        if (!built) {
+            buildStage();
+            built = true;
+        }
         if (stage.isShowing()) {
             stage.toFront();
+            stage.requestFocus();
             return;
         }
+        // Re-read on every opening rather than only on the first. The folder can
+        // have changed while the window was closed, and the launcher's language
+        // can have changed with it.
+        applyTexts();
+        refreshInstalled();
+        loadPackStateAsync();
+        runSearch();
+
+        stage.show();
+        stage.toFront();
+    }
+
+    /** One-time stage setup. Everything here is illegal after the first show. */
+    private void buildStage() {
         stage.initOwner(owner);
         // Not modal: the launcher stays usable while mods are being chosen.
         stage.initModality(Modality.NONE);
-        stage.setTitle(I18n.t("mods.title", profile.name()));
         stage.getIcons().addAll(owner.getIcons());
 
         BorderPane root = new BorderPane();
@@ -121,12 +151,23 @@ public final class ModBrowserWindow {
         stage.setScene(scene);
         stage.setMinWidth(760);
         stage.setMinHeight(520);
+    }
 
-        refreshInstalled();
-        loadPackStateAsync();
-        runSearch();
-
-        stage.show();
+    /**
+     * Writes the strings that are not rebuilt with the list cells.
+     *
+     * <p>Also re-reads the profile: it is the same mutable object the instance
+     * dialog edits, so a version or loader changed while this window was closed
+     * is already visible here and must be shown, not remembered.
+     */
+    private void applyTexts() {
+        stage.setTitle(I18n.t("mods.title", profile.name()));
+        titleLabel.setText(profile.name());
+        subtitleLabel.setText(profile.minecraftVersion() + "  ·  " + profile.loader().displayName());
+        searchField.setPromptText(I18n.t("mods.search.prompt"));
+        searchButton.setText(I18n.t("mods.search"));
+        browseTab.setText(I18n.t("mods.tab.browse"));
+        installedEmpty.setText(I18n.t("mods.installed.empty"));
     }
 
     /** Closes the window if it is open. */
@@ -464,6 +505,16 @@ public final class ModBrowserWindow {
      * loader it depends on belong to the profile, which is edited elsewhere.
      */
     private void loadPackStateAsync() {
+        // The answer belongs to one version and one loader. Both can have changed
+        // while the window was closed, so the previous answer is discarded rather
+        // than shown until a new one arrives.
+        pack = null;
+        packAvailable = false;
+        packButton.setVisible(false);
+        packButton.setManaged(false);
+        packNote.setVisible(false);
+        packNote.setManaged(false);
+
         if (profile.loader() == LoaderType.VANILLA) {
             return;
         }
