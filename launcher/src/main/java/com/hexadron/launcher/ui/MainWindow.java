@@ -2,6 +2,8 @@ package com.hexadron.launcher.ui;
 
 import com.hexadron.launcher.auth.Account;
 import com.hexadron.launcher.core.LauncherService;
+import com.hexadron.launcher.i18n.I18n;
+import com.hexadron.launcher.i18n.Language;
 import com.hexadron.launcher.install.loader.LoaderType;
 import com.hexadron.launcher.install.loader.LoaderVersion;
 import com.hexadron.launcher.install.loader.Loaders;
@@ -47,6 +49,10 @@ import java.util.Optional;
  * <p>Contains no launch logic: every action delegates to {@link LauncherService}
  * on a background thread and reports through {@link UiProgress}. That split is
  * what lets the same flows run headlessly from the CLI.
+ *
+ * <p>No user-visible string is written inline. Every one comes from
+ * {@link I18n}, and {@link #applyTexts()} re-reads all of them, so a language
+ * change takes effect immediately instead of at the next start.
  */
 public final class MainWindow {
 
@@ -59,22 +65,40 @@ public final class MainWindow {
     private final ComboBox<String> minecraftVersionBox = new ComboBox<>();
     private final ComboBox<LoaderType> loaderBox = new ComboBox<>();
     private final ComboBox<String> loaderVersionBox = new ComboBox<>();
+    private final ComboBox<Language> languageBox = new ComboBox<>();
     private final Slider memorySlider = new Slider(1024, 16384, 4096);
     private final Label memoryLabel = new Label();
     private final TextField javaPathField = new TextField();
-    private final CheckBox showAllVersions = new CheckBox("Show snapshots and old versions");
+    private final CheckBox showAllVersions = new CheckBox();
 
-    private final Label stageLabel = new Label("Ready");
+    private final Label stageLabel = new Label();
     private final ProgressBar progressBar = new ProgressBar(0);
     private final TextArea logArea = new TextArea();
     private final UiProgress progress;
 
-    private final Button playButton = new Button("Play");
-    private final Button installButton = new Button("Install / repair");
-    private final Button modsButton = new Button("Install Hexadron Optimise");
+    private final Button playButton = new Button();
+    private final Button installButton = new Button();
+    private final Button modsButton = new Button();
+    private final Button addProfileButton = new Button();
+    private final Button removeProfileButton = new Button();
+    private final Button detectJavaButton = new Button();
+    private final Button addAccountButton = new Button();
+    private final Button signInButton = new Button();
+    private final Button openFolderButton = new Button();
+
+    private final Label profilesTitle = new Label();
+    private final Label nameTitle = new Label();
+    private final Label versionTitle = new Label();
+    private final Label loaderTitle = new Label();
+    private final Label loaderVersionTitle = new Label();
+    private final Label memoryTitle = new Label();
+    private final Label javaTitle = new Label();
+    private final Label accountTitle = new Label();
+    private final Label languageTitle = new Label();
 
     private GameLauncher.GameSession session;
     private volatile boolean busy;
+    private boolean playing;
 
     public MainWindow(LauncherService service, Stage stage) {
         this.service = service;
@@ -92,6 +116,7 @@ public final class MainWindow {
         root.setCenter(buildEditorPane());
         root.setBottom(buildStatusPane());
 
+        applyTexts();
         refreshProfiles();
         refreshAccounts();
         loadMinecraftVersionsAsync();
@@ -107,26 +132,24 @@ public final class MainWindow {
         profileList.getSelectionModel().selectedItemProperty()
                 .addListener((observable, previous, selected) -> showProfile(selected));
 
-        Button add = new Button("New");
-        add.setMaxWidth(Double.MAX_VALUE);
-        add.setOnAction(event -> createProfile());
+        addProfileButton.setMaxWidth(Double.MAX_VALUE);
+        addProfileButton.setOnAction(event -> createProfile());
 
-        Button remove = new Button("Remove");
-        remove.setMaxWidth(Double.MAX_VALUE);
-        remove.setOnAction(event -> removeSelectedProfile());
+        removeProfileButton.setMaxWidth(Double.MAX_VALUE);
+        removeProfileButton.setOnAction(event -> removeSelectedProfile());
 
-        HBox buttons = new HBox(6, add, remove);
-        HBox.setHgrow(add, Priority.ALWAYS);
-        HBox.setHgrow(remove, Priority.ALWAYS);
+        HBox buttons = new HBox(6, addProfileButton, removeProfileButton);
+        HBox.setHgrow(addProfileButton, Priority.ALWAYS);
+        HBox.setHgrow(removeProfileButton, Priority.ALWAYS);
 
-        VBox pane = new VBox(8, new Label("Profiles"), profileList, buttons);
+        profilesTitle.setStyle("-fx-font-weight: bold;");
+        VBox pane = new VBox(8, profilesTitle, profileList, buttons);
         pane.setPadding(new Insets(10));
         VBox.setVgrow(profileList, Priority.ALWAYS);
         return pane;
     }
 
     private VBox buildEditorPane() {
-        nameField.setPromptText("Profile name");
         nameField.textProperty().addListener((observable, previous, value) ->
                 withSelected(profile -> profile.name(value)));
 
@@ -163,30 +186,28 @@ public final class MainWindow {
         memorySlider.setShowTickMarks(true);
         memorySlider.valueProperty().addListener((observable, previous, value) -> {
             int megabytes = (int) (Math.round(value.doubleValue() / 256.0) * 256);
-            memoryLabel.setText(megabytes + " MB");
+            memoryLabel.setText(I18n.t("unit.megabytes", String.valueOf(megabytes)));
             withSelected(profile -> profile.memoryMegabytes(megabytes));
         });
 
-        javaPathField.setPromptText("Java executable (leave empty to detect automatically)");
         javaPathField.textProperty().addListener((observable, previous, value) ->
                 withSelected(profile -> profile.javaPath(value)));
 
-        Button detectJava = new Button("Detect");
-        detectJava.setOnAction(event -> showDetectedJava());
+        detectJavaButton.setOnAction(event -> showDetectedJava());
 
-        installButton.setOnAction(event -> runInBackground("Install", () -> {
+        installButton.setOnAction(event -> runInBackground(I18n.t("task.install"), () -> {
             Profile profile = requireSelected();
             service.installProfile(profile, progress);
-            progress.log("Installed %s", profile.effectiveVersionId());
+            progress.log(I18n.t("log.installed", profile.effectiveVersionId()));
         }));
 
-        modsButton.setOnAction(event -> runInBackground("Install mods", () -> {
+        modsButton.setOnAction(event -> runInBackground(I18n.t("task.mods"), () -> {
             Profile profile = requireSelected();
             ModInstaller.Result result = service.installPack(profile, ModPack.hexadronOptimise(), progress);
-            progress.log("Installed %d mod(s) into %s",
-                    result.installed().size(), service.profiles().modsDirectory(profile));
+            progress.log(I18n.t("log.installedMods",
+                    result.installed().size(), service.profiles().modsDirectory(profile)));
             if (!result.isClean()) {
-                Platform.runLater(() -> showWarning("Some mods need attention",
+                Platform.runLater(() -> showWarning(I18n.t("mods.attention.header"),
                         String.join("\n",
                                 java.util.stream.Stream.concat(
                                         result.skipped().stream(),
@@ -195,13 +216,13 @@ public final class MainWindow {
         }));
 
         VBox pane = new VBox(10,
-                labelled("Name", nameField),
-                labelled("Minecraft version", minecraftVersionBox),
+                labelled(nameTitle, nameField),
+                labelled(versionTitle, minecraftVersionBox),
                 showAllVersions,
-                labelled("Mod loader", loaderBox),
-                labelled("Loader version", loaderVersionBox),
-                labelled("Memory", new HBox(10, memorySlider, memoryLabel)),
-                labelled("Java", new HBox(6, javaPathField, detectJava)),
+                labelled(loaderTitle, loaderBox),
+                labelled(loaderVersionTitle, loaderVersionBox),
+                labelled(memoryTitle, new HBox(10, memorySlider, memoryLabel)),
+                labelled(javaTitle, new HBox(6, javaPathField, detectJavaButton)),
                 new Separator(),
                 new HBox(8, installButton, modsButton));
 
@@ -219,19 +240,27 @@ public final class MainWindow {
         playButton.setPrefWidth(140);
         playButton.setOnAction(event -> play());
 
-        Button addAccount = new Button("Add offline account");
-        addAccount.setOnAction(event -> addOfflineAccount());
-
-        Button signIn = new Button("Sign in with Microsoft");
-        signIn.setOnAction(event -> signInWithMicrosoft());
-
-        Button openFolder = new Button("Open game folder");
-        openFolder.setOnAction(event -> openGameFolder());
+        addAccountButton.setOnAction(event -> addOfflineAccount());
+        signInButton.setOnAction(event -> signInWithMicrosoft());
+        openFolderButton.setOnAction(event -> openGameFolder());
 
         accountBox.setPrefWidth(220);
 
-        HBox controls = new HBox(8, new Label("Account:"), accountBox, addAccount, signIn,
-                openFolder, spacer(), playButton);
+        languageBox.setItems(FXCollections.observableArrayList(Language.all()));
+        languageBox.setValue(I18n.current());
+        languageBox.setPrefWidth(140);
+        languageBox.valueProperty().addListener((observable, previous, value) -> {
+            if (value == null || value == I18n.current()) {
+                return;
+            }
+            I18n.use(value);
+            service.settings().language(value.code());
+            saveSettingsQuietly();
+            applyTexts();
+        });
+
+        HBox controls = new HBox(8, accountTitle, accountBox, addAccountButton, signInButton,
+                openFolderButton, spacer(), languageTitle, languageBox, playButton);
         controls.setAlignment(Pos.CENTER_LEFT);
         controls.setPadding(new Insets(8, 10, 8, 10));
 
@@ -247,11 +276,50 @@ public final class MainWindow {
         return pane;
     }
 
-    private static VBox labelled(String text, javafx.scene.Node control) {
-        Label label = new Label(text);
-        label.setStyle("-fx-font-weight: bold;");
-        VBox box = new VBox(4, label, control);
-        return box;
+    /**
+     * Writes every visible string from the active language.
+     *
+     * <p>Called once when the window is built, and again after each language
+     * change. Only static text is touched: nothing here reads or writes profile
+     * state, so switching language cannot disturb what the user is editing.
+     */
+    private void applyTexts() {
+        stage.setTitle(I18n.t("app.title"));
+
+        profilesTitle.setText(I18n.t("profiles.header"));
+        addProfileButton.setText(I18n.t("profiles.new"));
+        removeProfileButton.setText(I18n.t("profiles.remove"));
+
+        nameTitle.setText(I18n.t("editor.name"));
+        nameField.setPromptText(I18n.t("editor.name.prompt"));
+        versionTitle.setText(I18n.t("editor.version"));
+        showAllVersions.setText(I18n.t("editor.showAll"));
+        loaderTitle.setText(I18n.t("editor.loader"));
+        loaderVersionTitle.setText(I18n.t("editor.loaderVersion"));
+        memoryTitle.setText(I18n.t("editor.memory"));
+        memoryLabel.setText(I18n.t("unit.megabytes", String.valueOf((int) memorySlider.getValue())));
+        javaTitle.setText(I18n.t("editor.java"));
+        javaPathField.setPromptText(I18n.t("editor.java.prompt"));
+        detectJavaButton.setText(I18n.t("editor.java.detect"));
+
+        installButton.setText(I18n.t("action.install"));
+        modsButton.setText(I18n.t("action.mods"));
+        addAccountButton.setText(I18n.t("action.addOffline"));
+        signInButton.setText(I18n.t("action.signIn"));
+        openFolderButton.setText(I18n.t("action.openFolder"));
+        playButton.setText(I18n.t(playing ? "action.stop" : "action.play"));
+
+        accountTitle.setText(I18n.t("label.account"));
+        languageTitle.setText(I18n.t("label.language"));
+
+        if (!busy) {
+            stageLabel.setText(I18n.t("status.ready"));
+        }
+    }
+
+    private static VBox labelled(Label title, javafx.scene.Node control) {
+        title.setStyle("-fx-font-weight: bold;");
+        return new VBox(4, title, control);
     }
 
     private static javafx.scene.Node spacer() {
@@ -263,17 +331,16 @@ public final class MainWindow {
     // ---------------------------------------------------------------- actions
 
     private void createProfile() {
-        TextInputDialog dialog = new TextInputDialog("New profile");
-        dialog.setTitle("New profile");
-        dialog.setHeaderText("Name this profile");
+        TextInputDialog dialog = new TextInputDialog(I18n.t("profiles.new.default"));
+        dialog.setTitle(I18n.t("profiles.new.title"));
+        dialog.setHeaderText(I18n.t("profiles.new.header"));
         Optional<String> name = dialog.showAndWait();
         if (name.isEmpty() || name.get().isBlank()) {
             return;
         }
         String version = minecraftVersionBox.getValue();
         if (version == null) {
-            showWarning("No version list yet",
-                    "The Minecraft version list has not loaded. Check the log and try again.");
+            showWarning(I18n.t("profiles.noVersions.header"), I18n.t("profiles.noVersions.body"));
             return;
         }
         try {
@@ -283,7 +350,7 @@ public final class MainWindow {
             refreshProfiles();
             profileList.getSelectionModel().select(profile);
         } catch (IOException e) {
-            showError("Could not create the profile", e);
+            showError(I18n.t("profiles.create.failed"), e);
         }
     }
 
@@ -293,10 +360,9 @@ public final class MainWindow {
             return;
         }
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                "Remove profile \"" + profile.name() + "\"?\n\n"
-                        + "Its game folder, including worlds, is left on disk at\n"
-                        + service.profiles().gameDirectory(profile));
-        confirm.setHeaderText("Remove profile");
+                I18n.t("profiles.remove.body", profile.name(),
+                        service.profiles().gameDirectory(profile)));
+        confirm.setHeaderText(I18n.t("profiles.remove.header"));
         if (confirm.showAndWait().filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {
             return;
         }
@@ -312,22 +378,24 @@ public final class MainWindow {
         }
         Account account = accountBox.getValue();
         if (account == null) {
-            showWarning("No account", "Add an offline account or sign in with Microsoft first.");
+            showWarning(I18n.t("account.none.header"), I18n.t("account.none.body"));
             return;
         }
-        runInBackground("Play", () -> {
+        runInBackground(I18n.t("task.play"), () -> {
             Profile profile = requireSelected();
             session = service.launch(profile, account, progress,
                     progress::log,
                     exitCode -> {
                         progress.log(GameLauncher.describeExit(exitCode));
                         Platform.runLater(() -> {
-                            playButton.setText("Play");
+                            playing = false;
+                            playButton.setText(I18n.t("action.play"));
                             setBusy(false);
                         });
                     });
             Platform.runLater(() -> {
-                playButton.setText("Stop");
+                playing = true;
+                playButton.setText(I18n.t("action.stop"));
                 // The game is running; the launcher itself is free again.
                 setBusy(false);
                 playButton.setDisable(false);
@@ -339,17 +407,17 @@ public final class MainWindow {
     }
 
     private void addOfflineAccount() {
-        TextInputDialog dialog = new TextInputDialog("Player");
-        dialog.setTitle("Offline account");
-        dialog.setHeaderText("In-game name");
-        dialog.setContentText("This account cannot join servers that check ownership.");
+        TextInputDialog dialog = new TextInputDialog(I18n.t("account.offline.default"));
+        dialog.setTitle(I18n.t("account.offline.title"));
+        dialog.setHeaderText(I18n.t("account.offline.header"));
+        dialog.setContentText(I18n.t("account.offline.body"));
         dialog.showAndWait().ifPresent(name -> {
             Account account = Account.offline(name);
             service.accounts().add(account);
             try {
                 service.accounts().save();
             } catch (IOException e) {
-                showError("Could not save the account", e);
+                showError(I18n.t("account.save.failed"), e);
                 return;
             }
             refreshAccounts();
@@ -359,28 +427,18 @@ public final class MainWindow {
 
     private void signInWithMicrosoft() {
         if (!service.settings().hasMicrosoftClientId()) {
-            showWarning("Microsoft sign-in is not configured", """
-                    Microsoft sign-in needs an Azure application (client) ID that Mojang has \
-                    approved for Minecraft authentication.
-
-                    Register an application in the Azure portal, apply to Mojang for approval, \
-                    then put the client ID into launcher.json as "microsoftClientId".
-
-                    Offline accounts work without any of this.""");
+            showWarning(I18n.t("ms.notConfigured.header"), I18n.t("ms.notConfigured.body"));
             return;
         }
-        runInBackground("Microsoft sign-in", () -> {
+        runInBackground(I18n.t("task.signIn"), () -> {
             var auth = new com.hexadron.launcher.auth.MicrosoftAuth(service.settings().microsoftClientId());
             var prompt = auth.requestDeviceCode();
-            progress.log("Open %s and enter the code %s",
-                    prompt.verificationUri(), prompt.userCode());
-            Platform.runLater(() -> showInfo("Sign in with Microsoft",
-                    "Open\n" + prompt.verificationUri()
-                            + "\n\nand enter this code:\n\n" + prompt.userCode()
-                            + "\n\nThis window can stay open; the launcher is waiting."));
+            progress.log(I18n.t("log.signInPrompt", prompt.verificationUri(), prompt.userCode()));
+            Platform.runLater(() -> showInfo(I18n.t("ms.signIn.header"),
+                    I18n.t("ms.signIn.body", prompt.verificationUri(), prompt.userCode())));
 
             Account account = auth.completeDeviceCodeFlow(prompt,
-                    remaining -> progress.stage("Waiting for sign-in (" + remaining + "s left)"),
+                    remaining -> progress.stage(I18n.t("ms.waiting", remaining)),
                     progress);
             service.accounts().add(account);
             service.accounts().save();
@@ -392,9 +450,9 @@ public final class MainWindow {
     }
 
     private void showDetectedJava() {
-        runInBackground("Detect Java", () -> {
+        runInBackground(I18n.t("task.detectJava"), () -> {
             var runtimes = service.javaLocator().discover();
-            progress.log("Detected %d Java runtime(s)", runtimes.size());
+            progress.log(I18n.t("log.javaFound", runtimes.size()));
             runtimes.forEach(runtime -> progress.log("  %s", runtime));
         });
     }
@@ -411,17 +469,17 @@ public final class MainWindow {
                     && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
                 java.awt.Desktop.getDesktop().open(folder.toFile());
             } else {
-                progress.log("Game folder: %s", folder);
+                progress.log(I18n.t("log.gameFolder", folder));
             }
         } catch (IOException | UnsupportedOperationException e) {
-            progress.log("Game folder: %s (could not open a file manager: %s)", folder, e.getMessage());
+            progress.log(I18n.t("log.gameFolderFailed", folder, e.getMessage()));
         }
     }
 
     // ---------------------------------------------------------------- data loading
 
     private void loadMinecraftVersionsAsync() {
-        runInBackground("Loading version list", () -> {
+        runInBackground(I18n.t("task.versions"), () -> {
             VersionManifest manifest = service.minecraftVersions();
             List<String> ids = (service.settings().showAllVersions()
                     ? manifest.versions()
@@ -439,7 +497,7 @@ public final class MainWindow {
                                     : ids.get(0));
                 }
             });
-            progress.log("Loaded %d Minecraft versions", ids.size());
+            progress.log(I18n.t("log.versionsLoaded", ids.size()));
         });
     }
 
@@ -453,7 +511,7 @@ public final class MainWindow {
             });
             return;
         }
-        runInBackground("Loading " + loader.displayName() + " builds", () -> {
+        runInBackground(I18n.t("task.loaderVersions", loader.displayName()), () -> {
             List<LoaderVersion> versions = service.loaderVersions(loader, minecraftVersion);
             List<String> ids = versions.stream().map(LoaderVersion::version).toList();
             Platform.runLater(() -> {
@@ -503,7 +561,7 @@ public final class MainWindow {
         minecraftVersionBox.setValue(profile.minecraftVersion());
         loaderBox.setValue(profile.loader());
         memorySlider.setValue(profile.memoryMegabytes());
-        memoryLabel.setText(profile.memoryMegabytes() + " MB");
+        memoryLabel.setText(I18n.t("unit.megabytes", String.valueOf(profile.memoryMegabytes())));
         javaPathField.setText(profile.javaPath() == null ? "" : profile.javaPath());
     }
 
@@ -518,7 +576,7 @@ public final class MainWindow {
     private Profile requireSelected() throws IOException {
         Profile profile = profileList.getSelectionModel().getSelectedItem();
         if (profile == null) {
-            throw new IOException("select a profile first");
+            throw new IOException(I18n.t("profiles.selectFirst"));
         }
         return profile;
     }
@@ -537,7 +595,7 @@ public final class MainWindow {
 
     private void runInBackground(String name, BackgroundTask task, boolean clearBusyOnSuccess) {
         if (busy) {
-            progress.log("Busy - '%s' ignored", name);
+            progress.log(I18n.t("status.busy", name));
             return;
         }
         setBusy(true);
@@ -547,7 +605,7 @@ public final class MainWindow {
                 task.run();
                 if (clearBusyOnSuccess) {
                     Platform.runLater(() -> {
-                        stageLabel.setText("Ready");
+                        stageLabel.setText(I18n.t("status.ready"));
                         progressBar.setProgress(1);
                         setBusy(false);
                     });
@@ -556,15 +614,18 @@ public final class MainWindow {
                 Thread.currentThread().interrupt();
                 Platform.runLater(() -> setBusy(false));
             } catch (Exception e) {
-                progress.log("FAILED: %s", e.getMessage() == null ? e.toString() : e.getMessage());
+                progress.log(I18n.t("log.failed",
+                        e.getMessage() == null ? e.toString() : e.getMessage()));
                 Platform.runLater(() -> {
-                    stageLabel.setText(name + " failed");
+                    stageLabel.setText(I18n.t("status.failed", name));
                     progressBar.setProgress(0);
                     setBusy(false);
-                    showError(name + " failed", e);
+                    showError(I18n.t("status.failed", name), e);
                 });
             }
-        }, "hexadron-" + name.toLowerCase(java.util.Locale.ROOT).replace(' ', '-'));
+        // A fixed thread name: deriving it from a translated task name produced
+        // a different name per language, which is useless in a stack trace.
+        }, "hexadron-worker");
         thread.setDaemon(true);
         thread.start();
     }
@@ -580,7 +641,7 @@ public final class MainWindow {
         try {
             service.profiles().save();
         } catch (IOException e) {
-            progress.log("Could not save profiles: %s", e.getMessage());
+            progress.log(I18n.t("log.profilesSaveFailed", e.getMessage()));
         }
     }
 
@@ -588,7 +649,7 @@ public final class MainWindow {
         try {
             service.settings().save();
         } catch (IOException e) {
-            progress.log("Could not save settings: %s", e.getMessage());
+            progress.log(I18n.t("log.settingsSaveFailed", e.getMessage()));
         }
     }
 

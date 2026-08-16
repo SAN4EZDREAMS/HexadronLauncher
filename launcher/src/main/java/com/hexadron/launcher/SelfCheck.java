@@ -2,6 +2,8 @@ package com.hexadron.launcher;
 
 import com.hexadron.launcher.auth.Account;
 import com.hexadron.launcher.core.GameDirs;
+import com.hexadron.launcher.i18n.I18n;
+import com.hexadron.launcher.i18n.Language;
 import com.hexadron.launcher.json.Json;
 import com.hexadron.launcher.json.JsonException;
 import com.hexadron.launcher.launch.JavaLocator;
@@ -53,6 +55,7 @@ public final class SelfCheck {
         accounts();
         javaVersionParsing();
         versionManifestParsing();
+        translations();
 
         System.out.println();
         if (failures.isEmpty()) {
@@ -634,6 +637,69 @@ public final class SelfCheck {
         check("lookup by id", manifest.find("26.2").isPresent());
         check("lookup of an unknown id is empty", manifest.find("nope").isEmpty());
         check("sha1 carried through", "aa".equals(manifest.find("26.2").orElseThrow().sha1()));
+    }
+
+    // ---------------------------------------------------------------- translations
+
+    /**
+     * Guards the language files.
+     *
+     * <p>A translation goes wrong quietly: a key is forgotten during a rename,
+     * or a translator drops a {@code {0}} and the running launcher prints a
+     * sentence with a hole in it. Both are caught here, before release, rather
+     * than by a user who cannot read the fallback language.
+     */
+    private static void translations() {
+        section("Translations");
+
+        Map<String, String> reference = I18n.bundle(Language.DEFAULT);
+        check("the reference bundle is not empty", !reference.isEmpty());
+
+        for (Language language : Language.all()) {
+            Map<String, String> bundle = I18n.bundle(language);
+            String code = language.code();
+
+            check(code + ": has every key", bundle.keySet().containsAll(reference.keySet()));
+            check(code + ": has no extra key", reference.keySet().containsAll(bundle.keySet()));
+
+            boolean blanks = bundle.values().stream().anyMatch(String::isBlank);
+            check(code + ": no blank value", !blanks);
+
+            boolean placeholdersMatch = reference.entrySet().stream()
+                    .filter(entry -> bundle.containsKey(entry.getKey()))
+                    .allMatch(entry -> placeholders(entry.getValue())
+                            .equals(placeholders(bundle.get(entry.getKey()))));
+            check(code + ": placeholders match the reference", placeholdersMatch);
+        }
+
+        // The active language must survive a switch and a switch back.
+        Language before = I18n.current();
+        I18n.use(Language.UKRAINIAN);
+        check("switching changes the active language", I18n.current() == Language.UKRAINIAN);
+        check("a switched string is not the English one",
+                !I18n.t("action.play").equals(reference.get("action.play")));
+        I18n.use(Language.DEFAULT);
+        check("switching back restores English",
+                I18n.t("action.play").equals(reference.get("action.play")));
+        check("arguments are substituted", I18n.t("log.installed", "26.2").contains("26.2"));
+        check("an unknown key is visible, not silent", I18n.t("no.such.key").contains("no.such.key"));
+        I18n.use(before);
+
+        check("a language code resolves", Language.byCode("uk").orElseThrow() == Language.UKRAINIAN);
+        check("a region suffix is ignored", Language.byCode("de-AT").orElseThrow() == Language.GERMAN);
+        check("an unknown code is empty", Language.byCode("xx").isEmpty());
+        check("a blank preference falls back", Language.resolve("  ") != null);
+    }
+
+    /** The set of {@code {0}}-style indices used by a MessageFormat pattern. */
+    private static java.util.Set<String> placeholders(String pattern) {
+        java.util.Set<String> found = new java.util.TreeSet<>();
+        java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("\\{(\\d+)").matcher(pattern);
+        while (matcher.find()) {
+            found.add(matcher.group(1));
+        }
+        return found;
     }
 
     // ---------------------------------------------------------------- harness

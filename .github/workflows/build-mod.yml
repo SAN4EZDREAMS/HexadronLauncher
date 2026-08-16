@@ -1,15 +1,34 @@
-# Збирає ЛИШЕ мод, і лише якщо змінились файли всередині mod/
-# (або сам цей workflow-файл). Зміни в launcher/ чи README цей build не запускають.
+# Збирає ЛИШЕ мод.
+#
+# Набір оптимізаційних модів (Sodium, Lithium, ...) тут навмисно НЕ вмикається:
+# він потрібен лише для runClient і керується прапорцем -Phexadron.devMods=true.
+# Інакше зелена збірка нашого коду залежала б від доступності Modrinth.
 
 name: build-mod
 on:
   push:
     paths:
       - 'mod/**'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
       - '.github/workflows/build-mod.yml'
   pull_request:
     paths:
       - 'mod/**'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - '.github/workflows/build-mod.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-mod-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -24,12 +43,15 @@ jobs:
         with:
           java-version: '25'
           distribution: 'microsoft'
+      - name: setup gradle
+        uses: gradle/actions/setup-gradle@v6
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
       - name: build mod
-        run: ./gradlew :mod:build
+        run: ./gradlew --configure-on-demand :mod:build
       - name: capture build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: hexadron-optimise-jar
           path: mod/build/libs/*.jar
+          if-no-files-found: error

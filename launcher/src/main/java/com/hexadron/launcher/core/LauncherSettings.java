@@ -33,6 +33,15 @@ public final class LauncherSettings {
     /** Show snapshots and old versions in the version picker. */
     private boolean showAllVersions = false;
 
+    /**
+     * Interface language as an ISO 639-1 code.
+     *
+     * <p>Empty means "follow the operating system", which is the default: a
+     * first run should already be in the user's language where one is shipped,
+     * without them having to find a setting first.
+     */
+    private String language = "";
+
     public LauncherSettings(GameDirs dirs) {
         this.file = dirs.settingsFile();
     }
@@ -47,6 +56,7 @@ public final class LauncherSettings {
         keepOpenWhilePlaying = json.get("keepOpenWhilePlaying").asBool(keepOpenWhilePlaying);
         downloadConcurrency = json.get("downloadConcurrency").asInt(downloadConcurrency);
         showAllVersions = json.get("showAllVersions").asBool(showAllVersions);
+        language = json.get("language").asString(language);
         return this;
     }
 
@@ -57,6 +67,7 @@ public final class LauncherSettings {
                 .put("keepOpenWhilePlaying", keepOpenWhilePlaying)
                 .put("downloadConcurrency", downloadConcurrency)
                 .put("showAllVersions", showAllVersions)
+                .put("language", language)
                 .write(file);
     }
 
@@ -106,6 +117,16 @@ public final class LauncherSettings {
 
     public LauncherSettings showAllVersions(boolean value) {
         this.showAllVersions = value;
+        return this;
+    }
+
+    /** The stored language code, or an empty string for "follow the system". */
+    public String language() {
+        return language;
+    }
+
+    public LauncherSettings language(String value) {
+        this.language = value == null ? "" : value.trim();
         return this;
     }
 }

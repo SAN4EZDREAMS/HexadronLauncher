@@ -16,6 +16,7 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Mods | Modrinth works with no key. CurseForge works with an API key. Required dependencies resolve automatically |
 | Java | The launcher finds the installed runtimes and selects one that the version requires |
 | Assets | Modern, `virtual` (1.6) and `map_to_resources` (pre-1.6) layouts |
+| Languages | English, Ukrainian, Russian, Polish, German. The picker changes the window immediately, without a restart |
 
 ## Build
 
@@ -27,6 +28,19 @@ You need JDK 25.
 ./gradlew :launcher:run        # start the window
 ./gradlew :mod:build           # build the mod
 ```
+
+Add `--configure-on-demand` to keep one subproject out of the other's way:
+without it Gradle configures every project, so an error in `mod/build.gradle`
+also fails `:launcher:build`. Both CI workflows pass the flag.
+
+To start `runClient` with the whole performance set loaded:
+
+```
+./gradlew :mod:runClient -Phexadron.devMods=true
+```
+
+That set is off by default, so a build of our own code does not depend on the
+Modrinth API being up or on seven third-party builds still existing.
 
 ## Headless use
 
@@ -58,6 +72,7 @@ its own folder under `instances/`, so mods and worlds stay separate.
 
 | Key | Purpose |
 |---|---|
+| `language` | Interface language: `en`, `uk`, `ru`, `pl`, `de`. Empty follows the operating system |
 | `microsoftClientId` | Azure application ID for Microsoft sign-in. Empty by default |
 | `curseForgeApiKey` | CurseForge API key. Empty by default. Modrinth needs no key |
 | `showAllVersions` | Show snapshots and old versions in the version list |
@@ -94,18 +109,41 @@ declares a dependency on a set of proven performance mods, and the launcher
 installs that set.
 
 The set is defined in one place that is easy to edit:
-`launcher/src/main/resources/packs/hexadron-optimise.json`. The Modrinth project
-ids there match the `modImplementation` lines in `mod/build.gradle`.
+`launcher/src/main/resources/packs/hexadron-optimise.json`. That file is the
+authoritative list; the launcher reads it at runtime, so changing the set needs
+no rebuild. `mod/build.gradle` repeats the same ids only for the development
+environment, behind `-Phexadron.devMods=true`.
+
+Minecraft 26.1 is the first unobfuscated version. From it on the
+`net.fabricmc.fabric-loom` plugin does no remapping, so `modImplementation`,
+`modCompileOnly` and `remapJar` no longer exist - `implementation`,
+`compileOnly` and `jar` replace them. The `mod*` names survive only in
+`net.fabricmc.fabric-loom-remap`, which targets 1.21.11 and older.
 
 The mods are not bundled into the mod jar with `include`. Bundling other
 people's mods is a licensing decision, not a build setting. The launcher
 downloads them from Modrinth instead.
+
+## Languages
+
+Strings live in `launcher/src/main/resources/lang/<code>.properties`, read as
+UTF-8. `en.properties` is the reference: `SelfCheck` fails the build when
+another file is missing a key, carries an extra one, has a blank value, or has
+lost a `{0}` placeholder that the English string uses. A missing key falls back
+to English per key, so a half-finished translation shows English words rather
+than a broken screen.
+
+To add a language: copy `en.properties` to the new code, translate it, and add
+one entry to `com.hexadron.launcher.i18n.Language`. Nothing else changes - the
+window reads every string through `I18n` and rebuilds its text on the spot when
+the picker changes.
 
 ## Architecture
 
 The launcher core has no third-party dependencies. It uses only the JDK.
 
 ```
+i18n/     languages and the string table
 json/     small strict JSON tree and parser
 util/     platform detection, hashes, maven coordinates
 net/      HTTP client with retry, parallel verifying downloader
@@ -120,8 +158,8 @@ ui/       JavaFX window - contains no launch logic
 cli/      headless entry point
 ```
 
-`SelfCheck` verifies the metadata layer with 147 assertions. It needs no network,
-no display and no test framework.
+`SelfCheck` verifies the metadata layer and the language files with 177
+assertions. It needs no network, no display and no test framework.
 
 ## Not done yet
 

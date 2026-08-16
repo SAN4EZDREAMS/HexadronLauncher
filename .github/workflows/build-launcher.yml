@@ -1,15 +1,35 @@
-# Збирає ЛИШЕ лаунчер, і лише якщо змінились файли всередині launcher/
-# (або сам цей workflow-файл). Зміни в mod/ чи README цей build не запускають.
+# Збирає ЛИШЕ лаунчер.
+#
+# `--configure-on-demand` тут не косметика: без нього Gradle конфігурує ВСІ
+# проєкти, тобто й :mod разом із Fabric Loom. Через це будь-яка помилка у
+# mod/build.gradle валила збірку лаунчера, хоча лаунчер від мода не залежить.
+# З цим прапорцем конфігурується тільки корінь і :launcher.
 
 name: build-launcher
 on:
   push:
     paths:
       - 'launcher/**'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
       - '.github/workflows/build-launcher.yml'
   pull_request:
     paths:
       - 'launcher/**'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - '.github/workflows/build-launcher.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-launcher-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -24,12 +44,19 @@ jobs:
         with:
           java-version: '25'
           distribution: 'microsoft'
+      - name: setup gradle
+        uses: gradle/actions/setup-gradle@v6
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
+      - name: verify the launch core
+        run: ./gradlew --configure-on-demand :launcher:selfCheck
       - name: build launcher
-        run: ./gradlew :launcher:build
+        run: ./gradlew --configure-on-demand :launcher:build
       - name: capture build artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: hexadron-launcher-jar
-          path: launcher/build/libs/*.jar
+          name: hexadron-launcher
+          path: |
+            launcher/build/libs/*.jar
+            launcher/build/distributions/*.zip
+          if-no-files-found: error
