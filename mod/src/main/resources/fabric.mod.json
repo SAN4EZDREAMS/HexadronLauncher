@@ -3,10 +3,13 @@
 	"id": "hexadron-optimise",
 	"version": "${version}",
 	"name": "Hexadron Optimise",
-	"description": "Мій власний Minecraft-клієнт з фокусом на оптимізацію",
+	"description": "An umbrella mod for the Hexadron performance set. HexadronLauncher installs the mods listed under \"depends\" from Modrinth.",
 	"authors": [
-		"Твоє ім'я"
+		"Hexadron"
 	],
+	"contact": {
+		"sources": "https://github.com/hexadron/HexadronLauncher"
+	},
 	"license": "LGPL-2.1",
 	"icon": "assets/hexadron-optimise/icon.png",
 	"environment": "*",
@@ -35,7 +38,9 @@
 		"ferritecore": "*",
 		"krypton": "*",
 		"entityculling": "*",
-		"iris": "*",
+		"iris": "*"
+	},
+	"recommends": {
 		"modmenu": "*"
 	}
 }

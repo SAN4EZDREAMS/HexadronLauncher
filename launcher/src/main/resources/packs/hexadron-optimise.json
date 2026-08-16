@@ -1,0 +1,58 @@
+{
+  "id": "hexadron-optimise",
+  "name": "Hexadron Optimise",
+  "description": "The performance set the Hexadron Optimise mod depends on. Project ids are Modrinth project ids, taken from mod/build.gradle so the launcher and the mod stay in step. Edit this file to change the set - no rebuild required.",
+
+  "_note_versions": "No versionId is pinned, so the launcher installs the newest build compatible with the profile's Minecraft version and loader. Add \"versionId\" to an entry to pin a specific build.",
+
+  "mods": [
+    {
+      "provider": "MODRINTH",
+      "projectId": "P7dR8mSH",
+      "label": "Fabric API",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "AANobbMI",
+      "label": "Sodium",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "gvQqBUqZ",
+      "label": "Lithium",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "uXXizFIs",
+      "label": "FerriteCore",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "fQEb0iXm",
+      "label": "Krypton",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "NNAgCjsB",
+      "label": "EntityCulling",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "YL57xq9U",
+      "label": "Iris Shaders",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "mOgUt4GM",
+      "label": "Mod Menu",
+      "optional": false
+    }
+  ]
+}

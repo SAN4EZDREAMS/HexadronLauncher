@@ -35,19 +35,32 @@ loom {
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-	// Fabric API. This is technically optional, but you probably want it anyway.
-	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
-	// Оптимізація — готові, перевірені моди замість написання рендера/логіки з нуля
-	implementation "maven.modrinth:AANobbMI:2Yom1N68" // Sodium 0.9.1 (26.2)
-	implementation "maven.modrinth:gvQqBUqZ:UPNexAfy" // Lithium 0.25.2 (26.2)
-	implementation "maven.modrinth:uXXizFIs:d5ddUdiB" // FerriteCore 9.0.0 (26.2) — економія памʼяті
-	implementation "maven.modrinth:fQEb0iXm:5WeL0Nkz" // Krypton 0.3.1 (26.2) — мережевий стек
-	implementation "maven.modrinth:NNAgCjsB:iiF6U3Ne" // EntityCulling 1.10.5 (26.2) — не рендерить те, що не видно
-	implementation "maven.modrinth:YL57xq9U:oaD6KQls" // Iris 1.11.2+26.2 (26.2) — шейдери, збірка саме під Sodium 0.9.1
-	implementation "maven.modrinth:mOgUt4GM:njXb639R" // Mod Menu 20.0.1 (26.2) — перегляд списку модів
+	// The optimisation set.
+	//
+	// These MUST use modImplementation, not implementation. Loom treats a
+	// modImplementation dependency as a Minecraft mod: it remaps it against the
+	// current mappings and puts it into the `runClient` development environment.
+	// A plain `implementation` entry only reaches the compile classpath - the
+	// mods are absent at runtime, so `runClient` silently runs without them and
+	// nothing here is ever actually exercised.
+	//
+	// These are NOT wrapped in `include`. `include` would bundle the jars inside
+	// hexadron-optimise.jar (jar-in-jar), which is a redistribution of other
+	// people's mods and a per-mod licensing question rather than a build setting.
+	// HexadronLauncher installs this exact set from Modrinth instead - see
+	// launcher/src/main/resources/packs/hexadron-optimise.json, which carries
+	// the same project ids as the lines below.
+	modImplementation "maven.modrinth:AANobbMI:2Yom1N68" // Sodium 0.9.1 (26.2)
+	modImplementation "maven.modrinth:gvQqBUqZ:UPNexAfy" // Lithium 0.25.2 (26.2)
+	modImplementation "maven.modrinth:uXXizFIs:d5ddUdiB" // FerriteCore 9.0.0 (26.2) - memory
+	modImplementation "maven.modrinth:fQEb0iXm:5WeL0Nkz" // Krypton 0.3.1 (26.2) - network stack
+	modImplementation "maven.modrinth:NNAgCjsB:iiF6U3Ne" // EntityCulling 1.10.5 (26.2)
+	modImplementation "maven.modrinth:YL57xq9U:oaD6KQls" // Iris 1.11.2+26.2 - built against Sodium 0.9.1
+	modImplementation "maven.modrinth:mOgUt4GM:njXb639R" // Mod Menu 20.0.1 (26.2)
 }
 
 processResources {
@@ -86,7 +99,6 @@ jar {
 	}
 }
 
-// configure the maven publication
 publishing {
 	publications {
 		create("mavenJava", MavenPublication) {
@@ -94,11 +106,7 @@ publishing {
 		}
 	}
 
-	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
 	repositories {
 		// Add repositories to publish to here.
-		// Notice: This block does NOT have the same function as the block in the top level.
-		// The repositories here will be used for publishing your artifact, not for
-		// retrieving dependencies.
 	}
 }

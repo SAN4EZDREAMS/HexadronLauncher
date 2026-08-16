@@ -4,17 +4,27 @@ plugins {
 }
 
 group = 'com.hexadron'
-version = '0.1.0'
+version = '0.2.0'
 
 repositories {
 	mavenCentral()
 }
 
 dependencies {
-	// Перевіряємо, чи резолвиться взагалі — логіку запуску напишемо наступним кроком
-	implementation 'fr.flowarg:openlauncherlib:3.2.11'
-	implementation 'fr.flowarg:flowupdater:1.9.4'
-	implementation 'com.google.code.gson:gson:2.11.0'
+	// Deliberately none.
+	//
+	// The launch core - metadata parsing, downloads, auth, profiles, mod
+	// resolution - is written against the JDK alone (java.net.http plus a small
+	// JSON tree in com.hexadron.launcher.json). That keeps the whole core
+	// testable with nothing but a JDK, removes third-party code from the
+	// download and authentication path, and means `selfCheck` runs offline.
+	//
+	// The previous openlauncherlib/flowupdater pair was removed: they wrote a
+	// non-standard directory layout (no versions/ folder) and could not express
+	// the Forge/NeoForge installer format, which caps the project well short of
+	// "every version, every loader".
+	//
+	// JavaFX comes from the javafx plugin below and is UI-only.
 }
 
 java {
@@ -27,12 +37,32 @@ application {
 	mainClass = 'com.hexadron.launcher.Launcher'
 }
 
-tasks.named('run') {
-	// Перш ніж запускати лаунчер — переконайся, що мод зібраний і свіжий
-	dependsOn(':mod:build')
-}
-
 javafx {
 	version = '25'
 	modules = ['javafx.controls']
+}
+
+// Verifies the metadata layer: JSON parsing, rule evaluation, library dialects,
+// inheritsFrom merging, classpath order, argument substitution, account UUIDs.
+// No network and no display, so it is safe in CI.
+tasks.register('selfCheck', JavaExec) {
+	group = 'verification'
+	description = 'Runs the dependency-free self-check over the launch core.'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.hexadron.launcher.SelfCheck'
+}
+
+tasks.named('check') {
+	dependsOn 'selfCheck'
+}
+
+// Headless entry point:
+//   ./gradlew :launcher:cli --args="versions"
+//   ./gradlew :launcher:cli --args="create Test 26.2 fabric"
+//   ./gradlew :launcher:cli --args="play test-abc123 Steve"
+tasks.register('cli', JavaExec) {
+	group = 'application'
+	description = 'Runs the launcher headlessly.'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.hexadron.launcher.cli.HexadronCli'
 }
