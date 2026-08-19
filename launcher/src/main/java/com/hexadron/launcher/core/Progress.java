@@ -40,8 +40,16 @@ public interface Progress {
     /** A human-readable line for the launcher log view. */
     void log(String message);
 
+    /**
+     * Formats and logs a line, with credentials removed.
+     *
+     * <p>The scrub happens here rather than in each implementation because this
+     * is the single point every log line in the launcher passes through, and a
+     * redaction that has to be remembered at each call site is a redaction that
+     * will eventually be forgotten at one of them.
+     */
     default void log(String format, Object... args) {
-        log(String.format(format, args));
+        log(com.hexadron.launcher.util.Redactor.scrub(String.format(format, args)));
     }
 
     /** Cooperative cancellation. Long loops poll this between units of work. */
@@ -67,7 +75,7 @@ public interface Progress {
 
             @Override
             public void log(String message) {
-                System.out.println("[log] " + message);
+                System.out.println("[log] " + com.hexadron.launcher.util.Redactor.scrub(message));
             }
         };
     }

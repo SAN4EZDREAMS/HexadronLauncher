@@ -695,14 +695,21 @@ public final class MainWindow {
         if (confirm.showAndWait().filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {
             return;
         }
-        service.accounts().remove(account);
         try {
-            service.accounts().save();
+            // Removes the stored credentials as well as the list entry. Signing
+            // out of the launcher is not the same as revoking the launcher's
+            // access to the Microsoft account, and the message below says so.
+            service.signOut(account);
         } catch (IOException e) {
             showError(I18n.t("account.remove.failed"), e);
         }
         refreshAccounts();
         progress.log(I18n.t("account.removed", account.username()));
+        if (!account.isOffline()) {
+            showInfo(I18n.t("account.revoke.header"),
+                    I18n.t("account.revoke.body",
+                            com.hexadron.launcher.auth.MicrosoftAuth.CONSENT_MANAGEMENT_URL));
+        }
     }
 
     private void signInWithMicrosoft() {
@@ -711,22 +718,56 @@ public final class MainWindow {
             return;
         }
         runInBackground(I18n.t("task.signIn"), () -> {
-            var auth = new com.hexadron.launcher.auth.MicrosoftAuth(service.settings().microsoftClientId());
-            var prompt = auth.requestDeviceCode();
-            progress.log(I18n.t("log.signInPrompt", prompt.verificationUri(), prompt.userCode()));
-            Platform.runLater(() -> showInfo(I18n.t("ms.signIn.header"),
-                    I18n.t("ms.signIn.body", prompt.verificationUri(), prompt.userCode())));
-
-            Account account = auth.completeDeviceCodeFlow(prompt,
-                    remaining -> progress.stage(I18n.t("ms.waiting", remaining)),
+            Account account = service.signInWithMicrosoft(
+                    MainWindow::openInSystemBrowser,
+                    prompt -> {
+                        progress.log(I18n.t("log.signInPrompt", prompt.verificationUri(), prompt.userCode()));
+                        Platform.runLater(() -> showInfo(I18n.t("ms.signIn.header"),
+                                I18n.t("ms.signIn.body", prompt.verificationUri(), prompt.userCode())));
+                    },
                     progress);
-            service.accounts().add(account);
-            service.accounts().save();
             Platform.runLater(() -> {
                 refreshAccounts();
                 accountBox.getSelectionModel().select(account);
             });
         });
+    }
+
+    /**
+     * Opens the Microsoft sign-in page in the user's own browser.
+     *
+     * <p>The system browser, never an embedded web view. RFC 8252 §8.12 forbids
+     * the embedded view for native apps, and the reason a user can act on is
+     * this: in their own browser they see Microsoft's address bar and
+     * certificate, and their password manager, passkey and two-factor prompts
+     * work exactly as they always do. In a window the launcher drew, none of
+     * that is true and none of it can be checked.
+     */
+    private static void openInSystemBrowser(java.net.URI uri) {
+        try {
+            if (java.awt.Desktop.isDesktopSupported()
+                    && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {
+                java.awt.Desktop.getDesktop().browse(uri);
+                return;
+            }
+        } catch (IOException | UnsupportedOperationException | SecurityException ignored) {
+            // Some Linux sessions have no AWT Desktop integration. Fall through.
+        }
+        try {
+            String[] command;
+            if (com.hexadron.launcher.util.Platform.isWindows()) {
+                command = new String[]{"rundll32", "url.dll,FileProtocolHandler", uri.toString()};
+            } else if (com.hexadron.launcher.util.Platform.isMac()) {
+                command = new String[]{"open", uri.toString()};
+            } else {
+                command = new String[]{"xdg-open", uri.toString()};
+            }
+            new ProcessBuilder(command).start();
+        } catch (IOException e) {
+            // The authorization URL carries a PKCE challenge, not the verifier,
+            // so it is not a credential and printing it is a usable last resort.
+            System.out.println("Open this URL to sign in: " + uri);
+        }
     }
 
     private void showDetectedJava() {

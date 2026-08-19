@@ -1,6 +1,7 @@
 package com.hexadron.launcher.net;
 
 import com.hexadron.launcher.json.Json;
+import com.hexadron.launcher.util.Redactor;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -34,11 +35,51 @@ public final class Http {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
+    /**
+     * The client used for every credential-bearing request.
+     *
+     * <p>It differs from {@link #CLIENT} in one deliberate way: it does not
+     * follow redirects. A redirect on the authentication path is not a routine
+     * event - it is either a misconfiguration or a redirect to a host the
+     * launcher did not choose, and following it would forward an
+     * {@code Authorization} header or a form body containing a refresh token to
+     * that host. Refusing is the correct response to both.
+     *
+     * <p>TLS is the JDK default, which means certificate and hostname
+     * verification against the platform trust store, TLS 1.2 minimum and TLS 1.3
+     * preferred. The launcher deliberately installs no custom
+     * {@code SSLContext}, no custom {@code TrustManager} and no hostname-verifier
+     * override anywhere - the commonest way a desktop client ends up accepting a
+     * proxy's certificate is a developer switching one of those off during
+     * debugging and shipping it.
+     */
+    private static final HttpClient AUTH_CLIENT = HttpClient.newBuilder()
+            .connectTimeout(CONNECT_TIMEOUT)
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build();
+
     private Http() {
     }
 
     public static HttpClient client() {
         return CLIENT;
+    }
+
+    /**
+     * Rejects anything that is not HTTPS.
+     *
+     * <p>Called on every authentication endpoint. Mojang's version metadata
+     * still contains a handful of {@code http://} library URLs, so this cannot
+     * be a blanket rule for downloads - those are covered by the SHA-1 in the
+     * manifest instead - but a token must never travel in clear text, and a
+     * mistyped constant is exactly how that happens.
+     */
+    public static String requireHttps(String url) throws IOException {
+        URI uri = URI.create(url);
+        if (!"https".equalsIgnoreCase(uri.getScheme())) {
+            throw new IOException("refusing to send credentials over a non-HTTPS URL: " + uri.getHost());
+        }
+        return url;
     }
 
     /** A non-2xx response that should surface to the caller rather than be retried. */
@@ -48,8 +89,11 @@ public final class Http {
         private final String body;
 
         public HttpStatusException(int statusCode, String uri, String body) {
+            // The body is scrubbed before it reaches the message. Error responses
+            // from the Xbox and Minecraft endpoints routinely echo back tokens,
+            // and this message ends up in the launcher log and in stack traces.
             super("HTTP " + statusCode + " for " + uri
-                    + (body == null || body.isBlank() ? "" : ": " + truncate(body)));
+                    + (body == null || body.isBlank() ? "" : ": " + truncate(Redactor.scrub(body))));
             this.statusCode = statusCode;
             this.uri = uri;
             this.body = body;
@@ -158,6 +202,63 @@ public final class Http {
                         .POST(HttpRequest.BodyPublishers.ofString(encodeForm(form), StandardCharsets.UTF_8))
                         .build(),
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    // ------------------------------------------------- authentication requests
+
+    /**
+     * POST a form to an authentication endpoint.
+     *
+     * <p>HTTPS is enforced, redirects are refused, and the request is not
+     * retried: replaying a token exchange or a device-code poll is not
+     * idempotent, and a retry of a refresh-token grant against a server that
+     * rotates refresh tokens can invalidate the account.
+     */
+    public static HttpResponse<String> authPostForm(String url, Map<String, String> form,
+                                                    Map<String, String> headers)
+            throws IOException, InterruptedException {
+        requireHttps(url);
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Content-Type", "application/x-www-form-urlencoded");
+        merged.putIfAbsent("Accept", "application/json");
+        return AUTH_CLIENT.send(
+                requestBuilder(url, merged)
+                        .POST(HttpRequest.BodyPublishers.ofString(encodeForm(form), StandardCharsets.UTF_8))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    /** POST JSON to an authentication endpoint. Throws on any non-2xx status. */
+    public static Json authPostJson(String url, Json body, Map<String, String> headers)
+            throws IOException, InterruptedException {
+        requireHttps(url);
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Content-Type", "application/json");
+        merged.putIfAbsent("Accept", "application/json");
+        HttpResponse<String> response = AUTH_CLIENT.send(
+                requestBuilder(url, merged)
+                        .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() / 100 != 2) {
+            throw new HttpStatusException(response.statusCode(), url, response.body());
+        }
+        return Json.parse(response.body());
+    }
+
+    /** GET from an authentication endpoint, with a bearer token. */
+    public static Json authGetJson(String url, Map<String, String> headers)
+            throws IOException, InterruptedException {
+        requireHttps(url);
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Accept", "application/json");
+        HttpResponse<String> response = AUTH_CLIENT.send(
+                requestBuilder(url, merged).GET().build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() / 100 != 2) {
+            throw new HttpStatusException(response.statusCode(), url, response.body());
+        }
+        return Json.parse(response.body());
     }
 
     public static String encodeForm(Map<String, String> form) {

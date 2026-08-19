@@ -106,25 +106,78 @@ public record Account(AccountType type, String username, UUID uuid, String acces
         return new Account(AccountType.OFFLINE, name, uuid, "0", null, Long.MAX_VALUE, "0");
     }
 
-    public Json toJson() {
+    /**
+     * Everything about the account that is not a credential.
+     *
+     * <p>This is what {@code accounts.json} contains. The Minecraft access token
+     * and the Microsoft refresh token are deliberately absent: they go to the
+     * operating system's credential store through
+     * {@link com.hexadron.launcher.auth.secret.SecretStore}. Splitting them out
+     * is what makes the plain file safe to sync, back up, or hand to someone
+     * debugging a launch problem.
+     */
+    public Json toMetadataJson() {
         Json json = Json.object()
                 .put("type", type.name())
                 .put("username", username)
                 .put("uuid", uuid.toString())
                 .put("expiresAt", expiresAt);
-        if (accessToken != null) {
-            json.put("accessToken", accessToken);
-        }
-        if (refreshToken != null) {
-            json.put("refreshToken", refreshToken);
-        }
         if (xuid != null) {
             json.put("xuid", xuid);
         }
         return json;
     }
 
-    public static Account fromJson(Json json) {
+    /**
+     * The credentials, as the blob handed to the secret store.
+     *
+     * <p>Both tokens are kept, not just the refresh token. Dropping the
+     * Minecraft access token would mean a five-request round trip through Xbox
+     * Live on every launch, and the token is no more exposed in the credential
+     * store than the refresh token that could mint a new one anyway.
+     */
+    public Json toSecretJson() {
+        Json json = Json.object();
+        if (accessToken != null && !accessToken.equals("0")) {
+            json.put("accessToken", accessToken);
+        }
+        if (refreshToken != null) {
+            json.put("refreshToken", refreshToken);
+        }
+        return json;
+    }
+
+    /** Rebuilds an account from its metadata plus whatever the secret store held. */
+    public static Account fromMetadataJson(Json metadata, Json secrets) {
+        AccountType type = AccountType.valueOf(
+                metadata.get("type").asString(AccountType.OFFLINE.name()));
+        String username = metadata.get("username").asString("Player");
+        String rawUuid = metadata.get("uuid").asString(null);
+        UUID uuid = rawUuid != null ? UUID.fromString(rawUuid) : offlineUnchecked(username).uuid();
+        Json credentials = secrets == null ? Json.object() : secrets;
+        return new Account(
+                type,
+                username,
+                uuid,
+                credentials.get("accessToken").asString("0"),
+                credentials.get("refreshToken").asString(null),
+                metadata.get("expiresAt").asLong(0),
+                metadata.get("xuid").asString("0"));
+    }
+
+    /** True when the metadata is present but the credentials were not found. */
+    public boolean needsSignIn() {
+        return type == AccountType.MICROSOFT && refreshToken == null;
+    }
+
+    /**
+     * The legacy on-disk shape, credentials included.
+     *
+     * <p>Only used to read a file written by a version of the launcher that kept
+     * tokens in {@code accounts.json}, so that those tokens can be moved into the
+     * credential store and removed from the file. Nothing writes this any more.
+     */
+    public static Account fromLegacyJson(Json json) {
         AccountType type = AccountType.valueOf(json.get("type").asString(AccountType.OFFLINE.name()));
         String username = json.get("username").asString("Player");
         String rawUuid = json.get("uuid").asString(null);

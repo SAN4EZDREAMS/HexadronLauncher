@@ -3,6 +3,8 @@ package com.hexadron.launcher.core;
 import com.hexadron.launcher.auth.Account;
 import com.hexadron.launcher.auth.AccountStore;
 import com.hexadron.launcher.auth.MicrosoftAuth;
+import com.hexadron.launcher.auth.secret.SecretStore;
+import com.hexadron.launcher.auth.secret.SecretStores;
 import com.hexadron.launcher.install.VersionInstaller;
 import com.hexadron.launcher.install.loader.LoaderInstaller;
 import com.hexadron.launcher.install.loader.LoaderType;
@@ -11,6 +13,7 @@ import com.hexadron.launcher.install.loader.Loaders;
 import com.hexadron.launcher.launch.GameLauncher;
 import com.hexadron.launcher.launch.JavaLocator;
 import com.hexadron.launcher.launch.LaunchCommandBuilder;
+import com.hexadron.launcher.launch.LaunchWrapperJar;
 import com.hexadron.launcher.meta.AssetIndex;
 import com.hexadron.launcher.meta.VersionJson;
 import com.hexadron.launcher.meta.VersionManifest;
@@ -41,6 +44,7 @@ public final class LauncherService {
     private final VersionInstaller versionInstaller;
     private final ProfileStore profiles;
     private final AccountStore accounts;
+    private final SecretStore secretStore;
     private final JavaLocator javaLocator;
     private final LaunchCommandBuilder commandBuilder;
     private final GameLauncher gameLauncher = new GameLauncher();
@@ -54,7 +58,10 @@ public final class LauncherService {
         this.downloader = new Downloader(settings.downloadConcurrency());
         this.versionInstaller = new VersionInstaller(dirs, downloader);
         this.profiles = new ProfileStore(dirs).load();
-        this.accounts = new AccountStore(dirs).load();
+        // Chosen once, at start-up: probing a credential store costs a process
+        // spawn, and doing it per account read would put a pause on every launch.
+        this.secretStore = SecretStores.forHost(this.dirs, settings.useFileCredentialStore());
+        this.accounts = new AccountStore(this.dirs, secretStore).load();
         this.javaLocator = new JavaLocator(dirs);
         this.commandBuilder = new LaunchCommandBuilder(dirs);
         this.curseForge = CurseForgeProvider.fromEnvironment(settings.curseForgeApiKey());
@@ -84,6 +91,11 @@ public final class LauncherService {
 
     public AccountStore accounts() {
         return accounts;
+    }
+
+    /** Where credentials are being kept on this machine. Shown in the interface. */
+    public SecretStore secretStore() {
+        return secretStore;
     }
 
     public JavaLocator javaLocator() {
@@ -264,6 +276,54 @@ public final class LauncherService {
 
     // ---------------------------------------------------------------- accounts
 
+    /**
+     * Signs in to a Microsoft account, using whichever flow the settings select.
+     *
+     * <p>Lives here rather than in the window so that the CLI, the self-check and
+     * any future headless mode all go through the same code path. A second
+     * implementation of an authentication flow is a second place for it to be
+     * wrong.
+     *
+     * @param openBrowser  hands the authorization URL to the platform
+     * @param onDeviceCode shown to the user when the device-code fallback is in use
+     */
+    public Account signInWithMicrosoft(java.util.function.Consumer<java.net.URI> openBrowser,
+                                       Consumer<MicrosoftAuth.DeviceCodePrompt> onDeviceCode,
+                                       Progress progress) throws IOException, InterruptedException {
+        if (!settings.hasMicrosoftClientId()) {
+            throw new IOException("no Azure application ID is configured for Microsoft sign-in");
+        }
+        MicrosoftAuth auth = new MicrosoftAuth(settings.microsoftClientId());
+
+        Account account;
+        if (settings.usesBrowserSignIn()) {
+            account = auth.signInWithBrowser(openBrowser, progress);
+        } else {
+            MicrosoftAuth.DeviceCodePrompt prompt = auth.requestDeviceCode();
+            onDeviceCode.accept(prompt);
+            account = auth.completeDeviceCodeFlow(prompt,
+                    remaining -> progress.stage("Waiting for sign-in (" + remaining + "s left)"),
+                    progress);
+        }
+        accounts.add(account);
+        accounts.save();
+        return account;
+    }
+
+    /**
+     * Removes an account and its stored credentials.
+     *
+     * <p>Deleting the local copy does not revoke Microsoft's side of the grant -
+     * only the user can do that, at {@link MicrosoftAuth#CONSENT_MANAGEMENT_URL}.
+     * The interface says so rather than implying that "remove" is the same as
+     * "revoke", because after a suspected compromise those are very different
+     * actions.
+     */
+    public void signOut(Account account) throws IOException {
+        accounts.remove(account);
+        accounts.save();
+    }
+
     /** Refreshes a Microsoft account's token if it is close to expiry. */
     public Account ensureFresh(Account account, Progress progress) throws IOException, InterruptedException {
         if (!account.needsRefresh()) {
@@ -315,8 +375,19 @@ public final class LauncherService {
         JavaLocator.JavaRuntime java = javaLocator.locate(profile.javaPath(), requiredJava);
         progress.log("Using %s (this version requires Java %d)", java, requiredJava);
 
+        // Null when the setting is off or the wrapper jar is missing from this
+        // build; the builder then falls back to the ordinary command line rather
+        // than refusing to launch.
+        Path wrapperJar = settings.secureLaunchHandshake()
+                ? LaunchWrapperJar.ensureExtracted(dirs)
+                : null;
+        if (settings.secureLaunchHandshake() && wrapperJar == null && !player.isOffline()) {
+            progress.log("Launch wrapper unavailable - the session token will be on the command line "
+                    + "for this launch. Do not share JVM crash logs from this session.");
+        }
+
         LaunchCommandBuilder.LaunchCommand command =
-                commandBuilder.build(version, profile, player, gameDir, assetsDir, java);
+                commandBuilder.build(version, profile, player, gameDir, assetsDir, java, wrapperJar);
 
         progress.log("Command: %s", command.toLoggableString(player.accessToken()));
 

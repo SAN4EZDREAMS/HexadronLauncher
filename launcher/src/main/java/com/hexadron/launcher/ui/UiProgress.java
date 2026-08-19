@@ -77,13 +77,23 @@ public final class UiProgress implements Progress {
         Platform.runLater(() -> progressBar.setProgress(fraction));
     }
 
+    /**
+     * Appends a line to the log pane, with credentials removed.
+     *
+     * <p>The scrub happens at this sink and not only at the call sites, because
+     * this pane is what a user selects, copies and pastes into a support thread.
+     * Anything that reaches it - a line from a mod, an exception from a library,
+     * something the launcher did not write itself - passes through here first,
+     * and this is the one place the guarantee can be made for all of it.
+     */
     @Override
     public void log(String message) {
+        String safe = com.hexadron.launcher.util.Redactor.scrub(message);
         Platform.runLater(() -> {
             if (logArea.getLength() > MAX_LOG_CHARACTERS) {
                 logArea.deleteText(0, MAX_LOG_CHARACTERS / 2);
             }
-            logArea.appendText(message + System.lineSeparator());
+            logArea.appendText(safe + System.lineSeparator());
         });
     }
 

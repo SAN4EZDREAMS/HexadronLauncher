@@ -33,6 +33,50 @@ java {
 	}
 }
 
+// The launch wrapper: one class, built into its own jar and placed on the
+// game's classpath, so the Minecraft session token can be handed over standard
+// input instead of on the command line - where every process on the machine can
+// read it out of the process table, and where the JVM copies it verbatim into
+// hs_err_pid*.log after a crash.
+//
+// A separate source set rather than part of the launcher jar, because the
+// launcher jar also carries lang/*.properties and ui/*.css - resource paths a
+// mod could plausibly claim - and because handing a modded game the launcher's
+// own classes is not something to do for convenience.
+sourceSets {
+	wrapper {
+		java {
+			srcDirs = ['src/wrapper/java']
+		}
+	}
+}
+
+// Compiled for Java 8. This class runs inside the *game's* JVM, and Minecraft
+// versions up to 1.16 run on Java 8 - a wrapper compiled for 25 would fail
+// there with UnsupportedClassVersionError before the game ever started. Raise
+// this only when javac stops accepting 8, and never above the oldest runtime
+// the launcher still starts.
+tasks.named('compileWrapperJava') {
+	options.release = 8
+}
+
+tasks.register('wrapperJar', Jar) {
+	group = 'build'
+	description = 'Builds the launch wrapper that is placed on the game classpath.'
+	archiveBaseName = 'hexadron-launchwrapper'
+	archiveVersion = ''
+	from sourceSets.wrapper.output
+}
+
+// Embedded in the launcher's resources. LaunchWrapperJar extracts it to the
+// data folder on first launch, and re-extracts it whenever its hash changes.
+tasks.named('processResources') {
+	dependsOn tasks.named('wrapperJar')
+	from(tasks.named('wrapperJar')) {
+		into 'wrapper'
+	}
+}
+
 application {
 	mainClass = 'com.hexadron.launcher.Launcher'
 }

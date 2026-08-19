@@ -63,6 +63,7 @@ public final class SelfCheck {
         classpathAssembly();
         assetIndexParsing();
         accounts();
+        securityHardening();
         javaVersionParsing();
         versionManifestParsing();
         playerNamesAndArguments();
@@ -592,10 +593,32 @@ public final class SelfCheck {
         // with it their inventory and position in every existing world.
         checkThrows("blank name is refused", () -> Account.offline("  "));
 
-        Json serialised = steve.toJson();
-        Account restored = Account.fromJson(serialised);
+        Json serialised = steve.toMetadataJson();
+        Account restored = Account.fromMetadataJson(serialised, Json.object());
         check("account round trips", restored.uuid().equals(steve.uuid()));
         check("account name round trips", restored.username().equals(steve.username()));
+
+        // The point of the metadata/secret split: accounts.json must not be able
+        // to carry a credential, even by accident.
+        Account signedIn = new Account(Account.AccountType.MICROSOFT, "Notch",
+                UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5"),
+                "mc-access-token-value", "ms-refresh-token-value",
+                System.currentTimeMillis() + 60_000L, "2535");
+        String metadataText = signedIn.toMetadataJson().toString();
+        check("account metadata carries no access token",
+                !metadataText.contains("mc-access-token-value"));
+        check("account metadata carries no refresh token",
+                !metadataText.contains("ms-refresh-token-value"));
+        String secretText = signedIn.toSecretJson().toString();
+        check("the secret blob carries both tokens",
+                secretText.contains("mc-access-token-value")
+                        && secretText.contains("ms-refresh-token-value"));
+        Account reloaded = Account.fromMetadataJson(signedIn.toMetadataJson(), signedIn.toSecretJson());
+        check("metadata plus secrets reconstructs the account",
+                "mc-access-token-value".equals(reloaded.accessToken())
+                        && "ms-refresh-token-value".equals(reloaded.refreshToken()));
+        check("an account with no stored secret asks for a new sign-in",
+                Account.fromMetadataJson(signedIn.toMetadataJson(), Json.object()).needsSignIn());
 
         UUID parsed = Account.parseUndashedUuid("069a79f444e94726a5befca90e38aaf5");
         check("undashed uuid parsed",
@@ -958,7 +981,7 @@ public final class SelfCheck {
         // A stored account is read back even when its name is one the game
         // rejects, so the user can select a different one and delete it.
         check("a stored bad name still parses",
-                "Гравець".equals(Account.fromJson(Json.parse("""
+                "Гравець".equals(Account.fromLegacyJson(Json.parse("""
                         {"type":"OFFLINE","username":"Гравець",
                          "uuid":"00000000-0000-0000-0000-000000000001"}""")).username()));
 
@@ -988,6 +1011,109 @@ public final class SelfCheck {
             found.add(matcher.group(1));
         }
         return found;
+    }
+
+    // ---------------------------------------------------------------- security
+
+    /**
+     * The authentication hardening, checked the same way as everything else:
+     * offline, with no network and no display.
+     *
+     * <p>These are the assertions that would otherwise only be tested by a real
+     * sign-in against Microsoft, which cannot run in CI. Each one corresponds to
+     * a specific requirement rather than to a line of code - PKCE against RFC
+     * 7636's own test vector, the state check against authorization code
+     * injection, the redactor against the crash-log leak, the placeholder
+     * against the process table.
+     */
+    private static void securityHardening() {
+        section("Authentication hardening");
+
+        // -- PKCE, against the test vector in RFC 7636 appendix B.
+        check("PKCE S256 matches the RFC 7636 vector",
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".equals(
+                        com.hexadron.launcher.auth.Pkce.challengeFor(
+                                "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")));
+
+        var pkce = com.hexadron.launcher.auth.Pkce.generate();
+        check("the verifier is at least the 43 characters RFC 7636 requires",
+                pkce.verifier().length() >= 43 && pkce.verifier().length() <= 128);
+        check("the verifier uses only unreserved characters",
+                pkce.verifier().matches("[A-Za-z0-9._~-]+"));
+        check("two verifiers differ",
+                !pkce.verifier().equals(com.hexadron.launcher.auth.Pkce.generate().verifier()));
+        check("the challenge is derived from the verifier",
+                pkce.challenge().equals(
+                        com.hexadron.launcher.auth.Pkce.challengeFor(pkce.verifier())));
+        check("a matching state is accepted", pkce.matchesState(pkce.state()));
+        check("a wrong state is refused", !pkce.matchesState("something-else"));
+        check("a missing state is refused", !pkce.matchesState(null));
+        check("the verifier never appears in toString",
+                !pkce.toString().contains(pkce.verifier()));
+
+        // -- The authorization request itself.
+        var auth = new com.hexadron.launcher.auth.MicrosoftAuth(
+                "00000000-1111-2222-3333-444444444444");
+        String url = auth.buildAuthorizeUrl(pkce, "http://127.0.0.1:51234/");
+        check("the authorization endpoint is HTTPS", url.startsWith("https://"));
+        check("the authorization request carries an S256 challenge",
+                url.contains("code_challenge_method=S256") && url.contains("code_challenge="));
+        check("the authorization request carries a state", url.contains("state="));
+        check("the authorization request asks for a code, not a token",
+                url.contains("response_type=code"));
+        check("the authorization request never carries a client secret",
+                !url.contains("client_secret"));
+        check("the verifier is never sent to the authorization endpoint",
+                !url.contains(pkce.verifier()));
+        check("the redirect is loopback by IP literal",
+                url.contains("127.0.0.1") && !url.contains("localhost"));
+        check("only the Xbox sign-in scope is requested",
+                url.contains("XboxLive.signin") && !url.contains("openid") && !url.contains("email"));
+
+        // -- Redaction. Registered values and unregistered token shapes both.
+        String token = "M.C531_BAY.0.U.-Cq3zEXAMPLEtokenvaluethatislongenough";
+        com.hexadron.launcher.util.Redactor.register(token);
+        check("a registered secret is removed from a log line",
+                !com.hexadron.launcher.util.Redactor
+                        .scrub("--accessToken " + token).contains(token));
+        String jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1";
+        check("an unregistered JWT is removed by shape",
+                !com.hexadron.launcher.util.Redactor.scrub("Bearer " + jwt).contains(jwt));
+        check("a legacy session argument is removed",
+                !com.hexadron.launcher.util.Redactor
+                        .scrub("--session token:" + jwt + ":uuid").contains(jwt));
+        check("an authorization code in a URL is removed",
+                !com.hexadron.launcher.util.Redactor
+                        .scrub("GET /?code=M.C531_SN1.2.U.abcdefghijklmnop&state=x")
+                        .contains("abcdefghijklmnop"));
+        check("ordinary text is left alone",
+                "installing 42 libraries".equals(
+                        com.hexadron.launcher.util.Redactor.scrub("installing 42 libraries")));
+        check("a short value is not registered as a secret",
+                "ok".equals(com.hexadron.launcher.util.Redactor.scrub("ok")));
+        // A value with no token shape: masked only while it is registered. This
+        // is what proves the two layers are independent, and it is also why the
+        // Microsoft-shaped token above stays masked after being forgotten - the
+        // shape rule catches it regardless, which is the intended behaviour.
+        String opaque = "plain-registered-value-0123456789";
+        com.hexadron.launcher.util.Redactor.register(opaque);
+        check("an opaque registered secret is masked",
+                !com.hexadron.launcher.util.Redactor.scrub(opaque).contains(opaque));
+        com.hexadron.launcher.util.Redactor.forget(opaque);
+        check("a forgotten opaque secret stops being masked",
+                com.hexadron.launcher.util.Redactor.scrub(opaque).equals(opaque));
+        com.hexadron.launcher.util.Redactor.forget(token);
+        check("a Microsoft-shaped token stays masked even after being forgotten",
+                !com.hexadron.launcher.util.Redactor.scrub(token).contains(token));
+
+        // -- The launch handshake. The placeholder must be something no path,
+        // argument or mod identifier could collide with.
+        String placeholder = LaunchCommandBuilder.ACCESS_TOKEN_PLACEHOLDER;
+        check("the token placeholder is distinctive",
+                placeholder.startsWith("%%") && placeholder.endsWith("%%")
+                        && placeholder.contains("HEXADRON"));
+        check("the placeholder is not a valid token shape",
+                com.hexadron.launcher.util.Redactor.scrub(placeholder).equals(placeholder));
     }
 
     // ---------------------------------------------------------------- harness

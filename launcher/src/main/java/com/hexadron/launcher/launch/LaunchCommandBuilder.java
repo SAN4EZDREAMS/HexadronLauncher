@@ -38,34 +38,84 @@ public final class LaunchCommandBuilder {
         this.dirs = dirs;
     }
 
-    /** The command plus the context needed to run and debug it. */
-    public record LaunchCommand(List<String> command, Path workingDirectory,
-                                Path javaExecutable, List<Path> classpath, String mainClass) {
+    /**
+     * The placeholder that stands in for the Minecraft session token in the
+     * argument list when the secure launch path is used.
+     *
+     * <p>Chosen to be something no Minecraft argument, mod or path could
+     * legitimately contain, so a failed handshake produces an obvious
+     * "invalid session" from the game rather than a subtle corruption.
+     */
+    public static final String ACCESS_TOKEN_PLACEHOLDER = "%%HEXADRON_ACCESS_TOKEN%%";
 
-        /** Command with the access token masked, safe to write to a log. */
+    /** Main class of the wrapper that reads the token from standard input. */
+    public static final String WRAPPER_MAIN_CLASS = "com.hexadron.wrapper.GameLaunchWrapper";
+
+    /**
+     * The command plus the context needed to run and debug it.
+     *
+     * @param secrets    placeholder to real value. Empty when the token is on the
+     *                   command line; one entry when the wrapper is in use.
+     *                   {@link GameLauncher} writes these to the child's standard
+     *                   input and nothing else ever touches them.
+     * @param realMainClass the game's own main class, which the wrapper invokes.
+     *                   Equal to {@code mainClass} when the wrapper is not used.
+     */
+    public record LaunchCommand(List<String> command, Path workingDirectory,
+                                Path javaExecutable, List<Path> classpath, String mainClass,
+                                Map<String, String> secrets, String realMainClass) {
+
+        /** True when the session token is delivered over standard input. */
+        public boolean usesSecureHandshake() {
+            return !secrets.isEmpty();
+        }
+
+        /**
+         * Command safe to write to a log.
+         *
+         * <p>With the wrapper in use there is nothing to mask, because the token
+         * was never in the list. The replacement is kept for the fallback path,
+         * and {@link com.hexadron.launcher.util.Redactor} runs over the result as
+         * a second line of defence for anything else that slipped in.
+         */
         public String toLoggableString(String accessToken) {
             String joined = String.join(" ", command);
             if (accessToken != null && !accessToken.isBlank() && !accessToken.equals("0")) {
                 joined = joined.replace(accessToken, "<access token redacted>");
             }
-            return joined;
+            return com.hexadron.launcher.util.Redactor.scrub(joined);
         }
     }
 
     /**
-     * @param version   the flattened version manifest
-     * @param profile   the profile being launched
-     * @param account   the signed-in (or offline) player
-     * @param gameDir   the profile's isolated game directory
-     * @param assetsDir directory to pass as {@code --assetsDir}
-     * @param java      the runtime chosen for this launch
+     * @param version    the flattened version manifest
+     * @param profile    the profile being launched
+     * @param account    the signed-in (or offline) player
+     * @param gameDir    the profile's isolated game directory
+     * @param assetsDir  directory to pass as {@code --assetsDir}
+     * @param java       the runtime chosen for this launch
+     * @param wrapperJar the launch wrapper jar, or null to put the session token
+     *                   on the command line the way every other launcher does
      */
     public LaunchCommand build(VersionJson version, Profile profile, Account account,
-                               Path gameDir, Path assetsDir, JavaLocator.JavaRuntime java) {
+                               Path gameDir, Path assetsDir, JavaLocator.JavaRuntime java,
+                               Path wrapperJar) {
+
+        // The wrapper is pointless for an offline account, whose "token" is the
+        // literal string "0", and it must not be used when the jar is missing.
+        boolean secure = wrapperJar != null && !account.isOffline()
+                && account.accessToken() != null && !account.accessToken().equals("0");
 
         Map<String, Boolean> features = features(profile);
-        List<Path> classpath = buildClasspath(version);
-        Map<String, String> placeholders = placeholders(version, profile, account, gameDir, assetsDir, classpath);
+        List<Path> classpath = new ArrayList<>();
+        if (secure) {
+            classpath.add(wrapperJar);
+        }
+        classpath.addAll(buildClasspath(version));
+        classpath = List.copyOf(classpath);
+
+        Map<String, String> placeholders =
+                placeholders(version, profile, account, gameDir, assetsDir, classpath, secure);
 
         List<String> command = new ArrayList<>();
         command.add(java.executable().toString());
@@ -99,7 +149,14 @@ public final class LaunchCommandBuilder {
         if (mainClass == null || mainClass.isBlank()) {
             throw new IllegalStateException("version " + version.id() + " declares no mainClass");
         }
-        command.add(mainClass);
+        if (secure) {
+            // The wrapper is started instead, and is told which class to hand
+            // control to once it has received the session token over stdin.
+            command.add(WRAPPER_MAIN_CLASS);
+            command.add(mainClass);
+        } else {
+            command.add(mainClass);
+        }
 
         List<String> gameArguments = new ArrayList<>();
         for (Argument argument : version.gameArguments()) {
@@ -109,8 +166,12 @@ public final class LaunchCommandBuilder {
 
         command.addAll(profile.extraGameArguments());
 
+        Map<String, String> secrets = secure
+                ? Map.of(ACCESS_TOKEN_PLACEHOLDER, account.accessToken())
+                : Map.of();
+
         return new LaunchCommand(List.copyOf(command), gameDir, java.executable(),
-                classpath, mainClass);
+                classpath, secure ? WRAPPER_MAIN_CLASS : mainClass, secrets, mainClass);
     }
 
     // ---------------------------------------------------------------- classpath
@@ -163,7 +224,8 @@ public final class LaunchCommandBuilder {
     }
 
     private Map<String, String> placeholders(VersionJson version, Profile profile, Account account,
-                                             Path gameDir, Path assetsDir, List<Path> classpath) {
+                                             Path gameDir, Path assetsDir, List<Path> classpath,
+                                             boolean secure) {
         String separator = Platform.classpathSeparator();
         String joinedClasspath = String.join(separator,
                 classpath.stream().map(Path::toString).toList());
@@ -178,8 +240,15 @@ public final class LaunchCommandBuilder {
         map.put("game_assets", assetsDir.toString());          // legacy spelling
         map.put("assets_index_name", version.assetsId());
         map.put("auth_uuid", account.uuid().toString());
-        map.put("auth_access_token", account.accessToken());
-        map.put("auth_session", "token:" + account.accessToken() + ":" + account.uuid());  // legacy
+
+        // With the secure path, what goes into the argument list is a placeholder;
+        // the real token is written to the child's stdin by GameLauncher and
+        // substituted inside the game's own JVM. This is the difference between a
+        // session token that any process on the machine can read out of the
+        // process table, and one that never leaves a pipe.
+        String tokenForArguments = secure ? ACCESS_TOKEN_PLACEHOLDER : account.accessToken();
+        map.put("auth_access_token", tokenForArguments);
+        map.put("auth_session", "token:" + tokenForArguments + ":" + account.uuid());  // legacy
         map.put("auth_xuid", account.xuid() == null ? "0" : account.xuid());
         map.put("clientid", "");
         map.put("user_type", account.type().userType());

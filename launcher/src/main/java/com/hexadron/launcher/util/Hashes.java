@@ -31,6 +31,10 @@ public final class Hashes {
         return HexFormat.of().formatHex(newDigest("SHA-1").digest(data));
     }
 
+    public static String sha256(byte[] data) {
+        return HexFormat.of().formatHex(newDigest("SHA-256").digest(data));
+    }
+
     public static String digest(Path file, String algorithm) throws IOException {
         MessageDigest md = newDigest(algorithm);
         byte[] buffer = new byte[64 * 1024];

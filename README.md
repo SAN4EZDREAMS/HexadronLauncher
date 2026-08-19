@@ -77,6 +77,9 @@ its own folder under `instances/`, so mods and worlds stay separate.
 | `language` | Interface language: `en`, `uk`, `ru`, `pl`, `de`. Empty follows the operating system |
 | `minimiseToTrayWhilePlaying` | Hide the window to the notification area while the game runs. `true` by default |
 | `microsoftClientId` | Azure application ID for Microsoft sign-in. Empty by default |
+| `microsoftSignInMethod` | `browser` (authorization code + PKCE, the default) or `deviceCode` |
+| `secureLaunchHandshake` | Send the session token to the game over standard input instead of on the command line. `true` by default |
+| `useFileCredentialStore` | Keep credentials in the launcher's own encrypted file instead of the operating system credential store. `false` by default, and a downgrade |
 | `curseForgeApiKey` | CurseForge API key. Empty by default. Modrinth needs no key |
 | `showAllVersions` | Show snapshots and old versions in the version list |
 | `downloadConcurrency` | Number of files to download at the same time |
@@ -87,13 +90,25 @@ its own folder under `instances/`, so mods and worlds stay separate.
 Mojang requires each launcher to use its own Azure application, and Mojang must
 approve that application. Do these steps in order:
 
-1. Register an application in the Azure portal. Select the public client flow.
-2. Apply to Mojang for approval of the application ID.
+1. Register an application in the Azure portal, in the **consumers** tenant.
+   Add the platform **Mobile and desktop applications** and the redirect URI
+   `http://127.0.0.1`. Leave **Allow public client flows** off unless you also
+   want the device-code fallback; the launcher needs no client secret.
+2. Apply to Mojang for approval of the application ID at
+   <https://aka.ms/mce-reviewappid>.
 3. Put the application ID into `launcher.json` as `microsoftClientId`.
 
-The launcher uses the OAuth device code flow. It never receives the user's
-Microsoft password. Until the application is approved, `login_with_xbox` returns
-HTTP 403 and the launcher reports this.
+The launcher signs in with the OAuth 2.0 authorization code grant and PKCE, in
+the user's own browser, over a loopback redirect - what RFC 8252 prescribes for
+a native application. It never receives the user's Microsoft password, never
+draws a login form and never loads an embedded web view. The device code grant
+is kept as a fallback for a machine with no browser.
+
+Until the application is approved, `login_with_xbox` returns HTTP 403 and the
+launcher reports exactly that.
+
+Credentials are never written to `accounts.json`. See [SECURITY.md](SECURITY.md)
+for what protects them, and for the limits of that protection.
 
 Offline accounts need none of this. An offline account uses the same UUID that a
 Minecraft server calculates in offline mode, so worlds keep the same player data.
@@ -294,7 +309,8 @@ util/     platform detection, hashes, maven coordinates
 net/      HTTP client with retry, parallel verifying downloader
 meta/     version manifest, version JSON, rules, libraries, assets
 install/  version installer, asset installer, native extraction, loaders
-auth/     accounts, offline UUIDs, Microsoft device code flow
+auth/     accounts, offline UUIDs, Microsoft sign-in (PKCE + device code),
+          credential stores (DPAPI / Keychain / Secret Service / encrypted file)
 profile/  profiles and their isolated game folders
 mods/     Modrinth and CurseForge providers, pack and single-mod installer,
           ownership records
@@ -307,8 +323,9 @@ cli/      headless entry point
 
 `SelfCheck` verifies the metadata layer, the player-name rule, JVM-argument
 splitting, mod ownership, loader/version compatibility, search paging and the
-language files with 247 assertions. It needs no network, no display and no test
-framework.
+language files, and the authentication hardening - PKCE against RFC 7636's own
+test vector, state validation, log redaction, the credential split - with 280
+assertions. It needs no network, no display and no test framework.
 
 ## Not done yet
 
@@ -316,8 +333,9 @@ framework.
   that must run locally to patch the client jar.
 - Download of a Java runtime when the machine has none.
 - Import and export of Modrinth `.mrpack` and CurseForge modpack files.
-- Storage of refresh tokens in the operating system credential store. The
-  launcher currently writes `accounts.json` with owner-only permissions.
+- Sandboxing the game process. Storing credentials outside the game's reach
+  does not stop a malicious mod reading the live session out of the running
+  JVM; only isolating the process does.
 
 ## License
 

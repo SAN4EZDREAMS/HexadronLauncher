@@ -24,6 +24,42 @@ public final class LauncherSettings {
     /** CurseForge API key. Empty means the CurseForge provider stays disabled. */
     private String curseForgeApiKey = "";
 
+    /**
+     * How Microsoft sign-in is started: {@code "browser"} or {@code "deviceCode"}.
+     *
+     * <p>Browser is the default because it is what RFC 8252 prescribes for a
+     * native application and because the device code grant is now a documented
+     * phishing vector - the user is trained to type a code into a Microsoft page
+     * with no binding to the application that produced it, which is exactly how
+     * the campaign that made Mojang start reviewing launcher applications worked.
+     * Device code stays available for a machine with no usable browser.
+     */
+    private String microsoftSignInMethod = "browser";
+
+    /**
+     * Deliver the session token to the game over standard input rather than on
+     * the command line.
+     *
+     * <p>On by default. Process arguments are readable by every process on the
+     * machine and are copied verbatim into JVM crash logs, so this is the
+     * difference between a session token that leaks by accident and one that
+     * does not. The setting exists only so that a user hitting an unforeseen
+     * incompatibility with some mod loader can start the game while it is
+     * investigated.
+     */
+    private boolean secureLaunchHandshake = true;
+
+    /**
+     * Keep credentials in the launcher's own encrypted file instead of the
+     * operating system's credential store.
+     *
+     * <p>Off by default, and it is a downgrade: the file's key sits next to the
+     * file. It is offered because some users will not want a launcher writing to
+     * their keychain at all, and because a locked or absent keyring should be a
+     * choice rather than a hang.
+     */
+    private boolean useFileCredentialStore = false;
+
     /** Keep the launcher window open while the game runs, for reading the log. */
     private boolean keepOpenWhilePlaying = true;
 
@@ -62,6 +98,9 @@ public final class LauncherSettings {
         Json json = Json.read(file);
         microsoftClientId = json.get("microsoftClientId").asString(microsoftClientId);
         curseForgeApiKey = json.get("curseForgeApiKey").asString(curseForgeApiKey);
+        microsoftSignInMethod = json.get("microsoftSignInMethod").asString(microsoftSignInMethod);
+        secureLaunchHandshake = json.get("secureLaunchHandshake").asBool(secureLaunchHandshake);
+        useFileCredentialStore = json.get("useFileCredentialStore").asBool(useFileCredentialStore);
         keepOpenWhilePlaying = json.get("keepOpenWhilePlaying").asBool(keepOpenWhilePlaying);
         minimiseToTrayWhilePlaying = json.get("minimiseToTrayWhilePlaying")
                 .asBool(minimiseToTrayWhilePlaying);
@@ -75,6 +114,9 @@ public final class LauncherSettings {
         Json.object()
                 .put("microsoftClientId", microsoftClientId)
                 .put("curseForgeApiKey", curseForgeApiKey)
+                .put("microsoftSignInMethod", microsoftSignInMethod)
+                .put("secureLaunchHandshake", secureLaunchHandshake)
+                .put("useFileCredentialStore", useFileCredentialStore)
                 .put("keepOpenWhilePlaying", keepOpenWhilePlaying)
                 .put("minimiseToTrayWhilePlaying", minimiseToTrayWhilePlaying)
                 .put("downloadConcurrency", downloadConcurrency)
@@ -94,6 +136,38 @@ public final class LauncherSettings {
 
     public boolean hasMicrosoftClientId() {
         return !microsoftClientId.isBlank();
+    }
+
+    /** {@code "browser"} (authorization code + PKCE) or {@code "deviceCode"}. */
+    public String microsoftSignInMethod() {
+        return microsoftSignInMethod;
+    }
+
+    public boolean usesBrowserSignIn() {
+        return !"deviceCode".equalsIgnoreCase(microsoftSignInMethod);
+    }
+
+    public LauncherSettings microsoftSignInMethod(String value) {
+        this.microsoftSignInMethod = "deviceCode".equalsIgnoreCase(value) ? "deviceCode" : "browser";
+        return this;
+    }
+
+    public boolean secureLaunchHandshake() {
+        return secureLaunchHandshake;
+    }
+
+    public LauncherSettings secureLaunchHandshake(boolean value) {
+        this.secureLaunchHandshake = value;
+        return this;
+    }
+
+    public boolean useFileCredentialStore() {
+        return useFileCredentialStore;
+    }
+
+    public LauncherSettings useFileCredentialStore(boolean value) {
+        this.useFileCredentialStore = value;
+        return this;
     }
 
     public String curseForgeApiKey() {
