@@ -19,7 +19,7 @@ public final class LauncherSettings {
      * application ID, and embedding someone else's would break as soon as it
      * were revoked.
      */
-    private String microsoftClientId = "";
+    private String microsoftClientId = "014ab124-109d-4664-a685-c2f88aa32ea8";
 
     /** CurseForge API key. Empty means the CurseForge provider stays disabled. */
     private String curseForgeApiKey = "";
