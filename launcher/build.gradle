@@ -77,8 +77,21 @@ tasks.named('processResources') {
 	}
 }
 
+// Main, not Launcher, and this matters beyond jpackage.
+//
+// The `application` plugin puts this class into the generated start scripts and
+// therefore into distZip. Those scripts launch with -classpath, so JavaFX is on
+// the class path and not the module path - and the JDK refuses to start a main
+// class that extends Application under exactly that condition, with "JavaFX
+// runtime components are missing". So the distribution zip this project has been
+// publishing all along could not actually start; `./gradlew run` worked only
+// because the JavaFX plugin puts the modules on the module path for that one
+// task, which hid it.
+//
+// Main is not an Application, so the check does not apply, and it forwards to
+// the same two entry points. See Main's own comment.
 application {
-	mainClass = 'com.hexadron.launcher.Launcher'
+	mainClass = 'com.hexadron.launcher.Main'
 }
 
 // The CurseForge API key.

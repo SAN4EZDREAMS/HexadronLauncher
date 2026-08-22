@@ -31,9 +31,17 @@ concurrency:
   group: build-launcher-${{ github.ref }}
   cancel-in-progress: true
 
+# Найменші потрібні права. За замовчуванням токен job'а може мати запис у
+# репозиторій; цьому workflow запис не потрібен ніде, тож він його не отримує.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-24.04
+    # Зависла збірка інакше з'їдає шість годин runner-часу перед тим, як GitHub
+    # її вб'є. Сорок п'ять секунд — норма, десять хвилин — вже точно поламка.
+    timeout-minutes: 15
     steps:
       - name: checkout repository
         uses: actions/checkout@v6
@@ -48,33 +56,46 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
+      # Окремим кроком, хоч `assemble` міг би бути один: коли червоніє саме цей
+      # крок, зрозуміло, що зламана логіка ядра, а не компіляція.
       - name: verify the launch core
         run: ./gradlew --configure-on-demand :launcher:selfCheck
-      # Ключ CurseForge приходить ЛИШЕ звідси, у репозиторії його немає.
+      # `assemble`, а не `build`. `build` = `assemble` + `check`, а `check`
+      # тягне selfCheck — тобто попередній крок виконувався б удвічі. JavaExec не
+      # має оголошених виходів, тож Gradle його не пропускає як UP-TO-DATE.
       #
+      # Ключ CurseForge приходить ЛИШЕ звідси, у репозиторії його немає.
       # GitHub не віддає секрети збіркам форків і pull request'ам із форків. Тому
       # там CURSEFORGE_API_KEY порожній, у манифест jar'а потрапляє порожній
       # атрибут, CurseForgeProvider.isAvailable() повертає false і CurseForge
       # просто зникає з інтерфейсу. Збірка при цьому зелена: сторонній внесок не
       # має падати через відсутність нашого ключа.
-      - name: build launcher
-        run: ./gradlew --configure-on-demand :launcher:build
+      - name: assemble launcher
+        run: ./gradlew --configure-on-demand :launcher:assemble
         env:
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
-      - name: capture build artifacts
+      # Це НЕ готовий клієнт. Це jar плюс distZip зі скриптами запуску — обидва
+      # вимагають установленої Java 25. Готові клієнти з вбудованим рантаймом
+      # збирає job `package` нижче.
+      #
+      # Лишається тут навмисно: тому, хто вже має JDK, зайві 80 МБ рантайму ні до
+      # чого, а Linux-користувачі часто хочуть саме такий варіант.
+      - name: capture the jar and the script distribution
         uses: actions/upload-artifact@v7
         with:
-          name: hexadron-launcher
+          name: hexadron-launcher-jar
           path: |
             launcher/build/libs/*.jar
             launcher/build/distributions/*.zip
           if-no-files-found: error
+          # Проміжний артефакт кожного пуша. Дев'яносто днів за замовчуванням —
+          # це сховище під сотні збірок, які нікому не потрібні через тиждень.
+          retention-days: 14
 
   # Готові клієнти для трьох систем.
   #
-  # `needs: build` — це те, про що йшлося: три збірки стартують ЛИШЕ після того,
-  # як пройшли selfCheck і звичайна збірка. Немає сенсу пакувати те, що не
-  # компілюється.
+  # `needs: build` — три збірки стартують ЛИШЕ після того, як пройшли selfCheck і
+  # компіляція. Немає сенсу пакувати те, що не збирається.
   #
   # Чому три окремі бігуни, а не один: jpackage вміє збирати образ тільки для тієї
   # системи, на якій сам запущений. Він кладе всередину рантайм Java саме цієї
@@ -82,8 +103,17 @@ jobs:
   #
   # fail-fast: false — щоб падіння macOS не забирало з собою вже готові Windows і
   # Linux. Кожна платформа падає й лагодиться окремо.
+  #
+  # `if:` — пакування коштує близько трьох хвилин runner-часу на трьох машинах, і
+  # робочій гілці посеред роботи готові клієнти не потрібні. Тому: гілка за
+  # замовчуванням, тег, або запуск руками через "Run workflow". Щоб пакувати
+  # завжди — просто прибери рядок `if:`.
   package:
     needs: build
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || startsWith(github.ref, 'refs/tags/')
+      || github.ref_name == github.event.repository.default_branch
     strategy:
       fail-fast: false
       matrix:
@@ -95,6 +125,7 @@ jobs:
           - os: macos-15
             label: macos
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     # bash на всіх трьох, включно з Windows: тоді ./gradlew — одна команда, а не
     # ./gradlew.bat в одному місці й ./gradlew у двох інших.
     defaults:
@@ -114,6 +145,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
+      # appImage залежить тільки від jar, не від check. selfCheck тут не
+      # повторюється — його вже пройшов job build.
       - name: build the application image
         run: ./gradlew --configure-on-demand :launcher:appImage
         env:
@@ -143,3 +176,4 @@ jobs:
           name: hexadron-launcher-${{ matrix.label }}
           path: release/*
           if-no-files-found: error
+          retention-days: 30

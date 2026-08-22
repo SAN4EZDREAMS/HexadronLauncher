@@ -60,11 +60,21 @@ on**: it embeds that platform's Java runtime, so a Windows client cannot be
 produced on Linux even in principle. `fail-fast: false`, so a broken macOS
 build does not throw away the Windows and Linux ones that already worked.
 
-| Artifact | Contents |
-|---|---|
-| `hexadron-launcher-windows` | `HexadronLauncher-windows.zip` |
-| `hexadron-launcher-linux` | `HexadronLauncher-linux.tar.gz` |
-| `hexadron-launcher-macos` | `HexadronLauncher-macos.tar.gz` |
+| Artifact | Contents | Needs Java installed? |
+|---|---|---|
+| `hexadron-launcher-windows` | `HexadronLauncher-windows.zip` | no |
+| `hexadron-launcher-linux` | `HexadronLauncher-linux.tar.gz` | no |
+| `hexadron-launcher-macos` | `HexadronLauncher-macos.tar.gz` | no |
+| `hexadron-launcher-jar` | the launcher jar and the start-script zip | **yes**, JDK 25 |
+
+The last one is not a client. It is kept because someone who already has a JDK
+has no use for another 80 MB of embedded runtime, and because it is what a Linux
+user packaging this themselves would start from.
+
+Packaging runs on the default branch, on tags, and on a manual **Run workflow** -
+not on every push to a working branch, where three minutes of runner time across
+three machines buys a client nobody downloads. Remove the `if:` on the `package`
+job to package everything.
 
 Two choices in there worth stating.
 
