@@ -146,25 +146,37 @@ tasks.register('cli', JavaExec) {
 // installed. It only ever builds for the operating system it is running on, so
 // three artifacts means three runners - see .github/workflows/build-launcher.yml.
 //
-// The output is a portable folder, zipped. Not an .msi, a .dmg or a .deb, and
-// that is a deliberate choice rather than a missing feature: an unsigned
-// installer is worse than no installer. Windows SmartScreen warns on an unsigned
-// .msi, and macOS refuses an unsigned .dmg outright with "the app is damaged and
-// can't be opened" - a message that reads like a corrupt download. Signing needs
-// a Windows certificate and an Apple Developer membership. Until those exist, a
-// zip the user unpacks and runs is the honest format.
+// The output is a portable folder, archived by the workflow. Not an .msi, a .dmg
+// or a .deb, and that is a deliberate choice rather than a missing feature: an
+// unsigned installer is worse than no installer. Windows SmartScreen warns on an
+// unsigned .msi, and macOS refuses an unsigned .dmg outright with "the app is
+// damaged and can't be opened" - a message that reads like a corrupt download.
+// Signing needs a Windows certificate and an Apple Developer membership. Until
+// those exist, an archive the user unpacks and runs is the honest format.
 //
 // The main class here is Main, not Launcher: see Main's own comment for the JDK
 // rule that requires it.
 
 def appName = 'HexadronLauncher'
 
-def hostClassifier = {
-	String os = System.getProperty('os.name').toLowerCase(Locale.ROOT)
-	if (os.contains('win')) return 'windows'
-	if (os.contains('mac')) return 'macos'
-	return 'linux'
-}()
+// The version jpackage stamps into the bundle, which on macOS is not the product
+// version.
+//
+// macOS will not accept a first number of zero. jpackage stops with "The first
+// number in an app-version cannot be zero or negative", because Apple requires
+// CFBundleVersion to begin above zero - so a pre-1.0 product cannot be expressed
+// there at all. Windows and Linux accept 0.2.0 without complaint.
+//
+// The substitution is therefore confined to macOS rather than applied everywhere
+// for the sake of consistency: two platforms can report the true version, and
+// only the one that forbids it gets a stand-in. The build says out loud when it
+// substitutes, so a bundle claiming 1.0.0 is never a silent surprise.
+//
+// Everywhere the version is not constrained it stays true: the jar inside the
+// image is launcher-0.2.0.jar, and the launcher sends 0.2.0 in its User-Agent.
+def productVersion = project.version.toString()
+def isMacOs = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('mac')
+def bundleVersion = (isMacOs && productVersion.startsWith('0.')) ? '1.0.0' : productVersion
 
 def jpackageInputDir = layout.buildDirectory.dir('jpackage-input')
 def jpackageOutputDir = layout.buildDirectory.dir('jpackage')
@@ -192,13 +204,23 @@ tasks.register('appImage', Exec) {
 	description = 'Builds a self-contained application image for this operating system.'
 	dependsOn 'jpackageInput', 'cleanAppImage'
 
+	// Everything the task action needs is captured here, at configuration time.
+	// Reaching for `project` from inside a task action is deprecated in Gradle 9
+	// and gone in Gradle 10 - which is what the "Deprecated Gradle features were
+	// used in this build" line was about, and the reason `project.version` is
+	// read into a local above rather than used below.
 	def toolchain = javaToolchains.launcherFor {
 		languageVersion = JavaLanguageVersion.of(25)
 	}
 	def mainJarName = tasks.named('jar').flatMap { it.archiveFileName }
+	def inputDir = jpackageInputDir
+	def outputDir = jpackageOutputDir
+	def name = appName
+	def version = bundleVersion
+	def reportedVersion = productVersion
 
-	inputs.dir jpackageInputDir
-	outputs.dir jpackageOutputDir
+	inputs.dir inputDir
+	outputs.dir outputDir
 
 	doFirst {
 		def windows = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win')
@@ -210,15 +232,20 @@ tasks.register('appImage', Exec) {
 				+ 'the JDK from version 14 onwards; a JRE alone does not have it.')
 		}
 
+		if (version != reportedVersion) {
+			logger.lifecycle("Bundle version ${version}, product version ${reportedVersion}"
+				+ ' - macOS rejects an app-version starting with zero')
+		}
+
 		commandLine jpackage.absolutePath,
 			'--type', 'app-image',
-			'--name', appName,
-			'--app-version', project.version.toString(),
+			'--name', name,
+			'--app-version', version,
 			'--vendor', 'Hexadron',
-			'--input', jpackageInputDir.get().asFile.absolutePath,
+			'--input', inputDir.get().asFile.absolutePath,
 			'--main-jar', mainJarName.get(),
 			'--main-class', 'com.hexadron.launcher.Main',
-			'--dest', jpackageOutputDir.get().asFile.absolutePath
+			'--dest', outputDir.get().asFile.absolutePath
 	}
 }
 
@@ -235,5 +262,4 @@ tasks.register('appImage', Exec) {
 // `./gradlew :launcher:appImage` leaves a runnable folder in
 // launcher/build/jpackage, which is what a developer actually wants anyway.
 //
-// hostClassifier is kept for the workflow to name files by.
-logger.info("Packaging host classifier: {}", hostClassifier)
+// launcher/build/jpackage, which is what a developer actually wants anyway.
