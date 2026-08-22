@@ -71,10 +71,14 @@ The last one is not a client. It is kept because someone who already has a JDK
 has no use for another 80 MB of embedded runtime, and because it is what a Linux
 user packaging this themselves would start from.
 
-Packaging runs on the default branch, on tags, and on a manual **Run workflow** -
-not on every push to a working branch, where three minutes of runner time across
-three machines buys a client nobody downloads. Remove the `if:` on the `package`
-job to package everything.
+Packaging runs on every push, on any branch. It costs about three minutes of
+runner time across three machines, which is worth it while the clients are the
+thing being tested. When that stops being true, the workflow carries the `if:`
+that skips packaging on working branches - commented, with the reason next to it.
+
+One thing worth knowing before relying on that gate: the **Re-run** button keeps
+the original event, so a re-run of a push is still a push and is not a
+`workflow_dispatch`. Only **Run workflow** is.
 
 Two choices in there worth stating.
 
