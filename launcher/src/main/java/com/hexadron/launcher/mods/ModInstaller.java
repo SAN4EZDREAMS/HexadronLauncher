@@ -174,13 +174,17 @@ public final class ModInstaller {
                         provider.source().displayName());
             }
 
+            String label = nameFor(provider, pending, modFile);
             resolved.put(key, modFile);
-            titles.put(key, pending.label);
-            progress.log("Resolved %s -> %s", pending.label, modFile.fileName());
+            titles.put(key, label);
+            progress.log("Resolved %s -> %s", label, modFile.fileName());
+            if (pending.requiredBy() != null) {
+                progress.log("  %s is required by %s", label, pending.requiredBy());
+            }
 
             for (String dependency : modFile.dependencies()) {
                 queue.add(new Pending(pending.provider, dependency, null,
-                        dependency, false, pending.depth + 1));
+                        dependency, false, pending.depth + 1, pending.label));
             }
         }
 
@@ -312,13 +316,17 @@ public final class ModInstaller {
                         source.displayName());
             }
 
+            String label = nameFor(provider, pending, modFile);
             resolved.put(key, modFile);
             origins.put(key, pending.depth == 0 ? ModOrigin.MANUAL : ModOrigin.DEPENDENCY);
-            titles.put(key, pending.label);
+            titles.put(key, label);
+            if (pending.requiredBy() != null) {
+                progress.log("%s is required by %s", label, pending.requiredBy());
+            }
 
             for (String dependency : modFile.dependencies()) {
                 queue.add(new Pending(pending.provider, dependency, null,
-                        dependency, false, pending.depth + 1));
+                        dependency, false, pending.depth + 1, pending.label));
             }
         }
 
@@ -450,6 +458,63 @@ public final class ModInstaller {
     }
 
     /**
+     * What to call this mod in the interface.
+     *
+     * <p>A mod the user chose already has the name they clicked. A dependency
+     * arrives with nothing but a project id, and an installed list reading
+     * "eXts2L7r" is indistinguishable from something that has no business being
+     * there - which is exactly how it was reported. So the platform is asked for
+     * the real name, and if it will not say, the file name is used: "Placeholder
+     * Api" from placeholder-api-3.1.0-beta.1+26.2.jar is not perfect, and it is
+     * still an answer.
+     */
+    private String nameFor(ModProvider provider, Pending pending, ModFile file)
+            throws InterruptedException {
+
+        if (!pending.projectId().equals(pending.label())) {
+            return pending.label();
+        }
+        try {
+            Optional<String> published = provider.projectName(pending.projectId());
+            if (published.isPresent()) {
+                return published.get();
+            }
+        } catch (IOException e) {
+            // One unnamed mod is not worth failing an install over.
+        }
+        return readableNameFrom(file.fileName());
+    }
+
+    /**
+     * A readable name from a jar file name: everything before the version.
+     *
+     * <p>The split is at the first hyphen followed by a digit, which is where
+     * every mod jar naming convention in use puts the boundary.
+     */
+    public static String readableNameFrom(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return "unknown mod";
+        }
+        String base = fileName.endsWith(".jar")
+                ? fileName.substring(0, fileName.length() - 4)
+                : fileName;
+        java.util.regex.Matcher matcher =
+                java.util.regex.Pattern.compile("^(.+?)-\\d").matcher(base);
+        String stem = matcher.find() ? matcher.group(1) : base;
+        stem = stem.replace('_', ' ').replace('-', ' ').trim();
+        if (stem.isEmpty()) {
+            return base;
+        }
+        StringBuilder out = new StringBuilder(stem.length());
+        for (String word : stem.split("\\s+")) {
+            out.append(Character.toUpperCase(word.charAt(0)))
+               .append(word.substring(1))
+               .append(' ');
+        }
+        return out.toString().trim();
+    }
+
+    /**
      * The same jar, published where it may be downloaded from.
      *
      * <p>A CurseForge author can switch off third-party downloads, and the API
@@ -504,7 +569,19 @@ public final class ModInstaller {
         return provider.resolveLatest(pending.projectId, minecraftVersion, loader);
     }
 
+    /**
+     * @param label      what to call this in the interface. For a dependency it
+     *                   starts out as the raw project id and is replaced by the
+     *                   real name once the platform has been asked
+     * @param requiredBy the mod that pulled this one in, or null for a mod the
+     *                   user or a pack asked for directly
+     */
     private record Pending(ModProvider.Source provider, String projectId, String versionId,
-                           String label, boolean optional, int depth) {
+                           String label, boolean optional, int depth, String requiredBy) {
+
+        Pending(ModProvider.Source provider, String projectId, String versionId,
+                String label, boolean optional, int depth) {
+            this(provider, projectId, versionId, label, optional, depth, null);
+        }
     }
 }

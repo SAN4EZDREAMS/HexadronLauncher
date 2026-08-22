@@ -22,6 +22,8 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -42,6 +44,7 @@ import javafx.scene.text.Font;
 import javafx.stage.Stage;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -130,6 +133,9 @@ public final class MainWindow {
     private GameLauncher.GameSession session;
     private volatile boolean busy;
     private boolean playing;
+
+    /** True while a Microsoft sign-in is waiting for the browser. */
+    private volatile boolean signingIn;
 
     /** Cached so a language switch can re-render the summary without touching disk. */
     private Profile shown;
@@ -472,7 +478,7 @@ public final class MainWindow {
         openFolderButton.setText(I18n.t("action.openFolder"));
         detectJavaButton.setText(I18n.t("editor.java.detect"));
         addAccountButton.setText(I18n.t("action.addOffline"));
-        signInButton.setText(I18n.t("action.signIn"));
+        signInButton.setText(I18n.t(signingIn ? "action.signIn.cancel" : "action.signIn"));
         removeAccountButton.setText(I18n.t("action.removeAccount"));
         playButton.setText(I18n.t(playing ? "action.stop" : "action.play"));
 
@@ -555,17 +561,50 @@ public final class MainWindow {
         if (profile == null) {
             return;
         }
+        // Three answers, not two. "Remove" on its own had to mean one of them,
+        // and whichever it meant was wrong half the time: a player clearing out
+        // an old instance wants the disk space back, a player who misclicked
+        // must not lose a world to it. Asking costs one extra button.
+        ButtonType keepFiles = new ButtonType(
+                I18n.t("profiles.remove.keepFiles"), ButtonBar.ButtonData.OTHER);
+        ButtonType deleteFiles = new ButtonType(
+                I18n.t("profiles.remove.deleteFiles"), ButtonBar.ButtonData.OTHER);
+        ButtonType cancel = new ButtonType(
+                I18n.t("action.cancel"), ButtonBar.ButtonData.CANCEL_CLOSE);
+
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
                 I18n.t("profiles.remove.body", profile.name(),
-                        service.profiles().gameDirectory(profile)));
+                        service.profiles().gameDirectory(profile)),
+                keepFiles, deleteFiles, cancel);
         confirm.initOwner(stage);
         Theme.apply(confirm.getDialogPane());
         confirm.setHeaderText(I18n.t("profiles.remove.header"));
-        if (confirm.showAndWait().filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {
+        confirm.getDialogPane().setPrefWidth(640);
+
+        var answer = confirm.showAndWait();
+        if (answer.isEmpty() || answer.get() == cancel) {
             return;
         }
+
         closeBrowser(profile.id());
-        service.profiles().remove(profile);
+        if (answer.get() == deleteFiles) {
+            try {
+                List<Path> undeleted = service.profiles().removeWithFiles(profile);
+                if (undeleted.isEmpty()) {
+                    progress.log(I18n.t("profiles.remove.deleted", profile.name()));
+                } else {
+                    // Named, not swallowed. A folder still sitting there after
+                    // "delete files" needs a reason, and on Windows the reason is
+                    // almost always a file the game has not released yet.
+                    progress.log(I18n.t("profiles.remove.deleteFailed", undeleted.size()));
+                    undeleted.stream().limit(10).forEach(path -> progress.log("  " + path));
+                }
+            } catch (IOException e) {
+                showError(I18n.t("profiles.remove.header"), e);
+            }
+        } else {
+            service.profiles().remove(profile);
+        }
         saveProfilesQuietly();
         refreshProfiles();
     }
@@ -600,6 +639,12 @@ public final class MainWindow {
                     progress::log,
                     exitCode -> {
                         progress.log(GameLauncher.describeExit(exitCode));
+                        // The status line has to be closed off here. This task
+                        // runs with clearBusyOnSuccess off - the "success" of a
+                        // launch is a game still running - so nothing else ever
+                        // takes the bar out of the indeterminate state that
+                        // stage() put it in.
+                        progress.finish(I18n.t("status.gameClosed"));
                         // The launcher comes back by itself: leaving it in the
                         // notification area after the game has closed is a window
                         // the player has to go and find.
@@ -611,6 +656,7 @@ public final class MainWindow {
                             showProfile(shown);
                         });
                     });
+            progress.finish(I18n.t("status.playing"));
             Platform.runLater(() -> {
                 playing = true;
                 playButton.setText(I18n.t("action.stop"));
@@ -712,25 +758,61 @@ public final class MainWindow {
         }
     }
 
+    /**
+     * Starts a Microsoft sign-in, or cancels the one already waiting.
+     *
+     * <p>The second behaviour is the important one. A sign-in waits for the
+     * browser to come back, and closing the browser tab sends nothing - so the
+     * launcher waited out the whole timeout while every other action refused to
+     * start, and pressing the button again silently did nothing because the
+     * launcher was busy with the sign-in the user had just abandoned. Now the
+     * button says Cancel for as long as it is one.
+     */
     private void signInWithMicrosoft() {
+        if (signingIn) {
+            progress.cancel();
+            progress.log(I18n.t("log.signInCancelled"));
+            return;
+        }
         if (!service.settings().hasMicrosoftClientId()) {
             showWarning(I18n.t("ms.notConfigured.header"), I18n.t("ms.notConfigured.body"));
             return;
         }
+        signingIn = true;
+        signInButton.setText(I18n.t("action.signIn.cancel"));
         runInBackground(I18n.t("task.signIn"), () -> {
-            Account account = service.signInWithMicrosoft(
-                    MainWindow::openInSystemBrowser,
-                    prompt -> {
-                        progress.log(I18n.t("log.signInPrompt", prompt.verificationUri(), prompt.userCode()));
-                        Platform.runLater(() -> showInfo(I18n.t("ms.signIn.header"),
-                                I18n.t("ms.signIn.body", prompt.verificationUri(), prompt.userCode())));
-                    },
-                    progress);
-            Platform.runLater(() -> {
-                refreshAccounts();
-                accountBox.getSelectionModel().select(account);
-            });
+            try {
+                Account account = service.signInWithMicrosoft(
+                        MainWindow::openInSystemBrowser,
+                        prompt -> {
+                            progress.log(I18n.t("log.signInPrompt",
+                                    prompt.verificationUri(), prompt.userCode()));
+                            Platform.runLater(() -> showInfo(I18n.t("ms.signIn.header"),
+                                    I18n.t("ms.signIn.body",
+                                            prompt.verificationUri(), prompt.userCode())));
+                        },
+                        progress);
+                Platform.runLater(() -> {
+                    refreshAccounts();
+                    accountBox.getSelectionModel().select(account);
+                });
+            } catch (IOException e) {
+                // A cancellation is not a fault, and must not arrive as an error
+                // dialog about something the user just chose to do.
+                if (progress.isCancelled()) {
+                    progress.finish(I18n.t("log.signInCancelled"));
+                    return;
+                }
+                throw e;
+            } finally {
+                Platform.runLater(this::endSignIn);
+            }
         });
+    }
+
+    private void endSignIn() {
+        signingIn = false;
+        signInButton.setText(I18n.t("action.signIn"));
     }
 
     /**

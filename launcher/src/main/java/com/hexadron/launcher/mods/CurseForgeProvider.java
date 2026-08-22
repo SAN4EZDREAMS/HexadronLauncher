@@ -259,6 +259,20 @@ public final class CurseForgeProvider implements ModProvider {
     }
 
     @Override
+    public Optional<String> projectName(String projectId) throws IOException, InterruptedException {
+        try {
+            Json response = Http.getJson(API + "/mods/" + encode(projectId), headers());
+            String name = response.get("data").get("name").asString(null);
+            return name == null || name.isBlank() ? Optional.empty() : Optional.of(name);
+        } catch (Http.HttpStatusException e) {
+            if (e.statusCode() == 404) {
+                return Optional.empty();
+            }
+            throw e;
+        }
+    }
+
+    @Override
     public Optional<ModFile> resolveLatest(String projectId, String minecraftVersion, LoaderType loader)
             throws IOException, InterruptedException {
 

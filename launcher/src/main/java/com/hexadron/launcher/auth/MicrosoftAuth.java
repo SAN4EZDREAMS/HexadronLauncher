@@ -146,7 +146,10 @@ public final class MicrosoftAuth {
             progress.log("Opened Microsoft sign-in on 127.0.0.1:%d", listener.port());
             openBrowser.accept(authorizationUri);
 
-            String code = listener.awaitCode(BROWSER_TIMEOUT_SECONDS);
+            // The cancellation flag is handed down rather than checked after the
+            // fact: checking it afterwards is checking it once the wait is
+            // already over, which is exactly too late to be useful.
+            String code = listener.awaitCode(BROWSER_TIMEOUT_SECONDS, progress::isCancelled);
             if (progress.isCancelled()) {
                 throw new AuthException("sign-in cancelled");
             }

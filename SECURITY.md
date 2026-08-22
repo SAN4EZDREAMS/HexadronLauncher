@@ -260,7 +260,7 @@ own maven, and it is the same jar the user would download and double-click.
 
 ## 9. Verification
 
-`./gradlew :launcher:selfCheck` runs 380 assertions with no network and no
+`./gradlew :launcher:selfCheck` runs 391 assertions with no network and no
 display, including where the CurseForge key may be sent, and the authentication
 hardening:
 

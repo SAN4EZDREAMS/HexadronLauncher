@@ -138,3 +138,102 @@ tasks.register('cli', JavaExec) {
 	classpath = sourceSets.main.runtimeClasspath
 	mainClass = 'com.hexadron.launcher.cli.HexadronCli'
 }
+
+// ----------------------------------------------------------------- packaging
+//
+// `jpackage` builds a self-contained application image: the launcher, JavaFX,
+// and a Java runtime, in one folder that runs on a machine with no Java
+// installed. It only ever builds for the operating system it is running on, so
+// three artifacts means three runners - see .github/workflows/build-launcher.yml.
+//
+// The output is a portable folder, zipped. Not an .msi, a .dmg or a .deb, and
+// that is a deliberate choice rather than a missing feature: an unsigned
+// installer is worse than no installer. Windows SmartScreen warns on an unsigned
+// .msi, and macOS refuses an unsigned .dmg outright with "the app is damaged and
+// can't be opened" - a message that reads like a corrupt download. Signing needs
+// a Windows certificate and an Apple Developer membership. Until those exist, a
+// zip the user unpacks and runs is the honest format.
+//
+// The main class here is Main, not Launcher: see Main's own comment for the JDK
+// rule that requires it.
+
+def appName = 'HexadronLauncher'
+
+def hostClassifier = {
+	String os = System.getProperty('os.name').toLowerCase(Locale.ROOT)
+	if (os.contains('win')) return 'windows'
+	if (os.contains('mac')) return 'macos'
+	return 'linux'
+}()
+
+def jpackageInputDir = layout.buildDirectory.dir('jpackage-input')
+def jpackageOutputDir = layout.buildDirectory.dir('jpackage')
+
+// Every jar the application needs at runtime, in one flat folder, because that
+// is the only shape --input accepts.
+tasks.register('jpackageInput', Sync) {
+	group = 'distribution'
+	description = 'Collects the runtime jars jpackage needs.'
+	from tasks.named('jar')
+	from configurations.runtimeClasspath
+	into jpackageInputDir
+}
+
+// jpackage refuses to write into a directory that already exists, so the
+// previous image is removed by its own task. Gradle 9 removed Project.delete and
+// Project.exec from task actions, which is why both are task types here rather
+// than calls inside a doLast.
+tasks.register('cleanAppImage', Delete) {
+	delete jpackageOutputDir
+}
+
+tasks.register('appImage', Exec) {
+	group = 'distribution'
+	description = 'Builds a self-contained application image for this operating system.'
+	dependsOn 'jpackageInput', 'cleanAppImage'
+
+	def toolchain = javaToolchains.launcherFor {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+	def mainJarName = tasks.named('jar').flatMap { it.archiveFileName }
+
+	inputs.dir jpackageInputDir
+	outputs.dir jpackageOutputDir
+
+	doFirst {
+		def windows = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win')
+		def jpackage = toolchain.get().metadata.installationPath
+			.file(windows ? 'bin/jpackage.exe' : 'bin/jpackage').asFile
+
+		if (!jpackage.exists()) {
+			throw new GradleException("jpackage was not found at ${jpackage}. It ships with "
+				+ 'the JDK from version 14 onwards; a JRE alone does not have it.')
+		}
+
+		commandLine jpackage.absolutePath,
+			'--type', 'app-image',
+			'--name', appName,
+			'--app-version', project.version.toString(),
+			'--vendor', 'Hexadron',
+			'--input', jpackageInputDir.get().asFile.absolutePath,
+			'--main-jar', mainJarName.get(),
+			'--main-class', 'com.hexadron.launcher.Main',
+			'--dest', jpackageOutputDir.get().asFile.absolutePath
+	}
+}
+
+// There is deliberately no Gradle task that archives the image.
+//
+// Gradle's Zip and Tar tasks follow symlinks and do not carry the executable bit
+// across, and both matter here: the launcher binary has to stay executable on
+// Linux and macOS, and a macOS .app bundle is full of symlinks inside its
+// embedded runtime. An archive built that way unpacks into something that will
+// not start, and it fails at the user's end rather than in CI.
+//
+// So the workflow archives with the platform's own tool - tar on Linux and
+// macOS, 7z on Windows - and this build only produces the image. Locally,
+// `./gradlew :launcher:appImage` leaves a runnable folder in
+// launcher/build/jpackage, which is what a developer actually wants anyway.
+//
+// hostClassifier is kept for the workflow to name files by.
+logger.info("Packaging host classifier: {}", hostClassifier)

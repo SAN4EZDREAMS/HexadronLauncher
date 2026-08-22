@@ -40,6 +40,25 @@ public final class UiProgress implements Progress {
         Platform.runLater(() -> progressBar.setProgress(0));
     }
 
+    /**
+     * Ends the current activity: a fixed message, and a bar that stops moving.
+     *
+     * <p>This exists because {@link #stage} switches the bar to indeterminate and
+     * something has to switch it back. Without it, any long task that finishes
+     * outside the ordinary success path - the game process exiting, most
+     * obviously - leaves the launcher animating "Starting Minecraft" for ever,
+     * which reads as a launcher that has lost track of the game it started.
+     *
+     * <p>Deliberately silent in the log: the caller has already said what
+     * happened there, and saying it twice is how a log stops being readable.
+     */
+    public void finish(String message) {
+        Platform.runLater(() -> {
+            stageLabel.setText(message);
+            progressBar.setProgress(1);
+        });
+    }
+
     @Override
     public boolean isCancelled() {
         return cancelled.get();

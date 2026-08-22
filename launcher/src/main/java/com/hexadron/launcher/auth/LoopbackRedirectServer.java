@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BooleanSupplier;
 
 /**
  * The one-shot loopback listener that receives the OAuth authorization code.
@@ -95,16 +96,49 @@ public final class LoopbackRedirectServer implements AutoCloseable {
      *                                     arrived within {@code timeoutSeconds}
      */
     public String awaitCode(int timeoutSeconds) throws IOException, InterruptedException {
-        try {
-            return code.get(timeoutSeconds, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            throw new MicrosoftAuth.AuthException("sign-in was not completed in time; start again");
-        } catch (java.util.concurrent.ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof IOException io) {
-                throw io;
+        return awaitCode(timeoutSeconds, () -> false);
+    }
+
+    /** How often the cancellation flag is looked at while waiting. */
+    private static final long POLL_MILLIS = 200;
+
+    /**
+     * Blocks until the browser comes back with a code, the wait is cancelled, or
+     * the timeout runs out.
+     *
+     * <p>Cancellation is polled rather than awaited, and that is the whole point.
+     * Closing the browser tab sends nothing - there is no signal and there cannot
+     * be one. Without this the launcher sat through the entire timeout on the
+     * commonest way for a sign-in to end, a user changing their mind, with a
+     * button that had nothing to do and no way to say so.
+     *
+     * @param cancelled checked every {@code 200} ms
+     * @throws MicrosoftAuth.AuthException when consent was denied, the state did
+     *                                     not match, the wait was cancelled, or
+     *                                     nothing arrived in time
+     */
+    public String awaitCode(int timeoutSeconds, BooleanSupplier cancelled)
+            throws IOException, InterruptedException {
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        while (true) {
+            if (cancelled.getAsBoolean()) {
+                cancel();
             }
-            throw new MicrosoftAuth.AuthException("sign-in failed", cause);
+            try {
+                return code.get(POLL_MILLIS, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                if (System.nanoTime() >= deadline) {
+                    throw new MicrosoftAuth.AuthException("sign-in was not completed within "
+                            + timeoutSeconds + " seconds; start again");
+                }
+            } catch (java.util.concurrent.ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof IOException io) {
+                    throw io;
+                }
+                throw new MicrosoftAuth.AuthException("sign-in failed", cause);
+            }
         }
     }
 

@@ -100,4 +100,20 @@ public interface ModProvider {
      */
     Optional<ModFile> resolveLatest(String projectId, String minecraftVersion, LoaderType loader)
             throws IOException, InterruptedException;
+
+    /**
+     * The human-readable name of a project.
+     *
+     * <p>Needed for dependencies. A mod the user chose arrives with the name they
+     * clicked; a mod pulled in behind it arrives as nothing but an id, and
+     * "eXts2L7r" in an installed list is indistinguishable from something that
+     * has no business being there. One request per dependency is a fair price for
+     * a list a user can read.
+     *
+     * @return empty when the platform does not answer, which is not an error -
+     *         the caller falls back to the file name
+     */
+    default Optional<String> projectName(String projectId) throws IOException, InterruptedException {
+        return Optional.empty();
+    }
 }

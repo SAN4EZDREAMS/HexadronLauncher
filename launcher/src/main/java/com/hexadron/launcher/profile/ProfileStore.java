@@ -101,9 +101,64 @@ public final class ProfileStore {
         if (profile.id().equals(selectedId)) {
             selectedId = profiles.keySet().stream().findFirst().orElse(null);
         }
-        // The instance directory is deliberately left on disk: it holds the
+        // The instance directory is left on disk by this method: it holds the
         // user's worlds. Deleting saved games as a side effect of removing a
-        // list entry is not a recoverable mistake.
+        // list entry is not a recoverable mistake, so it takes the separate,
+        // explicit call below.
+    }
+
+    /**
+     * Removes a profile and deletes its game folder.
+     *
+     * <p>Separate from {@link #remove} on purpose. Both are legitimate and
+     * neither is a safe default for the other: a player who removes an old
+     * instance usually wants the twenty gigabytes back, and a player who removes
+     * one by accident must not lose a world to it. The interface asks which.
+     *
+     * <p>Deletion is deepest-first and best-effort. On Windows a file the game
+     * still has open cannot be deleted at all, and a folder that is one locked
+     * shader cache short of empty is a normal outcome rather than a failure to
+     * hide - so what survived is returned and reported, instead of leaving the
+     * user to wonder why the folder is still there.
+     *
+     * @return the paths that could not be deleted, empty when the folder is gone
+     */
+    public synchronized List<Path> removeWithFiles(Profile profile) throws IOException {
+        Path directory = gameDirectory(profile);
+        remove(profile);
+        return deleteRecursively(directory);
+    }
+
+    /**
+     * Deletes a directory tree, deepest entry first.
+     *
+     * <p>Refuses anything that is not inside the instances folder. Profile ids
+     * are generated, but {@code profiles.json} is an editable file on disk, and
+     * the one thing this method must never do is accept a hand-edited id that
+     * resolves somewhere else.
+     */
+    private List<Path> deleteRecursively(Path root) throws IOException {
+        Path instances = dirs.instances().toAbsolutePath().normalize();
+        Path target = root.toAbsolutePath().normalize();
+        if (!target.startsWith(instances) || target.equals(instances)) {
+            throw new IOException("refusing to delete " + target
+                    + ": it is not an instance folder under " + instances);
+        }
+        if (!Files.exists(target)) {
+            return List.of();
+        }
+
+        List<Path> failed = new ArrayList<>();
+        try (var entries = Files.walk(target)) {
+            for (Path path : entries.sorted(Comparator.reverseOrder()).toList()) {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException e) {
+                    failed.add(path);
+                }
+            }
+        }
+        return List.copyOf(failed);
     }
 
     public synchronized boolean isEmpty() {

@@ -44,6 +44,45 @@ To start `runClient` with the whole performance set loaded:
 That set is off by default, so a build of our own code does not depend on the
 Modrinth API being up or on seven third-party builds still existing.
 
+## Ready-made clients
+
+```
+./gradlew :launcher:appImage    # a runnable folder for this operating system
+```
+
+`jpackage` puts the launcher, JavaFX and a Java runtime into one folder under
+`launcher/build/jpackage`. It starts on a machine with no Java installed.
+
+CI builds all three. The `package` job runs only after `build` has passed -
+there is no point packaging something that does not compile - and it runs on
+three separate runners because **jpackage only builds for the system it runs
+on**: it embeds that platform's Java runtime, so a Windows client cannot be
+produced on Linux even in principle. `fail-fast: false`, so a broken macOS
+build does not throw away the Windows and Linux ones that already worked.
+
+| Artifact | Contents |
+|---|---|
+| `hexadron-launcher-windows` | `HexadronLauncher-windows.zip` |
+| `hexadron-launcher-linux` | `HexadronLauncher-linux.tar.gz` |
+| `hexadron-launcher-macos` | `HexadronLauncher-macos.tar.gz` |
+
+Two choices in there worth stating.
+
+**Portable archives, not installers.** No `.msi`, no `.dmg`, no `.deb`. An
+unsigned installer is worse than none: Windows SmartScreen warns on an unsigned
+`.msi`, and macOS refuses an unsigned `.dmg` with "the app is damaged and can't
+be opened" - which reads like a corrupt download rather than a missing
+signature. Fixing that needs a Windows code-signing certificate and an Apple
+Developer membership. Until those exist, an archive the user unpacks is the
+honest format.
+
+**tar.gz on Linux and macOS, zip on Windows.** Archiving happens in the workflow
+with the platform's own tool rather than through a Gradle `Zip` task, because
+Gradle's archive tasks follow symlinks and drop the executable bit. Both matter:
+the launcher binary has to stay executable, and a macOS `.app` is full of
+symlinks into its embedded runtime. An archive built the other way unpacks into
+something that will not start - and it fails at the user's end, not in CI.
+
 ## Headless use
 
 The launcher has a command-line mode. Use it to test an install without a display.
@@ -67,6 +106,14 @@ The launcher keeps all data in one folder:
 
 Libraries, assets and client jars are shared between profiles. Each profile has
 its own folder under `instances/`, so mods and worlds stay separate.
+
+Removing a profile asks what to do with that folder, and the two answers are
+both right some of the time: someone clearing out an old instance wants the
+twenty gigabytes back, and someone who misclicked must not lose a world to it.
+There is no safe default, so there is no default. Deletion is best-effort and
+reports what it could not remove - on Windows a file the game still holds open
+cannot be deleted at all, and a folder left one locked shader cache short of
+empty needs to say so rather than look like a failure.
 
 ## Configuration
 
@@ -462,7 +509,7 @@ splitting, mod ownership, loader/version compatibility, search paging, the
 language files, the Forge installer profile formats and their token language,
 the CurseForge key chain and where that key is allowed to be sent, and the
 authentication hardening - PKCE against RFC 7636's own test vector, state
-validation, log redaction, the credential split - with 380 assertions. It needs
+validation, log redaction, the credential split - with 391 assertions. It needs
 no network, no display and no test framework.
 
 ## Not done yet

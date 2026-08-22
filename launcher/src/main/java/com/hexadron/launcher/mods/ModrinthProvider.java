@@ -117,6 +117,20 @@ public final class ModrinthProvider implements ModProvider {
         return Optional.of(toModFile(projectId, chosen));
     }
 
+    @Override
+    public Optional<String> projectName(String projectId) throws IOException, InterruptedException {
+        try {
+            Json project = Http.getJson(API + "/project/" + encode(projectId));
+            String title = project.get("title").asString(null);
+            return title == null || title.isBlank() ? Optional.empty() : Optional.of(title);
+        } catch (Http.HttpStatusException e) {
+            if (e.statusCode() == 404) {
+                return Optional.empty();
+            }
+            throw e;
+        }
+    }
+
     /** Resolves one exact version id, used when a pack pins a build. */
     public Optional<ModFile> resolveVersion(String projectId, String versionId)
             throws IOException, InterruptedException {

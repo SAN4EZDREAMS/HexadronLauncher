@@ -69,3 +69,77 @@ jobs:
             launcher/build/libs/*.jar
             launcher/build/distributions/*.zip
           if-no-files-found: error
+
+  # Готові клієнти для трьох систем.
+  #
+  # `needs: build` — це те, про що йшлося: три збірки стартують ЛИШЕ після того,
+  # як пройшли selfCheck і звичайна збірка. Немає сенсу пакувати те, що не
+  # компілюється.
+  #
+  # Чому три окремі бігуни, а не один: jpackage вміє збирати образ тільки для тієї
+  # системи, на якій сам запущений. Він кладе всередину рантайм Java саме цієї
+  # платформи, тож зібрати Windows-клієнт на Linux неможливо в принципі.
+  #
+  # fail-fast: false — щоб падіння macOS не забирало з собою вже готові Windows і
+  # Linux. Кожна платформа падає й лагодиться окремо.
+  package:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            label: windows
+          - os: ubuntu-24.04
+            label: linux
+          - os: macos-15
+            label: macos
+    runs-on: ${{ matrix.os }}
+    # bash на всіх трьох, включно з Windows: тоді ./gradlew — одна команда, а не
+    # ./gradlew.bat в одному місці й ./gradlew у двох інших.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+      - name: validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+      - name: setup gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+      - name: build the application image
+        run: ./gradlew --configure-on-demand :launcher:appImage
+        env:
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+      # Архівуємо власним інструментом системи, а не Gradle.
+      #
+      # Zip/Tar у Gradle йдуть за симлінками і не переносять біт запуску. Тут це
+      # критично: на Linux і macOS виконуваний файл мусить лишитися виконуваним, а
+      # .app на macOS усередині складається зі симлінків на вбудований рантайм.
+      # Архів, зібраний без цього, розпакується в те, що не запускається — і
+      # зламається вже в користувача, а не в CI.
+      #
+      # tar.gz для Linux і macOS саме тому. Для Windows права доступу не мають
+      # значення, тож там звичайний zip.
+      - name: archive the client
+        run: |
+          mkdir -p release
+          cd launcher/build/jpackage
+          if [ "${{ matrix.label }}" = "windows" ]; then
+            7z a -tzip "$GITHUB_WORKSPACE/release/HexadronLauncher-${{ matrix.label }}.zip" .
+          else
+            tar czf "$GITHUB_WORKSPACE/release/HexadronLauncher-${{ matrix.label }}.tar.gz" .
+          fi
+      - name: capture the client
+        uses: actions/upload-artifact@v7
+        with:
+          name: hexadron-launcher-${{ matrix.label }}
+          path: release/*
+          if-no-files-found: error

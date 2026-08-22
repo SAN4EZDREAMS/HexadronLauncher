@@ -842,6 +842,29 @@ public final class SelfCheck {
         check("an unknown key is visible, not silent", I18n.t("no.such.key").contains("no.such.key"));
         I18n.use(before);
 
+        // Bundles agreeing with each other does not mean the interface can find
+        // what it asks for: a key absent from every bundle is consistent and
+        // still renders as "!action.cancel!" on a button. These are the keys
+        // added or renamed most recently, checked by name for exactly that.
+        List<String> mustResolve = List.of(
+                "action.cancel", "action.signIn", "action.signIn.cancel",
+                "status.playing", "status.gameClosed", "log.signInCancelled",
+                "profiles.remove.body", "profiles.remove.keepFiles",
+                "profiles.remove.deleteFiles", "profiles.remove.deleted",
+                "profiles.remove.deleteFailed",
+                "mods.curseforge.disabled", "mods.curseforge.setKey",
+                "mods.curseforge.key.header", "mods.curseforge.key.body",
+                "mods.curseforge.key.saved", "mods.searchPartial");
+        for (Language language : Language.all()) {
+            I18n.use(language);
+            List<String> unresolved = mustResolve.stream()
+                    .filter(key -> I18n.t(key).startsWith("!"))
+                    .toList();
+            check(language.code() + ": every key the interface asks for resolves " + unresolved,
+                    unresolved.isEmpty());
+        }
+        I18n.use(Language.DEFAULT);
+
         check("a language code resolves", Language.byCode("uk").orElseThrow() == Language.UKRAINIAN);
         check("a region suffix is ignored", Language.byCode("de-AT").orElseThrow() == Language.GERMAN);
         check("an unknown code is empty", Language.byCode("xx").isEmpty());
@@ -1373,6 +1396,24 @@ public final class SelfCheck {
         check("a plain failure keeps its own message",
                 "connection reset".equals(
                         ModInstaller.reasonFor(new IOException("connection reset"))));
+
+        // Naming a dependency. The reported symptom was an installed list showing
+        // "eXts2L7r", which is a project id and tells the user nothing. The
+        // platform is asked for the real name first; this is the fallback for
+        // when it will not answer.
+        check("a version is stripped off a jar name",
+                "Placeholder Api".equals(ModInstaller.readableNameFrom(
+                        "placeholder-api-3.1.0-beta.1+26.2.jar")));
+        check("a simple name survives",
+                "Sodium".equals(ModInstaller.readableNameFrom("sodium-0.6.13.jar")));
+        check("underscores read as spaces",
+                "Ferrite Core".equals(ModInstaller.readableNameFrom("ferrite_core-8.0.0.jar")));
+        check("a name with no version is left alone",
+                "Somemod".equals(ModInstaller.readableNameFrom("somemod.jar")));
+        check("a digit inside a word is not a version boundary",
+                "Log4j Fix".equals(ModInstaller.readableNameFrom("log4j-fix-1.0.jar")));
+        check("a blank name does not produce a blank label",
+                !ModInstaller.readableNameFrom("").isBlank());
     }
 
     private static ModProvider.SearchResult hit(String id) {
