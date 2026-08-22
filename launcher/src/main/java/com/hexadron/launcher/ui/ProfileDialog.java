@@ -67,8 +67,10 @@ public final class ProfileDialog {
     private final Label memoryLabel = new Label();
     private final TextField javaField = new TextField();
     private final TextField jvmArgumentsField = new TextField();
+    private final TextField wrapperField = new TextField();
 
     private final Label versionNote = new Label();
+    private final Label wrapperNote = new Label();
 
     private final VersionSource versions;
     private final LoaderSupportSource loaderSupport;
@@ -186,6 +188,12 @@ public final class ProfileDialog {
 
         javaField.setPromptText(I18n.t("editor.java.prompt"));
         jvmArgumentsField.setPromptText(I18n.t("dialog.jvmArgs.prompt"));
+        wrapperField.setPromptText(I18n.t("editor.wrapper.prompt"));
+
+        wrapperNote.setText(I18n.t("editor.wrapper.note"));
+        wrapperNote.setWrapText(true);
+        wrapperNote.getStyleClass().add("muted");
+        wrapperNote.setMaxWidth(420);
 
         GridPane grid = new GridPane();
         grid.getStyleClass().add("form");
@@ -213,7 +221,9 @@ public final class ProfileDialog {
         grid.addRow(row++, formLabel(I18n.t("editor.memory")), memory);
 
         grid.addRow(row++, formLabel(I18n.t("editor.java")), javaField);
-        grid.addRow(row, formLabel(I18n.t("dialog.jvmArgs")), jvmArgumentsField);
+        grid.addRow(row++, formLabel(I18n.t("dialog.jvmArgs")), jvmArgumentsField);
+        grid.addRow(row++, formLabel(I18n.t("editor.wrapper")), wrapperField);
+        grid.addRow(row, new Label(), wrapperNote);
         return grid;
     }
 
@@ -239,6 +249,7 @@ public final class ProfileDialog {
         memoryLabel.setText(I18n.t("unit.megabytes", String.valueOf(existing.memoryMegabytes())));
         javaField.setText(existing.javaPath() == null ? "" : existing.javaPath());
         jvmArgumentsField.setText(Arguments.join(existing.extraJvmArguments()));
+        wrapperField.setText(existing.wrapperCommand() == null ? "" : existing.wrapperCommand());
     }
 
     private String validate() {
@@ -265,6 +276,7 @@ public final class ProfileDialog {
         profile.memoryMegabytes(rounded(memorySlider.getValue()));
         profile.javaPath(javaField.getText());
         profile.extraJvmArguments(Arguments.split(jvmArgumentsField.getText()));
+        profile.wrapperCommand(wrapperField.getText());
         return profile;
     }
 

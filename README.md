@@ -531,16 +531,99 @@ splitting, mod ownership, loader/version compatibility, search paging, the
 language files, the Forge installer profile formats and their token language,
 the CurseForge key chain and where that key is allowed to be sent, and the
 authentication hardening - PKCE against RFC 7636's own test vector, state
-validation, log redaction, the credential split - with 391 assertions. It needs
+validation, log redaction, the credential split - with 403 assertions. It needs
 no network, no display and no test framework.
+
+## Sandboxing, and what it is actually for
+
+An earlier version of this file said that storing credentials outside the game's
+reach does not stop a malicious mod reading the live session out of the running
+JVM, and that "only isolating the process does". The second half of that was
+wrong, and it is worth being exact about why.
+
+A sandbox is enforced by the kernel, at the boundary between the process and
+everything outside it - files, sockets, other processes. The session token is
+not outside the process. It is in the game's own heap, put there by the launcher
+because the game needs it to talk to Mojang. A mod runs inside that same JVM,
+which means it reaches the token by reading its own memory. There is no boundary
+to cross, so there is nothing for a sandbox to arbitrate. The author of Prism
+Launcher's own sandboxing proposal says the same thing in the pull request:
+isolation does not protect the account.
+
+What a sandbox does protect is everything the mod is not supposed to touch. That
+is not a small category, and it is where the real incidents happened:
+
+- **fractureiser** (2023) - spread through mods on CurseForge and Modrinth,
+  and stole browser cookies, Discord tokens and cryptocurrency wallets.
+- **"Windows Borderless"** and the **Stargazers** campaigns - the same shape,
+  through the same channels.
+
+None of these read the Minecraft token out of the JVM. All of them read files
+that had nothing to do with Minecraft. A sandbox stops that, and Java cannot:
+`SecurityManager` was the JVM-level answer, and JEP 486 removed it permanently
+in Java 24. There is no in-process option left, which is the honest reason the
+boundary has to be the kernel's.
+
+The cost is not performance. Linux namespaces are a permission check at setup,
+not a layer the game runs through - frame times are unaffected. The cost is
+things that stop working: the NVIDIA proprietary driver wants device nodes a
+strict sandbox removes, and controllers need an input-device portal that does
+not exist yet, so a locked-down profile can boot into software rendering or a
+dead gamepad. Prism Launcher's Flatpak is the one meaningful deployment of this
+in the ecosystem, and it grants `--device=all` and `--socket=x11` for exactly
+those reasons.
+
+So the launcher does not choose for you. It gives you the field.
+
+### The wrapper command
+
+Each profile has a **wrapper command**, in the instance dialog under the JVM
+arguments. Whatever is in it runs first, and the game's JVM becomes its child:
+
+```
+<wrapper> <java> <jvm args> <main class> <game args>
+```
+
+Empty by default, and it must stay that way: a sandbox switched on for everyone
+breaks somebody's GPU driver, controller or Discord integration the first time
+they press Play, and they have no way to know what changed.
+
+A conservative Linux starting point - the game keeps its own instance folder and
+the assets it needs, and loses the rest of `$HOME`:
+
+```
+bwrap --die-with-parent --unshare-pid --new-session
+      --ro-bind /usr /usr --ro-bind /etc /etc
+      --symlink usr/lib /lib --symlink usr/lib64 /lib64 --symlink usr/bin /bin
+      --proc /proc --dev-bind /dev /dev --tmpfs /tmp
+      --bind ~/.hexadron/instances/<id> ~/.hexadron/instances/<id>
+      --ro-bind ~/.hexadron/assets ~/.hexadron/assets
+      --ro-bind ~/.hexadron/libraries ~/.hexadron/libraries
+      --ro-bind ~/.hexadron/versions ~/.hexadron/versions
+```
+
+Two constraints, both of which the launcher's self-check enforces:
+
+- **Standard input must survive.** The session token is handed to the game over
+  stdin rather than on the command line, so a wrapper that closes stdin breaks
+  every online account. `bwrap` and `firejail` both pass it through; a wrapper
+  of your own that redirects from `/dev/null` will not.
+- **The network must stay.** `--unshare-net` produces a launcher that starts a
+  game that cannot reach a server, including Mojang's session server. Use it
+  only for a deliberately offline instance.
+
+The same field takes the things people more commonly want it for -
+`gamemoderun`, `prime-run`, `mangohud`, `strace -f -o trace.log` - which is why
+it is one text box and not a sandbox checkbox.
+
 
 ## Not done yet
 
 - Download of a Java runtime when the machine has none.
 - Import and export of Modrinth `.mrpack` and CurseForge modpack files.
-- Sandboxing the game process. Storing credentials outside the game's reach
-  does not stop a malicious mod reading the live session out of the running
-  JVM; only isolating the process does.
+- A sandbox the launcher turns on by itself. What exists instead is the
+  wrapper command below, and the reason is in the next section: a sandbox
+  cannot do the thing this line used to claim it did.
 
 ## License
 

@@ -9,6 +9,7 @@ import com.hexadron.launcher.meta.Rule;
 import com.hexadron.launcher.meta.VersionJson;
 import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.profile.Profile;
+import com.hexadron.launcher.util.Arguments;
 import com.hexadron.launcher.util.Platform;
 
 import java.nio.file.Path;
@@ -118,6 +119,20 @@ public final class LaunchCommandBuilder {
                 placeholders(version, profile, account, gameDir, assetsDir, classpath, secure);
 
         List<String> command = new ArrayList<>();
+
+        // The wrapper goes first, so the launch becomes
+        //   <wrapper> <java> <java args...>
+        // and the wrapper is the parent of the JVM. That is what makes bwrap,
+        // firejail, prime-run, gamemoderun and mangohud work.
+        //
+        // Two things this must not break, and does not:
+        //  - standard input. The session token is handed to the game over stdin,
+        //    and a wrapper that closed it would break every online account.
+        //    bwrap and firejail both pass stdin through.
+        //  - the argument list. Everything after the wrapper is unchanged, so a
+        //    wrapper that is simply absent leaves the command identical to what
+        //    it was before this feature existed.
+        command.addAll(Arguments.split(profile.wrapperCommand()));
         command.add(java.executable().toString());
 
         // Heap settings come before the metadata's JVM arguments so a profile

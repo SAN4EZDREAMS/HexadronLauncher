@@ -29,6 +29,8 @@ import com.hexadron.launcher.mods.ModLibrary;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.net.Http;
+import com.hexadron.launcher.profile.Profile;
+import com.hexadron.launcher.util.Arguments;
 import com.hexadron.launcher.util.MavenCoordinate;
 import com.hexadron.launcher.util.Platform;
 import com.hexadron.launcher.util.Redactor;
@@ -69,6 +71,7 @@ public final class SelfCheck {
         legacyArguments();
         placeholderSubstitution();
         classpathAssembly();
+        wrapperCommand();
         assetIndexParsing();
         accounts();
         securityHardening();
@@ -628,6 +631,99 @@ public final class SelfCheck {
                                 || entry.startsWith(dirs.versions().toString())));
     }
 
+    // ---------------------------------------------------------------- wrapper
+
+    /**
+     * The wrapper command: the launcher's one honest sandboxing offer.
+     *
+     * <p>Two properties are checked here, and both are the kind that only a test
+     * notices. First, an absent wrapper must leave the command byte-identical to
+     * what it was before the feature existed - a launch path that changes shape
+     * for everyone in order to serve the few who set a wrapper is a regression
+     * dressed as a feature. Second, the wrapper must come first and the java
+     * executable immediately after it, because that ordering is the whole
+     * mechanism: bwrap, firejail, prime-run, gamemoderun and mangohud all work
+     * by being the parent process of the JVM.
+     */
+    private static void wrapperCommand() {
+        section("Wrapper command");
+
+        Path root = Paths.get(System.getProperty("java.io.tmpdir"), "hexadron-selfcheck");
+        GameDirs dirs = new GameDirs(root);
+        LaunchCommandBuilder builder = new LaunchCommandBuilder(dirs);
+
+        VersionJson version = VersionJson.parse(Json.parse("""
+                {
+                  "id": "1.20.1",
+                  "mainClass": "net.minecraft.client.main.Main",
+                  "assets": "5",
+                  "minecraftArguments": "--username ${auth_player_name}",
+                  "downloads": {"client": {"url": "https://example/c.jar", "sha1": "aa", "size": 1}},
+                  "libraries": []
+                }"""));
+
+        Account steve = Account.offline("Steve");
+        JavaLocator.JavaRuntime java = new JavaLocator.JavaRuntime(
+                Paths.get("/usr/bin/java"), 21, "selfcheck");
+        Path gameDir = root.resolve("instances/test");
+        Path assets = dirs.assets();
+
+        Profile plain = Profile.create("Plain", "1.20.1", LoaderType.VANILLA);
+        List<String> without =
+                builder.build(version, plain, steve, gameDir, assets, java, null).command();
+
+        check("with no wrapper the java executable is still first",
+                without.get(0).equals(java.executable().toString()));
+
+        // Set, then cleared. A field that only ever holds "" and a field that
+        // holds null must produce the same command, or clearing the box in the
+        // dialog would leave a wrapper behind.
+        Profile cleared = Profile.create("Cleared", "1.20.1", LoaderType.VANILLA)
+                .wrapperCommand("bwrap --unshare-net")
+                .wrapperCommand("   ");
+        check("a blank wrapper is stored as absent", cleared.wrapperCommand() == null);
+        check("clearing the wrapper restores the original command",
+                builder.build(version, cleared, steve, gameDir, assets, java, null).command()
+                        .equals(without));
+
+        Profile wrapped = Profile.create("Wrapped", "1.20.1", LoaderType.VANILLA)
+                .wrapperCommand("bwrap --unshare-net --die-with-parent");
+        List<String> with =
+                builder.build(version, wrapped, steve, gameDir, assets, java, null).command();
+
+        check("the wrapper program is the process that starts", with.get(0).equals("bwrap"));
+        check("the wrapper's own arguments follow it in order",
+                with.subList(0, 3).equals(List.of("bwrap", "--unshare-net", "--die-with-parent")));
+        check("the java executable comes straight after the wrapper",
+                with.get(3).equals(java.executable().toString()));
+        check("nothing else about the launch changed",
+                with.subList(3, with.size()).equals(without));
+
+        // Quoting, because a bwrap bind mount is the first thing anybody types
+        // here and Windows paths have spaces in them.
+        Profile quoted = Profile.create("Quoted", "1.20.1", LoaderType.VANILLA)
+                .wrapperCommand("firejail \"--whitelist=C:\\Program Files\\Minecraft\"");
+        check("a quoted wrapper argument stays one argument",
+                builder.build(version, quoted, steve, gameDir, assets, java, null).command()
+                        .subList(0, 2)
+                        .equals(List.of("firejail", "--whitelist=C:\\Program Files\\Minecraft")));
+
+        // Persistence. The whole point of the field is that it survives a
+        // restart, and it is written by hand rather than through a picker, so a
+        // silent loss on save would look like the launcher ignoring the setting.
+        Profile reloaded = Profile.fromJson(wrapped.toJson());
+        check("the wrapper survives a save and reload",
+                "bwrap --unshare-net --die-with-parent".equals(reloaded.wrapperCommand()));
+        check("a profile written without a wrapper reads back as absent",
+                Profile.fromJson(plain.toJson()).wrapperCommand() == null);
+        check("no wrapper key is written when there is no wrapper",
+                !plain.toJson().toString().contains("wrapperCommand"));
+
+        check("the split used by the launch is the same one the dialog uses",
+                Arguments.split(wrapped.wrapperCommand())
+                        .equals(List.of("bwrap", "--unshare-net", "--die-with-parent")));
+    }
+
     // ---------------------------------------------------------------- assets
 
     private static void assetIndexParsing() {
@@ -854,7 +950,8 @@ public final class SelfCheck {
                 "profiles.remove.deleteFailed",
                 "mods.curseforge.disabled", "mods.curseforge.setKey",
                 "mods.curseforge.key.header", "mods.curseforge.key.body",
-                "mods.curseforge.key.saved", "mods.searchPartial");
+                "mods.curseforge.key.saved", "mods.searchPartial",
+                "editor.wrapper", "editor.wrapper.prompt", "editor.wrapper.note");
         for (Language language : Language.all()) {
             I18n.use(language);
             List<String> unresolved = mustResolve.stream()

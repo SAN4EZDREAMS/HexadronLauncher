@@ -183,11 +183,28 @@ wrong.
 
 ## 6. What none of this stops
 
-- **A malicious mod.** The game is handed a live token at launch by necessity.
-  A mod can read it out of the running JVM - this is how the real-world
-  Minecraft token stealers work, not by reading `accounts.json`. A credential
-  store does not help here, and claiming otherwise would be dishonest. Only
-  sandboxing the game process would, and that is listed as not done yet.
+- **A malicious mod, as far as the account goes.** The game is handed a live
+  token at launch by necessity. A mod can read it out of the running JVM - this
+  is how the real-world Minecraft token stealers work, not by reading
+  `accounts.json`. A credential store does not help here, and claiming
+  otherwise would be dishonest.
+
+  Nor does a sandbox, and an earlier version of this file said it did. A
+  sandbox is a kernel-enforced boundary around a process; the token is inside
+  the process, in the JVM's own heap, and a mod reading it is reading its own
+  memory. No boundary is crossed, so there is nothing to arbitrate. Java's
+  in-process answer is also gone for good: `SecurityManager` was removed
+  permanently by JEP 486 in Java 24.
+
+  What a sandbox does stop is the part the real incidents actually used -
+  fractureiser (2023) took browser cookies, Discord tokens and cryptocurrency
+  wallets; "Windows Borderless" and the Stargazers campaigns did the same. None
+  of them touched the Minecraft token. All of them read files outside the game.
+  So the wrapper command exists (README, "Sandboxing, and what it is actually
+  for"), off by default, and it defends the machine from the mod rather than the
+  account from the mod. The launch path is built so a sandbox can work at all:
+  the token travels over standard input, which a wrapper passes through, and not
+  in argv, which a namespaced process would still expose in its own `/proc`.
 - **An infostealer already running as the user.** It can ask the same operating
   system for the same secret. What the credential store does stop is the file
   grab: a stealer sweeping for known launcher JSON files, a synced folder, a
@@ -260,7 +277,7 @@ own maven, and it is the same jar the user would download and double-click.
 
 ## 9. Verification
 
-`./gradlew :launcher:selfCheck` runs 391 assertions with no network and no
+`./gradlew :launcher:selfCheck` runs 403 assertions with no network and no
 display, including where the CurseForge key may be sent, and the authentication
 hardening:
 

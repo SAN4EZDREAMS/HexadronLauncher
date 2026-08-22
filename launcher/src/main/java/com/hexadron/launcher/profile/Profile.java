@@ -29,6 +29,7 @@ public final class Profile {
     private List<String> extraJvmArguments;
     private List<String> extraGameArguments;
     private String javaPath;
+    private String wrapperCommand;
     private Integer windowWidth;
     private Integer windowHeight;
     private boolean demo;
@@ -46,6 +47,7 @@ public final class Profile {
         this.extraJvmArguments = new ArrayList<>();
         this.extraGameArguments = new ArrayList<>();
         this.javaPath = null;
+        this.wrapperCommand = null;
         this.demo = false;
         this.lastPlayed = 0;
         this.icon = "grass";
@@ -194,6 +196,32 @@ public final class Profile {
         return this;
     }
 
+    /**
+     * A command the launcher puts in front of the JVM, or null.
+     *
+     * <p>What every other launcher calls a "wrapper command", and the one thing
+     * a launcher can honestly offer towards sandboxing the game. The launch
+     * becomes {@code <wrapper> <java> <args...>} instead of {@code <java>
+     * <args...>}, so the wrapper is the parent process and decides what the
+     * game can reach.
+     *
+     * <p>It is also what {@code prime-run}, {@code gamemoderun}, {@code mangohud}
+     * and {@code optirun} need, which is why the setting exists in Prism,
+     * MultiMC, HMCL, XMCL, ATLauncher, GDLauncher and the Modrinth app.
+     *
+     * <p>Empty by default, and it must stay that way. A sandbox that is on by
+     * default is a launcher that breaks somebody's GPU driver, controller or
+     * Discord integration on first run, and they have no way to know why.
+     */
+    public String wrapperCommand() {
+        return wrapperCommand;
+    }
+
+    public Profile wrapperCommand(String value) {
+        this.wrapperCommand = (value == null || value.isBlank()) ? null : value.trim();
+        return this;
+    }
+
     public Integer windowWidth() {
         return windowWidth;
     }
@@ -268,6 +296,9 @@ public final class Profile {
         if (javaPath != null) {
             json.put("javaPath", javaPath);
         }
+        if (wrapperCommand != null) {
+            json.put("wrapperCommand", wrapperCommand);
+        }
         if (windowWidth != null && windowHeight != null) {
             json.put("windowWidth", windowWidth);
             json.put("windowHeight", windowHeight);
@@ -288,6 +319,7 @@ public final class Profile {
         profile.versionId = json.get("versionId").asString(null);
         profile.memoryMegabytes = json.get("memoryMegabytes").asInt(defaultMemoryMegabytes());
         profile.javaPath = json.get("javaPath").asString(null);
+        profile.wrapperCommand = json.get("wrapperCommand").asString(null);
         profile.demo = json.get("demo").asBool(false);
         profile.lastPlayed = json.get("lastPlayed").asLong(0);
         profile.icon = json.get("icon").asString("grass");
