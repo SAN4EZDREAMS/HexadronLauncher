@@ -135,7 +135,9 @@ public final class LaunchCommandBuilder {
         for (Argument argument : version.jvmArguments()) {
             argument.collectInto(jvmArguments, features);
         }
-        jvmArguments.forEach(argument -> command.add(substitute(argument, placeholders)));
+        String gameJarName = dirs.versionJar(version.jarVersionId()).getFileName().toString();
+        jvmArguments.forEach(argument -> command.add(
+                repairIgnoreList(substitute(argument, placeholders), gameJarName)));
 
         // Log configuration Mojang ships with the version, when present.
         String loggingArgument = loggingArgument(version);
@@ -172,6 +174,57 @@ public final class LaunchCommandBuilder {
 
         return new LaunchCommand(List.copyOf(command), gameDir, java.executable(),
                 classpath, secure ? WRAPPER_MAIN_CLASS : mainClass, secrets, mainClass);
+    }
+
+    // ------------------------------------------------------------- ignoreList
+
+    /** The property modern Forge and NeoForge use to keep jars out of the module graph. */
+    private static final String IGNORE_LIST_PREFIX = "-DignoreList=";
+
+    /**
+     * Adds the game jar's own file name to Forge's {@code ignoreList}.
+     *
+     * <p><b>What this fixes.</b> From Minecraft 1.17 on, Forge boots through
+     * {@code BootstrapLauncher}, which turns every classpath entry into a Java
+     * module unless its file name matches an entry of {@code -DignoreList=}. The
+     * patched game classes arrive separately, as the module named
+     * {@code minecraft}, so the plain game jar on the classpath has to be
+     * excluded - two modules cannot both own {@code net.minecraft.server}.
+     *
+     * <p>Forge writes {@code ${version_name}.jar} into that list, which assumes
+     * the launcher stores the game jar under the <em>loader's</em> version id:
+     * {@code versions/1.20.1-forge-47.4.10/1.20.1-forge-47.4.10.jar}, a copy of
+     * the vanilla jar. This launcher does not copy it. Every profile shares one
+     * {@code versions/1.20.1/1.20.1.jar}, which is why installing four Forge
+     * builds costs four small manifests rather than four 25 MB jars.
+     *
+     * <p>So the assumption is false here, the name in the list never matches, and
+     * the jar becomes an automatic module called {@code _1._20._1} that collides
+     * with {@code minecraft}:
+     *
+     * <pre>
+     * java.lang.module.ResolutionException: Module minecraft contains package
+     * net.minecraft.server, module _1._20._1 exports package
+     * net.minecraft.server to minecraft
+     * </pre>
+     *
+     * <p>The fix is to name the jar this launcher actually puts there. Appending
+     * rather than replacing: {@code ${version_name}.jar} stays correct for anyone
+     * whose data folder was written by another launcher, and the list is matched
+     * by prefix, so an extra entry can only ever exclude the file it names.
+     */
+    public static String repairIgnoreList(String argument, String gameJarName) {
+        if (!argument.startsWith(IGNORE_LIST_PREFIX)
+                || gameJarName == null || gameJarName.isBlank()) {
+            return argument;
+        }
+        String entries = argument.substring(IGNORE_LIST_PREFIX.length());
+        for (String entry : entries.split(",")) {
+            if (entry.trim().equals(gameJarName)) {
+                return argument;
+            }
+        }
+        return argument + "," + gameJarName;
     }
 
     // ---------------------------------------------------------------- classpath

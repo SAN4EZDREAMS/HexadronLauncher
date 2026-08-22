@@ -186,13 +186,10 @@ public final class ForgeStyleInstaller {
 
         GameDirs dirs = installer.dirs();
 
-        // 1. Artifacts the installer carries itself. Several of them - the
-        //    universal jar, the server shim - are published on no repository at
-        //    all, so this is a source and not a cache.
-        int extracted = extractEmbeddedMaven(jar, dirs, progress);
-        if (extracted > 0) {
-            progress.log("Extracted %d artifact(s) bundled in the installer", extracted);
-        }
+        // 1. Artifacts the installer carries itself. Several of them - the server
+        //    shim among them - are published on no repository at all, so this is
+        //    a source and not a cache.
+        extractEmbeddedMaven(jar, dirs, progress);
 
         // 2. The programs the processors are, plus what they need to run.
         if (!profile.libraries().isEmpty()) {
@@ -302,31 +299,64 @@ public final class ForgeStyleInstaller {
         return target.toAbsolutePath().toString();
     }
 
-    /** Copies the installer's own {@code maven/} tree into the library folder. */
+    /**
+     * Copies the installer's own {@code maven/} tree into the library folder.
+     *
+     * <p>Walks the whole archive and selects entries by path prefix rather than
+     * asking for {@code maven/} as a directory. A zip is a flat list of entries
+     * and directory entries are optional: an archive written without them has a
+     * {@code maven/net/...} entry and no {@code maven/} entry, and
+     * {@code Files.isDirectory} on that path can answer false. Reading it as
+     * "this installer bundles nothing" is silent and wrong - the artifacts it
+     * would have skipped exist on no public repository, so the failure surfaces
+     * much later as a missing library at launch.
+     *
+     * @return how many files were newly written
+     */
     private int extractEmbeddedMaven(FileSystem jar, GameDirs dirs, Progress progress)
             throws IOException {
 
-        Path mavenRoot = jar.getPath("maven");
-        if (!Files.isDirectory(mavenRoot)) {
-            return 0;
-        }
+        int found = 0;
         int copied = 0;
-        try (Stream<Path> entries = Files.walk(mavenRoot)) {
-            for (Path source : entries.filter(Files::isRegularFile).toList()) {
-                String relative = mavenRoot.relativize(source).toString().replace('\\', '/');
-                Path target = dirs.library(relative);
-                if (Files.isRegularFile(target)) {
-                    continue;
+        for (Path root : jar.getRootDirectories()) {
+            try (Stream<Path> entries = Files.walk(root)) {
+                for (Path source : entries.filter(Files::isRegularFile).toList()) {
+                    String relative = underMavenTree(source);
+                    if (relative == null) {
+                        continue;
+                    }
+                    found++;
+                    Path target = dirs.library(relative);
+                    if (Files.isRegularFile(target)) {
+                        continue;
+                    }
+                    Files.createDirectories(target.getParent());
+                    Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+                    copied++;
                 }
-                Files.createDirectories(target.getParent());
-                Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
-                copied++;
             }
         }
-        if (copied == 0) {
-            progress.log("Every artifact bundled in the installer is already in place");
+
+        if (found == 0) {
+            progress.log("The installer bundles no artifacts of its own");
+        } else if (copied == 0) {
+            progress.log("All %d artifact(s) bundled in the installer are already in place", found);
+        } else {
+            progress.log("Extracted %d of %d artifact(s) bundled in the installer", copied, found);
         }
         return copied;
+    }
+
+    /**
+     * The library-relative path of an entry inside the installer's maven tree,
+     * or null when the entry is not in it.
+     */
+    private static String underMavenTree(Path entry) {
+        String path = entry.toString().replace('\\', '/');
+        while (path.startsWith("/")) {
+            path = path.substring(1);
+        }
+        return path.startsWith("maven/") ? path.substring("maven/".length()) : null;
     }
 
     /**

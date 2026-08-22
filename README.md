@@ -301,6 +301,34 @@ looks simpler and is wrong:
   no manifest cannot be launched by mistake. One that leaves the manifest and no
   patched jar boots into a crash the user cannot read.
 
+### What has actually been launched
+
+The self-check covers the parsing and the merge rules with no network. It cannot
+cover an install, so these four were run end to end - installed, launched, world
+generated, player joined, exited cleanly. They are one per era of the format
+rather than four of the same thing, which is what makes the set worth keeping.
+
+| Loader | Minecraft | What it exercises |
+|---|---|---|
+| Forge 14.23.5.2859 | 1.12.2 | no processors at all; LaunchWrapper and `--tweakClass` instead of the module system; Java 8 |
+| Forge 47.4.10 | 1.20.1 | the long chain - mappings, jar splitting, remapping, binary patch - and `BootstrapLauncher` |
+| NeoForge 1.20.1-47.1.106 | 1.20.1 | the frozen `net.neoforged:forge` artifact, whose versions are shaped like Forge's |
+| NeoForge 26.1.2.97 | 26.1.2 | one processor; the calendar version scheme; Java 25 |
+
+Two real faults came out of that, and neither was in the installer:
+
+- **The game jar was missing from Forge's `ignoreList`.** Fixed in
+  `LaunchCommandBuilder.repairIgnoreList`, described there.
+- **Pre-1.13 game arguments were appended instead of replaced.** Fixed in
+  `VersionJson.merge`, described there. This one had been in the metadata layer
+  since before Forge existed here, waiting for the first version that uses the
+  old `minecraftArguments` form.
+
+A harmless one worth knowing: Minecraft 1.12.2 logs
+`Couldn't load Narrator library ... SAPIWrapper_x64.dll` at startup. That is
+vanilla 1.12.2's own bug - its JNA looks for the file under a path Mojang did
+not ship it at - and it happens in the official launcher too.
+
 A handful of Forge and NeoForge builds ship a broken installer or are listed in
 the repository without existing - `1.12.2-14.23.5.2851` writes `"data": []`
 where the format requires a map, `47.1.82` is listed without its version prefix.
@@ -434,7 +462,7 @@ splitting, mod ownership, loader/version compatibility, search paging, the
 language files, the Forge installer profile formats and their token language,
 the CurseForge key chain and where that key is allowed to be sent, and the
 authentication hardening - PKCE against RFC 7636's own test vector, state
-validation, log redaction, the credential split - with 360 assertions. It needs
+validation, log redaction, the credential split - with 380 assertions. It needs
 no network, no display and no test framework.
 
 ## Not done yet

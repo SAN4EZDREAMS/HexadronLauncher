@@ -24,6 +24,7 @@ import com.hexadron.launcher.meta.VersionManifest;
 import com.hexadron.launcher.mods.CurseForgeProvider;
 import com.hexadron.launcher.mods.InstalledMod;
 import com.hexadron.launcher.mods.ModFile;
+import com.hexadron.launcher.mods.ModInstaller;
 import com.hexadron.launcher.mods.ModLibrary;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModProvider;
@@ -419,6 +420,55 @@ public final class SelfCheck {
         List<String> game = new ArrayList<>();
         merged.gameArguments().forEach(argument -> argument.collectInto(game, Map.of()));
         check("parent game args preserved", game.contains("--username"));
+
+        // The pre-1.13 form merges the other way round, and this is the case that
+        // caught it: Forge for 1.12.2 writes minecraftArguments containing the
+        // whole vanilla line plus its own --tweakClass. Appending that to the
+        // parent's copy of the same line gives every argument twice, and
+        // LaunchWrapper refuses to start with "Found multiple arguments for
+        // option gameDir".
+        VersionJson legacyVanilla = VersionJson.parse(Json.parse("""
+                {
+                  "id": "1.12.2",
+                  "mainClass": "net.minecraft.client.main.Main",
+                  "minecraftArguments": "--username ${auth_player_name} --version ${version_name} --gameDir ${game_directory} --assetsDir ${assets_root}",
+                  "libraries": []
+                }"""));
+        VersionJson legacyForge = VersionJson.parse(Json.parse("""
+                {
+                  "id": "1.12.2-forge-14.23.5.2859",
+                  "inheritsFrom": "1.12.2",
+                  "mainClass": "net.minecraft.launchwrapper.Launch",
+                  "minecraftArguments": "--username ${auth_player_name} --version ${version_name} --gameDir ${game_directory} --assetsDir ${assets_root} --tweakClass net.minecraftforge.fml.common.launcher.FMLTweaker --versionType Forge",
+                  "libraries": []
+                }"""));
+
+        List<String> legacyGame = new ArrayList<>();
+        VersionJson.merge(legacyForge, legacyVanilla).gameArguments()
+                .forEach(argument -> argument.collectInto(legacyGame, Map.of()));
+
+        check("a legacy argument line is not doubled",
+                legacyGame.stream().filter("--gameDir"::equals).count() == 1);
+        check("the loader's legacy line is the one used",
+                legacyGame.contains("--tweakClass"));
+        check("the vanilla arguments are still there",
+                legacyGame.contains("--username") && legacyGame.contains("--assetsDir"));
+        check("nothing else crept in", legacyGame.size() == 12);
+
+        // A parent with the old form and a child with the new one has to keep
+        // both, or the vanilla arguments vanish.
+        VersionJson modernChildOnLegacyParent = VersionJson.parse(Json.parse("""
+                {
+                  "id": "mixed",
+                  "inheritsFrom": "1.12.2",
+                  "arguments": {"game": ["--tweakClass", "example.Tweaker"]},
+                  "libraries": []
+                }"""));
+        List<String> mixedGame = new ArrayList<>();
+        VersionJson.merge(modernChildOnLegacyParent, legacyVanilla).gameArguments()
+                .forEach(argument -> argument.collectInto(mixedGame, Map.of()));
+        check("a legacy parent keeps its arguments under a modern child",
+                mixedGame.contains("--username") && mixedGame.contains("example.Tweaker"));
     }
 
     // ---------------------------------------------------------------- legacy
@@ -496,6 +546,36 @@ public final class SelfCheck {
         check("lone dollar left verbatim",
                 "$notaplaceholder".equals(
                         LaunchCommandBuilder.substitute("$notaplaceholder", values)));
+
+        // Forge's ignoreList. It names the game jar as ${version_name}.jar,
+        // which assumes a copy of the vanilla jar under the loader's own version
+        // folder. This launcher shares one jar between profiles, so the name
+        // never matches, the jar becomes an automatic module, and Forge dies with
+        // "Module minecraft contains package net.minecraft.server, module
+        // _1._20._1 exports package net.minecraft.server to minecraft".
+        String forgeIgnoreList = "-DignoreList=bootstraplauncher,securejarhandler,asm,"
+                + "client-extra,fmlcore,forge-,1.20.1-forge-47.4.10.jar";
+
+        check("the real game jar name is added to the ignore list",
+                LaunchCommandBuilder.repairIgnoreList(forgeIgnoreList, "1.20.1.jar")
+                        .endsWith(",1.20.1.jar"));
+        check("the entries already there are kept",
+                LaunchCommandBuilder.repairIgnoreList(forgeIgnoreList, "1.20.1.jar")
+                        .contains("1.20.1-forge-47.4.10.jar"));
+        // Idempotent, or a data folder written by another launcher - where the
+        // name does already match - would grow a duplicate entry every launch.
+        check("a name already listed is not added twice",
+                LaunchCommandBuilder.repairIgnoreList(forgeIgnoreList, "1.20.1-forge-47.4.10.jar")
+                        .equals(forgeIgnoreList));
+        check("any other argument is untouched",
+                "-Xmx4096M".equals(
+                        LaunchCommandBuilder.repairIgnoreList("-Xmx4096M", "1.20.1.jar")));
+        check("an argument that merely mentions the property is untouched",
+                "-Dsomething=-DignoreList=x".equals(LaunchCommandBuilder.repairIgnoreList(
+                        "-Dsomething=-DignoreList=x", "1.20.1.jar")));
+        check("no jar name means no change",
+                forgeIgnoreList.equals(
+                        LaunchCommandBuilder.repairIgnoreList(forgeIgnoreList, "")));
     }
 
     // ---------------------------------------------------------------- classpath
@@ -1262,6 +1342,37 @@ public final class SelfCheck {
                 !new ModProvider.SearchPage(List.of(), -1, 40).hasMore());
         check("an empty result set has no more", !ModProvider.SearchPage.empty().hasMore());
         check("the page remembers where it started", last.offset() == 8);
+
+        // A platform that was asked and did not answer has to be visible. The
+        // failure mode it prevents is silent: fewer results, no reason given, and
+        // a user concluding the mod does not exist for their version when in fact
+        // the key was refused.
+        check("a page from every platform is not partial", !first.isPartial());
+        var partial = new ModProvider.SearchPage(List.of(hit("a")), 1, 0,
+                List.of("CurseForge: HTTP 403 - the API key was refused"));
+        check("a page missing a platform is partial", partial.isPartial());
+        check("the missing platform is named",
+                partial.unavailable().get(0).startsWith("CurseForge"));
+        check("results still come through", partial.results().size() == 1);
+
+        // What a failed platform is allowed to say. The raw exception message
+        // carries the whole request URL, which is not something a user typed or
+        // can act on, and the HTTP code on its own explains nothing.
+        String refused = ModInstaller.reasonFor(
+                new Http.HttpStatusException(403,
+                        "https://api.curseforge.com/v1/mods/search?gameId=432&classId=6",
+                        "Forbidden: API Key missing or invalid"));
+        check("403 is explained as the key", refused.contains("API key was refused"));
+        check("the request url is not repeated at the user", !refused.contains("gameId"));
+        check("429 is explained as rate limiting",
+                ModInstaller.reasonFor(new Http.HttpStatusException(429, "https://x/y", ""))
+                        .contains("too many requests"));
+        check("an unmapped status still names its code",
+                ModInstaller.reasonFor(new Http.HttpStatusException(500, "https://x/y", ""))
+                        .equals("HTTP 500"));
+        check("a plain failure keeps its own message",
+                "connection reset".equals(
+                        ModInstaller.reasonFor(new IOException("connection reset"))));
     }
 
     private static ModProvider.SearchResult hit(String id) {

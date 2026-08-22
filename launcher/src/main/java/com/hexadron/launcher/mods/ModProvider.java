@@ -42,13 +42,26 @@ public interface ModProvider {
      * identical for a Minecraft version with four thousand mods and one with
      * fifty.
      *
-     * @param total    matches on the platform, or -1 when it does not report one
-     * @param offset   index this page started at
+     * @param total       matches on the platform, or -1 when it does not report one
+     * @param offset      index this page started at
+     * @param unavailable platforms that were searched and did not answer, one
+     *                    line each, ready to show. A platform failing must not
+     *                    empty the browser - but it must not be silent either.
+     *                    Results that are missing because a key is wrong or a
+     *                    service is down look exactly like results that do not
+     *                    exist, and the user has no way to tell which they are
+     *                    unless told
      */
-    record SearchPage(List<SearchResult> results, int total, int offset) {
+    record SearchPage(List<SearchResult> results, int total, int offset, List<String> unavailable) {
 
         public SearchPage {
             results = List.copyOf(results);
+            unavailable = List.copyOf(unavailable);
+        }
+
+        /** A page every searched platform answered. */
+        public SearchPage(List<SearchResult> results, int total, int offset) {
+            this(results, total, offset, List.of());
         }
 
         public static SearchPage empty() {
@@ -58,6 +71,11 @@ public interface ModProvider {
         /** True when the platform says there is more after this page. */
         public boolean hasMore() {
             return total < 0 ? !results.isEmpty() : offset + results.size() < total;
+        }
+
+        /** True when part of what was asked for is missing rather than absent. */
+        public boolean isPartial() {
+            return !unavailable.isEmpty();
         }
     }
 

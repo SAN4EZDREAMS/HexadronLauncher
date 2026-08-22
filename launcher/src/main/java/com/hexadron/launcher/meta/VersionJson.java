@@ -56,6 +56,19 @@ public final class VersionJson {
     private final JavaVersionInfo javaVersion;
     private final Map<String, Artifact> downloads;
     private final List<Library> libraries;
+
+    /**
+     * Game arguments from {@code minecraftArguments}, the pre-1.13 form.
+     *
+     * <p>Kept apart from the modern ones because the two fields merge by
+     * <em>opposite</em> rules, and mixing them up produces every argument twice.
+     * See {@link #merge}.
+     */
+    private final List<Argument> legacyGameArguments;
+
+    /** Game arguments from {@code arguments.game}, the 1.13-and-later form. */
+    private final List<Argument> modernGameArguments;
+
     private final List<Argument> gameArguments;
     private final List<Argument> jvmArguments;
     private final Json logging;
@@ -65,7 +78,8 @@ public final class VersionJson {
     private VersionJson(String id, String inheritsFrom, String jarVersionId, String mainClass, String type, String releaseTime,
                         String assetsId, AssetIndexInfo assetIndex, JavaVersionInfo javaVersion,
                         Map<String, Artifact> downloads, List<Library> libraries,
-                        List<Argument> gameArguments, List<Argument> jvmArguments,
+                        List<Argument> legacyGameArguments, List<Argument> modernGameArguments,
+                        List<Argument> jvmArguments,
                         Json logging, int complianceLevel, Json raw) {
         this.id = id;
         this.inheritsFrom = inheritsFrom;
@@ -78,7 +92,13 @@ public final class VersionJson {
         this.javaVersion = javaVersion;
         this.downloads = downloads;
         this.libraries = libraries;
-        this.gameArguments = gameArguments;
+        this.legacyGameArguments = List.copyOf(legacyGameArguments);
+        this.modernGameArguments = List.copyOf(modernGameArguments);
+        // The order matters: the legacy string is the whole vanilla argument
+        // line, so it comes first and anything the modern block adds follows it.
+        List<Argument> allGame = new ArrayList<>(this.legacyGameArguments);
+        allGame.addAll(this.modernGameArguments);
+        this.gameArguments = List.copyOf(allGame);
         this.jvmArguments = jvmArguments;
         this.logging = logging;
         this.complianceLevel = complianceLevel;
@@ -118,14 +138,17 @@ public final class VersionJson {
             libraries.add(Library.parse(entry));
         }
 
-        List<Argument> gameArguments;
+        List<Argument> legacyGameArguments;
+        List<Argument> modernGameArguments;
         List<Argument> jvmArguments;
         Json argumentsJson = json.get("arguments");
         if (argumentsJson.isObject()) {
-            gameArguments = Argument.parseList(argumentsJson.get("game"));
+            legacyGameArguments = List.of();
+            modernGameArguments = Argument.parseList(argumentsJson.get("game"));
             jvmArguments = Argument.parseList(argumentsJson.get("jvm"));
         } else {
-            gameArguments = Argument.parseLegacy(json.get("minecraftArguments").asString(null));
+            legacyGameArguments = Argument.parseLegacy(json.get("minecraftArguments").asString(null));
+            modernGameArguments = List.of();
             jvmArguments = List.of();
         }
 
@@ -141,7 +164,8 @@ public final class VersionJson {
                 JavaVersionInfo.parse(json.get("javaVersion")),
                 Map.copyOf(downloads),
                 List.copyOf(libraries),
-                gameArguments,
+                legacyGameArguments,
+                modernGameArguments,
                 jvmArguments,
                 json.get("logging"),
                 json.get("complianceLevel").asInt(0),
@@ -261,8 +285,21 @@ public final class VersionJson {
      *       lets Fabric override the ASM and Guava versions vanilla ships;
      *       reversing the order produces a boot classpath that silently uses the
      *       wrong ASM and fails deep inside mixin.</li>
-     *   <li>Arguments: parent first, then child appended. The child adds
-     *       {@code -DFabricMcEmu=...} and friends on top of the vanilla set.</li>
+     *   <li>Arguments: it depends on which of the two forms they are written in,
+     *       and the two rules are opposites.
+     *       <ul>
+     *         <li><b>{@code arguments.game} and {@code arguments.jvm}</b> (1.13
+     *             and later) are arrays, and the child's are <b>appended</b> to
+     *             the parent's. The child adds {@code -DFabricMcEmu=...} and
+     *             friends on top of the vanilla set.</li>
+     *         <li><b>{@code minecraftArguments}</b> (pre-1.13) is a single
+     *             string, and the child's <b>replaces</b> the parent's. A loader
+     *             writing this field writes the whole line, vanilla arguments
+     *             included, with its own {@code --tweakClass} added. Appending it
+     *             hands the game every argument twice, and LaunchWrapper stops
+     *             with {@code MultipleArgumentsForOptionException: Found multiple
+     *             arguments for option gameDir}.</li>
+     *       </ul></li>
      * </ul>
      *
      * @param child  the manifest that declared {@code inheritsFrom}
@@ -282,8 +319,13 @@ public final class VersionJson {
             }
         }
 
-        List<Argument> mergedGame = new ArrayList<>(parent.gameArguments);
-        mergedGame.addAll(child.gameArguments);
+        // Replace, not append: see the note on this method.
+        List<Argument> mergedLegacyGame = child.legacyGameArguments.isEmpty()
+                ? parent.legacyGameArguments
+                : child.legacyGameArguments;
+
+        List<Argument> mergedModernGame = new ArrayList<>(parent.modernGameArguments);
+        mergedModernGame.addAll(child.modernGameArguments);
 
         List<Argument> mergedJvm = new ArrayList<>(
                 parent.jvmArguments.isEmpty() ? LEGACY_JVM_ARGUMENTS : parent.jvmArguments);
@@ -312,7 +354,8 @@ public final class VersionJson {
                 child.javaVersion != null ? child.javaVersion : parent.javaVersion,
                 Map.copyOf(mergedDownloads),
                 List.copyOf(mergedLibraries),
-                List.copyOf(mergedGame),
+                List.copyOf(mergedLegacyGame),
+                List.copyOf(mergedModernGame),
                 List.copyOf(mergedJvm),
                 child.logging.exists() ? child.logging : parent.logging,
                 Math.max(child.complianceLevel, parent.complianceLevel),

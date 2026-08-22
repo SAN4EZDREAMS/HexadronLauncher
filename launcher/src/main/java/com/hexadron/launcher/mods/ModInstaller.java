@@ -383,6 +383,7 @@ public final class ModInstaller {
             throws IOException, InterruptedException {
 
         List<ModProvider.SearchResult> results = new ArrayList<>();
+        List<String> unavailable = new ArrayList<>();
         int total = 0;
         boolean totalKnown = false;
         IOException firstFailure = null;
@@ -406,12 +407,46 @@ public final class ModInstaller {
                 if (firstFailure == null) {
                     firstFailure = e;
                 }
+                // Named, not swallowed. A platform that was asked and did not
+                // answer is the one case indistinguishable from "there is nothing
+                // there": the user sees a shorter list and no reason for it. A
+                // wrong API key looks exactly like a mod that does not exist for
+                // their version.
+                unavailable.add(provider.source().displayName() + ": " + reasonFor(e));
             }
         }
         if (results.isEmpty() && firstFailure != null) {
-            throw firstFailure;
+            // Nothing to show, so this one is raised rather than reported beside
+            // results. It still gets the same sentence: the raw exception message
+            // is "HTTP 403 for https://api.curseforge.com/v1/mods/search?gameId=
+            // 432&classId=6&pageSize=40&index=0&..." followed by the platform's
+            // own wording, which is a URL the user did not type and cannot act
+            // on. The original is kept as the cause, so a log still has it.
+            throw new IOException(String.join("; ", unavailable), firstFailure);
         }
-        return new ModProvider.SearchPage(results, totalKnown ? total : -1, offset);
+        return new ModProvider.SearchPage(
+                results, totalKnown ? total : -1, offset, unavailable);
+    }
+
+    /**
+     * A short reason fit for one line of interface, not a stack trace.
+     *
+     * <p>The HTTP code alone is not an explanation. A user reading "403" against
+     * CurseForge has no way to know that it means their key, and the platform's
+     * own body text - "Forbidden: API Key missing or invalid" - arrives buried
+     * behind the full request URL.
+     */
+    public static String reasonFor(IOException failure) {
+        if (failure instanceof com.hexadron.launcher.net.Http.HttpStatusException status) {
+            return switch (status.statusCode()) {
+                case 401, 403 -> "HTTP " + status.statusCode() + " - the API key was refused";
+                case 429 -> "HTTP 429 - too many requests, try again shortly";
+                case 404 -> "HTTP 404 - the platform has no such endpoint any more";
+                default -> "HTTP " + status.statusCode();
+            };
+        }
+        String message = failure.getMessage();
+        return message == null || message.isBlank() ? failure.toString() : message;
     }
 
     /**

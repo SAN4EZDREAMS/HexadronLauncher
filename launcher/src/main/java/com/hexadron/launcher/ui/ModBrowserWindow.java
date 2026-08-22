@@ -525,9 +525,17 @@ public final class ModBrowserWindow {
                 moreButton.setDisable(false);
                 moreButton.setText(I18n.t("mods.more"));
 
-                progress.done(totalMatches >= 0
+                String found = totalMatches >= 0
                         ? I18n.t("mods.foundOf", results.size(), totalMatches)
-                        : I18n.t("mods.found", results.size()));
+                        : I18n.t("mods.found", results.size());
+                if (page.isPartial()) {
+                    // A shorter list with no explanation reads as "that mod does
+                    // not exist for this version". Say which platform is missing.
+                    progress.failed(found + "  ·  "
+                            + I18n.t("mods.searchPartial", String.join("; ", page.unavailable())));
+                } else {
+                    progress.done(found);
+                }
             });
         });
     }
