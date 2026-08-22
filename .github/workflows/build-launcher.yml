@@ -50,8 +50,17 @@ jobs:
         run: chmod +x ./gradlew
       - name: verify the launch core
         run: ./gradlew --configure-on-demand :launcher:selfCheck
+      # Ключ CurseForge приходить ЛИШЕ звідси, у репозиторії його немає.
+      #
+      # GitHub не віддає секрети збіркам форків і pull request'ам із форків. Тому
+      # там CURSEFORGE_API_KEY порожній, у манифест jar'а потрапляє порожній
+      # атрибут, CurseForgeProvider.isAvailable() повертає false і CurseForge
+      # просто зникає з інтерфейсу. Збірка при цьому зелена: сторонній внесок не
+      # має падати через відсутність нашого ключа.
       - name: build launcher
         run: ./gradlew --configure-on-demand :launcher:build
+        env:
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
       - name: capture build artifacts
         uses: actions/upload-artifact@v7
         with:

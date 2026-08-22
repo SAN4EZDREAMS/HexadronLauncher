@@ -72,6 +72,19 @@ public final class ModBrowserWindow {
     private final ComboBox<ModSort> sortBox = new ComboBox<>();
     private final ComboBox<SourceChoice> sourceBox = new ComboBox<>();
     private final Button searchButton = new Button();
+
+    /**
+     * Says out loud when CurseForge is not being searched.
+     *
+     * <p>Without it the browser quietly returns Modrinth results only, and a user
+     * looking for a mod that is on CurseForge alone concludes it does not exist
+     * for their version. A launcher searching one platform has to say it is
+     * searching one platform - and then offer the one action that fixes it.
+     */
+    private final Label curseForgeNote = new Label();
+    private final Button curseForgeKeyButton = new Button();
+    private final HBox curseForgeRow = new HBox(8, curseForgeNote, curseForgeKeyButton);
+
     private final javafx.collections.ObservableList<ModProvider.SearchResult> results =
             FXCollections.observableArrayList();
     private final ListView<ModProvider.SearchResult> resultList = new ListView<>(results);
@@ -177,6 +190,7 @@ public final class ModBrowserWindow {
         searchButton.setText(I18n.t("mods.search"));
         browseTab.setText(I18n.t("mods.tab.browse"));
         installedEmpty.setText(I18n.t("mods.installed.empty"));
+        refreshCurseForgeState();
     }
 
     /** Closes the window if it is open. */
@@ -269,6 +283,13 @@ public final class ModBrowserWindow {
         HBox controls = new HBox(8, searchField, sortBox, sourceBox, searchButton);
         controls.setAlignment(Pos.CENTER_LEFT);
 
+        curseForgeNote.getStyleClass().add("muted");
+        curseForgeNote.setWrapText(true);
+        HBox.setHgrow(curseForgeNote, Priority.ALWAYS);
+        curseForgeKeyButton.setOnAction(event -> promptForCurseForgeKey());
+        curseForgeRow.setAlignment(Pos.CENTER_LEFT);
+        refreshCurseForgeState();
+
         resultList.setCellFactory(view -> new ResultCell());
         resultList.setPlaceholder(browseEmpty);
         VBox.setVgrow(resultList, Priority.ALWAYS);
@@ -280,9 +301,53 @@ public final class ModBrowserWindow {
         moreButton.setManaged(false);
         moreButton.setOnAction(event -> loadPage(false));
 
-        VBox pane = new VBox(10, controls, resultList, moreButton);
+        VBox pane = new VBox(10, controls, curseForgeRow, resultList, moreButton);
         pane.getStyleClass().add("browse-pane");
         return pane;
+    }
+
+    /** Shows or hides the CurseForge notice, depending on whether it has a key. */
+    private void refreshCurseForgeState() {
+        boolean available = service.curseForge().isAvailable();
+        curseForgeNote.setText(available ? "" : I18n.t("mods.curseforge.disabled"));
+        curseForgeKeyButton.setText(I18n.t("mods.curseforge.setKey"));
+        curseForgeRow.setVisible(!available);
+        curseForgeRow.setManaged(!available);
+    }
+
+    /**
+     * Asks for a CurseForge key and puts it to use.
+     *
+     * <p>Plain text rather than a masked field on purpose: this is not a
+     * password, it identifies an application rather than a person, and a key
+     * pasted into a field nobody can read is a key nobody can check for a
+     * trailing space.
+     */
+    private void promptForCurseForgeKey() {
+        javafx.scene.control.TextInputDialog dialog =
+                new javafx.scene.control.TextInputDialog(service.settings().curseForgeApiKey());
+        dialog.initOwner(stage);
+        Theme.apply(dialog.getDialogPane());
+        dialog.setTitle(I18n.t("mods.curseforge.key.header"));
+        dialog.setHeaderText(I18n.t("mods.curseforge.key.header"));
+        dialog.setContentText(I18n.t("mods.curseforge.key.body"));
+        dialog.getDialogPane().setPrefWidth(620);
+        dialog.getEditor().setPrefColumnCount(48);
+
+        dialog.showAndWait().ifPresent(value -> {
+            try {
+                service.curseForgeApiKey(value);
+            } catch (java.io.IOException e) {
+                warn(I18n.t("mods.curseforge.key.header"),
+                        e.getMessage() == null ? e.toString() : e.getMessage());
+                return;
+            }
+            refreshCurseForgeState();
+            if (service.curseForge().isAvailable()) {
+                progress.done(I18n.t("mods.curseforge.key.saved"));
+                runSearch();
+            }
+        });
     }
 
     private VBox buildInstalledPane() {

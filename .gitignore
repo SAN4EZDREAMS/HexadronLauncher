@@ -32,6 +32,17 @@ bin/
 
 run/
 
+# secrets
+#
+# The CurseForge API key is read from the environment at build time and is never
+# written down in this repository. These patterns exist so that a local habit -
+# a .env file, a key pasted into a scratch file - cannot become a commit.
+
+.env
+.env.*
+*.key
+secrets.properties
+
 # java
 
 hs_err_*.log

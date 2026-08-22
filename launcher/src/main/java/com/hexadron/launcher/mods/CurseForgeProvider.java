@@ -1,53 +1,167 @@
 package com.hexadron.launcher.mods;
 
+import com.hexadron.launcher.BuildConfig;
 import com.hexadron.launcher.install.loader.LoaderType;
 import com.hexadron.launcher.json.Json;
 import com.hexadron.launcher.net.Http;
+import com.hexadron.launcher.util.Redactor;
 
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * CurseForge (api.curseforge.com/v1).
  *
- * <p>Two constraints, both imposed by CurseForge rather than by this code:
- * <ul>
- *   <li>An API key is mandatory for every request. Register at the CurseForge
- *       developer console; the launcher reads it from the {@code CURSEFORGE_API_KEY}
- *       environment variable or from launcher settings.</li>
- *   <li>Authors can opt out of third-party distribution. For those projects the
- *       API returns a file with a null {@code downloadUrl}. That is a licence
- *       decision, not an error, so this provider surfaces the file with no URL
- *       and the installer reports it as "must be downloaded manually" rather
- *       than trying to work around it.</li>
- * </ul>
+ * <p>Three constraints, all imposed by CurseForge rather than by this code.
+ *
+ * <p><b>A key is required for every request.</b> Where it comes from, in order,
+ * and the first non-empty one wins:
+ * <ol>
+ *   <li>the launcher settings, so a user can always use their own key;</li>
+ *   <li>the {@code CURSEFORGE_API_KEY} environment variable;</li>
+ *   <li>whatever the build put in - see {@link BuildConfig}, which explains why
+ *       the key is not in the repository.</li>
+ * </ol>
+ * With none of those the provider reports itself unavailable and the interface
+ * leaves CurseForge out. That is a working launcher without one platform, not a
+ * broken one: Modrinth needs no key at all.
+ *
+ * <p><b>The key is needed for the downloads too, not only the search.</b> Since
+ * July 2026 CurseForge's content hosts reject unauthenticated requests with
+ * {@code 401}. The key is therefore registered against those hosts in
+ * {@link Http}, so the generic downloader sends it without knowing what
+ * CurseForge is.
+ *
+ * <p><b>Authors can forbid third-party downloads.</b> For those projects the API
+ * returns a file with no {@code downloadUrl}. That is a licence decision and not
+ * an error, so this provider hands the file back without a URL and lets
+ * {@link ModInstaller} decide what to do - which is to look for the identical
+ * file on Modrinth, and otherwise to say so and skip it. It is never worked
+ * around.
  */
 public final class CurseForgeProvider implements ModProvider {
 
     private static final String API = "https://api.curseforge.com/v1";
+    private static final String API_KEY_HEADER = "x-api-key";
 
     /** CurseForge's game id for Minecraft. */
     private static final int GAME_MINECRAFT = 432;
     /** CurseForge's class id for the "Mods" category. */
     private static final int CLASS_MODS = 6;
 
-    private final String apiKey;
+    /**
+     * The key the host-header rule reads.
+     *
+     * <p>The launcher has one CurseForge provider, and the rule in {@link Http}
+     * is registered once and outlives any single provider instance, so the key it
+     * sends is kept here rather than captured. Setting a key in the settings then
+     * takes effect on the next request, with no restart and no re-registration.
+     */
+    private static final AtomicReference<String> ACTIVE_KEY = new AtomicReference<>("");
+    private static final AtomicBoolean HEADER_RULE_REGISTERED = new AtomicBoolean();
 
-    public CurseForgeProvider(String apiKey) {
-        this.apiKey = (apiKey == null || apiKey.isBlank()) ? null : apiKey.trim();
+    /** Where the key in use came from. Shown in diagnostics, never the key itself. */
+    public enum KeySource {
+        SETTINGS("launcher settings"),
+        ENVIRONMENT("the CURSEFORGE_API_KEY environment variable"),
+        BUILD("this build"),
+        NONE("nowhere - CurseForge is off");
+
+        private final String description;
+
+        KeySource(String description) {
+            this.description = description;
+        }
+
+        public String description() {
+            return description;
+        }
     }
 
-    /** Reads the key from launcher settings, falling back to the environment. */
+    private volatile String apiKey;
+    private volatile KeySource keySource;
+
+    public CurseForgeProvider(String apiKey) {
+        registerHeaderRule();
+        apply(apiKey, apiKey == null || apiKey.isBlank() ? KeySource.NONE : KeySource.SETTINGS);
+    }
+
+    /**
+     * Builds a provider from the settings, falling back to the environment and
+     * then to the built-in key.
+     */
     public static CurseForgeProvider fromEnvironment(String configuredKey) {
-        String key = (configuredKey == null || configuredKey.isBlank())
-                ? System.getenv("CURSEFORGE_API_KEY")
-                : configuredKey;
-        return new CurseForgeProvider(key);
+        if (configuredKey != null && !configuredKey.isBlank()) {
+            return new CurseForgeProvider(configuredKey);
+        }
+        CurseForgeProvider provider = new CurseForgeProvider(null);
+        String environment = System.getenv("CURSEFORGE_API_KEY");
+        if (environment != null && !environment.isBlank()) {
+            provider.apply(environment, KeySource.ENVIRONMENT);
+        } else if (BuildConfig.hasCurseForgeApiKey()) {
+            provider.apply(BuildConfig.curseForgeApiKey(), KeySource.BUILD);
+        }
+        return provider;
+    }
+
+    /**
+     * Replaces the key at runtime, for when the user pastes one in.
+     *
+     * <p>An empty value returns the provider to "no key", which switches
+     * CurseForge back off rather than leaving it failing every request.
+     */
+    public void apiKey(String value) {
+        apply(value, value == null || value.isBlank() ? KeySource.NONE : KeySource.SETTINGS);
+    }
+
+    private void apply(String value, KeySource source) {
+        String trimmed = value == null ? "" : value.trim();
+        this.apiKey = trimmed.isEmpty() ? null : trimmed;
+        this.keySource = trimmed.isEmpty() ? KeySource.NONE : source;
+        ACTIVE_KEY.set(trimmed);
+        if (!trimmed.isEmpty()) {
+            // So that the key can never appear in a log line, an error body or a
+            // pasted stack trace.
+            Redactor.register(trimmed);
+        }
+    }
+
+    /**
+     * Teaches {@link Http} to send the key to CurseForge's own hosts and nowhere
+     * else.
+     *
+     * <p>Both content hosts are listed. Sending the key only to
+     * {@code edge.forgecdn.net} is a real bug in at least one other launcher:
+     * files served from {@code mediafilez.forgecdn.net} then fail with 401 and
+     * the failure looks like a dead mirror.
+     */
+    private static void registerHeaderRule() {
+        if (!HEADER_RULE_REGISTERED.compareAndSet(false, true)) {
+            return;
+        }
+        Http.registerHostHeaders(CurseForgeProvider::isCurseForgeHost, () -> {
+            String key = ACTIVE_KEY.get();
+            return key.isEmpty() ? Map.of() : Map.of(API_KEY_HEADER, key);
+        });
+    }
+
+    /** True for CurseForge's API host and for every host that serves its files. */
+    public static boolean isCurseForgeHost(String host) {
+        if (host == null) {
+            return false;
+        }
+        String lower = host.toLowerCase(Locale.ROOT);
+        return lower.equals("api.curseforge.com")
+                || lower.equals("forgecdn.net")
+                || lower.endsWith(".forgecdn.net");
     }
 
     @Override
@@ -58,6 +172,11 @@ public final class CurseForgeProvider implements ModProvider {
     @Override
     public boolean isAvailable() {
         return apiKey != null;
+    }
+
+    /** Where the key in use came from. Never returns the key. */
+    public KeySource keySource() {
+        return keySource;
     }
 
     /** CurseForge's numeric mod loader ids. */
@@ -74,9 +193,16 @@ public final class CurseForgeProvider implements ModProvider {
         };
     }
 
+    /**
+     * Headers for an API call.
+     *
+     * <p>The key is not here. It is attached by host in {@link Http}, which is
+     * the only place that knows it, so that the file downloads get it too and so
+     * that there is exactly one code path that can send it.
+     */
     private Map<String, String> headers() {
         requireKey();
-        return Map.of("x-api-key", apiKey, "Accept", "application/json");
+        return Map.of("Accept", "application/json");
     }
 
     private void requireKey() {
@@ -84,9 +210,9 @@ public final class CurseForgeProvider implements ModProvider {
             throw new IllegalStateException("""
                     CurseForge needs an API key.
 
-                    Create one in the CurseForge developer console, then set it in launcher \
-                    settings or in the CURSEFORGE_API_KEY environment variable. Modrinth works \
-                    without a key.""");
+                    Create one in the CurseForge developer console, then paste it into \
+                    launcher settings, or set the CURSEFORGE_API_KEY environment variable. \
+                    Modrinth works without a key.""");
         }
     }
 

@@ -63,6 +63,81 @@ public final class VersionInstaller {
         return assetInstaller;
     }
 
+    /** Exposed so loader installers write into the same layout. */
+    public GameDirs dirs() {
+        return dirs;
+    }
+
+    /** Exposed so loader installers reuse the verifying, retrying downloader. */
+    public Downloader downloader() {
+        return downloader;
+    }
+
+    /**
+     * Makes sure a vanilla version's client jar is on disk, and returns it.
+     *
+     * <p>Needed by the Forge and NeoForge installers, which patch that jar. The
+     * ordinary flow fetches it after the loader manifest has been written, which
+     * is one step too late for them.
+     */
+    public Path ensureClientJar(String minecraftVersion, Progress progress)
+            throws IOException, InterruptedException {
+
+        if (!resolver.isInstalled(minecraftVersion)) {
+            ensureVanillaVersionJson(minecraftVersion, VersionManifest.fetch(dirs), progress);
+        }
+        VersionJson version = resolver.resolve(minecraftVersion);
+
+        List<DownloadTask> tasks = new ArrayList<>();
+        collectClientJar(version, tasks);
+        if (!tasks.isEmpty()) {
+            progress.stage("Downloading Minecraft " + minecraftVersion);
+            downloader.run(tasks, progress);
+        }
+
+        Path jar = dirs.versionJar(version.jarVersionId());
+        if (!Files.isRegularFile(jar)) {
+            throw new IOException("the Minecraft " + minecraftVersion
+                    + " client jar is still missing after downloading: " + jar);
+        }
+        return jar;
+    }
+
+    /**
+     * Downloads a list of raw {@code libraries} entries.
+     *
+     * <p>Used by the Forge and NeoForge installers for the programs their
+     * processors are. A malformed entry is reported and skipped rather than
+     * failing the install: one bad line in a third-party profile should not stop
+     * a loader from installing.
+     */
+    public void downloadLibraries(List<Json> libraryEntries, Progress progress)
+            throws IOException, InterruptedException {
+
+        List<DownloadTask> tasks = new ArrayList<>();
+        for (Json entry : libraryEntries) {
+            Library library;
+            try {
+                library = Library.parse(entry);
+            } catch (IllegalArgumentException e) {
+                progress.log("Skipping a library entry that cannot be read: %s", e.getMessage());
+                continue;
+            }
+            if (!library.appliesToThisHost()) {
+                continue;
+            }
+            Artifact artifact = library.classpathArtifact();
+            if (artifact == null) {
+                continue;
+            }
+            String path = artifact.path() != null ? artifact.path() : library.coordinate().path();
+            addLibraryTask(tasks, path, artifact, library, progress);
+        }
+        if (!tasks.isEmpty()) {
+            downloader.run(tasks, progress);
+        }
+    }
+
     /**
      * Downloads a vanilla version manifest into {@code versions/<id>/<id>.json}
      * if it is not already there, verifying the SHA-1 Mojang publishes for it.
@@ -191,6 +266,19 @@ public final class VersionInstaller {
                                 Library library, Progress progress) {
         Path destination = dirs.library(relativePath);
 
+        // A library entry with no URL anywhere is not an omission: Forge and
+        // NeoForge list the files their own installer produces locally - the
+        // patched client jar among them - in exactly this form. Asking mirrors
+        // for those is guaranteed to fail, and a wall of 404s buries the one
+        // message that matters, so they are reported and left alone.
+        if (!artifact.hasUrl() && library.mavenRepositoryRoot() == null) {
+            if (!Files.isRegularFile(destination)) {
+                progress.log("%s is produced by the loader installer and is not on disk yet",
+                        library.name());
+            }
+            return;
+        }
+
         List<String> urls = new ArrayList<>();
         if (artifact.hasUrl()) {
             urls.add(artifact.url());
@@ -203,8 +291,6 @@ public final class VersionInstaller {
         }
 
         if (urls.isEmpty()) {
-            // No source at all. Legitimate for Forge libraries produced by the
-            // installer's processors, which must already be on disk by now.
             if (!Files.isRegularFile(destination)) {
                 progress.log("no download source for " + library.name() + " and it is not on disk");
             }

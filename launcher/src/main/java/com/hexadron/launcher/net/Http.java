@@ -12,7 +12,11 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * Shared HTTP client with retry and a launcher-identifying User-Agent.
@@ -34,6 +38,25 @@ public final class Http {
             .connectTimeout(CONNECT_TIMEOUT)
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
+
+    /**
+     * Headers that belong to a host rather than to a call site.
+     *
+     * <p>This exists because of one platform. CurseForge has always required its
+     * API key on {@code api.curseforge.com}, and since July 2026 it requires the
+     * same key on the content hosts that serve the actual mod files. Those files
+     * are fetched by the generic downloader, which knows nothing about CurseForge
+     * and should not have to - so the key is attached here, by host, once, and
+     * every path that goes through this class is covered: metadata, file
+     * downloads, and anything added later.
+     *
+     * <p>Registered as a supplier rather than a value so that a key entered in
+     * the settings while the launcher is running takes effect immediately.
+     */
+    private record HostHeaders(Predicate<String> matches, Supplier<Map<String, String>> headers) {
+    }
+
+    private static final List<HostHeaders> HOST_HEADERS = new CopyOnWriteArrayList<>();
 
     /**
      * The client used for every credential-bearing request.
@@ -63,6 +86,44 @@ public final class Http {
 
     public static HttpClient client() {
         return CLIENT;
+    }
+
+    /**
+     * Attaches headers to every request whose host {@code matches}.
+     *
+     * <p>Scoped by host on purpose: a credential must reach the one service it
+     * belongs to and no other. An explicit header passed to a call always wins,
+     * so a caller can still override.
+     */
+    public static void registerHostHeaders(Predicate<String> matches,
+                                           Supplier<Map<String, String>> headers) {
+        HOST_HEADERS.add(new HostHeaders(matches, headers));
+    }
+
+    /** Drops every host header rule. For the self-check only. */
+    public static void clearHostHeaders() {
+        HOST_HEADERS.clear();
+    }
+
+    /**
+     * The host headers that would be sent to one URI.
+     *
+     * <p>Public because it is the only way to assert the property that matters:
+     * that a credential registered for one service reaches that service's hosts
+     * and no others. The self-check does exactly that.
+     */
+    public static Map<String, String> hostHeadersFor(URI uri) {
+        String host = uri.getHost();
+        if (host == null || HOST_HEADERS.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> headers = new LinkedHashMap<>();
+        for (HostHeaders entry : HOST_HEADERS) {
+            if (entry.matches().test(host)) {
+                headers.putAll(entry.headers().get());
+            }
+        }
+        return headers;
     }
 
     /**
@@ -277,10 +338,19 @@ public final class Http {
     // ---------------------------------------------------------------- plumbing
 
     private static HttpRequest.Builder requestBuilder(String url, Map<String, String> headers) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
+        URI uri = URI.create(url);
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                 .timeout(REQUEST_TIMEOUT)
                 .header("User-Agent", USER_AGENT);
         headers.forEach(builder::header);
+        // Added second, and only where the caller said nothing: HttpRequest.header
+        // appends rather than replaces, and a request carrying the same
+        // credential header twice is rejected by some services.
+        hostHeadersFor(uri).forEach((name, value) -> {
+            if (!headers.containsKey(name)) {
+                builder.header(name, value);
+            }
+        });
         return builder;
     }
 

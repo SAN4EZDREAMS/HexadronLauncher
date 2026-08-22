@@ -161,11 +161,17 @@ public final class ModInstaller {
 
             ModFile modFile = file.get();
             if (!modFile.isDownloadable()) {
-                // CurseForge authors can forbid third-party downloads. Respect it.
-                manual.add(pending.label + " - " + modFile.fileName()
-                        + " (the author has disabled third-party downloads; get it from "
-                        + provider.source().displayName() + " manually)");
-                continue;
+                Optional<ModFile> mirrored = mirrorOnModrinth(modFile);
+                if (mirrored.isEmpty()) {
+                    manual.add(pending.label + " - " + modFile.fileName()
+                            + " (the author has disabled third-party downloads; get it from "
+                            + provider.source().displayName() + " manually)");
+                    continue;
+                }
+                modFile = mirrored.get();
+                progress.log("%s cannot be downloaded from %s; the identical file is on "
+                                + "Modrinth and is taken from there", pending.label,
+                        provider.source().displayName());
             }
 
             resolved.put(key, modFile);
@@ -294,9 +300,16 @@ public final class ModInstaller {
 
             ModFile modFile = file.get();
             if (!modFile.isDownloadable()) {
-                manual.add(pending.label + " - " + modFile.fileName()
-                        + " (the author has disabled third-party downloads)");
-                continue;
+                Optional<ModFile> mirrored = mirrorOnModrinth(modFile);
+                if (mirrored.isEmpty()) {
+                    manual.add(pending.label + " - " + modFile.fileName()
+                            + " (the author has disabled third-party downloads)");
+                    continue;
+                }
+                modFile = mirrored.get();
+                progress.log("%s cannot be downloaded from %s; the identical file is on "
+                                + "Modrinth and is taken from there", pending.label,
+                        source.displayName());
             }
 
             resolved.put(key, modFile);
@@ -399,6 +412,51 @@ public final class ModInstaller {
             throw firstFailure;
         }
         return new ModProvider.SearchPage(results, totalKnown ? total : -1, offset);
+    }
+
+    /**
+     * The same jar, published where it may be downloaded from.
+     *
+     * <p>A CurseForge author can switch off third-party downloads, and the API
+     * then returns the file with no URL. Most of those mods are also on Modrinth,
+     * published by the same author, and Modrinth can be asked "which version has
+     * this SHA-1". A hit is the same bytes by definition, so the file is fetched
+     * from there and the digest still verifies it.
+     *
+     * <p>The returned entry keeps the original project's identity and only
+     * borrows the URL. Rewriting the identity would change the key the mod is
+     * recorded under, and a pack would then stop recognising its own files.
+     *
+     * <p>No hash, no attempt: this must never turn into "find something with a
+     * similar name".
+     */
+    private Optional<ModFile> mirrorOnModrinth(ModFile file) throws InterruptedException {
+        if (file.source() == ModProvider.Source.MODRINTH || file.sha1() == null) {
+            return Optional.empty();
+        }
+        if (!(providers.get(ModProvider.Source.MODRINTH) instanceof ModrinthProvider modrinth)
+                || !modrinth.isAvailable()) {
+            return Optional.empty();
+        }
+        try {
+            return modrinth.resolveByHash(file.sha1())
+                    .map(found -> new ModFile(
+                            file.projectId(),
+                            file.projectSlug(),
+                            file.versionId(),
+                            file.displayName(),
+                            file.fileName(),
+                            found.url(),
+                            file.sha1(),
+                            file.size(),
+                            file.dependencies(),
+                            file.source()))
+                    .filter(ModFile::isDownloadable);
+        } catch (IOException e) {
+            // Modrinth being unreachable is not this mod's problem to report;
+            // the caller falls back to telling the user to fetch it by hand.
+            return Optional.empty();
+        }
     }
 
     private Optional<ModFile> resolve(ModProvider provider, Pending pending,

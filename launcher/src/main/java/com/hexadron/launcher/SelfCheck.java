@@ -7,6 +7,9 @@ import com.hexadron.launcher.install.loader.ForgeInstaller;
 import com.hexadron.launcher.install.loader.LoaderInstaller;
 import com.hexadron.launcher.install.loader.LoaderType;
 import com.hexadron.launcher.install.loader.NeoForgeInstaller;
+import com.hexadron.launcher.install.loader.forge.ForgeProcessor;
+import com.hexadron.launcher.install.loader.forge.InstallProfile;
+import com.hexadron.launcher.install.loader.forge.Tokens;
 import com.hexadron.launcher.i18n.Language;
 import com.hexadron.launcher.json.Json;
 import com.hexadron.launcher.json.JsonException;
@@ -18,15 +21,19 @@ import com.hexadron.launcher.meta.Library;
 import com.hexadron.launcher.meta.Rule;
 import com.hexadron.launcher.meta.VersionJson;
 import com.hexadron.launcher.meta.VersionManifest;
+import com.hexadron.launcher.mods.CurseForgeProvider;
 import com.hexadron.launcher.mods.InstalledMod;
 import com.hexadron.launcher.mods.ModFile;
 import com.hexadron.launcher.mods.ModLibrary;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModProvider;
+import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.util.MavenCoordinate;
 import com.hexadron.launcher.util.Platform;
+import com.hexadron.launcher.util.Redactor;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -69,6 +76,9 @@ public final class SelfCheck {
         playerNamesAndArguments();
         modOwnership();
         loaderCompatibility();
+        forgeInstallerProfiles();
+        forgeTokenLanguage();
+        curseForgeKeyHandling();
         searchPaging();
         translations();
 
@@ -878,23 +888,67 @@ public final class SelfCheck {
         check("forge build ending in a dash is rejected",
                 ForgeInstaller.minecraftVersionOf("1.20.1-") == null);
 
+        check("a broken forge build is known to be broken",
+                ForgeInstaller.isBroken("1.12.2-14.23.5.2851"));
+        check("an ordinary forge build is not", !ForgeInstaller.isBroken("1.12.2-14.23.5.2860"));
+
         // NeoForge: the derivation must be the exact inverse of the filter, or
-        // the picker offers a version whose builds it then hides.
+        // the picker offers a version whose builds it then hides. Both encodings
+        // are checked, because both are in use - Minecraft's move to calendar
+        // versioning changed the rule without retiring the old one.
         check("neoforge build maps to a patch version",
-                "1.21.1".equals(NeoForgeInstaller.legacyMinecraftVersionOf("21.1.66")));
+                "1.21.1".equals(NeoForgeInstaller.minecraftVersionOf("21.1.66")));
         check("neoforge build with patch 0 maps to the base version",
-                "1.21".equals(NeoForgeInstaller.legacyMinecraftVersionOf("21.0.167")));
+                "1.21".equals(NeoForgeInstaller.minecraftVersionOf("21.0.167")));
         check("neoforge build with a suffix still maps",
-                "1.20.4".equals(NeoForgeInstaller.legacyMinecraftVersionOf("20.4.100-beta")));
-        check("a calendar-scheme build maps to nothing",
-                NeoForgeInstaller.legacyMinecraftVersionOf("nonsense") == null);
-        for (String build : List.of("21.1.66", "21.0.167", "20.4.100")) {
-            String derived = NeoForgeInstaller.legacyMinecraftVersionOf(build);
+                "1.20.4".equals(NeoForgeInstaller.minecraftVersionOf("20.4.100-beta")));
+        check("a four-part build maps to a calendar version",
+                "26.1.2".equals(NeoForgeInstaller.minecraftVersionOf("26.1.2.97")));
+        check("a four-part build with patch 0 drops the patch",
+                "26.1".equals(NeoForgeInstaller.minecraftVersionOf("26.1.0.5-beta")));
+        check("a build-metadata suffix is ignored",
+                "26.1".equals(NeoForgeInstaller.minecraftVersionOf("26.1.0.0-alpha.1+snapshot-1")));
+        check("the legacy artifact names its version outright",
+                "1.20.1".equals(NeoForgeInstaller.minecraftVersionOf("1.20.1-47.1.106")));
+        check("a snapshot build maps to nothing",
+                NeoForgeInstaller.minecraftVersionOf("0.1.2.3") == null);
+        check("nonsense maps to nothing", NeoForgeInstaller.minecraftVersionOf("nonsense") == null);
+        check("a blank build maps to nothing", NeoForgeInstaller.minecraftVersionOf("  ") == null);
+
+        for (String build : List.of("21.1.66", "21.0.167", "20.4.100", "26.1.2.97", "26.1.0.5")) {
+            String derived = NeoForgeInstaller.minecraftVersionOf(build);
+            String prefix = NeoForgeInstaller.prefixFor(derived);
             check("neoforge round trip for " + build,
-                    build.startsWith(NeoForgeInstaller.legacyPrefixFor(derived)));
+                    prefix != null && build.startsWith(prefix));
         }
-        check("a calendar Minecraft version has no neoforge prefix",
-                NeoForgeInstaller.legacyPrefixFor("26.2") == null);
+        check("a calendar Minecraft version now has a prefix",
+                "26.1.2.".equals(NeoForgeInstaller.prefixFor("26.1.2")));
+        check("a calendar version without a patch fills in zero",
+                "26.1.0.".equals(NeoForgeInstaller.prefixFor("26.1")));
+        // A two-part version below 26 is not calendar versioning, it is nothing
+        // NeoForge ever published. Inventing a prefix for it would filter every
+        // build away and report "no builds" for a version that has none anyway,
+        // but by the wrong route.
+        check("a pre-calendar two-part number has no prefix",
+                NeoForgeInstaller.prefixFor("25.1") == null);
+        check("nonsense has no prefix", NeoForgeInstaller.prefixFor("kittens") == null);
+
+        // Every loader the interface offers must have an installer behind it.
+        // Forge and NeoForge were offered without one for a while, and the only
+        // symptom was an error at the end of choosing a profile.
+        for (LoaderType loader : com.hexadron.launcher.install.loader.Loaders.allLoaders()) {
+            if (loader == LoaderType.VANILLA) {
+                continue;
+            }
+            boolean installed;
+            try {
+                installed = com.hexadron.launcher.install.loader.Loaders
+                        .installerFor(loader).type() == loader;
+            } catch (RuntimeException e) {
+                installed = false;
+            }
+            check(loader.id() + " has an installer", installed);
+        }
 
         // An incomplete list must never be used to hide a version.
         var complete = new LoaderInstaller.SupportedVersions(List.of("1.21.1", "26.2"), true);
@@ -908,6 +962,275 @@ public final class SelfCheck {
                 !new LoaderInstaller.SupportedVersions(List.of(), true).isUsableAsFilter());
         check("unknown filters nothing", !LoaderInstaller.SupportedVersions.unknown().isUsableAsFilter());
         check("vanilla is not a loader with builds", LoaderType.VANILLA.isModded() == false);
+    }
+
+    // ---------------------------------------------------------------- forge profiles
+
+    /**
+     * Reading {@code install_profile.json}.
+     *
+     * <p>Both shapes are checked from real documents, because the format is only
+     * ever met at install time and the failure mode is silent: a profile read as
+     * the wrong era produces an install that writes no patched jar and reports
+     * success, and the user meets that as a crash on first launch with nothing to
+     * connect it to.
+     */
+    private static void forgeInstallerProfiles() {
+        section("Forge installer profiles");
+
+        InstallProfile legacy = InstallProfile.parse(Json.parse("""
+                {
+                  "install": {
+                    "profileName": "forge",
+                    "target": "1.12.2-forge-14.23.5.2860",
+                    "path": "net.minecraftforge:forge:1.12.2-14.23.5.2860",
+                    "filePath": "forge-1.12.2-14.23.5.2860-universal.jar",
+                    "minecraft": "1.12.2"
+                  },
+                  "versionInfo": {
+                    "id": "1.12.2-forge-14.23.5.2860",
+                    "inheritsFrom": "1.12.2",
+                    "mainClass": "net.minecraft.launchwrapper.Launch",
+                    "libraries": [
+                      {"name": "net.minecraftforge:forge:1.12.2-14.23.5.2860",
+                       "url": "https://files.minecraftforge.net/maven/"},
+                      {"name": "net.minecraft:launchwrapper:1.12"}
+                    ]
+                  }
+                }"""));
+
+        check("legacy era detected", legacy.era() == InstallProfile.Era.LEGACY);
+        check("legacy minecraft version", "1.12.2".equals(legacy.minecraftVersion()));
+        check("legacy version id comes from versionInfo",
+                "1.12.2-forge-14.23.5.2860".equals(legacy.versionId()));
+        check("legacy main jar coordinate",
+                "net.minecraftforge:forge:1.12.2-14.23.5.2860".equals(legacy.mainJar().toString()));
+        check("legacy universal jar entry named",
+                "forge-1.12.2-14.23.5.2860-universal.jar".equals(legacy.legacyJarEntry()));
+        check("legacy libraries come from versionInfo", legacy.libraries().size() == 2);
+        check("legacy has no processors", legacy.processors().isEmpty());
+        check("legacy carries its version manifest", legacy.legacyVersionInfo().isObject());
+
+        InstallProfile modern = InstallProfile.parse(Json.parse("""
+                {
+                  "spec": 1,
+                  "profile": "forge",
+                  "version": "1.20.1-forge-47.4.10",
+                  "minecraft": "1.20.1",
+                  "json": "/version.json",
+                  "path": "net.minecraftforge:forge:1.20.1-47.4.10",
+                  "libraries": [
+                    {"name": "net.minecraftforge:binarypatcher:1.1.1",
+                     "downloads": {"artifact": {
+                       "path": "net/minecraftforge/binarypatcher/1.1.1/binarypatcher-1.1.1.jar",
+                       "url": "https://maven.minecraftforge.net/net/minecraftforge/binarypatcher/1.1.1/binarypatcher-1.1.1.jar",
+                       "sha1": "0000000000000000000000000000000000000000", "size": 1}}}
+                  ],
+                  "data": {
+                    "BINPATCH": {"client": "/data/client.lzma", "server": "/data/server.lzma"},
+                    "PATCHED": {"client": "[net.minecraftforge:forge:1.20.1-47.4.10:client]",
+                                "server": "[net.minecraftforge:forge:1.20.1-47.4.10:server]"},
+                    "PATCHED_SHA": {"client": "'4d8a9a63dc16a45d7fc5c54c627234f601d0cc17'",
+                                    "server": "'0000000000000000000000000000000000000000'"}
+                  },
+                  "processors": [
+                    {"sides": ["server"],
+                     "jar": "net.minecraftforge:installertools:1.4.1",
+                     "classpath": [],
+                     "args": ["--task", "EXTRACT_FILES", "--archive", "{INSTALLER}"]},
+                    {"jar": "net.minecraftforge:binarypatcher:1.1.1",
+                     "classpath": ["net.minecraftforge:binarypatcher:1.1.1"],
+                     "args": ["--clean", "{MINECRAFT_JAR}", "--output", "{PATCHED}",
+                              "--apply", "{BINPATCH}"],
+                     "outputs": {"{PATCHED}": "{PATCHED_SHA}"}}
+                  ]
+                }"""));
+
+        check("modern era detected", modern.era() == InstallProfile.Era.MODERN);
+        check("modern spec read", modern.spec() == 1);
+        check("modern version manifest entry named",
+                "/version.json".equals(modern.versionJsonEntry()));
+        check("modern libraries are the processors' own", modern.libraries().size() == 1);
+        check("both processors read", modern.processors().size() == 2);
+
+        ForgeProcessor serverOnly = modern.processors().get(0);
+        ForgeProcessor both = modern.processors().get(1);
+        check("a server-only step is skipped on the client", !serverOnly.appliesToSide("client"));
+        check("a server-only step runs on the server", serverOnly.appliesToSide("server"));
+        // An absent sides array means every side. Reading it as "no side" is the
+        // one mistake that silently installs nothing at all.
+        check("a step with no sides runs on the client", both.appliesToSide("client"));
+        check("a step with no sides runs on the server", both.appliesToSide("server"));
+        check("classpath parsed", both.classpath().size() == 1);
+        check("args kept in order", both.args().get(0).equals("--clean"));
+        check("outputs parsed", both.outputs().get("{PATCHED}").equals("{PATCHED_SHA}"));
+
+        check("a data entry can be a path inside the installer",
+                "/data/client.lzma".equals(modern.data().get("BINPATCH").forSide("client")));
+        check("a data entry differs per side",
+                "/data/server.lzma".equals(modern.data().get("BINPATCH").forSide("server")));
+
+        // Forge 1.12.2-14.23.5.2851 really ships this. An installer with one
+        // malformed field must still be readable, or a whole build becomes
+        // uninstallable over a field the client install never uses.
+        InstallProfile wrongDataType = InstallProfile.parse(Json.parse("""
+                {"spec": 0, "version": "x", "minecraft": "1.12.2", "data": [],
+                 "libraries": [], "processors": []}"""));
+        check("a data block of the wrong type reads as empty",
+                wrongDataType.data().isEmpty());
+        check("a profile with no path has no main jar", wrongDataType.mainJar() == null);
+
+        checkThrows("a profile of neither shape is rejected",
+                () -> InstallProfile.parse(Json.parse("{\"something\": 1}")));
+        checkThrows("a processor with no jar is rejected",
+                () -> InstallProfile.parse(Json.parse(
+                        "{\"spec\":1,\"processors\":[{\"args\":[]}]}")));
+    }
+
+    // ---------------------------------------------------------------- forge tokens
+
+    /**
+     * The substitution language the processor arguments are written in.
+     *
+     * <p>Small, and every rule in it has a failure that looks like something
+     * else. An unresolved token becomes a file named {@code {MAPPINGS}} and the
+     * step reports success. A token that only works when it stands alone breaks
+     * {@code {ROOT}/libraries/} without saying so.
+     */
+    private static void forgeTokenLanguage() {
+        section("Forge token language");
+
+        Map<String, String> tokens = Map.of(
+                "ROOT", "/games/minecraft",
+                "SIDE", "client",
+                "PATCHED_SHA", "4d8a9a63dc16a45d7fc5c54c627234f601d0cc17");
+
+        check("a token is replaced",
+                "/games/minecraft".equals(Tokens.replaceTokens(tokens, "{ROOT}")));
+        check("a token is replaced in the middle of a value",
+                "/games/minecraft/libraries/".equals(
+                        Tokens.replaceTokens(tokens, "{ROOT}/libraries/")));
+        check("two tokens in one value",
+                "client:/games/minecraft".equals(Tokens.replaceTokens(tokens, "{SIDE}:{ROOT}")));
+        check("a value with no tokens is unchanged",
+                "--task".equals(Tokens.replaceTokens(tokens, "--task")));
+        check("a quoted literal loses its quotes",
+                "MCP_DATA".equals(Tokens.replaceTokens(tokens, "'MCP_DATA'")));
+        check("an escaped brace is literal",
+                "{ROOT}".equals(Tokens.replaceTokens(tokens, "\\{ROOT}")));
+
+        checkThrows("an unknown key is fatal",
+                () -> Tokens.replaceTokens(tokens, "{NOT_A_TOKEN}"));
+        checkThrows("an unterminated token is fatal",
+                () -> Tokens.replaceTokens(tokens, "{ROOT"));
+        checkThrows("an unterminated literal is fatal",
+                () -> Tokens.replaceTokens(tokens, "'text"));
+        checkThrows("a trailing escape is fatal",
+                () -> Tokens.replaceTokens(tokens, "text\\"));
+
+        java.util.function.Function<MavenCoordinate, String> library =
+                coordinate -> "/libs/" + coordinate.path();
+
+        check("a whole-value coordinate becomes a path",
+                "/libs/org/ow2/asm/asm/9.7/asm-9.7.jar".equals(
+                        Tokens.resolve(tokens, "[org.ow2.asm:asm:9.7]", library)));
+        check("a coordinate with a classifier and extension becomes a path",
+                "/libs/net/minecraft/client/1.20.1/client-1.20.1-mappings.txt".equals(
+                        Tokens.resolve(tokens, "[net.minecraft:client:1.20.1:mappings@txt]", library)));
+        check("an output hash resolves through its token",
+                "4d8a9a63dc16a45d7fc5c54c627234f601d0cc17".equals(
+                        Tokens.resolve(tokens, "{PATCHED_SHA}", library)));
+
+        check("a data value that is a coordinate becomes a path",
+                "/libs/net/minecraftforge/forge/1.20.1-47.4.10/forge-1.20.1-47.4.10-client.jar"
+                        .equals(Tokens.resolveDataValue(
+                                "[net.minecraftforge:forge:1.20.1-47.4.10:client]",
+                                library, name -> "unused")));
+        check("a data value that is a literal keeps its text",
+                "20230612.114412".equals(Tokens.resolveDataValue(
+                        "'20230612.114412'", library, name -> "unused")));
+        // The third form, and the one that carries the binary patch itself.
+        check("a data value that is neither is extracted from the installer",
+                "/tmp/data/client.lzma".equals(Tokens.resolveDataValue(
+                        "/data/client.lzma", library, name -> "/tmp" + name)));
+    }
+
+    // ---------------------------------------------------------------- curseforge key
+
+    /**
+     * Where the CurseForge key comes from, and where it is allowed to go.
+     *
+     * <p>Two properties are asserted, and they are the whole design:
+     * <ul>
+     *   <li>no key means the platform switches itself off, rather than staying
+     *       listed and failing every request;</li>
+     *   <li>the key is sent to CurseForge's own hosts - the API host and every
+     *       host that serves its files - and to nothing else.</li>
+     * </ul>
+     * The second one is not obvious. CurseForge began requiring the key on its
+     * content hosts in 2026, and a launcher that lists only one of those hosts
+     * fails on the files served from the others, which reads as a dead mirror.
+     */
+    private static void curseForgeKeyHandling() {
+        section("CurseForge key handling");
+
+        CurseForgeProvider provider = new CurseForgeProvider(null);
+        check("no key means unavailable", !provider.isAvailable());
+        check("no key is reported as such",
+                provider.keySource() == CurseForgeProvider.KeySource.NONE);
+        check("a blank key is no key", !new CurseForgeProvider("   ").isAvailable());
+
+        URI apiHost = URI.create("https://api.curseforge.com/v1/mods/search");
+        URI edgeHost = URI.create("https://edge.forgecdn.net/files/1/2/mod.jar");
+        URI mediaHost = URI.create("https://mediafilez.forgecdn.net/files/1/2/mod.jar");
+        URI modrinthHost = URI.create("https://api.modrinth.com/v2/search");
+
+        check("without a key nothing is added to a curseforge request",
+                Http.hostHeadersFor(apiHost).isEmpty());
+
+        provider.apiKey("selfcheck-not-a-real-key-000000");
+        check("a key makes the provider available", provider.isAvailable());
+        check("a key set at runtime is attributed to the settings",
+                provider.keySource() == CurseForgeProvider.KeySource.SETTINGS);
+        check("the api host gets the key",
+                "selfcheck-not-a-real-key-000000"
+                        .equals(Http.hostHeadersFor(apiHost).get("x-api-key")));
+        check("the edge content host gets the key",
+                Http.hostHeadersFor(edgeHost).containsKey("x-api-key"));
+        check("the other content host gets it too",
+                Http.hostHeadersFor(mediaHost).containsKey("x-api-key"));
+        check("modrinth does not get it", Http.hostHeadersFor(modrinthHost).isEmpty());
+
+        check("the api host is recognised",
+                CurseForgeProvider.isCurseForgeHost("api.curseforge.com"));
+        check("host matching ignores case",
+                CurseForgeProvider.isCurseForgeHost("API.CurseForge.com"));
+        check("every content subdomain is recognised",
+                CurseForgeProvider.isCurseForgeHost("media.forgecdn.net"));
+        // Suffix matching has to be on a dot boundary, or a host somebody else
+        // registered receives the key.
+        check("a look-alike host is not recognised",
+                !CurseForgeProvider.isCurseForgeHost("evil-forgecdn.net"));
+        check("a host that merely contains the name is not recognised",
+                !CurseForgeProvider.isCurseForgeHost("api.curseforge.com.example.org"));
+        check("modrinth is not a curseforge host",
+                !CurseForgeProvider.isCurseForgeHost("api.modrinth.com"));
+        check("a null host is not a curseforge host",
+                !CurseForgeProvider.isCurseForgeHost(null));
+
+        provider.apiKey("");
+        check("clearing the key switches the platform off", !provider.isAvailable());
+        check("clearing the key stops the header being sent",
+                Http.hostHeadersFor(apiHost).isEmpty());
+
+        // The key is a credential, and every credential the launcher holds is
+        // masked before anything is logged.
+        check("the key is masked in log output",
+                !Redactor.scrub("x-api-key: selfcheck-not-a-real-key-000000")
+                        .contains("selfcheck-not-a-real-key-000000"));
+
+        check("a build with no key reports none",
+                BuildConfig.hasCurseForgeApiKey() == !BuildConfig.curseForgeApiKey().isEmpty());
     }
 
     // ---------------------------------------------------------------- search paging

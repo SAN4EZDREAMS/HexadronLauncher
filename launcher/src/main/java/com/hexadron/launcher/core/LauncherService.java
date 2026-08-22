@@ -110,6 +110,25 @@ public final class LauncherService {
         return List.of(modrinth, curseForge);
     }
 
+    /** The CurseForge provider, so the interface can show whether it has a key. */
+    public CurseForgeProvider curseForge() {
+        return curseForge;
+    }
+
+    /**
+     * Stores a CurseForge key and puts it to use at once.
+     *
+     * <p>No restart: the provider and the HTTP layer both read the current key,
+     * so the next search already uses it. An empty value switches CurseForge back
+     * off, which is the honest state for "no key" and better than a platform that
+     * is listed and fails every request.
+     */
+    public void curseForgeApiKey(String key) throws IOException {
+        settings.curseForgeApiKey(key);
+        settings.save();
+        curseForge.apiKey(settings.curseForgeApiKey());
+    }
+
     // ---------------------------------------------------------------- versions
 
     public VersionManifest minecraftVersions() throws IOException, InterruptedException {

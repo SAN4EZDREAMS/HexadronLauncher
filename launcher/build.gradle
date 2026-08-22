@@ -81,6 +81,34 @@ application {
 	mainClass = 'com.hexadron.launcher.Launcher'
 }
 
+// The CurseForge API key.
+//
+// CurseForge issues one key per application and its terms forbid sharing it, so
+// the key is never written down in this repository. The release build reads it
+// from the environment - on CI, from a repository secret - and puts it in the
+// launcher jar's manifest, where com.hexadron.launcher.BuildConfig finds it.
+//
+// A build without the variable set produces an empty attribute. That is a
+// working launcher with no CurseForge tab, which is exactly what a fork, a pull
+// request from a fork, or anybody's local `./gradlew build` should get. Nothing
+// fails and nothing has to be edited.
+//
+// A user who has their own key pastes it into the launcher settings, and that
+// always wins over this one.
+def curseForgeApiKey = (System.getenv('CURSEFORGE_API_KEY') ?: '').trim()
+
+tasks.named('jar') {
+	manifest {
+		attributes('Hexadron-CurseForge-Api-Key': curseForgeApiKey)
+	}
+	doFirst {
+		// Whether, never what. A build log is a public artifact.
+		logger.lifecycle(curseForgeApiKey.isEmpty()
+			? 'CurseForge: no API key supplied, the platform will be disabled in this build'
+			: 'CurseForge: API key supplied from the environment')
+	}
+}
+
 javafx {
 	version = '25'
 	modules = ['javafx.controls']

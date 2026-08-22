@@ -1,8 +1,10 @@
-# Security of the Microsoft sign-in
+# Security
 
-This document describes how HexadronLauncher handles Microsoft account
-credentials, what each measure does protect against, and what it does not. It is
-written to be read by a reviewer as well as by a user.
+This document describes how HexadronLauncher handles secrets and how it runs
+code it did not write: Microsoft account credentials in sections 1 to 6, the
+CurseForge API key in section 7, and the Forge installer's processors in
+section 8. For each one it says what the measure does protect against and what
+it does not. It is written to be read by a reviewer as well as by a user.
 
 Two rules govern everything below.
 
@@ -196,10 +198,71 @@ wrong.
 
 ---
 
-## 7. Verification
+## 7. The CurseForge API key
 
-`./gradlew :launcher:selfCheck` runs 280 assertions with no network and no
-display, including the authentication hardening:
+This one is not a user credential, and it is written down here so that nobody
+mistakes it for one. It identifies the *application* to CurseForge. Losing it
+costs the project its API access; it gives nobody access to a player's account.
+
+The key is never in this repository. The release build reads
+`CURSEFORGE_API_KEY` from the environment - on CI, from a repository secret -
+and writes it into the launcher jar's manifest, where `BuildConfig` reads it
+back. GitHub does not hand repository secrets to builds of forks or to pull
+requests from them, so every such build gets an empty attribute and simply has
+no CurseForge in it. A user's own key, pasted into the settings, always wins
+over the built-in one.
+
+The key is registered with `Redactor` the moment it is read, so it cannot appear
+in a log line, an error body or a pasted stack trace.
+
+`Http` attaches it by host, and only to `api.curseforge.com` and the hosts that
+end in `.forgecdn.net`. Host matching is on a dot boundary, so a look-alike
+domain such as `evil-forgecdn.net` receives nothing. Both content hosts are
+covered: sending the key to only one of them is a real bug in at least one other
+launcher, and it surfaces as files failing to download from what looks like a
+dead mirror.
+
+**What this does not claim.** A manifest attribute is not a secret from the
+person running the launcher, and no key shipped to a client ever can be.
+Obfuscating it would only hide that fact from us. What the arrangement achieves
+is that the key is out of version control, out of every fork, and replaceable in
+one place.
+
+---
+
+## 8. Running the Forge installer's processors
+
+Installing Forge or NeoForge means executing third-party programs on the user's
+machine - that is what the installer's processor chain is, and there is no way
+to install Forge without it. Four things narrow what that means:
+
+- Each step runs as a **separate process**, never inside the launcher's JVM. It
+  cannot reach the launcher's memory, and it cannot take the launcher down by
+  calling `System.exit` - which several of these tools do.
+- It runs with its **working directory in a scratch folder** under `cache/`,
+  which is deleted afterwards. These installers hijack `System.out` and write a
+  log file named after their own jar into the current directory.
+- Every step's program and every entry of its classpath is a **maven artifact
+  named by the installer profile**, downloaded through the same verifying
+  downloader as everything else, and a step is refused outright if one of them
+  is missing rather than run with a shorter classpath.
+- Every file a step produces is **checked against the SHA-1 the profile
+  publishes**. A mismatch that is still a structurally whole archive is kept
+  with a note, because these jars are built at install time and a JVM using a
+  native compression library produces valid but byte-different output. Anything
+  else is deleted and the install stops.
+
+The trust boundary is honest and worth naming: whoever controls the installer
+jar controls what runs. That jar is fetched over HTTPS from the loader project's
+own maven, and it is the same jar the user would download and double-click.
+
+---
+
+## 9. Verification
+
+`./gradlew :launcher:selfCheck` runs 360 assertions with no network and no
+display, including where the CurseForge key may be sent, and the authentication
+hardening:
 
 - PKCE `S256` against RFC 7636's own test vector, verifier length and character
   set, and that two verifiers differ;
@@ -211,7 +274,11 @@ display, including the authentication hardening:
   reconstructs the account;
 - that registered secrets and unregistered token shapes are both removed from
   log lines, and that ordinary text is left alone;
-- that the launch placeholder is distinctive and is not itself token-shaped.
+- that the launch placeholder is distinctive and is not itself token-shaped;
+- that with no CurseForge key nothing is added to a CurseForge request, that a
+  key set at runtime reaches the API host and both content hosts, that Modrinth
+  and look-alike domains receive nothing, and that the key is masked in a log
+  line.
 
 ## Reporting
 

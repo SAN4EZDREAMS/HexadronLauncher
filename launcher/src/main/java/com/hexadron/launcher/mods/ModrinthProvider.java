@@ -9,6 +9,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -130,6 +131,42 @@ public final class ModrinthProvider implements ModProvider {
         }
     }
 
+    /**
+     * The Modrinth file with this SHA-1, if Modrinth has one.
+     *
+     * <p>This is how a mod whose author has turned off third-party downloads on
+     * CurseForge can still be installed: many of those mods are published on
+     * Modrinth as well, by the same author, and a matching SHA-1 means it is
+     * byte for byte the same jar. Nothing is circumvented - the file is taken
+     * from a place the author did allow.
+     *
+     * @param sha1 the digest to look for; the hash is the whole point, so a
+     *             mismatching file is never returned
+     */
+    public Optional<ModFile> resolveByHash(String sha1) throws IOException, InterruptedException {
+        if (sha1 == null || sha1.isBlank()) {
+            return Optional.empty();
+        }
+        String wanted = sha1.trim().toLowerCase(Locale.ROOT);
+        Json version;
+        try {
+            version = Http.getJson(API + "/version_file/" + encode(wanted) + "?algorithm=sha1");
+        } catch (Http.HttpStatusException e) {
+            if (e.statusCode() == 404) {
+                return Optional.empty();
+            }
+            throw e;
+        }
+
+        for (Json file : version.get("files").elements()) {
+            if (wanted.equalsIgnoreCase(file.get("hashes").get("sha1").asString(""))) {
+                return Optional.of(toModFile(
+                        version.get("project_id").asString(""), version, file));
+            }
+        }
+        return Optional.empty();
+    }
+
     private ModFile toModFile(String projectId, Json version) {
         // A version can carry several files; the primary one is the mod jar,
         // the rest are sources/javadoc/extras that must not go into mods/.
@@ -147,7 +184,10 @@ public final class ModrinthProvider implements ModProvider {
             throw new IllegalStateException("Modrinth version " + version.get("id").asString("?")
                     + " has no files");
         }
+        return toModFile(projectId, version, chosenFile);
+    }
 
+    private ModFile toModFile(String projectId, Json version, Json chosenFile) {
         List<String> dependencies = new ArrayList<>();
         for (Json dependency : version.get("dependencies").elements()) {
             if (!"required".equals(dependency.get("dependency_type").asString(""))) {

@@ -10,10 +10,10 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Area | State |
 |---|---|
 | Minecraft versions | Every version in Mojang's `version_manifest_v2` - releases, snapshots, old_beta, old_alpha |
-| Loaders | Fabric and Quilt install and launch. Forge and NeoForge list their builds but do not install yet. The version picker offers only versions the chosen loader has builds for |
+| Loaders | Fabric, Quilt, Forge and NeoForge all install and launch. The version picker offers only versions the chosen loader has builds for |
 | Accounts | Offline accounts work and can be removed. Microsoft sign-in is implemented and needs an approved Azure client ID |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments and Java path |
-| Mods | A browser window per instance: search, sort, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one. Required dependencies resolve automatically |
+| Mods | A browser window per instance: search, sort, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically |
 | Java | The launcher finds the installed runtimes and selects one that the version requires |
 | Assets | Modern, `virtual` (1.6) and `map_to_resources` (pre-1.6) layouts |
 | Languages | English, Ukrainian, Russian, Polish, German. The picker changes the window immediately, without a restart |
@@ -115,10 +115,52 @@ Minecraft server calculates in offline mode, so worlds keep the same player data
 
 ### CurseForge
 
-CurseForge requires an API key for every request. Some authors disable
-third-party downloads. For those mods the API returns no download URL. The
-launcher reports the mod and asks you to download it by hand. It does not try to
-bypass the restriction.
+CurseForge requires an API key for every request, and since July 2026 for the
+file downloads as well - its content hosts answer `401` without one. Modrinth
+requires none.
+
+**Where the key comes from.** In this order, first non-empty wins:
+
+1. `curseForgeApiKey` in `launcher.json` - a user's own key, and it always wins;
+2. the `CURSEFORGE_API_KEY` environment variable;
+3. whatever the build put into the launcher jar's manifest.
+
+With none of the three, `CurseForgeProvider.isAvailable()` is false, the mod
+browser says so in one line and offers a field to paste a key into, and searches
+run against Modrinth alone. That is a working launcher with one platform, not a
+broken one.
+
+**The key is not in this repository, and it is not in any fork.** CurseForge
+issues one key per application and its terms say it is "non-transferable and may
+not be shared with any third party". So the release build reads
+`CURSEFORGE_API_KEY` from the environment - on CI, from a repository secret -
+and writes it into the jar manifest, where `BuildConfig` finds it. GitHub does
+not give repository secrets to builds of forks or to pull requests from them, so
+those builds get an empty attribute, compile, run, and simply have no CurseForge
+in them. Nothing has to be edited and no build fails.
+
+Two well-known launchers commit their key in plain text instead and have been
+formally challenged over it. A proxy holding the key server-side is not the
+answer either: the same terms forbid reaching the API through a proxy and
+forbid caching its responses, so that trades one breach for two, and adds a
+server you have to pay for.
+
+**What this does not claim.** A manifest attribute is not a secret from the
+person running the launcher. No client-side key can be, whatever is done to it,
+and obfuscating one only hides that fact. What the arrangement actually achieves
+is narrower and worth having: the key is out of version control, out of every
+fork, and replaceable in one place.
+
+`-Dhexadron.curseforge.apikey=...` overrides the built-in key, which is how a
+developer runs against their own without touching a build file.
+
+**Mods whose authors disabled third-party downloads.** For those the API returns
+a file with no download URL. That is a licence decision and it is respected -
+nothing is circumvented. What the launcher does instead is ask Modrinth whether
+it has a file with the same SHA-1. A hit is the same bytes by definition,
+published by the same author in a place they did allow, so the download comes
+from there and the digest still verifies it. No hit, and the mod is named,
+skipped, and left for you to fetch by hand.
 
 ## The mod
 
@@ -194,13 +236,76 @@ The filter is built from each project's own data, never from a rule of thumb:
 |---|---|---|
 | Fabric, Quilt | `/versions/game` on their meta APIs. No intermediary mappings means the loader cannot run at all | yes |
 | Forge | maven metadata: a build id **is** `<minecraftVersion>-<forgeVersion>` | yes |
-| NeoForge | build numbers, where `21.1.66` means Minecraft 1.21.1 | **no** |
+| NeoForge | build numbers: `21.1.66` means Minecraft 1.21.1, `26.1.2.97` means Minecraft 26.1.2 | **no** |
 
-NeoForge is deliberately excluded. That convention is only documented for the
-`1.x` era, and there is no rule this code can point at for Minecraft's 2026
-calendar versions. An incomplete list is never used to hide anything: hiding the
-one version the user wanted is a worse failure than offering one that turns out
-to have no build, and that case is reported by name when the build list loads.
+NeoForge is still deliberately excluded, even though both of its encodings are
+now implemented. The scheme has already changed once - Minecraft's move to
+calendar versioning turned three-part build numbers into four-part ones - and
+the two possible mistakes do not cost the same. A list that is too long offers a
+version whose build list then comes back empty, which says so plainly and by
+name. A list that is too short hides a version that does work, and gives the
+user nothing to read. So the derived list is used to sort and to suggest, never
+to hide.
+
+## Installing Forge and NeoForge
+
+Fabric and Quilt publish a finished launcher profile, so installing them is one
+download of one JSON file. Forge cannot work that way, and the reason is not
+laziness on their part: Forge ships its changes to the game as a **binary diff
+against the vanilla client jar**, because nobody may redistribute a patched
+Minecraft jar. The diff has to be applied on the user's own machine.
+
+That is what the installer jar's `install_profile.json` describes: a chain of
+*processors*, each a separate Java program, that together turn the vanilla jar
+into the one Forge launches. `install/loader/forge/` implements it.
+
+| File | Job |
+|---|---|
+| `InstallProfile` | reads `install_profile.json`, both formats |
+| `ForgeProcessor` | one step: its jar, its classpath, its arguments, its expected outputs |
+| `Tokens` | the substitution language the arguments are written in |
+| `ProcessorRunner` | runs the steps and verifies what they produced |
+| `ForgeStyleInstaller` | the whole install, for Forge and NeoForge alike |
+
+NeoForge forked Forge's installer and kept the format, so one engine covers
+both. Three eras of the format are in use and all three are supported; which
+one applies is read from the profile, never guessed from the Minecraft version,
+because the boundary has moved:
+
+- **up to 1.12.2** - keys `install` and `versionInfo`. The loader is a plain jar
+  inside the installer and there is no patching at all.
+- **1.13 to 1.20** - a long chain: read the mappings, split the jar, remap it,
+  apply the diff.
+- **current** - one step, because both projects moved the heavy work into their
+  own build.
+
+Four decisions in there are worth stating, because each replaces something that
+looks simpler and is wrong:
+
+- **Each step runs as a separate JVM.** These are third-party programs, some a
+  decade old; they rewrite the thread context classloader and they call
+  `System.exit`. A separate process cannot take the launcher down with it, and
+  it can be given a different JVM - which matters, because the remapper used by
+  the 1.13-1.16 chain behaves differently on anything newer than Java 8. The
+  JVM is chosen from what the *version manifest* asks for, not from what the
+  launcher happens to run on.
+- **A step whose outputs already exist and match is skipped.** The profile
+  publishes a SHA-1 for every file a step produces, so a repeat install or a
+  repair costs almost nothing.
+- **A wrong hash is not automatically a wrong file.** These jars are built at
+  install time, and a JVM using a native compression library produces a
+  byte-different but perfectly valid archive. Rejecting on the hash alone made
+  Forge uninstallable on those machines. A mismatch that is still a whole
+  archive is kept, with a note; anything else is deleted and reported.
+- **The version manifest is written last.** A half-finished install that leaves
+  no manifest cannot be launched by mistake. One that leaves the manifest and no
+  patched jar boots into a crash the user cannot read.
+
+A handful of Forge and NeoForge builds ship a broken installer or are listed in
+the repository without existing - `1.12.2-14.23.5.2851` writes `"data": []`
+where the format requires a map, `47.1.82` is listed without its version prefix.
+Those are left out of the picker by name. Offering them means offering a
+failure.
 
 ## The mod browser
 
@@ -309,6 +414,9 @@ util/     platform detection, hashes, maven coordinates
 net/      HTTP client with retry, parallel verifying downloader
 meta/     version manifest, version JSON, rules, libraries, assets
 install/  version installer, asset installer, native extraction, loaders
+install/loader/forge/
+          the Forge and NeoForge installer: install_profile.json, the token
+          language, the processor runner
 auth/     accounts, offline UUIDs, Microsoft sign-in (PKCE + device code),
           credential stores (DPAPI / Keychain / Secret Service / encrypted file)
 profile/  profiles and their isolated game folders
@@ -322,15 +430,15 @@ cli/      headless entry point
 ```
 
 `SelfCheck` verifies the metadata layer, the player-name rule, JVM-argument
-splitting, mod ownership, loader/version compatibility, search paging and the
-language files, and the authentication hardening - PKCE against RFC 7636's own
-test vector, state validation, log redaction, the credential split - with 280
-assertions. It needs no network, no display and no test framework.
+splitting, mod ownership, loader/version compatibility, search paging, the
+language files, the Forge installer profile formats and their token language,
+the CurseForge key chain and where that key is allowed to be sent, and the
+authentication hardening - PKCE against RFC 7636's own test vector, state
+validation, log redaction, the credential split - with 360 assertions. It needs
+no network, no display and no test framework.
 
 ## Not done yet
 
-- Forge and NeoForge installation. Both use an installer jar with processors
-  that must run locally to patch the client jar.
 - Download of a Java runtime when the machine has none.
 - Import and export of Modrinth `.mrpack` and CurseForge modpack files.
 - Sandboxing the game process. Storing credentials outside the game's reach

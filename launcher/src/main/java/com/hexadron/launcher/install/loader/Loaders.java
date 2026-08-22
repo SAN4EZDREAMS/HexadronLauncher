@@ -30,12 +30,14 @@ public final class Loaders {
         return installer;
     }
 
-    /** Loaders that can install and launch today. */
-    public static List<LoaderType> workingLoaders() {
-        return List.of(LoaderType.VANILLA, LoaderType.FABRIC, LoaderType.QUILT);
-    }
-
-    /** Every loader the UI offers, including those whose install is still pending. */
+    /**
+     * Every loader the interface offers.
+     *
+     * <p>There used to be a second, shorter list here of the loaders that could
+     * actually be installed, because Forge and NeoForge could only list their
+     * builds. They install now, so the two lists were the same list and one of
+     * them had to go.
+     */
     public static List<LoaderType> allLoaders() {
         return List.of(LoaderType.VANILLA, LoaderType.FABRIC, LoaderType.QUILT,
                 LoaderType.NEOFORGE, LoaderType.FORGE);
