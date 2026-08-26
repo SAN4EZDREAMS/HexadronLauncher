@@ -163,6 +163,32 @@ public final class GameLauncher {
 
     /** Human-readable interpretation of a Minecraft exit code. */
     public static String describeExit(int exitCode) {
+        return describeExit(exitCode, null);
+    }
+
+    /**
+     * Human-readable interpretation of a Minecraft exit code, told what wrapper
+     * command the profile used.
+     *
+     * <p>The wrapper is named only for exit 92 - the failed launch handshake -
+     * and it is named first, because a wrapper is by far the most likely cause
+     * of that particular failure. The session token travels to the game over
+     * standard input, and a wrapper that does not pass stdin through to its
+     * child breaks the handshake and nothing else. Without this the user sees
+     * "turn off the secure launch handshake", turns off the wrong thing, and the
+     * real cause - the line they typed into a box marked with a sandbox example
+     * - never comes up.
+     */
+    public static String describeExit(int exitCode, String wrapperCommand) {
+        if (exitCode == 92 && wrapperCommand != null && !wrapperCommand.isBlank()) {
+            return "The launcher could not hand the session to Minecraft "
+                    + "(launch handshake failed). This profile launches through a "
+                    + "wrapper command (" + wrapperCommand + "), and the most likely "
+                    + "cause is that the wrapper does not pass standard input on to "
+                    + "the game - that is how the session token is delivered. Clear "
+                    + "the wrapper field and press Play again: if that works, the "
+                    + "wrapper is the cause and it needs to keep stdin open.";
+        }
         return switch (exitCode) {
             case 92 -> "The launcher could not hand the session to Minecraft "
                     + "(launch handshake failed). Try again; if it repeats, turn off "

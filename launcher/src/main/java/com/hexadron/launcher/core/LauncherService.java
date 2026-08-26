@@ -12,6 +12,7 @@ import com.hexadron.launcher.install.loader.LoaderVersion;
 import com.hexadron.launcher.install.loader.Loaders;
 import com.hexadron.launcher.launch.GameLauncher;
 import com.hexadron.launcher.launch.JavaLocator;
+import com.hexadron.launcher.launch.JavaRuntimes;
 import com.hexadron.launcher.launch.LaunchCommandBuilder;
 import com.hexadron.launcher.launch.LaunchWrapperJar;
 import com.hexadron.launcher.meta.AssetIndex;
@@ -46,6 +47,7 @@ public final class LauncherService {
     private final AccountStore accounts;
     private final SecretStore secretStore;
     private final JavaLocator javaLocator;
+    private final JavaRuntimes javaRuntimes;
     private final LaunchCommandBuilder commandBuilder;
     private final GameLauncher gameLauncher = new GameLauncher();
     private final ModrinthProvider modrinth = new ModrinthProvider();
@@ -63,6 +65,22 @@ public final class LauncherService {
         this.secretStore = SecretStores.forHost(this.dirs, settings.useFileCredentialStore());
         this.accounts = new AccountStore(this.dirs, secretStore).load();
         this.javaLocator = new JavaLocator(dirs);
+        // One resolver, shared by launching and by the loader installers, so a
+        // profile can never install against one Java and start on another.
+        this.javaRuntimes = new JavaRuntimes(this.dirs, javaLocator,
+                settings::javaDownloadPolicy,
+                policy -> {
+                    settings.javaDownloadPolicy(policy);
+                    try {
+                        settings.save();
+                    } catch (IOException e) {
+                        // The runtime is still installed and still used; only the
+                        // "do not ask again" part is lost, so this is not fatal.
+                        System.err.println("could not store the Java download setting: "
+                                + e.getMessage());
+                    }
+                });
+        this.versionInstaller.javaRuntimes(javaRuntimes);
         this.commandBuilder = new LaunchCommandBuilder(dirs);
         this.curseForge = CurseForgeProvider.fromEnvironment(settings.curseForgeApiKey());
         this.modInstaller = new ModInstaller(downloader, modrinth, curseForge);
@@ -100,6 +118,11 @@ public final class LauncherService {
 
     public JavaLocator javaLocator() {
         return javaLocator;
+    }
+
+    /** Java runtime policy: detection, and downloading one when there is none. */
+    public JavaRuntimes javaRuntimes() {
+        return javaRuntimes;
     }
 
     public VersionInstaller versionInstaller() {
@@ -391,7 +414,8 @@ public final class LauncherService {
         Path assetsDir = versionInstaller.assets().assetsDirFor(index);
 
         int requiredJava = version.requiredJavaMajor();
-        JavaLocator.JavaRuntime java = javaLocator.locate(profile.javaPath(), requiredJava);
+        JavaLocator.JavaRuntime java =
+                javaRuntimes.resolve(profile.javaPath(), requiredJava, false, progress);
         progress.log("Using %s (this version requires Java %d)", java, requiredJava);
 
         // Null when the setting is off or the wrapper jar is missing from this

@@ -1,6 +1,7 @@
 package com.hexadron.launcher.core;
 
 import com.hexadron.launcher.json.Json;
+import com.hexadron.launcher.launch.JavaRuntimes;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -72,6 +73,18 @@ public final class LauncherSettings {
      */
     private boolean minimiseToTrayWhilePlaying = true;
 
+    /**
+     * What the launcher may do when a profile needs a Java version this machine
+     * does not have: {@code "ask"}, {@code "always"} or {@code "never"}.
+     *
+     * <p>Ask by default. Fetching a runtime is a 45-90 MB download from a host
+     * the user did not choose, and doing that silently on someone's metered
+     * connection the first time they press Play is not a decision to make for
+     * them. Once they have said yes it is stored as {@code always}, because the
+     * same question asked again for every version is not consent, it is noise.
+     */
+    private String javaDownloadPolicy = JavaRuntimes.DownloadPolicy.ASK.stored();
+
     /** Simultaneous downloads. */
     private int downloadConcurrency = 12;
 
@@ -106,6 +119,8 @@ public final class LauncherSettings {
                 .asBool(minimiseToTrayWhilePlaying);
         downloadConcurrency = json.get("downloadConcurrency").asInt(downloadConcurrency);
         showAllVersions = json.get("showAllVersions").asBool(showAllVersions);
+        javaDownloadPolicy = JavaRuntimes.DownloadPolicy
+                .parse(json.get("javaDownloadPolicy").asString(javaDownloadPolicy)).stored();
         language = json.get("language").asString(language);
         return this;
     }
@@ -121,6 +136,7 @@ public final class LauncherSettings {
                 .put("minimiseToTrayWhilePlaying", minimiseToTrayWhilePlaying)
                 .put("downloadConcurrency", downloadConcurrency)
                 .put("showAllVersions", showAllVersions)
+                .put("javaDownloadPolicy", javaDownloadPolicy)
                 .put("language", language)
                 .write(file);
     }
@@ -212,6 +228,15 @@ public final class LauncherSettings {
 
     public LauncherSettings showAllVersions(boolean value) {
         this.showAllVersions = value;
+        return this;
+    }
+
+    public JavaRuntimes.DownloadPolicy javaDownloadPolicy() {
+        return JavaRuntimes.DownloadPolicy.parse(javaDownloadPolicy);
+    }
+
+    public LauncherSettings javaDownloadPolicy(JavaRuntimes.DownloadPolicy value) {
+        this.javaDownloadPolicy = (value == null ? JavaRuntimes.DownloadPolicy.ASK : value).stored();
         return this;
     }
 

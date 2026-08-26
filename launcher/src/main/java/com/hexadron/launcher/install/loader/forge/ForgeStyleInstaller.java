@@ -218,7 +218,13 @@ public final class ForgeStyleInstaller {
                     profile, dirs, jar, installerJar, minecraftJar, workDir, minecraftVersion);
 
             int requiredJava = requiredJavaFor(installer, minecraftVersion);
-            JavaLocator.JavaRuntime java = new JavaLocator(dirs).locate(null, requiredJava);
+            // exactWanted, because this is the one place where a newer JVM is
+            // not simply "new enough": these are third-party programs built
+            // against one Java generation, and ProcessorRunner's own notes
+            // record what happens when they meet a later one.
+            JavaLocator.JavaRuntime java = installer.javaRuntimes() != null
+                    ? installer.javaRuntimes().resolve(null, requiredJava, true, progress)
+                    : new JavaLocator(dirs).locate(null, requiredJava);
             progress.log("Patching with %s", java);
 
             new ProcessorRunner(java.executable(), dirs.libraries(), workDir, progress)

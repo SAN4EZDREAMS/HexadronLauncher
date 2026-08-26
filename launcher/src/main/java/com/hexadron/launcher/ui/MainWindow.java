@@ -7,6 +7,8 @@ import com.hexadron.launcher.i18n.Language;
 import com.hexadron.launcher.install.loader.LoaderType;
 import com.hexadron.launcher.install.loader.LoaderVersion;
 import com.hexadron.launcher.launch.GameLauncher;
+import com.hexadron.launcher.launch.JavaProvisioner;
+import com.hexadron.launcher.launch.JavaRuntimes;
 import com.hexadron.launcher.meta.VersionManifest;
 import com.hexadron.launcher.mods.InstalledMod;
 import com.hexadron.launcher.mods.ModLibrary;
@@ -21,9 +23,9 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
-import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -148,6 +150,73 @@ public final class MainWindow {
         this.stage = stage;
         this.tray = new TrayIntegration(stage);
         this.progress = new UiProgress(stageLabel, progressBar, logArea);
+        service.javaRuntimes().consent(this::askAboutJavaDownload);
+    }
+
+    /**
+     * Asks whether the launcher may download a Java runtime.
+     *
+     * <p>Called from the worker thread, in the middle of a launch, and has to
+     * come back with an answer - so it hops to the interface thread, waits, and
+     * hands the result back. A latch rather than {@code showAndWait}, because
+     * that method throws when it is called from anywhere but the FX thread.
+     *
+     * <p>Three answers rather than two. "Never ask again" exists because a user
+     * who has their own reason to manage Java themselves should be able to say
+     * so once, and get a message telling them what to install instead of the
+     * same dialog before every launch.
+     */
+    private boolean askAboutJavaDownload(JavaProvisioner.Candidate candidate) {
+        if (Platform.isFxApplicationThread()) {
+            // Not expected - launches run on a worker - but blocking the FX
+            // thread on itself would deadlock, so answer without asking.
+            return false;
+        }
+
+        java.util.concurrent.CountDownLatch answered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicBoolean allowed =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        Platform.runLater(() -> {
+            try {
+                ButtonType download = new ButtonType(I18n.t("java.download.confirm"),
+                        ButtonBar.ButtonData.OK_DONE);
+                ButtonType notNow = new ButtonType(I18n.t("java.download.notNow"),
+                        ButtonBar.ButtonData.CANCEL_CLOSE);
+                ButtonType never = new ButtonType(I18n.t("java.download.never"),
+                        ButtonBar.ButtonData.NO);
+
+                Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                        I18n.t("java.download.message",
+                                candidate.major(),
+                                candidate.releaseName(),
+                                candidate.megabytes(),
+                                JavaProvisioner.attribution()),
+                        download, notNow, never);
+                alert.initOwner(stage);
+                Theme.apply(alert.getDialogPane());
+                alert.setTitle(I18n.t("java.download.title", candidate.major()));
+                alert.setHeaderText(I18n.t("java.download.header", candidate.major()));
+                alert.getDialogPane().setPrefWidth(620);
+
+                ButtonType chosen = alert.showAndWait().orElse(notNow);
+                allowed.set(chosen == download);
+                if (chosen == never) {
+                    service.settings().javaDownloadPolicy(JavaRuntimes.DownloadPolicy.NEVER);
+                    saveSettingsQuietly();
+                }
+            } finally {
+                answered.countDown();
+            }
+        });
+
+        try {
+            answered.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        return allowed.get();
     }
 
     public Scene build() {
@@ -638,7 +707,8 @@ public final class MainWindow {
             session = service.launch(profile, account, progress,
                     progress::log,
                     exitCode -> {
-                        progress.log(GameLauncher.describeExit(exitCode));
+                        progress.log(GameLauncher.describeExit(
+                                exitCode, profile.wrapperCommand()));
                         // The status line has to be closed off here. This task
                         // runs with clearBusyOnSuccess off - the "success" of a
                         // launch is a game still running - so nothing else ever

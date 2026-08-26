@@ -45,6 +45,19 @@ public final class VersionInstaller {
 
     private final GameDirs dirs;
     private final Downloader downloader;
+
+    /**
+     * How a Java runtime is obtained, when one is needed mid-install.
+     *
+     * <p>Set by the application layer rather than constructed here, because the
+     * decision to download a runtime belongs to the same policy - and the same
+     * user prompt - that governs launching. The Forge and NeoForge installers
+     * reach it through {@link #javaRuntimes()}; nothing else needs it.
+     *
+     * <p>Null in a bare VersionInstaller (the self-check builds one), and the
+     * installers fall back to plain detection in that case.
+     */
+    private volatile com.hexadron.launcher.launch.JavaRuntimes javaRuntimes;
     private final VersionResolver resolver;
     private final AssetInstaller assetInstaller;
 
@@ -69,6 +82,16 @@ public final class VersionInstaller {
     }
 
     /** Exposed so loader installers reuse the verifying, retrying downloader. */
+    /** @see #javaRuntimes */
+    public com.hexadron.launcher.launch.JavaRuntimes javaRuntimes() {
+        return javaRuntimes;
+    }
+
+    public VersionInstaller javaRuntimes(com.hexadron.launcher.launch.JavaRuntimes value) {
+        this.javaRuntimes = value;
+        return this;
+    }
+
     public Downloader downloader() {
         return downloader;
     }

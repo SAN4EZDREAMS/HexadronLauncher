@@ -14,6 +14,8 @@ import com.hexadron.launcher.i18n.Language;
 import com.hexadron.launcher.json.Json;
 import com.hexadron.launcher.json.JsonException;
 import com.hexadron.launcher.launch.JavaLocator;
+import com.hexadron.launcher.launch.JavaProvisioner;
+import com.hexadron.launcher.launch.JavaRuntimes;
 import com.hexadron.launcher.launch.LaunchCommandBuilder;
 import com.hexadron.launcher.meta.Argument;
 import com.hexadron.launcher.meta.AssetIndex;
@@ -30,6 +32,7 @@ import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.profile.Profile;
+import com.hexadron.launcher.util.Archives;
 import com.hexadron.launcher.util.Arguments;
 import com.hexadron.launcher.util.MavenCoordinate;
 import com.hexadron.launcher.util.Platform;
@@ -76,6 +79,8 @@ public final class SelfCheck {
         accounts();
         securityHardening();
         javaVersionParsing();
+        javaRuntimeSelection();
+        archiveExtraction();
         versionManifestParsing();
         playerNamesAndArguments();
         modOwnership();
@@ -722,6 +727,30 @@ public final class SelfCheck {
         check("the split used by the launch is the same one the dialog uses",
                 Arguments.split(wrapped.wrapperCommand())
                         .equals(List.of("bwrap", "--unshare-net", "--die-with-parent")));
+
+        // The one failure a wrapper actually causes, and the one the user has no
+        // way to guess. Exit 92 is the launch handshake, the handshake is stdin,
+        // and stdin is exactly what a wrapper can drop.
+        String withWrapper = com.hexadron.launcher.launch.GameLauncher
+                .describeExit(92, "bwrap --unshare-all");
+        check("a handshake failure under a wrapper names the wrapper",
+                withWrapper.contains("bwrap --unshare-all"));
+        check("a handshake failure under a wrapper says what to try",
+                withWrapper.contains("standard input") && withWrapper.contains("Clear"));
+        check("a handshake failure with no wrapper does not invent one",
+                !com.hexadron.launcher.launch.GameLauncher.describeExit(92, null)
+                        .contains("wrapper"));
+        check("a blank wrapper is not blamed either",
+                com.hexadron.launcher.launch.GameLauncher.describeExit(92, "  ")
+                        .equals(com.hexadron.launcher.launch.GameLauncher.describeExit(92)));
+        // Only exit 92. A wrapper set on a profile that crashed for an unrelated
+        // reason must not turn every crash report into a wrapper report.
+        check("an ordinary crash is not blamed on the wrapper",
+                !com.hexadron.launcher.launch.GameLauncher.describeExit(1, "bwrap")
+                        .contains("bwrap"));
+        check("a clean exit is not blamed on the wrapper",
+                com.hexadron.launcher.launch.GameLauncher.describeExit(0, "bwrap")
+                        .equals(com.hexadron.launcher.launch.GameLauncher.describeExit(0)));
     }
 
     // ---------------------------------------------------------------- assets
@@ -833,6 +862,120 @@ public final class SelfCheck {
         check("early access suffix", Integer.valueOf(26).equals(JavaLocator.parseMajor("26-ea")));
         check("blank returns null", JavaLocator.parseMajor("  ") == null);
         check("nonsense returns null", JavaLocator.parseMajor("abc") == null);
+    }
+
+    /**
+     * The rule that decides which installed runtime a version runs on.
+     *
+     * <p>Worth a test of its own because it is the difference between a 1.19
+     * Forge profile starting on the Java 17 it was built against and starting on
+     * whatever newest JVM the machine happens to carry.
+     */
+    private static void javaRuntimeSelection() {
+        section("Java runtime selection");
+
+        java.nio.file.Path anywhere = java.nio.file.Paths.get("java");
+        List<JavaLocator.JavaRuntime> runtimes = List.of(
+                new JavaLocator.JavaRuntime(anywhere, 8, "test"),
+                new JavaLocator.JavaRuntime(anywhere, 25, "test"),
+                new JavaLocator.JavaRuntime(anywhere, 17, "test"),
+                new JavaLocator.JavaRuntime(anywhere, 21, "test"));
+
+        check("exact major wins over a newer one",
+                JavaLocator.choose(runtimes, 17).orElseThrow().majorVersion() == 17);
+        check("lowest satisfying wins when there is no exact match",
+                JavaLocator.choose(runtimes, 18).orElseThrow().majorVersion() == 21);
+        check("nothing old enough is refused",
+                JavaLocator.choose(List.of(new JavaLocator.JavaRuntime(anywhere, 8, "test")), 17)
+                        .isEmpty());
+        check("an exact match is noticed", JavaLocator.hasExactly(runtimes, 25));
+        check("a missing major is not invented", !JavaLocator.hasExactly(runtimes, 11));
+        check("the Java 8 case reports what it found",
+                JavaLocator.describeMissing(17, List.of(
+                        new JavaLocator.JavaRuntime(anywhere, 8, "C:\\Program Files (x86)\\Java")))
+                        .contains("Java 8 at"));
+        check("the empty case says so",
+                JavaLocator.describeMissing(25, List.of())
+                        .contains("No Java installation was detected at all"));
+
+        check("policy words map to always",
+                JavaRuntimes.DownloadPolicy.parse("always") == JavaRuntimes.DownloadPolicy.ALWAYS);
+        check("policy words map to never",
+                JavaRuntimes.DownloadPolicy.parse("never") == JavaRuntimes.DownloadPolicy.NEVER);
+        check("an unknown policy falls back to asking",
+                JavaRuntimes.DownloadPolicy.parse("banana") == JavaRuntimes.DownloadPolicy.ASK);
+        check("a null policy falls back to asking",
+                JavaRuntimes.DownloadPolicy.parse(null) == JavaRuntimes.DownloadPolicy.ASK);
+        check("policy survives a round trip through settings",
+                JavaRuntimes.DownloadPolicy.parse(
+                        JavaRuntimes.DownloadPolicy.NEVER.stored()) == JavaRuntimes.DownloadPolicy.NEVER);
+
+        check("this host maps to an Adoptium os",
+                List.of("windows", "mac", "linux").contains(JavaProvisioner.adoptiumOs()));
+        check("this host maps to an Adoptium architecture",
+                List.of("x64", "x32", "aarch64", "arm").contains(JavaProvisioner.adoptiumArch()));
+    }
+
+    /**
+     * Unpacking a runtime archive.
+     *
+     * <p>Two properties matter and neither is visible from the outside until it
+     * has already gone wrong: the wrapper directory has to be stripped, so that
+     * bin/java lands where the locator looks for it, and an entry that points
+     * outside the target has to be refused rather than written.
+     */
+    private static void archiveExtraction() {
+        section("Archive extraction");
+
+        java.nio.file.Path work = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-selfcheck");
+
+            java.nio.file.Path zip = work.resolve("runtime.zip");
+            try (var out = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(zip))) {
+                out.putNextEntry(new java.util.zip.ZipEntry("jdk-17.0.1+1-jre/bin/java"));
+                out.write("binary".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                out.closeEntry();
+                out.putNextEntry(new java.util.zip.ZipEntry("jdk-17.0.1+1-jre/release"));
+                out.write("JAVA_VERSION=\"17.0.1\"\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                out.closeEntry();
+            }
+
+            java.nio.file.Path target = work.resolve("out");
+            Archives.extract(zip, target, 1);
+            check("the wrapper directory is stripped",
+                    java.nio.file.Files.isRegularFile(target.resolve("bin").resolve("java")));
+            check("files beside it come across",
+                    java.nio.file.Files.isRegularFile(target.resolve("release")));
+
+            java.nio.file.Path escaping = work.resolve("escaping.zip");
+            try (var out = new java.util.zip.ZipOutputStream(
+                    java.nio.file.Files.newOutputStream(escaping))) {
+                out.putNextEntry(new java.util.zip.ZipEntry("wrapper/../../escaped.txt"));
+                out.write("no".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                out.closeEntry();
+            }
+            java.nio.file.Path guarded = work.resolve("guarded");
+            boolean refused = false;
+            try {
+                Archives.extract(escaping, guarded, 1);
+            } catch (IOException expected) {
+                refused = true;
+            }
+            check("an entry pointing outside the target is refused", refused);
+            check("and nothing was written outside it",
+                    !java.nio.file.Files.exists(work.resolve("escaped.txt")));
+        } catch (IOException e) {
+            check("archive extraction ran: " + e.getMessage(), false);
+        } finally {
+            if (work != null) {
+                try {
+                    Archives.deleteRecursively(work);
+                } catch (IOException ignored) {
+                    // A leftover temp directory is not a failed check.
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------- manifest

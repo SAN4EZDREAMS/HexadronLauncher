@@ -90,11 +90,31 @@ public final class HexadronCli {
                                 + (version.stable() ? "  (stable)" : "")));
             }
             case "java" -> {
+                // "java 17" fetches one; "java" alone only reports. Downloading
+                // has to be asked for explicitly here, because a headless run
+                // has nobody to answer the prompt the interface would show.
+                if (args.length >= 2) {
+                    int major = Integer.parseInt(args[1]);
+                    var provisioner = service.javaRuntimes().provisioner();
+                    var existing = provisioner.installed(major);
+                    if (existing.isPresent()) {
+                        System.out.println("already installed: " + existing.get());
+                    } else {
+                        var candidate = provisioner.find(major).orElseThrow(() -> new IOException(
+                                "Eclipse Adoptium publishes no Java " + major + " build for this platform"));
+                        System.out.println("downloading " + candidate);
+                        System.out.println("  " + candidate.url());
+                        System.out.println(provisioner.install(candidate, Progress.console()));
+                    }
+                    return 0;
+                }
                 List<JavaLocator.JavaRuntime> runtimes = service.javaLocator().discover();
                 if (runtimes.isEmpty()) {
                     System.out.println("no Java runtimes detected");
                 }
                 runtimes.forEach(runtime -> System.out.println("  " + runtime));
+                System.out.println("automatic downloads: "
+                        + service.settings().javaDownloadPolicy().stored());
             }
             case "profiles" -> {
                 if (service.profiles().isEmpty()) {
@@ -179,7 +199,8 @@ public final class HexadronCli {
                         });
                 Runtime.getRuntime().addShutdownHook(new Thread(session::terminate));
                 finished.await();
-                System.out.println(GameLauncher.describeExit(exitCode[0]));
+                System.out.println(GameLauncher.describeExit(
+                        exitCode[0], profile.wrapperCommand()));
                 return exitCode[0] == 0 ? 0 : 1;
             }
             default -> {
@@ -233,6 +254,7 @@ public final class HexadronCli {
                   versions [--all]                     list Minecraft versions
                   loaders <loader> <mcVersion>         list loader builds
                   java                                 list detected Java runtimes
+                  java <major>                         download a Temurin JRE of that version
                   profiles                             list profiles
                   create <name> <mcVersion> [loader]   create a profile
                   install <profile>                    download everything the profile needs

@@ -14,7 +14,7 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Accounts | Offline accounts work and can be removed. Microsoft sign-in is implemented and needs an approved Azure client ID |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments and Java path |
 | Mods | A browser window per instance: search, sort, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically |
-| Java | The launcher finds the installed runtimes and selects one that the version requires |
+| Java | The launcher finds the installed runtimes - PATH, the registry, the vendor folders, the official launcher's own downloads - and picks the one the version asks for. If the machine has none, it offers to download an Eclipse Temurin JRE |
 | Assets | Modern, `virtual` (1.6) and `map_to_resources` (pre-1.6) layouts |
 | Languages | English, Ukrainian, Russian, Polish, German. The picker changes the window immediately, without a restart |
 | Interface | Searchable instance list, read-only instance summary, one Play button. Instances are edited in a dialog with Save and Cancel |
@@ -152,6 +152,7 @@ empty needs to say so rather than look like a failure.
 | `curseForgeApiKey` | CurseForge API key. Empty by default. Modrinth needs no key |
 | `showAllVersions` | Show snapshots and old versions in the version list |
 | `downloadConcurrency` | Number of files to download at the same time |
+| `javaDownloadPolicy` | What to do when no installed Java fits: `ask` (the default), `always` or `never` |
 | `keepOpenWhilePlaying` | Keep the launcher window open while the game runs |
 
 ### Microsoft sign-in
@@ -291,6 +292,80 @@ Prism Launcher and MultiMC edit instances the same way.
 The instance list is searchable by name, Minecraft version or loader. The Play
 button never moves: it sits in the footer next to the account, so the one action
 the launcher exists for is always in the same place.
+
+## Java
+
+Every Minecraft version names the Java it wants. Mojang's version JSON carries a
+`javaVersion` block - 25 for 26.2, 21 from 1.20.5, 17 from 1.17, and 8 for
+everything older - and the launcher resolves a runtime per launch rather than
+per install, because one launcher holding a 1.7.10 profile and a 26.2 profile
+needs two different runtimes on the same machine.
+
+### Finding what is already there
+
+Searched, in this order:
+
+1. Runtimes the launcher downloaded itself, under `java/` in the data folder.
+2. `JAVA_HOME`.
+3. The JVM the launcher is running on.
+4. Every directory on `PATH` - which is how a runtime installed by winget,
+   scoop, Homebrew, apt or sdkman is found without knowing where each of those
+   puts things.
+5. The conventional install folders for each platform, plus `~/.jdks`,
+   `~/.sdkman` and `~/.gradle/jdks`.
+6. `.minecraft/runtime` - the runtimes the **official** launcher downloads.
+   Often the only Java on a player's machine, and there is no reason to make
+   them fetch a second copy of something already on their disk.
+7. The Windows registry keys the vendors write, which is the only way to find an
+   installation someone put in a folder of their own choosing.
+
+Of everything that satisfies the requirement, an exact match on the major
+version wins, and after that the lowest version that still qualifies. Both rules
+point the same way: run each version on the runtime its own era was built
+against.
+
+### Downloading one
+
+When nothing fits, the launcher offers to fetch a JRE. Three answers: download,
+not now, or never ask again - and "download" is remembered, so the question is
+asked once rather than once per version. `javaDownloadPolicy` in `launcher.json`
+is the same switch.
+
+The runtime comes from **Eclipse Temurin**, through Eclipse Adoptium's public
+download API, and lands in the launcher's own data folder. Nothing outside that
+folder is touched, no system Java is installed or replaced, and the runtime is
+used by this launcher only.
+
+Mojang publishes runtimes too, and they are the obvious thing to reach for. This
+launcher deliberately does not use them. That endpoint is part of the official
+launcher's private plumbing: undocumented, carrying no licence that grants
+anyone else the right to redistribute what it serves, and relying on a service
+that was never offered to third parties. Temurin has none of those problems -
+OpenJDK under GPLv2 with the Classpath Exception, which permits redistribution,
+published through an API meant to be called. Fetching a JRE from Adoptium is a
+transaction between the user's machine and the Eclipse Foundation, and needs no
+permission from Mojang or Microsoft because it involves neither.
+
+The download is checked against the SHA-256 Adoptium publishes before anything is
+unpacked, it is unpacked into a scratch directory and moved into place only after
+it has been shown to start and to report the version it was fetched for, and the
+licence files that ship inside the archive are kept rather than discarded.
+
+The Forge and NeoForge installers get the same treatment, with one difference:
+there the exact major version is insisted on rather than merely preferred. Those
+processors are third-party programs built against one Java generation - see
+`ProcessorRunner` - and "new enough" is not the same property.
+
+### The packaged clients
+
+The `appImage` build passes `--jlink-options` without `--strip-native-commands`.
+jpackage strips them by default, which deletes every executable from the
+embedded runtime, `bin/java` included. The launcher still starts, because its
+native launcher loads `libjvm` directly - but the bundle then carries a Java 25
+runtime that no child process can be started from, and the launcher correctly
+reported "no Java installation was detected at all" while sitting on top of one.
+Keeping the commands costs about ten megabytes and makes 26.2 launch out of the
+box with no download at all.
 
 ## Version and loader compatibility
 
@@ -531,7 +606,7 @@ splitting, mod ownership, loader/version compatibility, search paging, the
 language files, the Forge installer profile formats and their token language,
 the CurseForge key chain and where that key is allowed to be sent, and the
 authentication hardening - PKCE against RFC 7636's own test vector, state
-validation, log redaction, the credential split - with 403 assertions. It needs
+validation, log redaction, the credential split - with 409 assertions. It needs
 no network, no display and no test framework.
 
 ## Sandboxing, and what it is actually for
@@ -612,14 +687,47 @@ Two constraints, both of which the launcher's self-check enforces:
   game that cannot reach a server, including Mojang's session server. Use it
   only for a deliberately offline instance.
 
+If the handshake does break, the launcher names the wrapper in the exit message
+rather than blaming the handshake in the abstract - that path is covered by the
+self-check, because it is the one failure this feature can introduce.
+
 The same field takes the things people more commonly want it for -
 `gamemoderun`, `prime-run`, `mangohud`, `strace -f -o trace.log` - which is why
 it is one text box and not a sandbox checkbox.
 
+### On Windows and macOS
+
+`bwrap` and `firejail` are Linux programs, so the example above is Linux-only.
+The field itself is not.
+
+On **Windows** the equivalent is [Sandboxie-Plus](https://sandboxie-plus.com),
+which runs a program in a named box from the command line:
+
+```
+"C:\Program Files\Sandboxie-Plus\Start.exe" /box:minecraft /wait
+```
+
+`/wait` is not optional here. Without it `Start.exe` returns as soon as it has
+handed the program over, and the launcher reads that as the game having exited -
+so the status line goes back to idle while Minecraft is still running.
+
+**This has not been tested against the launch handshake.** The session token
+travels to the game over standard input, and whether `Start.exe` passes stdin
+through to the sandboxed process is not something this project has verified. If
+it does not, the game exits with code 92 and the launcher now says so by name:
+it reports the wrapper, says the likely cause is stdin, and tells you to clear
+the field and try again. That is a known failure with a clear message rather
+than a mystery, which is the most this can honestly claim until somebody runs it.
+
+On **macOS** there is no comparable wrapper program. `sandbox-exec` exists, is
+undocumented, and has been marked deprecated by Apple for years; the supported
+mechanism is an entitlement applied to a signed application, which is not
+something a launcher can put around a JVM it did not sign. So on macOS this
+field is for `mangohud`-style tools, not for isolation.
+
 
 ## Not done yet
 
-- Download of a Java runtime when the machine has none.
 - Import and export of Modrinth `.mrpack` and CurseForge modpack files.
 - A sandbox the launcher turns on by itself. What exists instead is the
   wrapper command below, and the reason is in the next section: a sandbox

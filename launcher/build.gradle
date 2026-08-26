@@ -258,6 +258,25 @@ tasks.register('appImage', Exec) {
 			'--input', inputDir.get().asFile.absolutePath,
 			'--main-jar', mainJarName.get(),
 			'--main-class', 'com.hexadron.launcher.Main',
+			// Keep bin/java inside the bundled runtime.
+			//
+			// jpackage's default jlink options are
+			//   --strip-native-commands --strip-debug --no-man-pages --no-header-files
+			// and the first of those deletes every executable from the embedded
+			// runtime, bin/java included. The launcher still starts - the native
+			// launcher loads libjvm directly - but the bundle then contains a
+			// Java 25 runtime that no child process can be started from, and
+			// JavaLocator, which looks for bin/java, correctly reports "no Java
+			// installation was detected at all" on a machine that has none of
+			// its own. That is the packaged build telling the truth about a
+			// runtime it is sitting on top of.
+			//
+			// Restoring the commands costs roughly ten megabytes and makes the
+			// bundled runtime usable for launching Minecraft 26.2 and for
+			// running the Forge installers, with no download at all. The other
+			// three defaults are repeated because naming this option replaces
+			// the whole default list rather than adding to it.
+			'--jlink-options', '--strip-debug --no-man-pages --no-header-files',
 			'--dest', outputDir.get().asFile.absolutePath
 	}
 }

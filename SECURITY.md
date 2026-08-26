@@ -170,6 +170,37 @@ CVSS 9.3).
 
 ---
 
+## 4a. What the game process can and cannot reach
+
+This is the part that decides how bad a malicious mod actually is, so it is
+stated as two separate facts.
+
+**The game receives the Minecraft access token.** It has to: the game presents
+it to Mojang's session server to join anything. It reaches the game over
+standard input, not in `argv`, so it is not in the process table and not in
+`hs_err_pid*.log`, but it is in the JVM's heap the moment the game reads it. A
+mod can read it. Nothing in this launcher or any other changes that.
+
+**The game never receives the Microsoft refresh token.** It is not passed as an
+argument, it is not part of the launch handshake, and it never leaves the
+credential store for any purpose other than a token refresh performed by the
+launcher itself against Microsoft. `LaunchCommandBuilder` puts exactly one
+secret into the handshake map, and it is the access token.
+
+The gap between those two is the whole point of the credential split:
+
+| Stolen | Reaches | Lasts |
+|---|---|---|
+| Minecraft access token | the Minecraft profile - play as the account, change skin or cape | up to 24 hours, and only until the token is refreshed |
+| Microsoft refresh token | the Microsoft account - mail, other services, long-lived re-auth | until revoked |
+
+A mod can take the first. It cannot take the second, because the second is
+never in the room. That is a bound on the damage rather than a prevention of it,
+and a bound is what is actually available here.
+
+
+---
+
 ## 5. Sign-out and revocation
 
 Removing an account deletes both the list entry and the stored credentials. The
@@ -277,7 +308,7 @@ own maven, and it is the same jar the user would download and double-click.
 
 ## 9. Verification
 
-`./gradlew :launcher:selfCheck` runs 403 assertions with no network and no
+`./gradlew :launcher:selfCheck` runs 409 assertions with no network and no
 display, including where the CurseForge key may be sent, and the authentication
 hardening:
 
