@@ -197,36 +197,10 @@ public final class TrayIntegration {
         return image;
     }
 
-    /** The same drawing, for the window icon. */
-    public static javafx.scene.image.Image windowIcon() {
-        BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = image.createGraphics();
-        try {
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-            g.setColor(new Color(0x2D, 0x7D, 0x46));
-            g.fillRoundRect(0, 0, 64, 64, 16, 16);
-            g.setColor(Color.WHITE);
-            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 44));
-            var metrics = g.getFontMetrics();
-            g.drawString("H", (64 - metrics.stringWidth("H")) / 2,
-                    (64 - metrics.getHeight()) / 2 + metrics.getAscent());
-        } finally {
-            g.dispose();
-        }
-        return toFxImage(image);
-    }
-
-    private static javafx.scene.image.Image toFxImage(BufferedImage source) {
-        javafx.scene.image.WritableImage target =
-                new javafx.scene.image.WritableImage(source.getWidth(), source.getHeight());
-        var writer = target.getPixelWriter();
-        for (int y = 0; y < source.getHeight(); y++) {
-            for (int x = 0; x < source.getWidth(); x++) {
-                writer.setArgb(x, y, source.getRGB(x, y));
-            }
-        }
-        return target;
-    }
+    // The window icon used to be drawn here too, with AWT, and it is now in
+    // Brand: doing it with Graphics2D pulled Java2D and the platform font
+    // manager into start-up for the sake of one 64-pixel image. The tray icon
+    // above stays with AWT because SystemTray is an AWT API and JavaFX has no
+    // equivalent - but that code runs when the game starts, not when the
+    // launcher does.
 }

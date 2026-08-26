@@ -19,6 +19,7 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Languages | English, Ukrainian, Russian, Polish, German. The picker changes the window immediately, without a restart |
 | Interface | Searchable instance list, read-only instance summary, one Play button. Instances are edited in a dialog with Save and Cancel |
 | While playing | The launcher hides to the notification area and returns by itself when the game closes |
+| Start-up | A splash screen appears first and the work happens behind it, on a background thread. Each stage is listed with the time it took, and the same list goes into the log |
 
 ## Build
 
@@ -117,6 +118,53 @@ The launcher has a command-line mode. Use it to test an install without a displa
 ./gradlew :launcher:cli --args="mods <profile-id>"
 ./gradlew :launcher:cli --args="play <profile-id> Steve"
 ```
+
+## Start-up
+
+The window used to appear a second or two after the double-click, with nothing
+on screen in between. Two things were responsible, and both are fixed rather
+than hidden behind the splash.
+
+**The credential store was probed on every start.** Choosing where to keep
+credentials means asking each candidate store whether it works, and on Windows
+that answer costs two `powershell.exe` launches - a full DPAPI
+protect/unprotect round trip, because anything cheaper passes on machines where
+the call would actually fail. A cold PowerShell start is the slowest thing the
+launcher does that is not a download, and it happened on the interface thread,
+before the window existed, on every start - including the majority that never
+touch a credential at all. An offline account has no secret to read.
+
+It is now decided on first use. A launcher opened to play an offline profile
+never runs it.
+
+**The window icon was drawn with AWT.** Touching `Graphics2D` initialises Java2D,
+and asking it for `Font.SANS_SERIF` metrics makes the platform font manager
+enumerate every installed font - to produce one 64-pixel image, before the
+window appeared. It is drawn with JavaFX now, which is already loaded. The tray
+icon still uses AWT because `SystemTray` is an AWT API and JavaFX has no
+equivalent, but that runs when the game starts, not when the launcher does.
+
+What is left is genuinely unavoidable - the JavaFX toolkit coming up, and
+reading three small files - so the rest is honesty about it:
+
+- The splash appears as the first thing `Launcher.start` does.
+- Settings, profiles and accounts are read on a background thread, so the
+  interface thread is free to draw.
+- Each stage is listed as it runs and stamped with the time it took when it
+  ends. These are real measurements of real steps, not a scripted animation.
+- The window is shown before the splash fades, never after: closing the last
+  window is what ends a JavaFX application, and a moment with no window at all
+  is a moment for that to happen.
+- Detecting Java runtimes is warmed up **after** the window is up, in the
+  background. It reads the registry and probes everything it finds, so it would
+  be the slowest stage of all - and doing it here keeps that cost off both
+  start-up and the first press of Play.
+
+`-Dhexadron.nosplash=true` skips the splash. The timings still go into the log.
+
+There is a floor of 700 ms on how long the splash stays up. A splash that
+flashes for eighty milliseconds is a glitch rather than a splash, and on a warm
+start that is exactly what would happen.
 
 ## Data folder
 

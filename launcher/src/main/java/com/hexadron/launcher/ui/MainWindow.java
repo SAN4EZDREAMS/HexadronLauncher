@@ -1094,6 +1094,18 @@ public final class MainWindow {
         modsButton.setDisable(!hasProfile);
     }
 
+    /**
+     * Records how long each stage of start-up took.
+     *
+     * <p>In the log pane rather than on screen: nobody wants a timing report in
+     * their way every time they open the launcher, and the one time the numbers
+     * matter - somebody saying it takes too long to start - the log is what they
+     * are asked to send.
+     */
+    public void logStartup(String summary) {
+        progress.log(I18n.t("log.startup", summary));
+    }
+
     private void saveProfilesQuietly() {
         try {
             service.profiles().save();

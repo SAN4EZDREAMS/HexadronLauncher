@@ -52,7 +52,20 @@ public final class BuildConfig {
     /** Manifest attribute the build writes the key into. */
     public static final String CURSEFORGE_API_KEY_ATTRIBUTE = "Hexadron-CurseForge-Api-Key";
 
+    /**
+     * What the version is when the manifest cannot say.
+     *
+     * <p>Which is every development run: a build from a class directory has no
+     * manifest to read. Kept in step with {@code version} in
+     * launcher/build.gradle - it is the same number, and a mismatch shows up as
+     * a splash screen claiming the wrong version in the IDE and the right one in
+     * a release.
+     */
+    private static final String FALLBACK_VERSION = "0.2.0";
+
     private static final String CURSEFORGE_API_KEY = readCurseForgeApiKey();
+
+    private static final String VERSION = readVersion();
 
     private BuildConfig() {
     }
@@ -64,6 +77,16 @@ public final class BuildConfig {
 
     public static boolean hasCurseForgeApiKey() {
         return !CURSEFORGE_API_KEY.isEmpty();
+    }
+
+    /** The version this build reports, e.g. for the splash screen. */
+    public static String version() {
+        return VERSION;
+    }
+
+    private static String readVersion() {
+        String fromManifest = manifestAttribute("Implementation-Version");
+        return fromManifest.isEmpty() ? FALLBACK_VERSION : fromManifest;
     }
 
     private static String readCurseForgeApiKey() {

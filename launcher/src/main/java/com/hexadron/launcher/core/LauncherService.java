@@ -54,15 +54,41 @@ public final class LauncherService {
     private final CurseForgeProvider curseForge;
     private final ModInstaller modInstaller;
 
+    /**
+     * Named stages of start-up, in the order they run.
+     *
+     * <p>Reported as identifiers rather than sentences: this class has no
+     * interface layer and no translations, and the splash screen turns each of
+     * these into a line in the user's own language. Anything not listed here is
+     * fast enough not to be worth a line.
+     */
+    public static final List<String> STARTUP_STEPS =
+            List.of("settings", "dataFolder", "profiles", "credentials", "accounts", "platforms");
+
     public LauncherService(GameDirs dirs, LauncherSettings settings) throws IOException {
+        this(dirs, settings, step -> { });
+    }
+
+    /**
+     * @param step called with each of {@link #STARTUP_STEPS} as it begins. Runs
+     *             on the calling thread, which is not the interface thread, so
+     *             implementations marshal for themselves.
+     */
+    public LauncherService(GameDirs dirs, LauncherSettings settings, Consumer<String> step)
+            throws IOException {
+        step.accept("dataFolder");
         this.dirs = dirs.createBaseDirectories();
         this.settings = settings;
         this.downloader = new Downloader(settings.downloadConcurrency());
         this.versionInstaller = new VersionInstaller(dirs, downloader);
+        step.accept("profiles");
         this.profiles = new ProfileStore(dirs).load();
-        // Chosen once, at start-up: probing a credential store costs a process
-        // spawn, and doing it per account read would put a pause on every launch.
+        // Deliberately not probed here: SecretStores.forHost hands back a store
+        // that decides what it is on first use. Probing costs two PowerShell
+        // launches on Windows, and most starts never read a credential at all.
+        step.accept("credentials");
         this.secretStore = SecretStores.forHost(this.dirs, settings.useFileCredentialStore());
+        step.accept("accounts");
         this.accounts = new AccountStore(this.dirs, secretStore).load();
         this.javaLocator = new JavaLocator(dirs);
         // One resolver, shared by launching and by the loader installers, so a
@@ -82,15 +108,43 @@ public final class LauncherService {
                 });
         this.versionInstaller.javaRuntimes(javaRuntimes);
         this.commandBuilder = new LaunchCommandBuilder(dirs);
+        step.accept("platforms");
         this.curseForge = CurseForgeProvider.fromEnvironment(settings.curseForgeApiKey());
         this.modInstaller = new ModInstaller(downloader, modrinth, curseForge);
     }
 
     /** Builds a service rooted at the default location. */
     public static LauncherService createDefault() throws IOException {
+        return createDefault(step -> { });
+    }
+
+    /** As {@link #createDefault()}, reporting each stage to {@code step}. */
+    public static LauncherService createDefault(Consumer<String> step) throws IOException {
         GameDirs dirs = GameDirs.defaultDirs();
+        step.accept("settings");
         LauncherSettings settings = new LauncherSettings(dirs).load();
-        return new LauncherService(dirs, settings);
+        return new LauncherService(dirs, settings, step);
+    }
+
+    /**
+     * Does work now that would otherwise be done on the first click.
+     *
+     * <p>Called after the window is on screen, on a background thread, so it
+     * costs the user nothing they can see. Detecting Java is the one worth
+     * warming: it reads the registry and probes every runtime it finds, and
+     * without this the bill arrives on the first press of Play.
+     */
+    public void warmUpInBackground() {
+        Thread warm = new Thread(() -> {
+            try {
+                javaLocator.discover();
+            } catch (RuntimeException ignored) {
+                // A warm-up that fails costs nothing; the real call will report.
+            }
+        }, "hexadron-warmup");
+        warm.setDaemon(true);
+        warm.setPriority(Thread.MIN_PRIORITY);
+        warm.start();
     }
 
     // ---------------------------------------------------------------- accessors

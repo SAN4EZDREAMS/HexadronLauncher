@@ -112,7 +112,13 @@ def curseForgeApiKey = (System.getenv('CURSEFORGE_API_KEY') ?: '').trim()
 
 tasks.named('jar') {
 	manifest {
-		attributes('Hexadron-CurseForge-Api-Key': curseForgeApiKey)
+		attributes(
+			'Hexadron-CurseForge-Api-Key': curseForgeApiKey,
+			// Read back by Launcher for the line under the wordmark on the
+			// splash screen. Without it the splash falls back to a constant,
+			// which is the kind of version number that goes stale unnoticed.
+			'Implementation-Title': 'HexadronLauncher',
+			'Implementation-Version': project.version.toString())
 	}
 	doFirst {
 		// Whether, never what. A build log is a public artifact.

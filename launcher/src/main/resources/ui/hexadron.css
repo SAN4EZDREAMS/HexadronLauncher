@@ -328,3 +328,69 @@
     -fx-background-color: -fx-accent-0;
     -fx-text-fill: white;
 }
+
+/* ------------------------------------------------------------------ splash */
+
+/*
+ * The start-up window. It is a transparent stage, so the panel, its rounded
+ * corners and its shadow are all drawn by this card rather than by the window
+ * manager - which is also why the scene root is left transparent in code: the
+ * .root rule above would otherwise paint an opaque square behind the corners.
+ */
+.splash-card {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 16;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 16;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.55), 28, 0.2, 0, 8);
+}
+
+.splash-title {
+    -fx-font-size: 19px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.splash-version {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-1;
+}
+
+/* The stage lines carry their font as an inline style - see SplashScreen for
+   why - so only their colour is decided here. */
+
+/* The stage that is running now: readable. */
+.splash-line {
+    -fx-text-fill: -fx-text-0;
+}
+
+/* One that has finished: grey, and out of the way of the one that has not. */
+.splash-line-done {
+    -fx-text-fill: -fx-text-1;
+    -fx-opacity: 0.75;
+}
+
+/* A hairline, not a control. The default progress bar reserves a lot of
+   vertical space for a shape that here only has to say how far along we are. */
+.splash-bar {
+    -fx-accent: -fx-accent-1;
+    -fx-pref-height: 4;
+    -fx-min-height: 4;
+    -fx-max-height: 4;
+    -fx-padding: 0;
+}
+
+.splash-bar > .track {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 2;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.splash-bar > .bar {
+    -fx-background-color: -fx-accent-1;
+    -fx-background-radius: 2;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
