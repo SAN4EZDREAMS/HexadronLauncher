@@ -81,6 +81,7 @@ public final class SelfCheck {
         javaVersionParsing();
         javaRuntimeSelection();
         archiveExtraction();
+        applicationIcons();
         versionManifestParsing();
         playerNamesAndArguments();
         modOwnership();
@@ -976,6 +977,63 @@ public final class SelfCheck {
                 }
             }
         }
+    }
+
+    /**
+     * The window icon resources.
+     *
+     * <p>Here because the failure is silent. A missing icon resource is not an
+     * error at runtime - the window simply gets the platform's generic
+     * application icon, which is what happened once already and was noticed by
+     * eye rather than by anything in the build.
+     *
+     * <p>The PNG header is parsed rather than the file merely being opened,
+     * because a resource that is present and truncated fails exactly the same
+     * way as one that is absent. Done by hand rather than through
+     * {@code javafx.scene.image.Image}: this runs headless, and nothing here
+     * should need a graphics toolkit.
+     */
+    private static void applicationIcons() {
+        section("Application icons");
+
+        for (int size : new int[]{16, 24, 32, 48, 64, 128}) {
+            String path = "/ui/icon/icon-" + size + ".png";
+            byte[] header = readHeader(path, 24);
+            if (header == null) {
+                check("window icon " + size + " ships in the jar", false);
+                continue;
+            }
+            boolean isPng = header.length == 24
+                    && (header[0] & 0xFF) == 0x89
+                    && header[1] == 'P' && header[2] == 'N' && header[3] == 'G';
+            check("window icon " + size + " is a PNG", isPng);
+            if (!isPng) {
+                continue;
+            }
+            // IHDR is always the first chunk: width and height are big-endian
+            // 32-bit values at offsets 16 and 20.
+            int width = readInt(header, 16);
+            int height = readInt(header, 20);
+            check("window icon " + size + " is " + size + "x" + size,
+                    width == size && height == size);
+        }
+    }
+
+    private static byte[] readHeader(String resource, int count) {
+        try (java.io.InputStream in = SelfCheck.class.getResourceAsStream(resource)) {
+            if (in == null) {
+                return null;
+            }
+            byte[] header = in.readNBytes(count);
+            return header.length == count ? header : new byte[0];
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static int readInt(byte[] bytes, int offset) {
+        return ((bytes[offset] & 0xFF) << 24) | ((bytes[offset + 1] & 0xFF) << 16)
+                | ((bytes[offset + 2] & 0xFF) << 8) | (bytes[offset + 3] & 0xFF);
     }
 
     // ---------------------------------------------------------------- manifest

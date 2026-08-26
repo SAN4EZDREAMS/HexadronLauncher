@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-Regenerates icon.ico, icon.icns and icon.png.
+Regenerates the application icons and the window-icon resources.
+
+Writes packaging/icon.ico, packaging/icon.icns and packaging/icon.png - the
+files jpackage stamps into the executable - and one PNG per size under
+launcher/src/main/resources/ui/icon/, which is what ui/Brand.java hands to every
+window at runtime.
 
 The icons are committed rather than built, because building them needs Python
 and Pillow and the build must not - but they are generated rather than drawn by
@@ -38,6 +43,13 @@ FONT_CANDIDATES = [
 ]
 
 HERE = pathlib.Path(__file__).resolve().parent
+RESOURCES = HERE.parent / "src" / "main" / "resources" / "ui" / "icon"
+
+# The sizes Windows asks for. Each is rendered on its own rather than
+# downscaled from one large image, because a letter drawn at 128 and squeezed to
+# 16 loses the crossbar of the H - see the note in ui/Brand.java, which lists
+# these same numbers.
+WINDOW_ICON_SIZES = [16, 24, 32, 48, 64, 128]
 
 # An .icns is a flat container of typed entries, and every modern type is a PNG.
 # Written by hand because iconutil only exists on macOS.
@@ -84,6 +96,10 @@ def main():
                     sizes=[(n, n) for n in (16, 24, 32, 48, 64, 128, 256)])
     icons[512].save(HERE / "icon.png", format="PNG")
 
+    RESOURCES.mkdir(parents=True, exist_ok=True)
+    for size in WINDOW_ICON_SIZES:
+        icons[size].save(RESOURCES / f"icon-{size}.png", format="PNG", optimize=True)
+
     entries = b""
     for tag, size in ICNS_TYPES:
         buffer = io.BytesIO()
@@ -92,7 +108,8 @@ def main():
         entries += tag + struct.pack(">I", len(data) + 8) + data
     (HERE / "icon.icns").write_bytes(b"icns" + struct.pack(">I", len(entries) + 8) + entries)
 
-    print("wrote icon.ico, icon.png and icon.icns using", font_path)
+    print("wrote icon.ico, icon.png, icon.icns and",
+          len(WINDOW_ICON_SIZES), "window icons, using", font_path)
 
 
 if __name__ == "__main__":

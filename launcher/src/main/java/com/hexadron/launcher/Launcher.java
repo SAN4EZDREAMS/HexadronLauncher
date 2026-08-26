@@ -119,7 +119,7 @@ public final class Launcher extends Application {
 
         window = new MainWindow(service, stage);
         // The title is set by the window, from the active language.
-        stage.getIcons().add(Brand.windowIcon());
+        stage.getIcons().setAll(Brand.windowIcons());
         stage.setScene(window.build());
         stage.setMinWidth(900);
         stage.setMinHeight(620);

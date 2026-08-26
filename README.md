@@ -81,11 +81,39 @@ runtime. An image archived without them unpacks into something that will not
 start, and it fails at the user's end rather than in CI. One extra unpack is the
 cheaper of the two problems.
 
-The executable carries the launcher's own icon, from `launcher/packaging/`.
-Those files are committed rather than built - generating them needs Python and
-Pillow, and the build must not - but they are generated rather than drawn, by
-`launcher/packaging/make-icons.py`, from the same mark, radius and cap height
-that `ui/Brand.java` draws at runtime. Change one and run that script.
+## Icons
+
+There are two sets and they are not interchangeable.
+
+`launcher/packaging/icon.ico`, `.icns` and `.png` are what `jpackage` stamps into
+the executable - the icon in Explorer, the Dock, the file manager. One container
+format per platform, because each wants its own.
+
+`launcher/src/main/resources/ui/icon/icon-*.png` are what the running program
+hands to every window: the title bar, the taskbar, alt-tab. The two are
+unrelated, which is worth knowing because getting the first one right does
+nothing for the second - and for one build that was exactly the state of things:
+a correct icon on the file, and Windows' generic white window frame in the title
+bar.
+
+The cause was that the window icon was being *drawn*, with `Canvas.snapshot`, and
+a canvas that has never belonged to a scene has never been through a render pass.
+What came back was an empty image, which is not an error - so nothing complained,
+and the platform quietly fell back to its own icon. They are loaded from
+resources now, and `SelfCheck` parses each PNG header, because a missing or
+truncated icon resource fails silently by its nature and is otherwise caught only
+by somebody looking at a title bar.
+
+There is one image per size rather than one image resized. A window icon list
+holding a single 64-pixel entry makes the platform downscale to 16 for the title
+bar, and the crossbar of an H does not survive that. Each size is rendered from
+four times its own dimensions instead.
+
+All of them are committed rather than built - generating them needs Python and
+Pillow, and the build must not - but they are generated rather than drawn:
+`launcher/packaging/make-icons.py` writes every file from the same mark, corner
+radius and cap height that `ui/Brand.java` uses at runtime. Change the drawing
+and run that script; do not edit the images.
 
 The last one is not a client. It is kept because someone who already has a JDK
 has no use for another 80 MB of embedded runtime, and because it is what a Linux

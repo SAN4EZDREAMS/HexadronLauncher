@@ -204,7 +204,7 @@ public final class SplashScreen {
         stage.setResizable(false);
         stage.setAlwaysOnTop(true);
         stage.setTitle("HexadronLauncher");
-        stage.getIcons().add(Brand.windowIcon());
+        stage.getIcons().setAll(Brand.windowIcons());
 
         // A minimum display time is a promise to the user that they get to read
         // the thing; it is not a licence to hold their launcher hostage. Anyone
