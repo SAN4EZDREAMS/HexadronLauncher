@@ -371,6 +371,13 @@
     -fx-opacity: 0.75;
 }
 
+/* "Click to skip". Quiet on purpose: it is a way out, not an instruction. */
+.splash-skip {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -fx-text-1;
+    -fx-opacity: 0.7;
+}
+
 /* A hairline, not a control. The default progress bar reserves a lot of
    vertical space for a shape that here only has to say how far along we are. */
 .splash-bar {

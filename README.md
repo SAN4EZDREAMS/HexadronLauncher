@@ -61,12 +61,31 @@ on**: it embeds that platform's Java runtime, so a Windows client cannot be
 produced on Linux even in principle. `fail-fast: false`, so a broken macOS
 build does not throw away the Windows and Linux ones that already worked.
 
-| Artifact | Contents | Needs Java installed? |
+| Artifact | What downloading it gives you | Needs Java installed? |
 |---|---|---|
-| `hexadron-launcher-windows` | `HexadronLauncher-windows.zip` | no |
-| `hexadron-launcher-linux` | `HexadronLauncher-linux.tar.gz` | no |
-| `hexadron-launcher-macos` | `HexadronLauncher-macos.tar.gz` | no |
+| `hexadron-launcher-windows` | a zip holding the `HexadronLauncher` folder | no |
+| `hexadron-launcher-linux` | a zip holding `HexadronLauncher-linux.tar.gz` | no |
+| `hexadron-launcher-macos` | a zip holding `HexadronLauncher-macos.tar.gz` | no |
 | `hexadron-launcher-jar` | the launcher jar and the start-script zip | **yes**, JDK 25 |
+
+Windows is not packed twice and the other two are, and that is deliberate.
+`actions/upload-artifact` always hands a download over as a zip - it is not
+configurable - so anything the workflow archives itself the user unpacks twice.
+On Windows nothing is lost by skipping our own archive, so the workflow uploads
+the image folder as it is and GitHub's zip is the only one.
+
+On Linux and macOS the `tar.gz` has to stay: GitHub's zip carries neither the
+execute bit nor symbolic links, and the image needs both - the launcher binary
+must remain executable, and a macOS `.app` is full of symlinks into its embedded
+runtime. An image archived without them unpacks into something that will not
+start, and it fails at the user's end rather than in CI. One extra unpack is the
+cheaper of the two problems.
+
+The executable carries the launcher's own icon, from `launcher/packaging/`.
+Those files are committed rather than built - generating them needs Python and
+Pillow, and the build must not - but they are generated rather than drawn, by
+`launcher/packaging/make-icons.py`, from the same mark, radius and cap height
+that `ui/Brand.java` draws at runtime. Change one and run that script.
 
 The last one is not a client. It is kept because someone who already has a JDK
 has no use for another 80 MB of embedded runtime, and because it is what a Linux
@@ -162,9 +181,16 @@ reading three small files - so the rest is honesty about it:
 
 `-Dhexadron.nosplash=true` skips the splash. The timings still go into the log.
 
-There is a floor of 700 ms on how long the splash stays up. A splash that
-flashes for eighty milliseconds is a glitch rather than a splash, and on a warm
-start that is exactly what would happen.
+The splash stays up for three seconds at minimum, and there has to be some
+floor: start-up is now fast enough that without one the window would appear and
+vanish, which reads as a glitch rather than as a splash. A click or any key
+closes it at once - a minimum display time is a promise that the user gets to
+read the thing, not a licence to hold their launcher hostage - and
+`splashMinimumMillis` in `launcher.json` moves or removes it.
+
+The window itself is built while the splash is still up and shown only once it
+has gone. That is what lets a key press dismiss it: a window shown behind the
+splash would have taken keyboard focus off it.
 
 ## Data folder
 
@@ -200,6 +226,7 @@ empty needs to say so rather than look like a failure.
 | `curseForgeApiKey` | CurseForge API key. Empty by default. Modrinth needs no key |
 | `showAllVersions` | Show snapshots and old versions in the version list |
 | `downloadConcurrency` | Number of files to download at the same time |
+| `splashMinimumMillis` | How long the start-up window stays up at minimum, in milliseconds. `3000` by default; `0` removes the floor. A click or a key closes it sooner |
 | `javaDownloadPolicy` | What to do when no installed Java fits: `ask` (the default), `always` or `never` |
 | `keepOpenWhilePlaying` | Keep the launcher window open while the game runs |
 

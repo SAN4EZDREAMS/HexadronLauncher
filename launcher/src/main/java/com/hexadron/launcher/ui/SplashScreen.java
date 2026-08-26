@@ -58,8 +58,16 @@ import java.util.List;
  */
 public final class SplashScreen {
 
-    /** Below this, the window would flash rather than appear. */
-    private static final Duration MINIMUM_VISIBLE = Duration.millis(700);
+    /**
+     * How long the splash stays up when nothing says otherwise.
+     *
+     * <p>Used only until {@code launcher.json} has been read, which happens a
+     * few milliseconds in - the stored value replaces it through
+     * {@link #minimumVisible(long)} before {@link #done} is ever called. It
+     * cannot come from settings at construction, because reading settings is
+     * itself one of the stages this window is showing.
+     */
+    private static final long DEFAULT_MINIMUM_VISIBLE_MILLIS = 3000;
 
     private static final Duration FADE_IN = Duration.millis(180);
     private static final Duration FADE_OUT = Duration.millis(260);
@@ -89,6 +97,7 @@ public final class SplashScreen {
     private final VBox lines = new VBox(2);
     private final ProgressBar bar = new ProgressBar(0);
     private final Label versionLabel = new Label();
+    private final Label skipHint = new Label();
 
     private final List<Animation> animations = new ArrayList<>();
 
@@ -104,6 +113,24 @@ public final class SplashScreen {
 
     private Timing current;
     private boolean closed;
+
+    private long minimumVisibleMillis = DEFAULT_MINIMUM_VISIBLE_MILLIS;
+
+    /**
+     * The wait between the last stage and the fade.
+     *
+     * <p>Held so that a click can stop it. Null except during that wait.
+     */
+    private PauseTransition hold;
+
+    /** Set when the user asked to skip before {@link #done} was called. */
+    private boolean skipped;
+
+    /** True from the start of the fade, so a second click cannot start another. */
+    private boolean leaving;
+
+    /** What to run once the window has gone. Handed over by {@link #done}. */
+    private Runnable afterClose;
 
     /**
      * The summary, frozen when {@link #done} is called.
@@ -148,10 +175,15 @@ public final class SplashScreen {
         bar.setPrefWidth(300);
         bar.setMaxWidth(300);
 
-        VBox content = new VBox(12, mark(), title, versionLabel, lines, bar);
+        skipHint.setText(I18n.t("splash.skip"));
+        skipHint.getStyleClass().add("splash-skip");
+        skipHint.setOpacity(0);
+
+        VBox content = new VBox(12, mark(), title, versionLabel, lines, bar, skipHint);
         content.setAlignment(Pos.TOP_CENTER);
         content.setPadding(new Insets(34, 30, 28, 30));
         VBox.setMargin(lines, new Insets(8, 0, 4, 0));
+        VBox.setMargin(skipHint, new Insets(2, 0, 0, 0));
 
         StackPane card = new StackPane(content);
         card.getStyleClass().add("splash-card");
@@ -173,6 +205,14 @@ public final class SplashScreen {
         stage.setAlwaysOnTop(true);
         stage.setTitle("HexadronLauncher");
         stage.getIcons().add(Brand.windowIcon());
+
+        // A minimum display time is a promise to the user that they get to read
+        // the thing; it is not a licence to hold their launcher hostage. Anyone
+        // who has seen it can click or press a key and be done.
+        scene.setOnMouseClicked(event -> skip());
+        scene.setOnKeyPressed(event -> skip());
+        root.setFocusTraversable(true);
+        root.requestFocus();
     }
 
     /**
@@ -265,6 +305,59 @@ public final class SplashScreen {
         fade.setFromValue(0);
         fade.setToValue(1);
         fade.play();
+
+        // Late, and only if the splash is still up by then. Offering a way out
+        // of a window that closed itself half a second ago is noise.
+        PauseTransition delay = new PauseTransition(Duration.millis(1100));
+        delay.setOnFinished(event -> {
+            if (closed) {
+                return;
+            }
+            FadeTransition hint = new FadeTransition(Duration.millis(400), skipHint);
+            hint.setFromValue(0);
+            hint.setToValue(1);
+            hint.play();
+        });
+        delay.play();
+    }
+
+    /**
+     * Sets how long the window stays up at minimum.
+     *
+     * <p>Called once the settings have been read. Zero means no floor at all,
+     * which on a warm start is a window that appears and vanishes - offered
+     * because it is somebody's preference, not because it looks good.
+     */
+    public void minimumVisible(long millis) {
+        long value = Math.max(0, millis);
+        if (Platform.isFxApplicationThread()) {
+            minimumVisibleMillis = value;
+        } else {
+            Platform.runLater(() -> minimumVisibleMillis = value);
+        }
+    }
+
+    /**
+     * Cuts the wait short.
+     *
+     * <p>Two cases, because the click can land on either side of the last stage
+     * finishing: if the wait has already started, stop it and let it finish now;
+     * if it has not, remember that it should not happen.
+     */
+    private void skip() {
+        if (closed || leaving) {
+            return;
+        }
+        skipped = true;
+        PauseTransition running = hold;
+        if (running == null) {
+            // The last stage has not finished yet. Nothing to cut short; done()
+            // will see the flag and not wait at all.
+            return;
+        }
+        hold = null;
+        running.stop();
+        fadeOutAndClose();
     }
 
     /**
@@ -336,21 +429,46 @@ public final class SplashScreen {
             bar.setProgress(1);
             finalSummary = String.join(", ", completed) + "; total " + elapsedMillis() + " ms";
 
+            afterClose = then;
+
             long shown = (System.nanoTime() - startedNanos) / 1_000_000;
-            PauseTransition hold = new PauseTransition(
-                    Duration.millis(Math.max(0, MINIMUM_VISIBLE.toMillis() - shown)));
+            long wait = skipped ? 0 : Math.max(0, minimumVisibleMillis - shown);
+
+            hold = new PauseTransition(Duration.millis(wait));
             hold.setOnFinished(event -> {
-                FadeTransition fade = new FadeTransition(FADE_OUT, stage.getScene().getRoot());
-                fade.setFromValue(1);
-                fade.setToValue(0);
-                fade.setOnFinished(finished -> {
-                    close();
-                    then.run();
-                });
-                fade.play();
+                hold = null;
+                fadeOutAndClose();
             });
             hold.play();
         });
+    }
+
+    /**
+     * Fades the window out, closes it, and runs whatever {@link #done} was
+     * given.
+     *
+     * <p>Reached from two places - the wait ending by itself, and a click
+     * cutting it short - and it must do its work exactly once whichever gets
+     * there first, which is what {@code leaving} is for.
+     */
+    private void fadeOutAndClose() {
+        if (closed || leaving) {
+            return;
+        }
+        leaving = true;
+        Node root = stage.getScene().getRoot();
+        FadeTransition fade = new FadeTransition(FADE_OUT, root);
+        fade.setFromValue(root.getOpacity());
+        fade.setToValue(0);
+        fade.setOnFinished(finished -> {
+            close();
+            Runnable after = afterClose;
+            afterClose = null;
+            if (after != null) {
+                after.run();
+            }
+        });
+        fade.play();
     }
 
     /** Closes at once, without waiting or fading. For a failed start-up. */

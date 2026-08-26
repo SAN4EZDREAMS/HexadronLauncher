@@ -195,6 +195,7 @@ def appName = 'HexadronLauncher'
 // image is launcher-0.2.0.jar, and the launcher sends 0.2.0 in its User-Agent.
 def productVersion = project.version.toString()
 def isMacOs = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('mac')
+def isWindowsHost = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win')
 def bundleVersion = (isMacOs && productVersion.startsWith('0.')) ? '1.0.0' : productVersion
 
 def jpackageInputDir = layout.buildDirectory.dir('jpackage-input')
@@ -231,6 +232,11 @@ tasks.register('appImage', Exec) {
 	def toolchain = javaToolchains.launcherFor {
 		languageVersion = JavaLanguageVersion.of(25)
 	}
+	// Committed rather than generated: building them would need Python and
+	// Pillow, and a build should not. launcher/packaging/make-icons.py
+	// regenerates them from the same drawing ui/Brand.java uses at runtime.
+	def iconFile = layout.projectDirectory.file(
+		'packaging/icon.' + (isMacOs ? 'icns' : (isWindowsHost ? 'ico' : 'png'))).asFile
 	def mainJarName = tasks.named('jar').flatMap { it.archiveFileName }
 	def inputDir = jpackageInputDir
 	def outputDir = jpackageOutputDir
@@ -241,10 +247,17 @@ tasks.register('appImage', Exec) {
 	inputs.dir inputDir
 	outputs.dir outputDir
 
+	inputs.file iconFile
+
 	doFirst {
 		def windows = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win')
 		def jpackage = toolchain.get().metadata.installationPath
 			.file(windows ? 'bin/jpackage.exe' : 'bin/jpackage').asFile
+
+		if (!iconFile.exists()) {
+			throw new GradleException("the application icon is missing: ${iconFile}. "
+				+ 'Run launcher/packaging/make-icons.py to regenerate it.')
+		}
 
 		if (!jpackage.exists()) {
 			throw new GradleException("jpackage was not found at ${jpackage}. It ships with "
@@ -264,6 +277,11 @@ tasks.register('appImage', Exec) {
 			'--input', inputDir.get().asFile.absolutePath,
 			'--main-jar', mainJarName.get(),
 			'--main-class', 'com.hexadron.launcher.Main',
+			// Without this the executable carries jpackage's stock icon, which
+			// is a generic Java cup - so the one thing a user sees before they
+			// have run the launcher once says nothing about what it is. Each
+			// platform wants its own container format: .ico, .icns, .png.
+			'--icon', iconFile.absolutePath,
 			// Keep bin/java inside the bundled runtime.
 			//
 			// jpackage's default jlink options are

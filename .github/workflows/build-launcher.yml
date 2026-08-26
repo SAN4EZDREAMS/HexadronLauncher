@@ -155,24 +155,40 @@ jobs:
         run: ./gradlew --configure-on-demand :launcher:appImage
         env:
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
-      # Архівуємо власним інструментом системи, а не Gradle.
+      # ЧОМУ WINDOWS І РЕШТА ПАКУЮТЬСЯ ПО-РІЗНОМУ
       #
-      # Zip/Tar у Gradle йдуть за симлінками і не переносять біт запуску. Тут це
-      # критично: на Linux і macOS виконуваний файл мусить лишитися виконуваним, а
-      # .app на macOS усередині складається зі симлінків на вбудований рантайм.
-      # Архів, зібраний без цього, розпакується в те, що не запускається — і
-      # зламається вже в користувача, а не в CI.
+      # actions/upload-artifact ЗАВЖДИ віддає завантаження як .zip — це не
+      # налаштовується. Тож усе, що ми запакуємо тут самі, користувач отримає
+      # запакованим ДВІЧІ: zip усередині zip. Саме це й було раніше на Windows.
       #
-      # tar.gz для Linux і macOS саме тому. Для Windows права доступу не мають
-      # значення, тож там звичайний zip.
-      - name: archive the client
+      # Windows: свій архів не робимо взагалі. Віддаємо папку образу як є, і
+      # єдиним архівом лишається той, який GitHub робить сам. Права доступу на
+      # Windows значення не мають, симлінків у образі немає — втрачати нічого.
+      #
+      # Linux і macOS: tar.gz лишається, і подвійна упаковка там — свідома ціна.
+      # Zip від GitHub не переносить біт запуску й не зберігає симлінки, а на цих
+      # двох системах втрата будь-чого з цього дає образ, який не запускається:
+      # виконуваний файл мусить лишитися виконуваним, а .app на macOS усередині
+      # складається зі симлінків на вбудований рантайм. Архів, зібраний без
+      # цього, зламається вже в користувача, а не в CI.
+      #
+      # Файл-пам'ятка поруч потрібен ще й технічно: корінь артефакту — спільний
+      # предок усіх доданих файлів, тож без нього в архів потрапив би ВМІСТ
+      # HexadronLauncher/, розсипаний по теці завантажень, а не сама тека.
+      - name: prepare the client for upload
         run: |
           mkdir -p release
-          cd launcher/build/jpackage
           if [ "${{ matrix.label }}" = "windows" ]; then
-            7z a -tzip "$GITHUB_WORKSPACE/release/HexadronLauncher-${{ matrix.label }}.zip" .
+            cp -r launcher/build/jpackage/HexadronLauncher release/HexadronLauncher
+            printf '%s\n' \
+              'HexadronLauncher' \
+              '' \
+              'Unpack this folder anywhere and run HexadronLauncher.exe inside it.' \
+              'Java is not required: a runtime is bundled.' \
+              > release/HOW-TO-RUN.txt
           else
-            tar czf "$GITHUB_WORKSPACE/release/HexadronLauncher-${{ matrix.label }}.tar.gz" .
+            tar czf "release/HexadronLauncher-${{ matrix.label }}.tar.gz" \
+              -C launcher/build/jpackage .
           fi
       - name: capture the client
         uses: actions/upload-artifact@v7

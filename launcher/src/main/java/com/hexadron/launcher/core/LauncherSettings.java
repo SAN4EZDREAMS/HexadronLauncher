@@ -88,6 +88,17 @@ public final class LauncherSettings {
     /** Simultaneous downloads. */
     private int downloadConcurrency = 12;
 
+    /**
+     * How long the start-up window stays up at minimum, in milliseconds.
+     *
+     * <p>There has to be a floor, because start-up is now fast enough that
+     * without one the window would appear and vanish - which reads as a glitch
+     * rather than as a splash. Three seconds is long enough to read the stage
+     * list; a click or a key closes it sooner, and zero removes the floor for
+     * anyone who wants the launcher and nothing else.
+     */
+    private int splashMinimumMillis = 3000;
+
     /** Show snapshots and old versions in the version picker. */
     private boolean showAllVersions = false;
 
@@ -119,6 +130,7 @@ public final class LauncherSettings {
                 .asBool(minimiseToTrayWhilePlaying);
         downloadConcurrency = json.get("downloadConcurrency").asInt(downloadConcurrency);
         showAllVersions = json.get("showAllVersions").asBool(showAllVersions);
+        splashMinimumMillis = json.get("splashMinimumMillis").asInt(splashMinimumMillis);
         javaDownloadPolicy = JavaRuntimes.DownloadPolicy
                 .parse(json.get("javaDownloadPolicy").asString(javaDownloadPolicy)).stored();
         language = json.get("language").asString(language);
@@ -136,6 +148,7 @@ public final class LauncherSettings {
                 .put("minimiseToTrayWhilePlaying", minimiseToTrayWhilePlaying)
                 .put("downloadConcurrency", downloadConcurrency)
                 .put("showAllVersions", showAllVersions)
+                .put("splashMinimumMillis", splashMinimumMillis)
                 .put("javaDownloadPolicy", javaDownloadPolicy)
                 .put("language", language)
                 .write(file);
@@ -228,6 +241,16 @@ public final class LauncherSettings {
 
     public LauncherSettings showAllVersions(boolean value) {
         this.showAllVersions = value;
+        return this;
+    }
+
+    /** Clamped: a negative value is no floor, and no window should hold for a minute. */
+    public int splashMinimumMillis() {
+        return Math.max(0, Math.min(splashMinimumMillis, 15_000));
+    }
+
+    public LauncherSettings splashMinimumMillis(int value) {
+        this.splashMinimumMillis = value;
         return this;
     }
 

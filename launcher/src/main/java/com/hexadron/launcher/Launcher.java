@@ -72,7 +72,11 @@ public final class Launcher extends Application {
             LauncherService service;
             try {
                 service = LauncherService.createDefault(this::reportStep);
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                // Throwable, not Exception. Implicit exit is off while the splash
+                // is the only window, so an Error escaping here would leave a
+                // spinning splash and no way out of it - which is a worse
+                // failure than the one that caused it.
                 Platform.runLater(() -> failed(e));
                 return;
             }
@@ -89,16 +93,28 @@ public final class Launcher extends Application {
     }
 
     /**
-     * Builds the window and swaps it for the splash.
+     * Builds the window behind the splash and shows it once the splash has gone.
      *
-     * <p>The window is shown first and the splash faded out afterwards, rather
-     * than the other way round. Closing the last window is what triggers a
-     * JavaFX shutdown, and a moment with no window at all is a moment for that
-     * to happen; showing the new one first means there is never such a moment.
-     * The splash is always-on-top, so the order is not visible.
+     * <p>Built but not shown: the scene is assembled here, which is the
+     * expensive part, and {@code show} happens in the callback. That ordering
+     * costs nothing and buys two things. The splash keeps keyboard focus for as
+     * long as it is up, so a key press can dismiss it - it could not if a window
+     * behind it had taken focus. And the window arrives as one event rather than
+     * appearing under a panel that then dissolves off it.
+     *
+     * <p>What makes it safe is the implicit exit switched off in {@code start}:
+     * closing the last window is what ends a JavaFX application, and between the
+     * splash closing and the window opening there is briefly no window at all.
+     * It goes back on the moment the window is up.
      */
     private void open(Stage stage, LauncherService service) {
         I18n.use(Language.resolve(service.settings().language()));
+        // Now that settings have been read, the splash can be told how long the
+        // user wants to look at it. Until this point it has been using its own
+        // default, because reading that setting is one of the stages it shows.
+        if (splash != null) {
+            splash.minimumVisible(service.settings().splashMinimumMillis());
+        }
         reportStep("interface");
 
         window = new MainWindow(service, stage);
@@ -107,29 +123,32 @@ public final class Launcher extends Application {
         stage.setScene(window.build());
         stage.setMinWidth(900);
         stage.setMinHeight(620);
-        stage.show();
-
-        Platform.setImplicitExit(true);
 
         if (splash == null) {
-            service.warmUpInBackground();
+            reveal(stage, service, null);
             return;
         }
-        splash.done(() -> {
-            stage.toFront();
-            stage.requestFocus();
-            // Logged rather than shown: it answers "why is it slow to start",
-            // and that question is asked with a copy of the log attached.
-            window.logStartup(splash.summary());
-            // Detecting Java reads the registry and probes every runtime it
-            // finds. Doing it now, in the background, keeps that cost off the
-            // first press of Play - and off start-up, where it would be the
-            // slowest stage of all.
-            service.warmUpInBackground();
-        });
+        splash.done(() -> reveal(stage, service, splash.summary()));
     }
 
-    private void failed(Exception e) {
+    private void reveal(Stage stage, LauncherService service, String startupSummary) {
+        stage.show();
+        stage.toFront();
+        stage.requestFocus();
+        Platform.setImplicitExit(true);
+
+        if (startupSummary != null) {
+            // Logged rather than shown: it answers "why is it slow to start",
+            // and that question is asked with a copy of the log attached.
+            window.logStartup(startupSummary);
+        }
+        // Detecting Java reads the registry and probes every runtime it finds.
+        // Doing it now, in the background, keeps that cost off the first press
+        // of Play - and off start-up, where it would be the slowest stage.
+        service.warmUpInBackground();
+    }
+
+    private void failed(Throwable e) {
         if (splash != null) {
             splash.close();
         }
