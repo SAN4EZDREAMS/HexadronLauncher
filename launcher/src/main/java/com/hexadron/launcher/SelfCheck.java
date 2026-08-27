@@ -1106,47 +1106,33 @@ public final class SelfCheck {
             profiles.stream().filter(profile -> profile.id().equals(profileId))
                     .findFirst().ifPresent(profile -> seeded.add(profile.name()));
         }
-        // Alphabetical on a first run: the order somebody who has arranged
-        // nothing expects, and the order the interface starts from.
         check("the seeded order is alphabetical " + seeded,
                 seeded.equals(List.of("alpha", "beta", "Mid", "Zeta")));
         check("seeding fills the first cells with no holes",
                 layout.cellOf(id.get("alpha")).orElseThrow()[1] == 0
                         && layout.cellOf(id.get("Zeta")).orElseThrow()[1] == 3);
         check("every profile has a cell", layout.occupied() == 4);
-        check("free cells are the rest", layout.freeCells() == 23);
+        check("nothing is in a group yet", layout.groups().isEmpty());
 
         // -------------------------------------------------- absolute cells
-        //
-        // The property the first version got wrong: a drop on a free cell means
-        // that cell, not "the end". Everything else has to stay where it is.
         int[] before = layout.cellOf(id.get("beta")).orElseThrow();
         check("a free cell is taken exactly", layout.placeAt(id.get("Zeta"), 2, 7));
         check("the profile is in the cell it was dropped on",
-                layout.cellOf(id.get("Zeta")).orElseThrow()[0] == 2
-                        && layout.cellOf(id.get("Zeta")).orElseThrow()[1] == 7);
-        check("nothing else moved",
-                layout.cellOf(id.get("beta")).orElseThrow()[0] == before[0]
-                        && layout.cellOf(id.get("beta")).orElseThrow()[1] == before[1]);
+                cellUnchanged(layout, id.get("Zeta"), new int[]{2, 7}));
+        check("nothing else moved", cellUnchanged(layout, id.get("beta"), before));
         check("a cell outside the grid is refused", !layout.placeAt(id.get("Zeta"), 9, 9));
         check("the refusal left it where it was",
-                layout.cellOf(id.get("Zeta")).orElseThrow()[1] == 7);
+                cellUnchanged(layout, id.get("Zeta"), new int[]{2, 7}));
 
-        // An occupied cell is an exchange. Any other answer would move a third
-        // profile that the user did not touch.
         int[] alphaCell = layout.cellOf(id.get("alpha")).orElseThrow();
-        int[] zetaCell = layout.cellOf(id.get("Zeta")).orElseThrow();
-        layout.placeAt(id.get("alpha"), zetaCell[0], zetaCell[1]);
+        layout.placeAt(id.get("alpha"), 2, 7);
         check("dropping on an occupied cell swaps the two",
-                layout.cellOf(id.get("alpha")).orElseThrow()[1] == zetaCell[1]
-                        && layout.cellOf(id.get("Zeta")).orElseThrow()[1] == alphaCell[1]);
+                cellUnchanged(layout, id.get("alpha"), new int[]{2, 7})
+                        && cellUnchanged(layout, id.get("Zeta"), alphaCell));
         check("a swap loses nothing", layout.occupied() == 4);
         layout.placeAt(id.get("alpha"), alphaCell[0], alphaCell[1]);
 
         // -------------------------------------------------- gaps are nothing
-        //
-        // The list is the cells in reading order with the holes left out, which
-        // is the rule the interface is specified to follow.
         ProfileLayout gaps = new ProfileLayout();
         gaps.reconcile(profiles);
         gaps.placeAt(id.get("alpha"), 0, 0);
@@ -1156,136 +1142,211 @@ public final class SelfCheck {
         check("a hole between two profiles is not a row",
                 gaps.sequence().equals(List.of(id.get("alpha"), id.get("beta"),
                         id.get("Mid"), id.get("Zeta"))));
-        check("the list has one row per placed profile",
-                gaps.listRows().size() == 4);
+        check("the list has one row per placed profile", gaps.listRows().size() == 4);
 
-        // A list reorder moves the contents of the occupied cells and leaves the
-        // holes alone - that is what makes a hole nothing rather than something
-        // the list has to represent.
         gaps.moveProfileBeside(id.get("Zeta"), id.get("alpha"), false);
         check("a list reorder changes the order",
                 gaps.sequence().get(0).equals(id.get("Zeta")));
         check("a list reorder keeps the same cells occupied",
-                gaps.cellOf(id.get("Zeta")).orElseThrow()[1] == 0
-                        && gaps.cellOf(id.get("alpha")).orElseThrow()[1] == 2
-                        && gaps.cellOf(id.get("Mid")).orElseThrow()[0] == 1);
+                cellUnchanged(gaps, id.get("Zeta"), new int[]{0, 0})
+                        && cellUnchanged(gaps, id.get("alpha"), new int[]{0, 2})
+                        && cellUnchanged(gaps, id.get("Mid"), new int[]{1, 4}));
         check("a list reorder loses nothing", gaps.occupied() == 4);
 
-        // -------------------------------------------------- groups
+        // -------------------------------------------------- a group takes rows
         //
-        // Membership only. A group has no cells of its own, so joining one must
-        // not move the profile.
-        ProfileLayout.Group group = layout.createGroup("Modded");
-        int[] keptCell = layout.cellOf(id.get("Mid")).orElseThrow();
-        layout.join(id.get("Mid"), group.id());
-        layout.join(id.get("Zeta"), group.id());
-        check("joining a group does not move the profile",
-                layout.cellOf(id.get("Mid")).orElseThrow()[0] == keptCell[0]
-                        && layout.cellOf(id.get("Mid")).orElseThrow()[1] == keptCell[1]);
-        check("a grouped profile knows its group",
-                layout.groupOf(id.get("Mid")).orElseThrow().id().equals(group.id()));
-        check("the group lists its members in reading order",
-                layout.membersOf(group.id()).equals(List.of(id.get("Mid"), id.get("Zeta"))));
-        check("leaving a group keeps the cell", cellUnchanged(layout, id.get("Mid"), keptCell));
+        // The property the previous attempt got wrong: a group has to own
+        // something for collapsing it to mean anything.
+        ProfileLayout rowsLayout = new ProfileLayout();
+        rowsLayout.reconcile(profiles);
+        ProfileLayout.Group group = rowsLayout.createGroup("Modded");
+        check("a new group owns a row", rowsLayout.rowsOf(group.id()).size() == 1);
+        int groupRow = rowsLayout.rowsOf(group.id()).get(0);
+        check("the row it took was empty", rowsLayout.membersOf(group.id()).isEmpty());
+        check("making a group displaced nobody", rowsLayout.occupied() == 4);
+        check("the row knows its group",
+                rowsLayout.rowGroup(groupRow).orElseThrow().id().equals(group.id()));
 
-        List<ProfileLayout.ListRow> listRows = layout.listRows();
-        long headers = listRows.stream().filter(ProfileLayout.ListRow::isGroup).count();
-        check("the list has one header for the group", headers == 1);
-        check("the header knows how many it holds", listRows.stream()
+        // Membership is the row, so joining is a move into one of its cells.
+        check("joining moves the profile into the group",
+                rowsLayout.join(id.get("Mid"), group.id()));
+        check("and it is now in the group",
+                rowsLayout.groupOf(id.get("Mid")).orElseThrow().id().equals(group.id()));
+        check("its cell is in one of the group rows",
+                rowsLayout.rowsOf(group.id())
+                        .contains(rowsLayout.cellOf(id.get("Mid")).orElseThrow()[0]));
+        check("the group lists it",
+                rowsLayout.membersOf(group.id()).equals(List.of(id.get("Mid"))));
+        check("a profile in an ungrouped row is in no group",
+                rowsLayout.groupOf(id.get("beta")).isEmpty());
+
+        // Dropping it into an ungrouped cell is how it leaves.
+        check("leaving is a move too", rowsLayout.join(id.get("Mid"), null));
+        check("and it is out of the group", rowsLayout.groupOf(id.get("Mid")).isEmpty());
+        check("the group is empty again", rowsLayout.membersOf(group.id()).isEmpty());
+        check("but still owns its row", rowsLayout.rowsOf(group.id()).size() == 1);
+        rowsLayout.join(id.get("Mid"), group.id());
+        rowsLayout.join(id.get("Zeta"), group.id());
+        check("two profiles in the group", rowsLayout.membersOf(group.id()).size() == 2);
+
+        // -------------------------------------------------- collapsing
+        List<ProfileLayout.ListRow> open = rowsLayout.listRows();
+        check("the list shows a header for the group",
+                open.stream().filter(ProfileLayout.ListRow::isGroup).count() == 1);
+        check("the header knows how many it holds", open.stream()
                 .filter(ProfileLayout.ListRow::isGroup).findFirst().orElseThrow()
                 .memberCount() == 2);
-        check("members are drawn nested", listRows.stream()
-                .filter(row -> !row.isGroup() && row.isNested()).count() == 2);
-        check("every profile appears once in the list",
-                listRows.stream().filter(row -> !row.isGroup()).count() == 4);
+        check("members are drawn nested",
+                open.stream().filter(row -> !row.isGroup() && row.isNested()).count() == 2);
+        check("every profile appears once",
+                open.stream().filter(row -> !row.isGroup()).count() == 4);
 
-        // Collapsing is a list behaviour. The grid has fixed cells and nothing
-        // to fold, so collapsing must not touch the arrangement.
-        layout.setCollapsed(group.id(), true);
-        check("collapsing hides the members", layout.listRows().stream()
-                .filter(row -> !row.isGroup()).count() == 2);
-        check("collapsing does not change the cells", layout.occupied() == 4);
-        check("collapsing does not change the order",
-                layout.sequence().size() == 4);
-        layout.setCollapsed(group.id(), false);
+        rowsLayout.setCollapsed(group.id(), true);
+        List<ProfileLayout.ListRow> folded = rowsLayout.listRows();
+        check("collapsing hides the members in the list",
+                folded.stream().filter(row -> !row.isGroup()).count() == 2);
+        check("the header is still there",
+                folded.stream().filter(ProfileLayout.ListRow::isGroup).count() == 1);
+        check("collapsing moves nothing", rowsLayout.occupied() == 4);
 
-        layout.removeGroup(group.id());
-        check("deleting a group keeps its profiles", layout.occupied() == 4);
-        check("deleting a group removes the membership",
-                layout.groupOf(id.get("Mid")).isEmpty());
-        check("deleting a group moves nothing",
-                cellUnchanged(layout, id.get("Mid"), keptCell));
+        // The grid folds with it, which is what a group owning rows is for.
+        List<ProfileLayout.Band> bands = rowsLayout.bands();
+        ProfileLayout.Band groupBand = bands.stream()
+                .filter(band -> band.group() != null).findFirst().orElseThrow();
+        check("the grid folds the band too", groupBand.isCollapsed());
+        check("the folded band knows its rows", !groupBand.rows().isEmpty());
+        check("the folded band knows its members", groupBand.memberCount() == 2);
+        rowsLayout.setCollapsed(group.id(), false);
+        check("bands cover every row",
+                rowsLayout.bands().stream().mapToInt(band -> band.rows().size()).sum()
+                        == rowsLayout.rows());
+        check("a band never mixes groups", bandsAreUniform(rowsLayout));
 
-        // -------------------------------------------------- growing
-        ProfileLayout size = new ProfileLayout();
-        size.reconcile(profiles);
-        int[] pinned = size.cellOf(id.get("Mid")).orElseThrow();
-        check("a column can be added", size.addColumn());
-        check("widening moves nothing", cellUnchanged(size, id.get("Mid"), pinned));
-        check("a row can be added", size.addRow());
-        check("the capacity grew", size.capacity() == 10 * 4);
+        // -------------------------------------------------- rows of a group
+        check("a group can be given another row", rowsLayout.addRowToGroup(group.id()));
+        check("it now owns two", rowsLayout.rowsOf(group.id()).size() == 2);
+        check("its rows are next to each other",
+                rowsLayout.rowsOf(group.id()).get(1)
+                        - rowsLayout.rowsOf(group.id()).get(0) == 1);
+        check("adding a row kept everybody", rowsLayout.occupied() == 4);
+        check("and kept the members in the group",
+                rowsLayout.membersOf(group.id()).size() == 2);
+        check("a group can give a row back", rowsLayout.removeRowFromGroup(group.id()));
+        check("it owns one again", rowsLayout.rowsOf(group.id()).size() == 1);
+        check("the last row of a group will not go",
+                !rowsLayout.removeRowFromGroup(group.id()));
+        check("nothing was lost by the refusal", rowsLayout.occupied() == 4);
 
-        // -------------------------------------------------- shrinking
+        // -------------------------------------------------- removing rows
         //
-        // An empty edge goes. An edge with profiles behind it takes them with it
-        // into free cells. An edge that cannot be emptied is refused, because
-        // the alternative is a profile with no cell, which cannot be seen.
-        ProfileLayout shrink = new ProfileLayout();
-        shrink.reconcile(profiles);
-        check("an empty last row goes without argument", shrink.removeRow());
-        check("the row is gone", shrink.rows() == 2);
-        check("nothing was lost", shrink.occupied() == 4);
+        // Removing a row is a change to the table. Deleting a group is a change
+        // to the arrangement, and one must not happen as a side effect of the
+        // other.
+        ProfileLayout table = new ProfileLayout();
+        table.reconcile(profiles);
+        ProfileLayout.Group only = table.createGroup("Only");
+        // The first free row, not a new one at the bottom: making a group should
+        // not push the grid taller when there is already an empty row in it.
+        check("a new group takes the first free row",
+                table.rowsOf(only.id()).equals(List.of(1)));
+        check("an empty ungrouped last row goes without argument", table.removeRow());
+        check("the grid is two deep", table.rows() == 2);
+        check("the group's row is now the last one",
+                table.rowsOf(only.id()).get(0) == table.rows() - 1);
+        check("removing it is refused", !table.removeRow());
+        check("the group survived the refusal", table.group(only.id()).isPresent());
+        check("it still owns its row", table.rowsOf(only.id()).size() == 1);
+        check("and the grid is unchanged", table.rows() == 2);
+        check("adding a row to the group first", table.addRowToGroup(only.id()));
+        check("now the last row can go", table.removeRow());
+        check("and the group is still here", table.group(only.id()).isPresent());
+        check("with one row", table.rowsOf(only.id()).size() == 1);
 
-        shrink.placeAt(id.get("Zeta"), 1, 8);
-        check("a row with a profile in it still goes", shrink.removeRow());
-        check("and the profile came with it", shrink.occupied() == 4);
-        check("the profile is inside the smaller grid",
-                shrink.cellOf(id.get("Zeta")).orElseThrow()[0] < shrink.rows());
-        check("the smaller grid is one row", shrink.rows() == 1);
-        check("the last row cannot go", !shrink.removeRow());
+        int rowsBefore = table.rows();
+        table.removeGroup(only.id());
+        check("deleting a group keeps every profile", table.occupied() == 4);
+        check("deleting a group keeps its rows", table.rows() == rowsBefore);
+        check("and nothing is in a group", table.groups().isEmpty());
 
-        // A grid with no free cells cannot give up an edge.
+        // -------------------------------------------------- removing columns
+        ProfileLayout narrow = new ProfileLayout();
+        narrow.reconcile(profiles);
+        ProfileLayout.Group kept = narrow.createGroup("Kept");
+        narrow.join(id.get("Mid"), kept.id());
+        int[] pinned = narrow.cellOf(id.get("beta")).orElseThrow();
+        narrow.placeAt(id.get("Zeta"), narrow.rowsOf(kept.id()).get(0), narrow.columns() - 1);
+        check("a column can go", narrow.removeColumn());
+        check("and took its occupant with it", narrow.occupied() == 4);
+        check("the displaced profile stayed in its group",
+                narrow.groupOf(id.get("Zeta")).orElseThrow().id().equals(kept.id()));
+        check("everything else stayed put", cellUnchanged(narrow, id.get("beta"), pinned));
+        check("every cell is inside the grid", allInside(narrow));
+
         ProfileLayout full = new ProfileLayout();
         List<Profile> nine = new ArrayList<>();
         for (int i = 0; i < 9; i++) {
             nine.add(Profile.create("full" + i, "26.2", LoaderType.VANILLA));
         }
         full.reconcile(nine);
-        full.rows(1);
-        check("a grid can be narrowed to exactly its contents", full.capacity() == 9);
+        check("a grid can be narrowed to exactly its contents", full.rows(1));
+        check("its capacity is nine", full.capacity() == 9);
         check("a full grid refuses to lose a column", !full.removeColumn());
         check("the refusal changed nothing", full.columns() == 9 && full.occupied() == 9);
         check("adding a row first makes room", full.addRow());
         check("and then the column can go", full.removeColumn());
         check("still nine profiles", full.occupied() == 9);
         check("all of them inside the grid", allInside(full));
+        check("no two share a cell", noSharedCells(full));
+
+        // -------------------------------------------------- moving a group
+        ProfileLayout moved = new ProfileLayout();
+        moved.reconcile(profiles);
+        ProfileLayout.Group block = moved.createGroup("Block");
+        moved.join(id.get("Zeta"), block.id());
+        moved.addRowToGroup(block.id());
+        List<Integer> was = moved.rowsOf(block.id());
+        moved.moveGroupBeside(block.id(), id.get("alpha"), false);
+        List<Integer> now = moved.rowsOf(block.id());
+        check("the group moved " + was + " -> " + now, !was.equals(now));
+        check("its rows are still together and in order",
+                now.size() == 2 && now.get(1) - now.get(0) == 1);
+        check("its members came with it",
+                moved.groupOf(id.get("Zeta")).orElseThrow().id().equals(block.id()));
+        check("moving a group lost nobody", moved.occupied() == 4);
+        check("every cell still inside", allInside(moved));
 
         // -------------------------------------------------- sorting
         ProfileLayout tidy = new ProfileLayout();
         tidy.reconcile(profiles);
-        tidy.placeAt(id.get("alpha"), 2, 8);
+        ProfileLayout.Group sorted = tidy.createGroup("Sorted");
+        tidy.join(id.get("Zeta"), sorted.id());
+        tidy.join(id.get("alpha"), sorted.id());
         tidy.sortByName(profiles);
-        check("sorting closes the holes",
-                tidy.cellOf(id.get("alpha")).orElseThrow()[0] == 0
-                        && tidy.cellOf(id.get("alpha")).orElseThrow()[1] == 0);
-        check("sorting keeps a group together", groupsAreContiguous(tidy));
+        check("sorting orders a group by name", tidy.membersOf(sorted.id())
+                .equals(List.of(id.get("alpha"), id.get("Zeta"))));
+        check("sorting leaves the groups where they are",
+                tidy.rowsOf(sorted.id()).size() == 1);
+        check("sorting keeps everybody in their group",
+                tidy.groupOf(id.get("alpha")).orElseThrow().id().equals(sorted.id())
+                        && tidy.groupOf(id.get("beta")).isEmpty());
 
         // -------------------------------------------------- round trip
-        layout.mode(ProfileLayout.Mode.INVENTORY);
-        layout.addColumn();
-        ProfileLayout reread = ProfileLayout.fromJson(Json.parse(layout.toJson().toString()));
+        rowsLayout.mode(ProfileLayout.Mode.INVENTORY);
+        rowsLayout.addColumn();
+        ProfileLayout reread = ProfileLayout.fromJson(
+                Json.parse(rowsLayout.toJson().toString()));
         reread.reconcile(profiles);
         check("the chosen interface survives a save",
                 reread.mode() == ProfileLayout.Mode.INVENTORY);
         check("the grid size survives a save",
-                reread.columns() == layout.columns() && reread.rows() == layout.rows());
-        check("every cell survives a save", sameCells(layout, reread, id.values()));
+                reread.columns() == rowsLayout.columns() && reread.rows() == rowsLayout.rows());
+        check("every cell survives a save", sameCells(rowsLayout, reread, id.values()));
+        check("the group rows survive a save",
+                reread.rowsOf(group.id()).equals(rowsLayout.rowsOf(group.id())));
+        check("membership survives a save",
+                reread.membersOf(group.id()).equals(rowsLayout.membersOf(group.id())));
 
-        // -------------------------------------------------- the old format
-        //
-        // The first version had no grid, only a list of entries. The order is
-        // all that can be carried over, and losing it silently on upgrade would
-        // throw away an arrangement somebody had already made.
+        // -------------------------------------------------- the first format
         ProfileLayout old = ProfileLayout.fromJson(Json.parse(
                 "{\"mode\":\"inventory\",\"entries\":["
                 + "{\"type\":\"profile\",\"id\":\"" + id.get("Mid") + "\"},"
@@ -1294,48 +1355,73 @@ public final class SelfCheck {
                 + "\"" + id.get("alpha") + "\"]},"
                 + "{\"type\":\"profile\",\"id\":\"" + id.get("beta") + "\"}]}"));
         old.reconcile(profiles);
-        check("the old order is carried over", old.sequence().equals(List.of(
+        check("the first format keeps its order", old.sequence().equals(List.of(
                 id.get("Mid"), id.get("Zeta"), id.get("alpha"), id.get("beta"))));
-        check("the old group is carried over", old.groups().size() == 1);
-        check("the old group keeps its name",
-                old.group("g1").orElseThrow().name().equals("Old set"));
-        check("the old group keeps its members",
+        check("the first format keeps its group", old.groups().size() == 1);
+        check("with its name", old.group("g1").orElseThrow().name().equals("Old set"));
+        check("its members are in its rows",
                 old.membersOf("g1").equals(List.of(id.get("Zeta"), id.get("alpha"))));
-        check("the old collapsed state is carried over",
+        check("the group owns a row", !old.rowsOf("g1").isEmpty());
+        check("its collapsed state is carried over",
                 old.group("g1").orElseThrow().collapsed());
-        check("the old interface choice is carried over",
+        check("the interface choice is carried over",
                 old.mode() == ProfileLayout.Mode.INVENTORY);
+        check("nobody outside the group ended up in it",
+                old.groupOf(id.get("Mid")).isEmpty() && old.groupOf(id.get("beta")).isEmpty());
+
+        // -------------------------------------------------- the second format
+        //
+        // The version that kept membership on the profile rather than on the
+        // row. Its cells cannot be honoured - a group has to own whole rows now -
+        // so the order and the grouping are read and laid out again.
+        ProfileLayout second = ProfileLayout.fromJson(Json.parse(
+                "{\"mode\":\"list\",\"columns\":9,\"rows\":3,"
+                + "\"groups\":[{\"id\":\"g2\",\"name\":\"Second\",\"color\":\"#3d6ea5\"}],"
+                + "\"cells\":[{\"id\":\"" + id.get("Mid") + "\",\"row\":0,\"column\":0},"
+                + "{\"id\":\"" + id.get("Zeta") + "\",\"row\":0,\"column\":1,\"group\":\"g2\"},"
+                + "{\"id\":\"" + id.get("beta") + "\",\"row\":1,\"column\":3}]}"));
+        second.reconcile(profiles);
+        check("the second format keeps its group", second.group("g2").isPresent());
+        check("its member is in the group's rows",
+                second.groupOf(id.get("Zeta")).orElseThrow().id().equals("g2"));
+        check("the group owns whole rows now", !second.rowsOf("g2").isEmpty());
+        check("the others are not in it",
+                second.groupOf(id.get("Mid")).isEmpty()
+                        && second.groupOf(id.get("beta")).isEmpty());
+        check("every profile has a cell", second.occupied() == 4);
+        check("no two share a cell", noSharedCells(second));
 
         // -------------------------------------------------- hostile input
-        //
-        // profiles.json is editable by hand and the arrangement is the part most
-        // likely to be edited or half-restored. A broken one degrades to the
-        // alphabetical order; it never hides a profile.
-        ProfileLayout broken = ProfileLayout.fromJson(Json.parse(
+        ProfileLayout brokenLayout = ProfileLayout.fromJson(Json.parse(
                 "{\"mode\":\"nonsense\",\"columns\":9999,\"rows\":-4,"
                 + "\"groups\":[{\"id\":\"g1\"},{\"id\":\"g1\"}],"
+                + "\"rowGroups\":[{\"row\":0,\"group\":\"g1\"},"
+                + "{\"row\":900,\"group\":\"g1\"},{\"row\":1,\"group\":\"missing\"}],"
                 + "\"cells\":[{\"id\":\"ghost\",\"row\":0,\"column\":0},"
                 + "{\"id\":\"" + id.get("Mid") + "\",\"row\":0,\"column\":0},"
                 + "{\"id\":\"" + id.get("Zeta") + "\",\"row\":700,\"column\":3},"
                 + "{\"id\":\"" + id.get("Zeta") + "\",\"row\":1,\"column\":1}]}"));
-        broken.reconcile(profiles);
+        brokenLayout.reconcile(profiles);
         check("an unknown interface name falls back to the list",
-                broken.mode() == ProfileLayout.Mode.LIST);
+                brokenLayout.mode() == ProfileLayout.Mode.LIST);
         check("an absurd column count is clamped",
-                broken.columns() <= ProfileLayout.MAX_COLUMNS
-                        && broken.columns() >= ProfileLayout.MIN_COLUMNS);
+                brokenLayout.columns() <= ProfileLayout.MAX_COLUMNS
+                        && brokenLayout.columns() >= ProfileLayout.MIN_COLUMNS);
         check("an absurd row count is clamped",
-                broken.rows() >= ProfileLayout.MIN_ROWS);
-        check("a duplicated group id is dropped", broken.groups().size() == 1);
+                brokenLayout.rows() >= ProfileLayout.MIN_ROWS);
+        check("a duplicated group id is dropped", brokenLayout.groups().size() == 1);
+        check("a row assigned to a group that does not exist is dropped",
+                brokenLayout.rowGroup(1).isEmpty());
         check("ids of profiles that no longer exist are dropped",
-                new java.util.HashSet<>(broken.sequence())
+                new java.util.HashSet<>(brokenLayout.sequence())
                         .equals(new java.util.HashSet<>(id.values())));
-        check("every profile ended up with a cell", broken.occupied() == 4);
-        check("no two profiles share a cell", noSharedCells(broken));
-        check("every cell is inside the grid", allInside(broken));
+        check("every profile ended up with a cell", brokenLayout.occupied() == 4);
+        check("no two profiles share a cell", noSharedCells(brokenLayout));
+        check("every cell is inside the grid", allInside(brokenLayout));
+        check("every group still owns a row", brokenLayout.groups().stream()
+                .allMatch(entry -> !brokenLayout.rowsOf(entry.id()).isEmpty()));
 
-        // A profile with nowhere to be is the one case the grid grows by itself:
-        // a profile that cannot be seen cannot be launched.
+        // A profile with nowhere to be is the one case the grid grows by itself.
         ProfileLayout tight = new ProfileLayout();
         List<Profile> many = new ArrayList<>();
         for (int i = 0; i < 30; i++) {
@@ -1346,6 +1432,20 @@ public final class SelfCheck {
         check("all thirty are placed", tight.occupied() == 30);
         check("all thirty are inside the grid", allInside(tight));
         check("no two of them share a cell", noSharedCells(tight));
+
+        // A new profile is never dropped into somebody's group by the launcher.
+        ProfileLayout newcomer = new ProfileLayout();
+        newcomer.reconcile(profiles);
+        ProfileLayout.Group theirs = newcomer.createGroup("Theirs");
+        newcomer.join(id.get("Mid"), theirs.id());
+        List<Profile> plusOne = new ArrayList<>(profiles);
+        Profile fresh = Profile.create("Newcomer", "26.2", LoaderType.VANILLA);
+        plusOne.add(fresh);
+        newcomer.reconcile(plusOne);
+        check("a new profile lands outside every group",
+                newcomer.groupOf(fresh.id()).isEmpty());
+        check("and the group is untouched",
+                newcomer.membersOf(theirs.id()).equals(List.of(id.get("Mid"))));
     }
 
     private static boolean cellUnchanged(ProfileLayout layout, String profileId, int[] expected) {
@@ -1375,17 +1475,16 @@ public final class SelfCheck {
         return true;
     }
 
-    /** True when each group's members sit next to each other in reading order. */
-    private static boolean groupsAreContiguous(ProfileLayout layout) {
-        for (ProfileLayout.Group group : layout.groups()) {
-            List<String> members = layout.membersOf(group.id());
-            if (members.size() < 2) {
-                continue;
-            }
-            List<String> order = layout.sequence();
-            int first = order.indexOf(members.get(0));
-            for (int i = 0; i < members.size(); i++) {
-                if (!order.get(first + i).equals(members.get(i))) {
+    /** Every row of a band belongs to the band's group, and to no other. */
+    private static boolean bandsAreUniform(ProfileLayout layout) {
+        for (ProfileLayout.Band band : layout.bands()) {
+            for (int row : band.rows()) {
+                var owner = layout.rowGroup(row);
+                if (band.group() == null) {
+                    if (owner.isPresent()) {
+                        return false;
+                    }
+                } else if (owner.isEmpty() || !owner.get().id().equals(band.group().id())) {
                     return false;
                 }
             }
@@ -1548,12 +1647,12 @@ public final class SelfCheck {
                 "settings.java", "settings.java.ask", "settings.java.always",
                 "settings.java.never", "settings.java.note", "settings.concurrency",
                 "settings.concurrency.note", "settings.curseforge",
-                "settings.curseforge.prompt", "settings.clientId",
-                "settings.clientId.prompt", "settings.signIn", "settings.signIn.browser",
+                "settings.curseforge.prompt", "settings.signIn", "settings.signIn.browser",
                 "settings.signIn.deviceCode", "settings.signIn.note",
                 "settings.handshake", "settings.handshake.note", "settings.fileStore",
                 "settings.fileStore.note", "settings.dataFolder",
-                "settings.dataFolder.note");
+                "settings.dataFolder.note", "groups.addRow", "groups.removeRow",
+                "groups.folded", "grid.lastGroupRow");
         for (Language language : Language.all()) {
             I18n.use(language);
             List<String> unresolved = mustResolve.stream()

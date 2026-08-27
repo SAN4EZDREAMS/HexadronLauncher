@@ -234,11 +234,12 @@ chosen as instance icons are copied into `icons/`, named after their own
 content.
 
 `profiles.json` holds the profiles and, next to them, how they are arranged: the
-size of the grid, the cell each profile is in, the groups and who is in them, and
-which of the two views was last used. One file, so there is no way to end up with
+size of the grid, the cell each profile is in, the groups and which rows belong to
+them, and which of the two views was last used. One file, so there is no way to end up with
 an arrangement referring to profiles that a separately restored file no longer
-has. An arrangement written by the first version - which had no grid, only an
-order - is read and carried over rather than discarded.
+has. An arrangement written by either earlier version - the one that had no grid at
+all, and the one that kept group membership on the instance instead of the row -
+is read and laid out again rather than discarded.
 
 Removing a profile asks what to do with that folder, and the two answers are
 both right some of the time: someone clearing out an old instance wants the
@@ -422,22 +423,22 @@ between them:
 | H  Inventory  [ search ] [New][New group][Sort]    [List][Set] |
 +---------------------------------------------------------------+
 |   | +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ |+||
-| # | | [F] | | [Q] | |     | | [N] | |     | | [V] | |     | |-||
+|   | | [F] | | [Q] | |     | | [N] | |     | | [V] | |     | |-||
 |   | | Sky | | Pack| |     | | Neo | |     | | 1.8 | |     | |  ||
 |   | +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ |  ||
-| # | +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ |  ||
-|   | | [F] | |     | |     | | [F] | |     | |     | |     | |  ||
-|   | +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ |  ||
+| M | +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ |  ||
+| o | | [F] | | [F] | |     | |     | |     | |     | |     | |  ||
+| d | +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ |  ||
 |   |                    [ + ]  [ - ]                          ||
 +---------------------------------------------------------------+
 | Account: [ v ] [Add offline] [Sign in]              [ PLAY ]  |
 +---------------------------------------------------------------+
 ```
 
-The `#` marks on the left are the group chips, the `+` and `-` on the right add
-and remove a column, and the pair underneath add and remove a row. The two cells
-outlined in a group colour are in the same group whether or not they are next to
-each other.
+The second row is a group. The coloured plate down its left carries the group's
+name written along it - `Mod` here - and clicking the plate folds the band into a
+single strip that still says which group it is. The `+` and `-` on the right add
+and remove a column; the pair underneath add and remove a row.
 
 They are the same instances, not two lists kept in step. Neither view holds an
 order, a selection or a search of its own: both read one arrangement, and every
@@ -447,11 +448,14 @@ synchronising step that could be missed. `ProfileLayout` is that arrangement and
 `ProfileHost` is the only way either view can change it.
 
 The arrangement has exactly two parts, and that is what makes one of it: every
-instance sits in one **cell** of the grid, and every instance may belong to one
-**group**, which says nothing about where it sits. The grid draws the cells. The
-list walks the same cells in reading order and leaves the empty ones out, so a
-gap in the grid is nothing in the list - two instances with a free cell between
-them are two consecutive rows.
+instance sits in one **cell** of the grid, and every **row** of the grid may
+belong to a named group. An instance is in a group when its row is - nothing else
+records membership, so "which group is this in" and "where is this" are the same
+question and cannot give different answers.
+
+The grid draws the cells. The list walks the same cells in reading order and
+leaves the empty ones out, so a gap in the grid is nothing in the list - two
+instances with a free cell between them are two consecutive rows.
 
 Cells are absolute. A drop on a free cell puts the instance in that cell and
 leaves it there; a drop on an occupied one exchanges the two. Nothing moves that
@@ -468,12 +472,21 @@ row lands also decides its group - dropped among a group's members it joins them
 dropped among the loose rows it leaves - because that is what the row will look
 like once it lands.
 
-Grouping is one level deep. In the list a group is a header with a `-` and `+`
-that collapses it. In the grid it is a colour: its members' cells are outlined in
-it, and a chip on the left rail names the group on hover and lights those cells
-up wherever they are. Collapsing is therefore a list behaviour only - a cell has
-a fixed place, so a fold in the grid would have nothing to close over. Deleting a
-group never deletes or moves instances; the confirmation says so.
+Grouping is one level deep, and a group owns rows. Making one takes the first
+free row of the grid, or adds a row when there is none, so it never displaces
+anybody and it starts with room in it. Dragging an instance into one of its cells
+is how that instance joins; dragging it out is how it leaves.
+
+In the list a group is a header with a `-` and `+`. In the grid it is a band: a
+tint across its rows and a coloured plate down the left with its name along it.
+Clicking the plate folds the band into one strip and folds the list with it -
+which is what owning rows buys, and why the control did nothing in the version
+where membership was a property of the instance instead.
+
+A group's own two row items are on its right-click menu rather than on the grid's
+edges, because "one more row in this group" is a different thing from "one more
+row in the table". Deleting a group deletes and moves nothing: its rows simply
+stop belonging to it.
 
 The same moves are on the right-click menu as well, because a drag needs both
 ends visible at once and a keyboard has no drag.
@@ -494,9 +507,15 @@ faint until the pointer is in the grid. The same two numbers are in the settings
 window for anybody who would rather type them.
 
 Removing an edge that still has instances behind it moves them into free cells
-and keeps them. When there are not enough free cells it does nothing and says so,
-beside the grid rather than in a dialog - the answer to "remove this row" is
-never to drop an instance off the end of it.
+and keeps them - into a free cell of the same group first, so that resizing the
+table does not quietly move an instance out of its group. When there are not
+enough free cells it does nothing and says so, beside the grid rather than in a
+dialog: the answer to "remove this row" is never to drop an instance off the end
+of it.
+
+Removing a row is a change to the table and never to the groups, so a row that is
+the last one its group has will not go either. Deleting a group is its own action
+and stays that way.
 
 The one thing that grows by itself is a grid with no room for a *new* instance:
 it gets another row, because an instance that exists and cannot be seen cannot be
@@ -509,9 +528,14 @@ can be told is there, on six tabs - interface, game, Java, downloads and mods,
 accounts, and the data folder - including the things that previously existed only
 in `launcher.json` or as a "never ask again" button inside a prompt.
 
-Save writes and Cancel writes nothing, the same rule as the instance editor:
-half of these cannot be undone by typing them back, and a cleared client id is
-not the same as the one that was there.
+Save writes and Cancel writes nothing, the same rule as the instance editor: half
+of these cannot be undone by typing them back.
+
+The Azure client id is deliberately not among them. It identifies the launcher to
+Microsoft rather than the user to the launcher - every copy of a build signs in as
+the same registered application - so a field inviting somebody to change it has no
+use except to break their sign-in. It stays in `launcher.json` for whoever forks
+the project.
 
 The two grid numbers are on the Interface tab but are not stored with the
 settings - they live with the cells they describe, because narrowing the grid has

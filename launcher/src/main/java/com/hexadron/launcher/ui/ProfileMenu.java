@@ -101,7 +101,10 @@ final class ProfileMenu {
         submenu.getItems().addAll(newGroup, new SeparatorMenuItem());
 
         MenuItem none = item(I18n.t("groups.none"), () -> {
-            layout.join(profile.id(), null);
+            if (!layout.join(profile.id(), null)) {
+                host.hint(I18n.t("grid.noRoom"));
+                return;
+            }
             host.layoutChanged();
         });
         none.setDisable(currentGroup == null);
@@ -109,9 +112,12 @@ final class ProfileMenu {
 
         for (ProfileLayout.Group group : layout.groups()) {
             MenuItem into = item(group.name(), () -> {
-                // Membership only: the profile keeps its cell, because a group
-                // is a colour in the grid and not a place.
-                layout.join(profile.id(), group.id());
+                // A move, because membership is the row: the profile goes to a
+                // free cell in one of the group's rows.
+                if (!layout.join(profile.id(), group.id())) {
+                    host.hint(I18n.t("grid.noRoom"));
+                    return;
+                }
                 layout.setCollapsed(group.id(), false);
                 host.layoutChanged();
             });
@@ -121,14 +127,45 @@ final class ProfileMenu {
         return submenu;
     }
 
+    /**
+     * The group menu.
+     *
+     * <p>A group owns rows, so the two row items belong here rather than on the
+     * grid's edges: the strips there change the size of the whole table, and
+     * "one more row in this group" is a different thing that has to be said
+     * about a particular group.
+     */
     private static ContextMenu forGroup(ProfileHost host, ProfileLayout.Group group) {
         ContextMenu menu = new ContextMenu();
+        ProfileLayout layout = host.layout();
+
+        MenuItem removeRow = item(I18n.t("groups.removeRow"), () -> {
+            if (!layout.removeRowFromGroup(group.id())) {
+                // Either it is the group's only row, or the profiles in it have
+                // nowhere to go. Both are worth saying rather than doing nothing.
+                host.hint(I18n.t(layout.rowsOf(group.id()).size() <= 1
+                        ? "grid.lastGroupRow" : "grid.noRoom"));
+                return;
+            }
+            host.layoutChanged();
+        });
+        removeRow.setDisable(layout.rowsOf(group.id()).size() <= 1);
+
         menu.getItems().addAll(
                 item(I18n.t(group.collapsed() ? "groups.expand" : "groups.collapse"), () -> {
-                    host.layout().setCollapsed(group.id(), !group.collapsed());
+                    layout.setCollapsed(group.id(), !group.collapsed());
                     host.layoutChanged();
                 }),
                 item(I18n.t("groups.rename"), () -> host.renameGroup(group)),
+                new SeparatorMenuItem(),
+                item(I18n.t("groups.addRow"), () -> {
+                    if (!layout.addRowToGroup(group.id())) {
+                        host.hint(I18n.t("grid.atMaximum"));
+                        return;
+                    }
+                    host.layoutChanged();
+                }),
+                removeRow,
                 new SeparatorMenuItem(),
                 item(I18n.t("groups.remove"), () -> host.removeGroup(group)));
         return menu;

@@ -302,8 +302,13 @@ public final class MainWindow implements ProfileHost {
         root.setCenter(content);
         root.setBottom(buildFooter());
 
-        Scene scene = new Scene(root, 1120, 740);
+        Scene scene = new Scene(root, 1180, 760);
         Theme.apply(scene);
+        // A floor rather than a preference: below this the toolbars cannot show
+        // their own labels, and the grid starts scrolling sideways at nine
+        // columns. Both are worse than a window that refuses to get smaller.
+        stage.setMinWidth(1000);
+        stage.setMinHeight(640);
 
         applyTexts();
         refreshProfiles();
@@ -352,6 +357,11 @@ public final class MainWindow implements ProfileHost {
                 modeButton, settingsButton, languageTitle, languageBox);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
+        keepLabels(header);
+        // The search field is what gives way when the window is narrow. A
+        // button whose text has been replaced by an ellipsis is a button nobody
+        // can read, and the field is still usable at half the width.
+        searchField.setMinWidth(90);
         return header;
     }
 
@@ -425,6 +435,12 @@ public final class MainWindow implements ProfileHost {
                 gridModeButton, gridSettingsButton);
         bar.getStyleClass().addAll("header", "inventory-bar");
         bar.setAlignment(Pos.CENTER_LEFT);
+        keepLabels(bar);
+        gridSearchField.setMinWidth(90);
+        // The hint gives way before anything else: it is the one thing here that
+        // is only ever read once.
+        gridHint.setMinWidth(0);
+        gridHint.setMaxWidth(320);
         return bar;
     }
 
@@ -746,6 +762,26 @@ public final class MainWindow implements ProfileHost {
         VBox footer = new VBox(8, controls, stageLabel, progressBar, logPane);
         footer.getStyleClass().add("footer");
         return footer;
+    }
+
+    /**
+     * Stops a toolbar from shrinking its buttons below their own text.
+     *
+     * <p>An HBox shrinks its children when the window is narrower than their
+     * preferred widths, and a Button that has been shrunk shows an ellipsis - so
+     * at the default window size on a scaled display the bar read "Створ...",
+     * "Нова гр...", "За алфаві...". Fixing each button's minimum at its
+     * preferred width moves the shrinking onto the fields and the spacer, which
+     * can afford it.
+     */
+    private static void keepLabels(HBox bar) {
+        for (javafx.scene.Node node : bar.getChildren()) {
+            if (node instanceof Button button) {
+                button.setMinWidth(Region.USE_PREF_SIZE);
+            } else if (node instanceof Label label && !label.getStyleClass().contains("muted")) {
+                label.setMinWidth(Region.USE_PREF_SIZE);
+            }
+        }
     }
 
     private static Region spacer() {

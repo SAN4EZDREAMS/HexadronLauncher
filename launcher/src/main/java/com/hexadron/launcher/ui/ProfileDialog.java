@@ -173,9 +173,12 @@ public final class ProfileDialog {
 
         versionNote.getStyleClass().add("muted");
         versionNote.setWrapText(true);
-        // Without an explicit maximum a wrapping Label in a GridPane keeps
-        // growing the column instead of wrapping, and the note gets clipped.
+        // A wrapping Label needs both: a maximum, or it grows the column instead
+        // of wrapping, and a minimum height of its preferred height, or the row
+        // is sized before the wrap is known and the note becomes one ellipsised
+        // line.
         versionNote.setMaxWidth(400);
+        versionNote.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
 
         loaderBox.setItems(FXCollections.observableArrayList(Loaders.allLoaders()));
         loaderBox.setMaxWidth(Double.MAX_VALUE);
@@ -222,6 +225,7 @@ public final class ProfileDialog {
         wrapperNote.setWrapText(true);
         wrapperNote.getStyleClass().add("muted");
         wrapperNote.setMaxWidth(420);
+        wrapperNote.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
 
         GridPane grid = new GridPane();
         grid.getStyleClass().add("form");
@@ -283,6 +287,7 @@ public final class ProfileDialog {
         iconNote.getStyleClass().add("muted");
         iconNote.setWrapText(true);
         iconNote.setMaxWidth(280);
+        iconNote.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
 
         HBox row = new HBox(10, iconPreview, chooseIconButton, clearIconButton, iconNote);
         row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);

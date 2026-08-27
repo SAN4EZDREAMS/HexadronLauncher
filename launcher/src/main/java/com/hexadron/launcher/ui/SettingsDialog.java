@@ -87,7 +87,12 @@ public final class SettingsDialog {
     private final PasswordField curseForgeKey = new PasswordField();
 
     // Accounts
-    private final TextField microsoftClientId = new TextField();
+    //
+    // The Azure client id is deliberately not here. It identifies the launcher
+    // to Microsoft, not the user to the launcher: every copy of this build signs
+    // in as the same registered application, and a field inviting somebody to
+    // change it is a field whose only possible use is to break their sign-in.
+    // It stays in launcher.json for whoever forks the project.
     private final ComboBox<String> signInMethodBox = new ComboBox<>();
     private final CheckBox secureHandshake = new CheckBox();
     private final CheckBox fileCredentialStore = new CheckBox();
@@ -143,7 +148,11 @@ public final class SettingsDialog {
         ButtonType cancel = new ButtonType(I18n.t("dialog.cancel"), ButtonBar.ButtonData.CANCEL_CLOSE);
         dialog.getDialogPane().getButtonTypes().addAll(save, cancel);
         dialog.getDialogPane().setContent(buildTabs());
-        dialog.getDialogPane().setPrefWidth(700);
+        // Sized for the longest note on the widest tab. A dialog that opens
+        // exactly as wide as its shortest tab makes every wrapped note on every
+        // other tab a single ellipsised line, which is how these read before.
+        dialog.getDialogPane().setPrefSize(820, 620);
+        dialog.getDialogPane().setMinWidth(660);
         Theme.apply(dialog.getDialogPane());
 
         prefill();
@@ -252,7 +261,6 @@ public final class SettingsDialog {
     }
 
     private GridPane accountsTab() {
-        microsoftClientId.setPromptText(I18n.t("settings.clientId.prompt"));
         signInMethodBox.setItems(FXCollections.observableArrayList("browser", "deviceCode"));
         signInMethodBox.setMaxWidth(Double.MAX_VALUE);
         signInMethodBox.setConverter(new StringConverter<>() {
@@ -273,7 +281,6 @@ public final class SettingsDialog {
 
         GridPane grid = form();
         int row = 0;
-        grid.addRow(row++, label("settings.clientId"), microsoftClientId);
         grid.addRow(row++, label("settings.signIn"), signInMethodBox);
         grid.addRow(row++, new Label(), note("settings.signIn.note"));
         grid.addRow(row++, new Label(), secureHandshake);
@@ -328,10 +335,12 @@ public final class SettingsDialog {
         grid.setPadding(new Insets(16));
 
         ColumnConstraints labels = new ColumnConstraints();
-        labels.setMinWidth(210);
+        labels.setMinWidth(200);
+        labels.setPrefWidth(200);
         ColumnConstraints fields = new ColumnConstraints();
         fields.setHgrow(Priority.ALWAYS);
         fields.setFillWidth(true);
+        fields.setMinWidth(320);
         grid.getColumnConstraints().addAll(labels, fields);
         return grid;
     }
@@ -342,11 +351,22 @@ public final class SettingsDialog {
         return label;
     }
 
+    /**
+     * An explanatory line under a field.
+     *
+     * <p>{@code minHeight = USE_PREF_SIZE} is the whole reason this is a method.
+     * A wrapping label reports a preferred height that depends on the width it
+     * ends up with, and a GridPane row sized from the unresolved height gives it
+     * one line - so the text wrapped correctly and then had nowhere to wrap to,
+     * and every note showed as one line ending in an ellipsis. Asking the row to
+     * be at least the preferred height is what makes the wrap visible.
+     */
     private static Label note(String key) {
         Label note = new Label(I18n.t(key));
         note.getStyleClass().add("muted");
         note.setWrapText(true);
-        note.setMaxWidth(430);
+        note.setMaxWidth(Double.MAX_VALUE);
+        note.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
         return note;
     }
 
@@ -366,7 +386,6 @@ public final class SettingsDialog {
         showAllVersions.setSelected(settings.showAllVersions());
         javaPolicyBox.setValue(settings.javaDownloadPolicy());
         curseForgeKey.setText(settings.curseForgeApiKey());
-        microsoftClientId.setText(settings.microsoftClientId());
         signInMethodBox.setValue(settings.usesBrowserSignIn() ? "browser" : "deviceCode");
         secureHandshake.setSelected(settings.secureLaunchHandshake());
         fileCredentialStore.setSelected(settings.useFileCredentialStore());
@@ -388,7 +407,6 @@ public final class SettingsDialog {
         settings.javaDownloadPolicy(javaPolicyBox.getValue());
         settings.downloadConcurrency(value(concurrencySpinner));
         settings.curseForgeApiKey(curseForgeKey.getText());
-        settings.microsoftClientId(microsoftClientId.getText());
         settings.microsoftSignInMethod(signInMethodBox.getValue());
         settings.secureLaunchHandshake(secureHandshake.isSelected());
         settings.useFileCredentialStore(fileCredentialStore.isSelected());

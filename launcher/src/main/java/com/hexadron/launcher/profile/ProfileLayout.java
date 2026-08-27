@@ -5,11 +5,13 @@ import com.hexadron.launcher.json.Json;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -25,53 +27,44 @@ import java.util.UUID;
  * both of them render, and it has exactly two parts:
  *
  * <ul>
- *   <li><b>a place</b> - every profile sits in one cell of a fixed
+ *   <li><b>a cell</b> - every profile sits in one cell of a fixed
  *       {@link #rows()} by {@link #columns()} grid, and stays in it;</li>
- *   <li><b>a group</b> - a profile may belong to one named group, which says
- *       nothing about where it sits.</li>
+ *   <li><b>a row's group</b> - a whole row may belong to a named group.</li>
  * </ul>
  *
- * <p>The grid draws the cells. The list walks the same cells in reading order
- * and ignores the empty ones, so a gap in the grid is nothing in the list. That
- * is the whole mapping, and it is why a move in either view is already true in
- * the other: there is one set of coordinates and both views read it.
+ * <p>A profile is in a group when its row is. Nothing else records membership,
+ * and that is the point: "which group is this in" and "where is this" are the
+ * same question, so they cannot give different answers.
  *
- * <h2>Why a fixed grid with gaps</h2>
+ * <h2>Why a group takes rows</h2>
  *
- * <p>The first version wrapped profiles into as many rows as they needed, and
- * "the end of the list" was a position rather than a place. That made a drop on
- * a free cell mean "append", so dragging a profile onto the empty cells at the
- * end of the top row moved it to the bottom of the grid - it looked like the
- * drag had failed. Cells are absolute now: a drop on a free cell puts the
- * profile in that cell, and a drop on an occupied one exchanges the two. Nothing
- * moves that the user did not move.
+ * <p>The previous attempt made membership a property of the profile rather than
+ * of its place, so a group was a colour scattered across the grid - and
+ * collapsing it had nothing to close over, because every cell had a fixed place
+ * of its own. The control was there and did nothing.
  *
- * <p>The grid therefore does not grow by itself. Rows and columns are added and
- * removed deliberately, from the grid's own edges or from the settings window,
- * and {@link #removeRow()} and {@link #removeColumn()} refuse rather than
- * discard: an edge that still has profiles behind it can only go if there are
- * free cells to move them into.
+ * <p>A group owning its rows fixes that: collapsing hides those rows in both
+ * views, dragging a profile into one of them is how it joins, and dragging it
+ * out is how it leaves. The grid draws a group as a band, which is also what it
+ * looked like when it was easiest to read.
  *
- * <p>The single exception is a profile with nowhere to be - a newly created one
- * on a full grid. It gets a new row, because the alternative is a profile that
- * exists and cannot be seen.
+ * <h2>The grid does not reflow</h2>
  *
- * <h2>Grouping is not geometry</h2>
+ * <p>Cells are absolute. A drop on a free cell puts the profile in that cell; a
+ * drop on an occupied one exchanges the two. Nothing moves that was not dragged,
+ * and empty cells are real places - the list simply skips them, so a gap in the
+ * grid is nothing in the list.
  *
- * <p>Groups do not nest, and they do not occupy rows. In the list a group is a
- * header with its members under it, and it can be collapsed. In the grid it is a
- * colour on its members' cells plus a chip on the left rail, because a cell has
- * a fixed place and collapsing cannot move it. Collapsing is therefore a list
- * behaviour only - the grid has nothing to fold.
+ * <p>Rows and columns are therefore added and removed deliberately.
+ * {@link #removeColumn()} and {@link #removeRowAt(int)} move the profiles behind
+ * the edge into free cells and refuse when there are none, rather than dropping
+ * one off the end. Removing a row is a change to the grid and never to the
+ * groups: the last row of a group will not go, because that would delete the
+ * group as a side effect of resizing a table.
  *
- * <h2>Reconciliation</h2>
- *
- * <p>{@code profiles.json} is an editable file and the arrangement lives in it,
- * so the arrangement is always treated as a hint. {@link #reconcile} drops ids
- * for profiles that are gone, gives a cell to profiles that have none, moves
- * anything outside the grid back inside, and seeds an alphabetical arrangement
- * when there is none. A layout that is empty, hand-broken or half-restored
- * degrades to the alphabetical order; it never hides a profile.
+ * <p>The one thing that grows by itself is a grid with no cell for a profile
+ * that exists - a newly created one on a full grid. It gets a row, because a
+ * profile that cannot be seen cannot be launched.
  */
 public final class ProfileLayout {
 
@@ -117,17 +110,15 @@ public final class ProfileLayout {
     /**
      * Colours handed to new groups, in order.
      *
-     * <p>A group needs a colour because in the grid the colour is the only thing
-     * that says which cells belong to it - there is no room for a heading. They
-     * are assigned rather than asked for: picking a colour is not a decision
-     * worth interrupting "make a group" with, and each of these is legible
-     * against the dark panel behind it.
+     * <p>Assigned rather than asked for: picking a colour is not a decision worth
+     * interrupting "make a group" with, and each of these is legible as a band
+     * behind the cells and as a plate down the side of one.
      */
     private static final List<String> PALETTE = List.of(
             "#3d6ea5", "#8a5a3c", "#6b4a8f", "#2d7d46",
             "#a5843d", "#a53d5c", "#3d8a8a", "#6f7d3d");
 
-    /** A named group. Membership only - it says nothing about where anything sits. */
+    /** A named group. It owns rows; the profiles in those rows are its members. */
     public static final class Group {
 
         private final String id;
@@ -165,7 +156,7 @@ public final class ProfileLayout {
             }
         }
 
-        /** Collapsed in the list. The grid has fixed cells and nothing to fold. */
+        /** Folded away in both views: the group owns rows, so there is something to fold. */
         public boolean collapsed() {
             return collapsed;
         }
@@ -213,7 +204,46 @@ public final class ProfileLayout {
         }
     }
 
-    /** Where a profile sits. Row and column, not an index: see {@link #columns(int)}. */
+    /**
+     * A run of consecutive rows with the same group - what the grid draws as one
+     * band, with one plate down its side.
+     *
+     * <p>Built here rather than in the view because it is a fact about the
+     * arrangement: which rows belong together is not a drawing decision.
+     */
+    public static final class Band {
+
+        private final Group group;
+        private final List<Integer> rows;
+        private final int memberCount;
+
+        private Band(Group group, List<Integer> rows, int memberCount) {
+            this.group = group;
+            this.rows = List.copyOf(rows);
+            this.memberCount = memberCount;
+        }
+
+        /** The group this run belongs to, or null for rows in no group. */
+        public Group group() {
+            return group;
+        }
+
+        public List<Integer> rows() {
+            return rows;
+        }
+
+        /** True when the band is drawn as a single strip instead of its rows. */
+        public boolean isCollapsed() {
+            return group != null && group.collapsed();
+        }
+
+        /** Profiles in the whole group, for the strip to report. */
+        public int memberCount() {
+            return memberCount;
+        }
+    }
+
+    /** Where a profile sits. Row and column, not one index: see {@link #columns(int)}. */
     private static final class Cell {
 
         private int row;
@@ -226,7 +256,10 @@ public final class ProfileLayout {
     }
 
     private final Map<String, Cell> cells = new LinkedHashMap<>();
-    private final Map<String, String> membership = new LinkedHashMap<>();
+
+    /** Row index to group id. A row not in here belongs to no group. */
+    private final Map<Integer, String> rowGroups = new LinkedHashMap<>();
+
     private final List<Group> groups = new ArrayList<>();
 
     private int columns = DEFAULT_COLUMNS;
@@ -264,6 +297,10 @@ public final class ProfileLayout {
         return this;
     }
 
+    public boolean isEmpty() {
+        return cells.isEmpty();
+    }
+
     public boolean addColumn() {
         if (columns >= MAX_COLUMNS) {
             return false;
@@ -272,125 +309,237 @@ public final class ProfileLayout {
         return true;
     }
 
-    public boolean addRow() {
-        if (rows >= MAX_ROWS) {
-            return false;
-        }
-        rows++;
-        return true;
-    }
-
     /**
      * Removes the last column, moving anything in it to a free cell.
      *
-     * <p>"Moving to a free cell" and not "shifting everything left", because a
-     * shift would move profiles the user never touched. The occupants of the
-     * column being removed go to the first free cells in reading order, and
-     * everything else stays exactly where it is.
-     *
-     * @return false when there are not enough free cells, so the caller can say
-     *         so instead of losing a profile
+     * <p>A column crosses every row, so this takes cells away from the groups as
+     * well - which is what it is for. A profile displaced from a group's row is
+     * offered a free cell in the same group first, so that resizing the table
+     * does not quietly move it out of its group; if the group is full it goes
+     * wherever there is room, and if there is no room anywhere the column stays.
      */
     public boolean removeColumn() {
         if (columns <= MIN_COLUMNS) {
             return false;
         }
-        return shrink(columns - 1, rows);
-    }
-
-    /** Removes the last row, moving anything in it to a free cell. */
-    public boolean removeRow() {
-        if (rows <= MIN_ROWS) {
+        int last = columns - 1;
+        List<String> displaced = new ArrayList<>();
+        for (Map.Entry<String, Cell> entry : cells.entrySet()) {
+            if (entry.getValue().column == last) {
+                displaced.add(entry.getKey());
+            }
+        }
+        displaced.sort(Comparator.comparingInt(this::indexOf));
+        if (!relocate(displaced, cell -> cell.column < last)) {
             return false;
         }
-        return shrink(columns, rows - 1);
+        columns--;
+        return true;
+    }
+
+    public boolean addRow() {
+        return insertRowAt(rows, null);
+    }
+
+    /** Removes the last row. */
+    public boolean removeRow() {
+        return removeRowAt(rows - 1);
+    }
+
+    /**
+     * Removes one row.
+     *
+     * <p>Refuses when the row is the last one its group has. Removing a row is a
+     * change to the table; deleting a group is a change to the arrangement, and
+     * one must not happen as a side effect of the other - so the row stays and
+     * the caller says why.
+     */
+    public boolean removeRowAt(int at) {
+        if (rows <= MIN_ROWS || at < 0 || at >= rows) {
+            return false;
+        }
+        String groupId = rowGroups.get(at);
+        if (groupId != null && rowsOf(groupId).size() <= 1) {
+            return false;
+        }
+
+        List<String> displaced = new ArrayList<>();
+        for (Map.Entry<String, Cell> entry : cells.entrySet()) {
+            if (entry.getValue().row == at) {
+                displaced.add(entry.getKey());
+            }
+        }
+        displaced.sort(Comparator.comparingInt(this::indexOf));
+        int removed = at;
+        if (!relocate(displaced, cell -> cell.row != removed)) {
+            return false;
+        }
+
+        for (Cell cell : cells.values()) {
+            if (cell.row > at) {
+                cell.row--;
+            }
+        }
+        Map<Integer, String> shifted = new LinkedHashMap<>();
+        for (Map.Entry<Integer, String> entry : rowGroups.entrySet()) {
+            int row = entry.getKey();
+            if (row == at) {
+                continue;
+            }
+            shifted.put(row > at ? row - 1 : row, entry.getValue());
+        }
+        rowGroups.clear();
+        rowGroups.putAll(shifted);
+        rows--;
+        return true;
+    }
+
+    /**
+     * Inserts a row, pushing everything below it down.
+     *
+     * <p>Cells hold a row and a column rather than one index, so the push is one
+     * increment per cell and nothing has to be re-derived.
+     */
+    public boolean insertRowAt(int at, String groupId) {
+        if (rows >= MAX_ROWS || at < 0 || at > rows) {
+            return false;
+        }
+        for (Cell cell : cells.values()) {
+            if (cell.row >= at) {
+                cell.row++;
+            }
+        }
+        Map<Integer, String> shifted = new LinkedHashMap<>();
+        for (Map.Entry<Integer, String> entry : rowGroups.entrySet()) {
+            int row = entry.getKey();
+            shifted.put(row >= at ? row + 1 : row, entry.getValue());
+        }
+        rowGroups.clear();
+        rowGroups.putAll(shifted);
+        rows++;
+        if (groupId != null && group(groupId).isPresent()) {
+            rowGroups.put(at, groupId);
+        }
+        return true;
     }
 
     /**
      * Sets the number of columns.
      *
-     * <p>Cells hold a row and a column rather than one index, so widening the
-     * grid moves nothing: a profile in column three is in column three whatever
-     * the width is. Only narrowing has work to do, and it can be refused.
+     * <p>Widening moves nothing: a profile in column three is in column three
+     * whatever the width is. Narrowing goes one column at a time and stops at the
+     * first one it cannot empty.
      *
-     * @return false when narrowing would leave a profile with no cell
+     * @return false when the grid could not reach the requested width
      */
     public boolean columns(int value) {
         int target = Math.max(MIN_COLUMNS, Math.min(MAX_COLUMNS, value));
-        if (target == columns) {
-            return true;
-        }
-        if (target > columns) {
-            columns = target;
-            return true;
-        }
-        return shrink(target, rows);
-    }
-
-    /** Sets the number of rows. Refuses a shrink that would leave a profile with no cell. */
-    public boolean rows(int value) {
-        int target = Math.max(MIN_ROWS, Math.min(MAX_ROWS, value));
-        if (target == rows) {
-            return true;
-        }
-        if (target > rows) {
-            rows = target;
-            return true;
-        }
-        return shrink(columns, target);
-    }
-
-    private boolean shrink(int newColumns, int newRows) {
-        List<String> displaced = new ArrayList<>();
-        for (Map.Entry<String, Cell> entry : cells.entrySet()) {
-            Cell cell = entry.getValue();
-            if (cell.row >= newRows || cell.column >= newColumns) {
-                displaced.add(entry.getKey());
+        while (columns < target) {
+            if (!addColumn()) {
+                return false;
             }
         }
-        if (displaced.isEmpty()) {
-            columns = newColumns;
-            rows = newRows;
-            return true;
+        while (columns > target) {
+            if (!removeColumn()) {
+                return false;
+            }
         }
-
-        // Reading order, so what is moved is moved predictably rather than in
-        // whatever order the map happens to hold.
-        displaced.sort(Comparator.comparingInt(this::indexOf));
-
-        List<int[]> free = freeCellsWithin(newColumns, newRows, displaced);
-        if (free.size() < displaced.size()) {
-            return false;
-        }
-        for (int i = 0; i < displaced.size(); i++) {
-            Cell cell = cells.get(displaced.get(i));
-            cell.row = free.get(i)[0];
-            cell.column = free.get(i)[1];
-        }
-        columns = newColumns;
-        rows = newRows;
         return true;
     }
 
-    /** Free cells inside a candidate grid, treating {@code ignored} as already gone. */
-    private List<int[]> freeCellsWithin(int newColumns, int newRows, Collection<String> ignored) {
-        Set<Integer> taken = new LinkedHashSet<>();
+    /** Sets the number of rows, one row at a time, stopping at the first refusal. */
+    public boolean rows(int value) {
+        int target = Math.max(MIN_ROWS, Math.min(MAX_ROWS, value));
+        while (rows < target) {
+            if (!addRow()) {
+                return false;
+            }
+        }
+        while (rows > target) {
+            if (!removeRow()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Finds a new cell for each displaced profile.
+     *
+     * <p>Same group first, anywhere second. Keeping a profile in its group
+     * matters more than keeping it near where it was, because the group is
+     * something the user set and the exact cell after a resize is not.
+     *
+     * @param allowed which of the surviving cells may be used
+     * @return false when there are not enough, in which case nothing has moved
+     */
+    private boolean relocate(List<String> displaced, java.util.function.Predicate<Cell> allowed) {
+        if (displaced.isEmpty()) {
+            return true;
+        }
+        Set<Long> taken = new LinkedHashSet<>();
         for (Map.Entry<String, Cell> entry : cells.entrySet()) {
-            if (ignored.contains(entry.getKey())) {
+            if (displaced.contains(entry.getKey())) {
                 continue;
             }
-            Cell cell = entry.getValue();
-            if (cell.row < newRows && cell.column < newColumns) {
-                taken.add(cell.row * newColumns + cell.column);
-            }
+            taken.add(key(entry.getValue().row, entry.getValue().column));
         }
+
         List<int[]> free = new ArrayList<>();
-        for (int index = 0; index < newColumns * newRows; index++) {
-            if (!taken.contains(index)) {
-                free.add(new int[]{index / newColumns, index % newColumns});
+        for (int row = 0; row < rows; row++) {
+            for (int column = 0; column < columns; column++) {
+                Cell candidate = new Cell(row, column);
+                if (allowed.test(candidate) && !taken.contains(key(row, column))) {
+                    free.add(new int[]{row, column});
+                }
             }
         }
-        return free;
+        if (free.size() < displaced.size()) {
+            return false;
+        }
+
+        // Two passes, so that every profile gets a chance at its own group
+        // before anybody takes a cell somewhere else.
+        Map<String, int[]> chosen = new LinkedHashMap<>();
+        Set<Long> used = new LinkedHashSet<>();
+        for (String id : displaced) {
+            String wanted = rowGroups.get(cells.get(id).row);
+            for (int[] cell : free) {
+                if (used.contains(key(cell[0], cell[1]))) {
+                    continue;
+                }
+                if (Objects.equals(rowGroups.get(cell[0]), wanted)) {
+                    chosen.put(id, cell);
+                    used.add(key(cell[0], cell[1]));
+                    break;
+                }
+            }
+        }
+        for (String id : displaced) {
+            if (chosen.containsKey(id)) {
+                continue;
+            }
+            for (int[] cell : free) {
+                if (!used.contains(key(cell[0], cell[1]))) {
+                    chosen.put(id, cell);
+                    used.add(key(cell[0], cell[1]));
+                    break;
+                }
+            }
+        }
+        if (chosen.size() < displaced.size()) {
+            return false;
+        }
+        for (Map.Entry<String, int[]> entry : chosen.entrySet()) {
+            Cell cell = cells.get(entry.getKey());
+            cell.row = entry.getValue()[0];
+            cell.column = entry.getValue()[1];
+        }
+        return true;
+    }
+
+    private static long key(int row, int column) {
+        return ((long) row << 32) | column;
     }
 
     // ---------------------------------------------------------------- placement
@@ -415,10 +564,13 @@ public final class ProfileLayout {
     /**
      * Puts a profile in a cell.
      *
-     * <p>An occupied cell is an exchange, not an insertion: the two profiles
-     * swap places and nothing else moves. That is what dragging one item onto
-     * another does in the inventory this view is named after, and it is the only
+     * <p>An occupied cell is an exchange, not an insertion: the two profiles swap
+     * places and nothing else moves. That is what dragging one item onto another
+     * does in the inventory this view is named after, and it is the only
      * behaviour that keeps every other profile where the user put it.
+     *
+     * <p>It is also how a profile joins or leaves a group, because the row it
+     * lands in is what decides that.
      *
      * @return false when the cell is outside the grid
      */
@@ -456,25 +608,211 @@ public final class ProfileLayout {
         return cell == null ? Integer.MAX_VALUE : cell.row * columns + cell.column;
     }
 
-    public boolean isEmpty() {
-        return cells.isEmpty();
+    // ---------------------------------------------------------------- groups
+
+    public List<Group> groups() {
+        return List.copyOf(groups);
+    }
+
+    public Optional<Group> group(String groupId) {
+        if (groupId == null) {
+            return Optional.empty();
+        }
+        return groups.stream().filter(group -> group.id.equals(groupId)).findFirst();
+    }
+
+    /** The group that owns a row, or empty when the row belongs to none. */
+    public Optional<Group> rowGroup(int row) {
+        return group(rowGroups.get(row));
+    }
+
+    /** The group of a profile - which is the group of its row, and nothing else. */
+    public Optional<Group> groupOf(String profileId) {
+        Cell cell = profileId == null ? null : cells.get(profileId);
+        return cell == null ? Optional.empty() : rowGroup(cell.row);
+    }
+
+    /** The rows a group owns, in order. */
+    public List<Integer> rowsOf(String groupId) {
+        if (groupId == null) {
+            return List.of();
+        }
+        List<Integer> found = new ArrayList<>();
+        for (Map.Entry<Integer, String> entry : rowGroups.entrySet()) {
+            if (groupId.equals(entry.getValue())) {
+                found.add(entry.getKey());
+            }
+        }
+        found.sort(Comparator.naturalOrder());
+        return List.copyOf(found);
+    }
+
+    /** The profiles in a group, in reading order. */
+    public List<String> membersOf(String groupId) {
+        return occupantsOf(groupId);
+    }
+
+    /** The profiles whose row belongs to {@code groupId} - null for the ungrouped rows. */
+    private List<String> occupantsOf(String groupId) {
+        List<String> found = new ArrayList<>();
+        for (String id : sequence()) {
+            if (Objects.equals(rowGroups.get(cells.get(id).row), groupId)) {
+                found.add(id);
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Makes a group and gives it a row.
+     *
+     * <p>It takes the first row that is empty and in no group, and appends one
+     * when there is none - so making a group never displaces a profile, and the
+     * new group is somewhere with room in it to drag things into.
+     */
+    public Group createGroup(String name) {
+        String safe = (name == null || name.isBlank()) ? "Group" : name.trim();
+        Group group = new Group(newGroupId(), safe, PALETTE.get(groups.size() % PALETTE.size()));
+        groups.add(group);
+
+        for (int row = 0; row < rows; row++) {
+            if (rowGroups.get(row) == null && rowIsEmpty(row)) {
+                rowGroups.put(row, group.id);
+                return group;
+            }
+        }
+        if (!insertRowAt(rows, group.id)) {
+            // The grid is at its maximum height. The group exists with no row,
+            // which reconcile will not fix on its own - so take the last
+            // ungrouped row instead of leaving a group that cannot be seen.
+            for (int row = rows - 1; row >= 0; row--) {
+                if (rowGroups.get(row) == null) {
+                    rowGroups.put(row, group.id);
+                    break;
+                }
+            }
+        }
+        return group;
+    }
+
+    private boolean rowIsEmpty(int row) {
+        for (Cell cell : cells.values()) {
+            if (cell.row == row) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String newGroupId() {
+        String id;
+        do {
+            id = "g-" + UUID.randomUUID().toString().substring(0, 8);
+        } while (group(id).isPresent());
+        return id;
+    }
+
+    /**
+     * Deletes a group. Its rows stay, and so does everything in them.
+     *
+     * <p>The rows simply stop belonging to it, so no profile moves and no cell
+     * changes - which is what makes deleting a group a safe thing to offer.
+     */
+    public void removeGroup(String groupId) {
+        if (groupId == null) {
+            return;
+        }
+        groups.removeIf(group -> group.id.equals(groupId));
+        rowGroups.values().removeIf(groupId::equals);
+    }
+
+    public void renameGroup(String groupId, String name) {
+        group(groupId).ifPresent(group -> group.name(name));
+    }
+
+    public void setCollapsed(String groupId, boolean collapsed) {
+        group(groupId).ifPresent(group -> group.collapsed(collapsed));
+    }
+
+    /** Gives a group one more row, directly under the rows it already has. */
+    public boolean addRowToGroup(String groupId) {
+        List<Integer> owned = rowsOf(groupId);
+        if (owned.isEmpty()) {
+            return false;
+        }
+        return insertRowAt(owned.get(owned.size() - 1) + 1, groupId);
+    }
+
+    /** Takes the last row off a group. Refuses the last one it has. */
+    public boolean removeRowFromGroup(String groupId) {
+        List<Integer> owned = rowsOf(groupId);
+        if (owned.size() <= 1) {
+            return false;
+        }
+        return removeRowAt(owned.get(owned.size() - 1));
+    }
+
+    /**
+     * Moves a profile into a group, or out of every group when {@code groupId}
+     * is null.
+     *
+     * <p>Membership is the row, so this is a move: the profile goes to a free
+     * cell in one of the group's rows. When the group is full it gets another
+     * row, because the alternative is refusing a menu item the user has already
+     * chosen.
+     *
+     * @return false only when there is nowhere at all to put it
+     */
+    public boolean join(String profileId, String groupId) {
+        Cell cell = profileId == null ? null : cells.get(profileId);
+        if (cell == null) {
+            return false;
+        }
+        if (groupId != null && group(groupId).isEmpty()) {
+            return false;
+        }
+        if (Objects.equals(rowGroups.get(cell.row), groupId)) {
+            return true;
+        }
+        int[] free = firstFreeCellIn(groupId);
+        if (free == null) {
+            boolean grew = groupId == null ? addRow() : addRowToGroup(groupId);
+            if (!grew) {
+                return false;
+            }
+            free = firstFreeCellIn(groupId);
+        }
+        return free != null && placeAt(profileId, free[0], free[1]);
+    }
+
+    private int[] firstFreeCellIn(String groupId) {
+        for (int row = 0; row < rows; row++) {
+            if (!Objects.equals(rowGroups.get(row), groupId)) {
+                continue;
+            }
+            for (int column = 0; column < columns; column++) {
+                if (at(row, column).isEmpty()) {
+                    return new int[]{row, column};
+                }
+            }
+        }
+        return null;
     }
 
     // ---------------------------------------------------------------- reordering
 
     /**
-     * Rewrites which profile sits in which occupied cell, from a new order.
+     * Rewrites which profile sits in which cell, within one group only.
      *
-     * <p>This is how the list reorders. The list has no cells of its own: it
-     * shows the placed profiles in reading order with the gaps left out, so
-     * dragging a row to a new position means the same set of cells now holds the
-     * profiles in a different order. The gaps stay exactly where they were,
-     * which is what makes a gap "nothing" in the list rather than something the
-     * list has to represent.
+     * <p>This is how the list reorders. It is confined to a single group -
+     * including the ungrouped rows, taken as a container of their own - because a
+     * reorder that spilled across a group boundary would push the profile at the
+     * end of the group out of it, changing the membership of something nobody
+     * dragged.
      */
-    private void reassign(List<String> order) {
+    private void reorderWithin(String groupId, List<String> order) {
         List<int[]> places = new ArrayList<>();
-        for (String id : sequence()) {
+        for (String id : occupantsOf(groupId)) {
             Cell cell = cells.get(id);
             places.add(new int[]{cell.row, cell.column});
         }
@@ -491,172 +829,162 @@ public final class ProfileLayout {
         }
     }
 
-    /** Moves one profile immediately before or after another, in list order. */
+    /**
+     * Moves one profile immediately before or after another, in list order.
+     *
+     * <p>The target's group decides the dragged profile's group first - dropped
+     * among a group's members it joins them, dropped among the loose rows it
+     * leaves - and then the two are reordered inside that one container.
+     */
     public void moveProfileBeside(String profileId, String targetId, boolean after) {
         if (profileId == null || targetId == null || profileId.equals(targetId)) {
             return;
         }
-        moveBlockBeside(List.of(profileId), targetId, after);
+        Cell target = cells.get(targetId);
+        if (target == null || !cells.containsKey(profileId)) {
+            return;
+        }
+        String container = rowGroups.get(target.row);
+        if (!join(profileId, container)) {
+            return;
+        }
+        List<String> order = occupantsOf(container);
+        order.remove(profileId);
+        int at = order.indexOf(targetId);
+        if (at < 0) {
+            order.add(profileId);
+        } else {
+            order.add(after ? at + 1 : at, profileId);
+        }
+        reorderWithin(container, order);
     }
 
     /**
-     * Moves several profiles, keeping their order, to just before or after a
-     * target profile in list order.
+     * Moves a group's rows above or below another row, keeping them together.
      *
-     * <p>Used for a whole group: dragging a group header in the list moves its
-     * members together, which is the only reading of that gesture that does not
-     * scatter them.
+     * <p>A group is its rows, so moving a group in the list is moving those rows
+     * in the grid. When the destination is inside another group the whole of that
+     * group is stepped over rather than split, because a group with somebody
+     * else's row in the middle of it is not a group any more.
      */
-    public void moveBlockBeside(List<String> block, String targetId, boolean after) {
-        if (block == null || block.isEmpty() || targetId == null || block.contains(targetId)) {
+    public void moveGroupBeside(String groupId, String targetProfileId, boolean after) {
+        List<Integer> block = rowsOf(groupId);
+        Cell target = targetProfileId == null ? null : cells.get(targetProfileId);
+        if (block.isEmpty() || target == null || block.contains(target.row)) {
             return;
         }
-        List<String> order = new ArrayList<>(sequence());
-        List<String> moving = new ArrayList<>();
-        for (String id : order) {
-            if (block.contains(id)) {
-                moving.add(id);
-            }
+        int destination = target.row;
+        String targetGroup = rowGroups.get(destination);
+        if (targetGroup != null) {
+            List<Integer> theirs = rowsOf(targetGroup);
+            destination = after ? theirs.get(theirs.size() - 1) : theirs.get(0);
         }
-        if (moving.isEmpty()) {
+        moveRowsBeside(block, destination, after);
+    }
+
+    /** Moves a block of rows next to another row, keeping every cell with its row. */
+    public void moveRowsBeside(List<Integer> block, int destination, boolean after) {
+        if (block == null || block.isEmpty() || block.contains(destination)
+                || destination < 0 || destination >= rows) {
             return;
         }
+        List<Integer> order = new ArrayList<>();
+        for (int row = 0; row < rows; row++) {
+            order.add(row);
+        }
+        List<Integer> moving = new ArrayList<>(block);
+        moving.sort(Comparator.naturalOrder());
         order.removeAll(moving);
-        int at = order.indexOf(targetId);
+        int at = order.indexOf(destination);
         if (at < 0) {
             order.addAll(moving);
         } else {
             order.addAll(after ? at + 1 : at, moving);
         }
-        reassign(order);
+        applyRowOrder(order);
     }
 
-    /** Moves a whole group beside a profile in list order. */
-    public void moveGroupBeside(String groupId, String targetId, boolean after) {
-        moveBlockBeside(membersOf(groupId), targetId, after);
-    }
-
-    // ---------------------------------------------------------------- groups
-
-    public List<Group> groups() {
-        return List.copyOf(groups);
-    }
-
-    public Optional<Group> group(String groupId) {
-        if (groupId == null) {
-            return Optional.empty();
+    private void applyRowOrder(List<Integer> order) {
+        Map<Integer, Integer> moved = new HashMap<>();
+        for (int i = 0; i < order.size(); i++) {
+            moved.put(order.get(i), i);
         }
-        return groups.stream().filter(group -> group.id.equals(groupId)).findFirst();
-    }
-
-    /** The group holding a profile, or empty when it belongs to none. */
-    public Optional<Group> groupOf(String profileId) {
-        return group(membership.get(profileId));
-    }
-
-    /** The profiles in a group, in list order. */
-    public List<String> membersOf(String groupId) {
-        if (groupId == null) {
-            return List.of();
-        }
-        List<String> members = new ArrayList<>();
-        for (String id : sequence()) {
-            if (groupId.equals(membership.get(id))) {
-                members.add(id);
+        for (Cell cell : cells.values()) {
+            Integer to = moved.get(cell.row);
+            if (to != null) {
+                cell.row = to;
             }
         }
-        return List.copyOf(members);
-    }
-
-    public Group createGroup(String name) {
-        String safe = (name == null || name.isBlank()) ? "Group" : name.trim();
-        Group group = new Group(newGroupId(), safe, PALETTE.get(groups.size() % PALETTE.size()));
-        groups.add(group);
-        return group;
-    }
-
-    private String newGroupId() {
-        String id;
-        do {
-            id = "g-" + UUID.randomUUID().toString().substring(0, 8);
-        } while (group(id).isPresent());
-        return id;
-    }
-
-    /**
-     * Deletes a group and keeps its profiles.
-     *
-     * <p>Nothing moves. A group is membership only, so losing it costs the
-     * profiles their colour and their heading, not their cells - which is also
-     * why deleting one is a safe thing to offer.
-     */
-    public void removeGroup(String groupId) {
-        if (groupId == null) {
-            return;
+        Map<Integer, String> shifted = new LinkedHashMap<>();
+        for (Map.Entry<Integer, String> entry : rowGroups.entrySet()) {
+            Integer to = moved.get(entry.getKey());
+            if (to != null) {
+                shifted.put(to, entry.getValue());
+            }
         }
-        groups.removeIf(group -> group.id.equals(groupId));
-        membership.entrySet().removeIf(entry -> groupId.equals(entry.getValue()));
-    }
-
-    public void renameGroup(String groupId, String name) {
-        group(groupId).ifPresent(group -> group.name(name));
-    }
-
-    public void setCollapsed(String groupId, boolean collapsed) {
-        group(groupId).ifPresent(group -> group.collapsed(collapsed));
-    }
-
-    /** Puts a profile in a group, or takes it out when {@code groupId} is null. */
-    public void join(String profileId, String groupId) {
-        if (profileId == null) {
-            return;
-        }
-        if (groupId == null) {
-            membership.remove(profileId);
-            return;
-        }
-        if (group(groupId).isPresent()) {
-            membership.put(profileId, groupId);
-        }
+        rowGroups.clear();
+        rowGroups.putAll(shifted);
     }
 
     // ---------------------------------------------------------------- the list
 
     /**
-     * The list, derived from the cells.
+     * The list, derived from the grid.
      *
-     * <p>Walks the profiles in reading order. A profile with no group is a row of
-     * its own; the first member of a group brings the whole group with it - the
-     * header at that position, then its members, in the same reading order. So
-     * where a group appears in the list is where its first profile sits in the
-     * grid, and the two views cannot disagree about the order because only one
-     * of them holds it.
+     * <p>Walks the rows in order. A row in no group contributes its profiles as
+     * rows of their own; a row in a group brings the group's header the first
+     * time that group is reached, and its members underneath - or nothing but the
+     * header when it is collapsed. Empty cells contribute nothing, which is the
+     * rule the interface is specified to follow: a gap in the grid is not a row
+     * in the list.
      */
     public List<ListRow> listRows() {
         List<ListRow> out = new ArrayList<>();
-        Set<String> done = new LinkedHashSet<>();
+        Set<String> seenGroups = new LinkedHashSet<>();
 
-        for (String id : sequence()) {
-            if (done.contains(id)) {
-                continue;
-            }
-            Optional<Group> group = groupOf(id);
-            if (group.isEmpty()) {
-                out.add(new ListRow(null, id, false, 0));
-                done.add(id);
-                continue;
-            }
-            Group owner = group.get();
-            List<String> members = membersOf(owner.id());
-            out.add(new ListRow(owner, null, false, members.size()));
-            for (String member : members) {
-                if (!owner.collapsed()) {
-                    out.add(new ListRow(null, member, true, 0));
+        for (int row = 0; row < rows; row++) {
+            String groupId = rowGroups.get(row);
+            if (groupId == null) {
+                for (int column = 0; column < columns; column++) {
+                    at(row, column).ifPresent(id -> out.add(new ListRow(null, id, false, 0)));
                 }
-                // Marked done either way: a collapsed group must not have its
-                // members reappear further down the list.
-                done.add(member);
+                continue;
             }
+            Group group = group(groupId).orElse(null);
+            if (group == null) {
+                continue;
+            }
+            if (seenGroups.add(groupId)) {
+                out.add(new ListRow(group, null, false, occupantsOf(groupId).size()));
+            }
+            if (group.collapsed()) {
+                continue;
+            }
+            for (int column = 0; column < columns; column++) {
+                at(row, column).ifPresent(id -> out.add(new ListRow(null, id, true, 0)));
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /** The grid, as runs of consecutive rows sharing a group. */
+    public List<Band> bands() {
+        List<Band> out = new ArrayList<>();
+        int row = 0;
+        while (row < rows) {
+            String groupId = rowGroups.get(row);
+            int end = row;
+            while (end + 1 < rows && Objects.equals(rowGroups.get(end + 1), groupId)) {
+                end++;
+            }
+            List<Integer> block = new ArrayList<>();
+            for (int index = row; index <= end; index++) {
+                block.add(index);
+            }
+            Group group = group(groupId).orElse(null);
+            out.add(new Band(group, block,
+                    group == null ? 0 : occupantsOf(group.id).size()));
+            row = end + 1;
         }
         return List.copyOf(out);
     }
@@ -664,13 +992,12 @@ public final class ProfileLayout {
     // ---------------------------------------------------------------- tidying
 
     /**
-     * Sorts by name and closes the gaps.
+     * Sorts by name inside every group, and inside the ungrouped rows.
      *
-     * <p>Groups stay together and are placed by their own name among the
-     * ungrouped profiles, because a sort that scattered a group would undo the
-     * grouping. Unlike every other operation here this one does move profiles
-     * the user placed by hand - that is what it is for, and it is only ever
-     * reached by pressing the button that says so.
+     * <p>Groups do not move: they are rows, and a sort that shuffled the rows
+     * would rearrange the grid rather than tidy it. Unlike everything else here
+     * this does move profiles the user placed by hand - that is what it is for,
+     * and it is only ever reached from the button that says so.
      */
     public void sortByName(Collection<Profile> profiles) {
         Map<String, String> names = new LinkedHashMap<>();
@@ -680,43 +1007,13 @@ public final class ProfileLayout {
         Comparator<String> byName = Comparator.comparing(
                 id -> names.getOrDefault(id, id), String.CASE_INSENSITIVE_ORDER);
 
-        // One unit per ungrouped profile and per group, keyed by the name the
-        // user sees, so the sort is the sort they asked for.
-        List<String> units = new ArrayList<>();
-        Map<String, List<String>> contents = new LinkedHashMap<>();
-        Map<String, String> unitNames = new LinkedHashMap<>();
-
-        for (Group group : groups) {
-            List<String> members = membersOf(group.id());
-            if (members.isEmpty()) {
-                continue;
-            }
-            List<String> sorted = new ArrayList<>(members);
-            sorted.sort(byName);
-            units.add("g:" + group.id());
-            contents.put("g:" + group.id(), sorted);
-            unitNames.put("g:" + group.id(), group.name());
-        }
-        for (String id : sequence()) {
-            if (membership.containsKey(id) && group(membership.get(id)).isPresent()) {
-                continue;
-            }
-            units.add("p:" + id);
-            contents.put("p:" + id, List.of(id));
-            unitNames.put("p:" + id, names.getOrDefault(id, id));
-        }
-        units.sort(Comparator.comparing(unitNames::get, String.CASE_INSENSITIVE_ORDER));
-
-        List<String> order = new ArrayList<>();
-        units.forEach(unit -> order.addAll(contents.get(unit)));
-
-        // Filling from the first cell rather than reassigning the occupied ones:
-        // sorting is the one action that is also meant to tidy the holes away.
-        ensureCapacity(order.size());
-        for (int i = 0; i < order.size(); i++) {
-            Cell cell = cells.get(order.get(i));
-            cell.row = i / columns;
-            cell.column = i % columns;
+        List<String> containers = new ArrayList<>();
+        containers.add(null);
+        groups.forEach(group -> containers.add(group.id));
+        for (String container : containers) {
+            List<String> order = occupantsOf(container);
+            order.sort(byName);
+            reorderWithin(container, order);
         }
     }
 
@@ -725,11 +1022,11 @@ public final class ProfileLayout {
     /**
      * Brings the arrangement in line with the profiles that actually exist.
      *
-     * <p>Called after every load and after every add or remove. Five things go
-     * wrong and all five are repaired rather than reported: an id for a profile
-     * that is gone, two profiles in one cell, a cell outside the grid, a profile
-     * with no cell at all, and an arrangement that is empty. The last is a first
-     * run or an upgrade from a launcher that had no grid, and it seeds the
+     * <p>Called after every load and after every add or remove. Six things go
+     * wrong and all six are repaired rather than reported: an id for a profile
+     * that is gone, a row assigned to a group that is gone, two profiles in one
+     * cell, a cell outside the grid, a profile with no cell at all, and an
+     * arrangement that is empty. The last is a first run, and it seeds the
      * alphabetical arrangement the interface starts from.
      *
      * @return true when something changed, so the caller knows to save
@@ -742,19 +1039,35 @@ public final class ProfileLayout {
 
         boolean fresh = cells.isEmpty() && !names.isEmpty();
         boolean changed = cells.keySet().retainAll(names.keySet());
-        changed |= membership.keySet().retainAll(names.keySet());
-        changed |= membership.values().removeIf(groupId -> group(groupId).isEmpty());
+        changed |= rowGroups.values().removeIf(groupId -> group(groupId).isEmpty());
+        changed |= rowGroups.keySet().removeIf(row -> row < 0 || row >= rows);
 
-        // One profile per cell, and every cell inside the grid. Both are checked
-        // in one pass, because a duplicate and an out-of-range cell are repaired
-        // the same way: the later profile is treated as unplaced.
-        Set<Integer> taken = new LinkedHashSet<>();
+        // A group with no rows cannot be seen or dragged into, so it is given
+        // one rather than left as an entry nothing renders.
+        for (Group group : new ArrayList<>(groups)) {
+            if (rowsOf(group.id).isEmpty()) {
+                changed = true;
+                boolean placed = false;
+                for (int row = 0; row < rows; row++) {
+                    if (rowGroups.get(row) == null && rowIsEmpty(row)) {
+                        rowGroups.put(row, group.id);
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed && !insertRowAt(rows, group.id)) {
+                    groups.remove(group);
+                }
+            }
+        }
+
+        Set<Long> taken = new LinkedHashSet<>();
         List<String> unplaced = new ArrayList<>();
         for (String id : new ArrayList<>(cells.keySet())) {
             Cell cell = cells.get(id);
             boolean inside = cell.row >= 0 && cell.column >= 0
                     && cell.row < rows && cell.column < columns;
-            if (!inside || !taken.add(cell.row * columns + cell.column)) {
+            if (!inside || !taken.add(key(cell.row, cell.column))) {
                 unplaced.add(id);
                 changed = true;
             }
@@ -770,13 +1083,7 @@ public final class ProfileLayout {
         if (!unplaced.isEmpty()) {
             unplaced.sort(Comparator.comparing(
                     id -> names.getOrDefault(id, id), String.CASE_INSENSITIVE_ORDER));
-            ensureCapacity(cells.size());
-            List<int[]> free = freeCellsWithin(columns, rows, unplaced);
-            for (int i = 0; i < unplaced.size() && i < free.size(); i++) {
-                Cell cell = cells.get(unplaced.get(i));
-                cell.row = free.get(i)[0];
-                cell.column = free.get(i)[1];
-            }
+            place(unplaced, taken);
         }
 
         if (fresh) {
@@ -786,17 +1093,48 @@ public final class ProfileLayout {
     }
 
     /**
-     * Adds rows until the grid can hold {@code needed} profiles.
+     * Finds cells for profiles that have none.
      *
-     * <p>The only place the grid grows on its own, and it is a floor rather than
-     * a policy: a profile that exists with no cell to sit in cannot be seen or
-     * launched, which is worse than a grid one row taller than the user asked
-     * for. Nothing is ever moved to make room.
+     * <p>Ungrouped rows first. A profile the launcher is placing on the user's
+     * behalf - a newly created one, or one whose cell was unreadable - must not
+     * quietly land in somebody's group.
      */
-    private void ensureCapacity(int needed) {
-        while (capacity() < needed && rows < MAX_ROWS) {
-            rows++;
+    private void place(List<String> unplaced, Set<Long> taken) {
+        for (String id : unplaced) {
+            int[] cell = firstFree(taken, true);
+            if (cell == null) {
+                cell = firstFree(taken, false);
+            }
+            if (cell == null) {
+                // The one case the grid grows by itself: a profile with no cell
+                // can be neither seen nor launched.
+                if (!addRow()) {
+                    continue;
+                }
+                cell = firstFree(taken, true);
+            }
+            if (cell == null) {
+                continue;
+            }
+            Cell target = cells.get(id);
+            target.row = cell[0];
+            target.column = cell[1];
+            taken.add(key(cell[0], cell[1]));
         }
+    }
+
+    private int[] firstFree(Set<Long> taken, boolean ungroupedOnly) {
+        for (int row = 0; row < rows; row++) {
+            if (ungroupedOnly && rowGroups.get(row) != null) {
+                continue;
+            }
+            for (int column = 0; column < columns; column++) {
+                if (!taken.contains(key(row, column))) {
+                    return new int[]{row, column};
+                }
+            }
+        }
+        return null;
     }
 
     // ---------------------------------------------------------------- persistence
@@ -811,18 +1149,20 @@ public final class ProfileLayout {
                     .put("collapsed", group.collapsed));
         }
 
+        Json rowList = Json.array();
+        List<Integer> assigned = new ArrayList<>(rowGroups.keySet());
+        assigned.sort(Comparator.naturalOrder());
+        for (int row : assigned) {
+            rowList.add(Json.object().put("row", row).put("group", rowGroups.get(row)));
+        }
+
         Json placed = Json.array();
         for (String id : sequence()) {
             Cell cell = cells.get(id);
-            Json entry = Json.object()
+            placed.add(Json.object()
                     .put("id", id)
                     .put("row", cell.row)
-                    .put("column", cell.column);
-            String groupId = membership.get(id);
-            if (groupId != null) {
-                entry.put("group", groupId);
-            }
-            placed.add(entry);
+                    .put("column", cell.column));
         }
 
         return Json.object()
@@ -830,6 +1170,7 @@ public final class ProfileLayout {
                 .put("columns", columns)
                 .put("rows", rows)
                 .put("groups", groupList)
+                .put("rowGroups", rowList)
                 .put("cells", placed);
     }
 
@@ -855,20 +1196,40 @@ public final class ProfileLayout {
             layout.groups.add(group);
         }
 
+        for (Json entry : json.get("rowGroups").elements()) {
+            int row = entry.get("row").asInt(-1);
+            String groupId = entry.get("group").asString(null);
+            if (row >= 0 && groupId != null && layout.group(groupId).isPresent()) {
+                layout.rowGroups.put(row, groupId);
+            }
+        }
+
+        // The cells, and then the two earlier shapes of this file. Both of those
+        // recorded an order and a membership but no grid, so both are read the
+        // same way and laid out again.
+        Map<String, String> legacyMembership = new LinkedHashMap<>();
+        List<String> legacyOrder = new ArrayList<>();
+        boolean legacy = layout.rowGroups.isEmpty() && json.get("rowGroups").elements().isEmpty();
+
         for (Json entry : json.get("cells").elements()) {
             String id = entry.get("id").asString(null);
             if (id == null || layout.cells.containsKey(id)) {
                 continue;
             }
             layout.cells.put(id, new Cell(entry.get("row").asInt(-1), entry.get("column").asInt(-1)));
+            legacyOrder.add(id);
             String groupId = entry.get("group").asString(null);
             if (groupId != null) {
-                layout.membership.put(id, groupId);
+                legacyMembership.put(id, groupId);
             }
         }
 
-        if (layout.cells.isEmpty()) {
-            readOldFormat(layout, json);
+        if (!legacyMembership.isEmpty() && legacy) {
+            // The version that kept membership on the profile. Rebuild it as rows.
+            layout.cells.clear();
+            layout.layOut(legacyOrder, legacyMembership);
+        } else if (layout.cells.isEmpty()) {
+            readFirstFormat(layout, json);
         }
         return layout;
     }
@@ -876,25 +1237,23 @@ public final class ProfileLayout {
     /**
      * Reads the arrangement written by the first version.
      *
-     * <p>That one had no grid: it held a list of top-level entries, each either a
-     * profile or a group with its members inside. The order is all that can be
-     * carried over, so it is read as a sequence and laid into the grid in reading
-     * order, and the groups keep their names, colours and collapsed state.
-     *
-     * <p>Kept rather than dropped because the alternative is an upgrade that
-     * silently loses the arrangement somebody has already made, and because the
-     * whole of it is twenty lines.
+     * <p>That one had no grid at all: a list of top-level entries, each either a
+     * profile or a group with its members inside. The order and the grouping are
+     * all there is to carry over, so they are read and laid out again - which is
+     * better than an upgrade that silently discards an arrangement somebody has
+     * already made.
      */
-    private static void readOldFormat(ProfileLayout layout, Json json) {
-        int index = 0;
+    private static void readFirstFormat(ProfileLayout layout, Json json) {
+        List<String> order = new ArrayList<>();
+        Map<String, String> membership = new LinkedHashMap<>();
         int paletteAt = layout.groups.size();
+
         for (Json entry : json.get("entries").elements()) {
             String type = entry.get("type").asString("profile");
             if (!"group".equalsIgnoreCase(type)) {
                 String id = entry.get("id").asString(null);
-                if (id != null && !layout.cells.containsKey(id)) {
-                    layout.cells.put(id, new Cell(index / layout.columns, index % layout.columns));
-                    index++;
+                if (id != null && !order.contains(id)) {
+                    order.add(id);
                 }
                 continue;
             }
@@ -909,17 +1268,81 @@ public final class ProfileLayout {
             layout.groups.add(group);
             for (Json member : entry.get("members").elements()) {
                 String id = member.asString(null);
-                if (id == null || layout.cells.containsKey(id)) {
-                    continue;
+                if (id != null && !order.contains(id)) {
+                    order.add(id);
+                    membership.put(id, groupId);
                 }
-                layout.cells.put(id, new Cell(index / layout.columns, index % layout.columns));
-                layout.membership.put(id, groupId);
-                index++;
             }
         }
-        if (index > layout.capacity()) {
-            layout.ensureCapacity(index);
+        layout.layOut(order, membership);
+    }
+
+    /**
+     * Lays a sequence with a membership into rows.
+     *
+     * <p>Ungrouped profiles fill the ungrouped rows in order; each group gets
+     * rows of its own, holding its members, in the order the groups are first
+     * met. That is the shape this class holds now, so a file from either earlier
+     * version comes out as a grid with the same reading order it had as a list.
+     */
+    private void layOut(List<String> order, Map<String, String> membership) {
+        cells.clear();
+        rowGroups.clear();
+        rows = 1;
+
+        int row = 0;
+        int column = 0;
+        Set<String> done = new LinkedHashSet<>();
+
+        for (String id : order) {
+            if (done.contains(id)) {
+                continue;
+            }
+            String groupId = membership.get(id);
+            if (groupId == null) {
+                if (column >= columns) {
+                    row++;
+                    column = 0;
+                }
+                while (rows <= row) {
+                    rows++;
+                }
+                cells.put(id, new Cell(row, column++));
+                done.add(id);
+                continue;
+            }
+            // A group starts a row of its own and keeps it.
+            if (column > 0 || rowGroups.get(row) != null) {
+                row++;
+                column = 0;
+            }
+            while (rows <= row) {
+                rows++;
+            }
+            rowGroups.put(row, groupId);
+            int groupColumn = 0;
+            for (String member : order) {
+                if (!groupId.equals(membership.get(member)) || done.contains(member)) {
+                    continue;
+                }
+                if (groupColumn >= columns) {
+                    row++;
+                    groupColumn = 0;
+                    while (rows <= row) {
+                        rows++;
+                    }
+                    rowGroups.put(row, groupId);
+                }
+                cells.put(member, new Cell(row, groupColumn++));
+                done.add(member);
+            }
+            row++;
+            column = 0;
         }
+        if (rows < DEFAULT_ROWS) {
+            rows = DEFAULT_ROWS;
+        }
+        rows = Math.min(rows, MAX_ROWS);
     }
 
     private static int clamp(int value, int low, int high) {

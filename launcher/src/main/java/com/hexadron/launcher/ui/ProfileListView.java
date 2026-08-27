@@ -193,10 +193,9 @@ public final class ProfileListView {
             ProfileLayout layout = host.layout();
             String dragged = ProfileDrag.id(payload);
             if (ProfileDrag.isProfile(payload)) {
-                // The group of the row it lands next to. Dropped among a group's
-                // members it joins them; dropped among the loose rows it leaves.
-                layout.join(dragged, layout.groupOf(profile.id())
-                        .map(ProfileLayout.Group::id).orElse(null));
+                // moveProfileBeside does the joining itself, from the target's
+                // own row - dropped among a group's members it joins them,
+                // dropped among the loose rows it leaves.
                 layout.moveProfileBeside(dragged, profile.id(), after);
                 return true;
             }
@@ -259,7 +258,10 @@ public final class ProfileListView {
                         after ? anchors.get(anchors.size() - 1) : anchors.get(0), after);
                 return true;
             }
-            layout.join(dragged, group.id());
+            if (!layout.join(dragged, group.id())) {
+                host.hint(I18n.t("grid.noRoom"));
+                return false;
+            }
             List<String> siblings = new ArrayList<>(layout.membersOf(group.id()));
             siblings.remove(dragged);
             if (!siblings.isEmpty()) {
@@ -302,13 +304,28 @@ public final class ProfileListView {
                 event.consume();
                 return;
             }
-            String last = order.get(order.size() - 1);
             String dragged = ProfileDrag.id(payload);
             if (ProfileDrag.isProfile(payload)) {
-                layout.join(dragged, null);
-                layout.moveProfileBeside(dragged, last, true);
+                // The anchor has to be an ungrouped profile: anchoring on the
+                // last profile overall would put this one back into whatever
+                // group that one happens to be in, which is the opposite of what
+                // dropping past the end of the list means.
+                String anchor = null;
+                for (String id : order) {
+                    if (layout.groupOf(id).isEmpty()) {
+                        anchor = id;
+                    }
+                }
+                if (!layout.join(dragged, null)) {
+                    host.hint(I18n.t("grid.noRoom"));
+                    event.consume();
+                    return;
+                }
+                if (anchor != null && !anchor.equals(dragged)) {
+                    layout.moveProfileBeside(dragged, anchor, true);
+                }
             } else {
-                layout.moveGroupBeside(dragged, last, true);
+                layout.moveGroupBeside(dragged, order.get(order.size() - 1), true);
             }
             event.setDropCompleted(true);
             host.layoutChanged();

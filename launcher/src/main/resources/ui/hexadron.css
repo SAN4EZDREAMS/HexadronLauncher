@@ -540,31 +540,56 @@
 }
 
 /*
- * The grid frame: the cells, the group rail on the left, and the two edge
- * strips that add and remove a column and a row.
+ * The grid frame: bands of cells, a plate down the left of each band, and the
+ * two edge strips that add and remove a column and a row.
  */
 .inv-frame {
     -fx-background-color: transparent;
 }
 
-.inv-grid {
+.inv-rows {
     -fx-background-color: transparent;
 }
 
-.inv-rail-column {
-    -fx-padding: 2 4 0 0;
+.inv-band {
+    -fx-background-color: transparent;
 }
 
-/* One chip per group: a legend, not a heading. Groups have no rows of their own
-   any more - a cell has a fixed place - so the chip names the group on hover and
-   lights its cells wherever they happen to be. */
-.inv-chip {
+/* A group's rows, tinted and boxed, so the group is a block on screen. */
+.inv-band-group {
+    -fx-border-width: 1;
     -fx-background-radius: 3;
+    -fx-border-radius: 3;
+}
+
+/* The plate down the left of a band. Coloured for a group, and an empty gutter
+   of the same width for rows in none - the same width, so grouped and ungrouped
+   rows line up and the grid still reads as one grid. */
+.inv-plate {
+    -fx-background-radius: 3 0 0 3;
     -fx-cursor: hand;
 }
 
-.inv-chip:hover {
-    -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.35), 6, 0.3, 0, 0);
+.inv-plate:hover {
+    -fx-effect: innershadow(gaussian, rgba(255, 255, 255, 0.45), 8, 0.4, 0, 0);
+}
+
+.inv-plate-empty {
+    -fx-background-color: transparent;
+}
+
+/* The group's name, written along its plate. */
+.inv-plate-name {
+    -fx-font-size: 10.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: white;
+}
+
+/* The strip a collapsed group folds into. It carries the name, because a folded
+   band with no name on it is a coloured line nobody can identify. */
+.inv-collapsed {
+    -fx-padding: 4 12 4 12;
+    -fx-cursor: hand;
 }
 
 /*
@@ -641,20 +666,6 @@
     -fx-alignment: center;
 }
 
-/* A cell whose profile is in a group wears the group's colour as its border.
-   The border width is set here so the inline colour is the only thing the view
-   has to write. */
-.inv-cell-grouped {
-    -fx-border-width: 2;
-    -fx-border-insets: 1;
-}
-
-/* Hovering a group's chip lights its cells, which is how a group is seen at a
-   glance when its members are scattered across the grid. */
-.inv-cell-highlight {
-    -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.5), 10, 0.4, 0, 0);
-}
-
 /* A free cell under the pointer: this exact cell is where it will land. */
 .inv-cell.drop-into {
     -fx-background-color: -fx-accent-1, -fx-base-2;
@@ -670,8 +681,9 @@
     -fx-background-insets: 0, 3;
 }
 
-.inv-chip.drop-into {
-    -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.8), 8, 0.5, 0, 0);
+/* A drop on the plate means "into this group, wherever there is room". */
+.inv-plate.drop-into {
+    -fx-effect: innershadow(gaussian, rgba(255, 255, 255, 0.9), 12, 0.6, 0, 0);
 }
 
 /* --------------------------------------------------- the icon in the editor */
