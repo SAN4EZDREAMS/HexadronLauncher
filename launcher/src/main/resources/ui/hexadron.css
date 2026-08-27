@@ -539,31 +539,66 @@
     -fx-border-width: 0 0 2 0;
 }
 
-.inv-band {
+/*
+ * The grid frame: the cells, the group rail on the left, and the two edge
+ * strips that add and remove a column and a row.
+ */
+.inv-frame {
     -fx-background-color: transparent;
 }
 
-.inv-band-group {
-    -fx-background-radius: 0;
-}
-
-.inv-collapsed {
-    -fx-padding: 4 12 4 12;
-    -fx-cursor: hand;
-}
-
-/* The rail down the left of a group's rows: the only place a grid has room to
-   say which group a block of cells belongs to. */
-.inv-rail {
-    -fx-cursor: hand;
-}
-
-.inv-rail-first {
-    -fx-background-radius: 4 0 0 0;
-}
-
-.inv-rail-empty {
+.inv-grid {
     -fx-background-color: transparent;
+}
+
+.inv-rail-column {
+    -fx-padding: 2 4 0 0;
+}
+
+/* One chip per group: a legend, not a heading. Groups have no rows of their own
+   any more - a cell has a fixed place - so the chip names the group on hover and
+   lights its cells wherever they happen to be. */
+.inv-chip {
+    -fx-background-radius: 3;
+    -fx-cursor: hand;
+}
+
+.inv-chip:hover {
+    -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.35), 6, 0.3, 0, 0);
+}
+
+/*
+ * The edge strips.
+ *
+ * Faint until the pointer is somewhere in the grid, because four small buttons
+ * competing with the instances is four buttons too many - and on the edge they
+ * change, so that they need no label to say what they do.
+ */
+.inv-edge {
+    -fx-opacity: 0.14;
+    -fx-padding: 2;
+}
+
+.inv-frame:hover .inv-edge {
+    -fx-opacity: 1;
+}
+
+.inv-edge-button {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 4;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 4;
+    -fx-text-fill: -fx-text-0;
+    -fx-font-family: "Consolas", "Menlo", monospace;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+
+.inv-edge-button:hover {
+    -fx-background-color: -fx-accent-0;
+    -fx-border-color: -fx-accent-1;
+    -fx-text-fill: white;
 }
 
 /*
@@ -606,22 +641,37 @@
     -fx-alignment: center;
 }
 
-/* Where a dragged cell will land: a bar on the edge it will go in on, so left
-   and right are told apart without moving anything. */
-.inv-cell.drop-before {
-    -fx-border-color: -fx-accent-1;
-    -fx-border-width: 0 0 0 3;
+/* A cell whose profile is in a group wears the group's colour as its border.
+   The border width is set here so the inline colour is the only thing the view
+   has to write. */
+.inv-cell-grouped {
+    -fx-border-width: 2;
+    -fx-border-insets: 1;
 }
 
-.inv-cell.drop-after {
-    -fx-border-color: -fx-accent-1;
-    -fx-border-width: 0 3 0 0;
+/* Hovering a group's chip lights its cells, which is how a group is seen at a
+   glance when its members are scattered across the grid. */
+.inv-cell-highlight {
+    -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.5), 10, 0.4, 0, 0);
 }
 
+/* A free cell under the pointer: this exact cell is where it will land. */
 .inv-cell.drop-into {
     -fx-background-color: -fx-accent-1, -fx-base-2;
     -fx-background-insets: 0, 3;
     -fx-opacity: 1;
+}
+
+/* An occupied cell under the pointer. One highlight, not a left and a right
+   edge: dropping on an occupied cell exchanges the two profiles, so there is no
+   before and after for the feedback to promise. */
+.inv-cell.drop-swap {
+    -fx-background-color: -fx-accent-1, -fx-base-3;
+    -fx-background-insets: 0, 3;
+}
+
+.inv-chip.drop-into {
+    -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.8), 8, 0.5, 0, 0);
 }
 
 /* --------------------------------------------------- the icon in the editor */
@@ -655,4 +705,49 @@
 .context-menu .menu-item:disabled .label {
     -fx-text-fill: -fx-text-1;
     -fx-opacity: 0.6;
+}
+
+/* A refusal, said beside the grid rather than in a dialog in front of it. */
+.hint-warning {
+    -fx-text-fill: #e0b25a;
+    -fx-font-weight: bold;
+}
+
+/* ------------------------------------------------------- settings window */
+
+.tab-pane > .tab-content-area > .tab-content {
+    -fx-background-color: transparent;
+}
+
+.spinner {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+}
+
+.spinner .text-field {
+    -fx-background-color: transparent;
+    -fx-text-fill: -fx-text-0;
+}
+
+.spinner .increment-arrow-button,
+.spinner .decrement-arrow-button {
+    -fx-background-color: -fx-base-3;
+}
+
+.spinner .increment-arrow,
+.spinner .decrement-arrow {
+    -fx-background-color: -fx-text-0;
+}
+
+.password-field {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-text-fill: -fx-text-0;
+    -fx-prompt-text-fill: -fx-text-1;
+    -fx-padding: 6 10 6 10;
+}
+
+.password-field:focused {
+    -fx-border-color: -fx-accent-0;
+    -fx-border-radius: 8;
 }

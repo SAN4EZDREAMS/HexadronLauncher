@@ -12,54 +12,60 @@ import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.ClipboardContent;
-import javafx.scene.input.DragEvent;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.TransferMode;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.TextAlignment;
 import javafx.util.Duration;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
- * The instances as a player's inventory: one profile per cell.
+ * The instances as a player's inventory: one profile per cell, and it stays there.
  *
- * <h2>What it is</h2>
+ * <h2>Absolute cells</h2>
  *
- * <p>Nine cells across, as in the game's own inventory, each with a thick
- * bevelled border, holding the profile's icon with its name underneath - a
- * shortcut, in other words. Double-click launches, right-click opens the same
- * menu the list uses, and a cell can be dragged onto another to rearrange.
+ * <p>The grid is a fixed field of {@link ProfileLayout#rows()} by
+ * {@link ProfileLayout#columns()} cells and every profile has one. A drop on a
+ * free cell puts the profile in that cell; a drop on an occupied one exchanges
+ * the two. Nothing else moves, ever - which is the difference from the first
+ * version, where a free cell meant "the end of the list" and dragging a profile
+ * onto the empty cells at the end of the top row sent it to the bottom of the
+ * grid.
  *
- * <p>Nine is fixed rather than fitted to the window, and that is the point:
- * a profile's place in the grid is its place in the one shared arrangement, so
- * resizing the window must not move anything. A grid that reflowed to the width
- * would either move every icon when the window changed, or need a second
- * ordering of its own - and a second ordering is the thing this design exists to
- * avoid.
+ * <p>Empty cells are therefore real places, not padding, and the list simply
+ * skips them: a hole in the grid is nothing in the list.
  *
- * <h2>Groups without headings</h2>
+ * <h2>Growing and shrinking it</h2>
  *
- * <p>A grid has no room for a heading per group, so a group is a band: it starts
- * on a fresh row, its rows carry a tint of the group's colour, and a coloured
- * rail down the left names it on hover. Clicking the rail collapses the band to
- * a single strip; the strip says how many instances it stands for. Dropping a
- * profile on the rail moves it into that group, which is the grid's equivalent
- * of dropping it on a group header in the list.
+ * <p>The grid never reflows by itself, so its size is something the user sets.
+ * The controls for it are on the edges where the change happens - a strip to the
+ * right of the last column and one under the last row, each with a {@code +} and
+ * a {@code -}, faint until the pointer is in the grid. The same two numbers are
+ * in the settings window for anybody who would rather type them.
  *
- * <p>The rows come from {@link ProfileLayout#grid}, not from anything worked out
- * here, so the row breaks and the group blocks are the same arrangement the list
- * draws as rows - the two views cannot disagree about the order because neither
- * of them decides it.
+ * <p>Removing an edge that still has profiles behind it moves them to free cells
+ * and keeps them; if there are not enough free cells it does nothing and says
+ * so, rather than dropping a profile off the end.
+ *
+ * <h2>Groups</h2>
+ *
+ * <p>A group is a colour here, not a place: its members' cells are outlined in
+ * it, and a chip on the left rail names it on hover and lights those cells up.
+ * Dropping a profile on a chip moves it into that group without moving the
+ * profile. Collapsing is a list behaviour and has no meaning here - a cell has a
+ * fixed place, so there is nothing for a fold to close over.
  */
 public final class InventoryView {
 
@@ -69,11 +75,13 @@ public final class InventoryView {
     /** The icon inside a cell. */
     private static final double ICON = 44;
 
-    /** Width of the coloured rail that marks a group. */
-    private static final double RAIL = 14;
+    /** Width of the group rail on the left, and of the edge strips. */
+    private static final double EDGE = 24;
 
     private final ProfileHost host;
-    private final VBox rows = new VBox(0);
+    private final GridPane frame = new GridPane();
+    private final GridPane grid = new GridPane();
+    private final VBox rail = new VBox(4);
     private final ScrollPane scroll = new ScrollPane();
     private final Label empty = new Label();
 
@@ -82,19 +90,32 @@ public final class InventoryView {
     /**
      * The cell of each profile on screen, for moving the selection highlight.
      *
-     * <p>Same reason as in the list: a click selects, and rebuilding on a click
-     * would destroy the cell the drag that click is starting is attached to.
+     * <p>Needed because selecting must not rebuild the grid: selection happens on
+     * mouse-pressed, which is the press a drag starts from, and rebuilding there
+     * would replace the very cell the drag was about to begin on.
      */
     private final Map<String, Region> cellsByProfile = new HashMap<>();
+
+    /** The cells of each group, so hovering its chip can light them up. */
+    private final Map<String, List<Region>> cellsByGroup = new HashMap<>();
 
     public InventoryView(ProfileHost host) {
         this.host = host;
 
-        rows.getStyleClass().add("inv-rows");
-        rows.setFillWidth(false);
-        rows.setAlignment(Pos.TOP_LEFT);
+        grid.getStyleClass().add("inv-grid");
+        rail.getStyleClass().add("inv-rail-column");
+        rail.setMinWidth(EDGE);
+        rail.setPrefWidth(EDGE);
+        rail.setMaxWidth(EDGE);
+        rail.setAlignment(Pos.TOP_CENTER);
 
-        StackPane centred = new StackPane(rows);
+        frame.getStyleClass().add("inv-frame");
+        frame.add(rail, 0, 0);
+        frame.add(grid, 1, 0);
+        frame.add(columnEdge(), 2, 0);
+        frame.add(rowEdge(), 1, 1);
+
+        StackPane centred = new StackPane(frame);
         centred.setAlignment(Pos.TOP_CENTER);
         centred.setPadding(new Insets(14, 14, 24, 14));
 
@@ -111,170 +132,53 @@ public final class InventoryView {
         return scroll;
     }
 
+    // ---------------------------------------------------------------- building
+
     /** Rebuilds the whole grid from the arrangement. */
     public void rebuild() {
         marked = null;
         cellsByProfile.clear();
-        rows.getChildren().clear();
+        cellsByGroup.clear();
+        grid.getChildren().clear();
+        rail.getChildren().clear();
 
+        ProfileLayout layout = host.layout();
         Set<String> visible = host.filter().isEmpty() ? null : matching();
-        List<ProfileLayout.Row> grid = host.layout().grid(visible);
 
-        if (grid.isEmpty()) {
-            empty.setText(host.filter().isEmpty()
-                    ? I18n.t("instance.none.body")
-                    : I18n.t("mods.noResults"));
-            StackPane holder = new StackPane(empty);
-            holder.setPadding(new Insets(30));
-            rows.getChildren().add(holder);
-            return;
+        for (int row = 0; row < layout.rows(); row++) {
+            for (int column = 0; column < layout.columns(); column++) {
+                Optional<String> id = layout.at(row, column);
+                Profile profile = id.map(this::profile).orElse(null);
+                boolean shown = profile != null
+                        && (visible == null || visible.contains(profile.id()));
+                grid.add(shown ? cell(profile) : emptyCell(row, column), column, row);
+            }
         }
 
-        ProfileLayout.Group previous = null;
-        for (int index = 0; index < grid.size(); index++) {
-            ProfileLayout.Row row = grid.get(index);
-            ProfileLayout.Group next = index + 1 < grid.size() ? grid.get(index + 1).group() : null;
-            rows.getChildren().add(band(row, row.group() != previous,
-                    row.group() != next));
-            previous = row.group();
+        for (ProfileLayout.Group group : layout.groups()) {
+            rail.getChildren().add(chip(group));
+        }
+
+        if (layout.occupied() == 0) {
+            empty.setText(I18n.t("instance.none.body"));
+            grid.add(empty, 0, layout.rows());
+            GridPane.setColumnSpan(empty, Math.max(1, layout.columns()));
         }
     }
 
-    // ---------------------------------------------------------------- rows
-
-    /**
-     * One row of the grid, with its group rail and tint.
-     *
-     * @param first true when this is the first row of its group, so the band
-     *              gets its top corners and the rail gets the name
-     * @param last  true when it is the last, so the band closes off
-     */
-    private Node band(ProfileLayout.Row row, boolean first, boolean last) {
-        HBox band = new HBox(0);
-        band.setAlignment(Pos.CENTER_LEFT);
-        band.getStyleClass().add("inv-band");
-        band.getChildren().add(rail(row, first));
-
-        if (row.isCollapsedGroup()) {
-            band.getChildren().add(collapsedStrip(row));
-            band.getStyleClass().add("inv-band-collapsed");
-        } else {
-            band.getChildren().add(cells(row));
-        }
-
-        if (row.group() != null) {
-            band.getStyleClass().add("inv-band-group");
-            // derive() rather than an alpha, because the band sits over the
-            // window background and a translucent tint would pick up whatever
-            // happened to be behind it, including another band.
-            band.setStyle("-fx-background-color: derive(" + row.group().color() + ", -74%);"
-                    + " -fx-border-color: derive(" + row.group().color() + ", -40%);"
-                    + " -fx-border-width: " + (first ? 1 : 0) + " 1 " + (last ? 1 : 0) + " 0;");
-        }
-        return band;
-    }
-
-    /**
-     * The left-hand marker.
-     *
-     * <p>Coloured and named for a group, and an empty gutter of the same width
-     * for loose profiles - the same width, so that grouped and ungrouped rows
-     * line up and the grid still reads as one grid.
-     */
-    private Node rail(ProfileLayout.Row row, boolean first) {
-        Region rail = new Region();
-        rail.setMinWidth(RAIL);
-        rail.setPrefWidth(RAIL);
-        rail.setMaxWidth(RAIL);
-        rail.setMinHeight(row.isCollapsedGroup() ? 34 : CELL);
-
-        ProfileLayout.Group group = row.group();
-        if (group == null) {
-            rail.getStyleClass().add("inv-rail-empty");
-            return rail;
-        }
-
-        rail.getStyleClass().add("inv-rail");
-        rail.setStyle("-fx-background-color: " + group.color() + ";");
-
-        Tooltip tooltip = new Tooltip(group.name() + "  ·  "
-                + I18n.t("groups.count", group.size()));
-        tooltip.setShowDelay(Duration.millis(250));
-        Tooltip.install(rail, tooltip);
-
-        rail.setOnMouseClicked(event -> {
-            if (event.getButton() == MouseButton.PRIMARY) {
-                host.layout().setCollapsed(group.id(), !group.collapsed());
-                host.layoutChanged();
-            }
-        });
-        ProfileMenu.installForGroup(rail, host, group);
-
-        // Dropping on the rail is how a profile joins a group in this view.
-        rail.setOnDragOver(event -> {
-            String payload = ProfileDrag.key(event.getDragboard());
-            if (ProfileDrag.isProfile(payload)) {
-                event.acceptTransferModes(TransferMode.MOVE);
-                mark(rail, "drop-into");
-            }
-            event.consume();
-        });
-        rail.setOnDragExited(event -> clearMark());
-        rail.setOnDragDropped(event -> {
-            String payload = ProfileDrag.key(event.getDragboard());
-            clearMark();
-            if (ProfileDrag.isProfile(payload)) {
-                host.layout().moveProfileToEnd(ProfileDrag.id(payload), group.id());
-                host.layout().setCollapsed(group.id(), false);
-                event.setDropCompleted(true);
-                host.layoutChanged();
-            }
-            event.consume();
-        });
-        if (first) {
-            rail.getStyleClass().add("inv-rail-first");
-        }
-        return rail;
-    }
-
-    private Node cells(ProfileLayout.Row row) {
-        HBox line = new HBox(0);
-        line.getStyleClass().add("inv-line");
-        List<String> ids = row.profileIds();
-        for (int column = 0; column < ProfileLayout.GRID_COLUMNS; column++) {
-            if (column < ids.size()) {
-                Profile profile = profile(ids.get(column));
-                line.getChildren().add(profile == null
-                        ? emptyCell(row.group())
-                        : cell(profile));
-            } else {
-                line.getChildren().add(emptyCell(row.group()));
+    /** Moves the highlight without rebuilding the grid. */
+    public void applySelection() {
+        Profile selected = host.selected();
+        String id = selected == null ? null : selected.id();
+        for (Map.Entry<String, Region> entry : cellsByProfile.entrySet()) {
+            boolean on = entry.getKey().equals(id);
+            var classes = entry.getValue().getStyleClass();
+            if (on && !classes.contains("inv-cell-selected")) {
+                classes.add("inv-cell-selected");
+            } else if (!on) {
+                classes.remove("inv-cell-selected");
             }
         }
-        return line;
-    }
-
-    /** The single strip that stands in for a collapsed group. */
-    private Node collapsedStrip(ProfileLayout.Row row) {
-        ProfileLayout.Group group = row.group();
-        Label plus = new Label("+");
-        plus.getStyleClass().add("group-toggle");
-        Label name = new Label(group.name());
-        name.getStyleClass().add("group-name");
-        Label count = new Label(I18n.t("groups.count", row.hiddenCount()));
-        count.getStyleClass().add("group-count");
-
-        HBox strip = new HBox(10, plus, name, count);
-        strip.setAlignment(Pos.CENTER_LEFT);
-        strip.getStyleClass().add("inv-collapsed");
-        strip.setMinHeight(34);
-        strip.setPrefWidth(CELL * ProfileLayout.GRID_COLUMNS);
-        strip.setOnMouseClicked(event -> {
-            host.layout().setCollapsed(group.id(), false);
-            host.layoutChanged();
-        });
-        ProfileMenu.installForGroup(strip, host, group);
-        return strip;
     }
 
     // ---------------------------------------------------------------- cells
@@ -289,8 +193,7 @@ public final class InventoryView {
         name.setTextOverrun(OverrunStyle.ELLIPSIS);
         name.setMaxWidth(CELL - 12);
         // Two lines. A third would push the icon out of the cell, and a name
-        // long enough to need three lines is unreadable at this size anyway -
-        // the tooltip below carries the whole of it.
+        // that long is unreadable here anyway - the tooltip carries all of it.
         name.setMaxHeight(28);
 
         VBox content = new VBox(3, icon, name);
@@ -298,16 +201,26 @@ public final class InventoryView {
 
         StackPane cell = new StackPane(content);
         cell.getStyleClass().add("inv-cell");
-        cell.setMinSize(CELL, CELL);
-        cell.setPrefSize(CELL, CELL);
-        cell.setMaxSize(CELL, CELL);
+        fix(cell);
         if (profile.equals(host.selected())) {
             cell.getStyleClass().add("inv-cell-selected");
         }
         cellsByProfile.put(profile.id(), cell);
 
-        Tooltip tooltip = new Tooltip(profile.name() + "\n"
-                + profile.minecraftVersion() + "  ·  " + profile.loader().displayName());
+        Optional<ProfileLayout.Group> group = host.layout().groupOf(profile.id());
+        String tip = profile.name() + "\n"
+                + profile.minecraftVersion() + "  ·  " + profile.loader().displayName();
+        if (group.isPresent()) {
+            // The group's colour on the cell's own border: in a grid of fixed
+            // places, a colour is the only thing that can say "these belong
+            // together" without moving anything.
+            cell.getStyleClass().add("inv-cell-grouped");
+            cell.setStyle("-fx-border-color: " + group.get().color() + ";");
+            cellsByGroup.computeIfAbsent(group.get().id(), key -> new ArrayList<>()).add(cell);
+            tip = tip + "\n" + group.get().name();
+        }
+
+        Tooltip tooltip = new Tooltip(tip);
         tooltip.setShowDelay(Duration.millis(400));
         Tooltip.install(cell, tooltip);
 
@@ -321,9 +234,9 @@ public final class InventoryView {
 
         cell.setOnDragDetected(event -> {
             Dragboard board = cell.startDragAndDrop(TransferMode.MOVE);
-            ClipboardContent content2 = new ClipboardContent();
-            content2.putString(ProfileDrag.profile(profile.id()));
-            board.setContent(content2);
+            ClipboardContent payload = new ClipboardContent();
+            payload.putString(ProfileDrag.profile(profile.id()));
+            board.setContent(payload);
             board.setDragView(cell.snapshot(null, null), event.getX(), event.getY());
             cell.getStyleClass().add("drag-source");
             event.consume();
@@ -334,6 +247,9 @@ public final class InventoryView {
             event.consume();
         });
 
+        // An occupied cell accepts a drop as an exchange. No before-or-after:
+        // the two profiles swap places, so which half of the cell the pointer is
+        // over does not change the outcome and must not pretend to.
         cell.setOnDragOver(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
             if (!ProfileDrag.isProfile(payload)
@@ -342,7 +258,7 @@ public final class InventoryView {
                 return;
             }
             event.acceptTransferModes(TransferMode.MOVE);
-            mark(cell, rightHalf(event, cell) ? "drop-after" : "drop-before");
+            mark(cell, "drop-swap");
             event.consume();
         });
         cell.setOnDragExited(event -> {
@@ -353,12 +269,10 @@ public final class InventoryView {
         });
         cell.setOnDragDropped(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
-            boolean after = rightHalf(event, cell);
             clearMark();
             if (ProfileDrag.isProfile(payload)) {
-                // Beside the cell under the pointer, which also moves the
-                // dragged profile into whatever group that cell belongs to.
-                host.layout().moveProfileBeside(ProfileDrag.id(payload), profile.id(), after);
+                host.layout().cellOf(profile.id()).ifPresent(place ->
+                        host.layout().placeAt(ProfileDrag.id(payload), place[0], place[1]));
                 event.setDropCompleted(true);
                 host.layoutChanged();
             }
@@ -370,17 +284,14 @@ public final class InventoryView {
     /**
      * A free cell.
      *
-     * <p>Not decoration: it is the drop target that means "the end of this
-     * group", and for the loose rows, "the end of the top level". Without it the
-     * only way to move a profile to the end would be to drop it on the last
-     * occupied cell and hope the pointer was on the right half.
+     * <p>A place, not padding. Dropping here puts the profile in this exact cell
+     * and leaves it there, which is the behaviour the grid is for; the list will
+     * simply not show the hole it came from.
      */
-    private Node emptyCell(ProfileLayout.Group group) {
+    private Node emptyCell(int row, int column) {
         StackPane cell = new StackPane();
         cell.getStyleClass().addAll("inv-cell", "inv-cell-empty");
-        cell.setMinSize(CELL, CELL);
-        cell.setPrefSize(CELL, CELL);
-        cell.setMaxSize(CELL, CELL);
+        fix(cell);
 
         cell.setOnDragOver(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
@@ -400,8 +311,7 @@ public final class InventoryView {
             String payload = ProfileDrag.key(event.getDragboard());
             clearMark();
             if (ProfileDrag.isProfile(payload)) {
-                host.layout().moveProfileToEnd(ProfileDrag.id(payload),
-                        group == null ? null : group.id());
+                host.layout().placeAt(ProfileDrag.id(payload), row, column);
                 event.setDropCompleted(true);
                 host.layoutChanged();
             }
@@ -410,25 +320,142 @@ public final class InventoryView {
         return cell;
     }
 
-    /** Moves the highlight without rebuilding the grid. */
-    public void applySelection() {
-        Profile selected = host.selected();
-        String id = selected == null ? null : selected.id();
-        for (Map.Entry<String, Region> entry : cellsByProfile.entrySet()) {
-            boolean on = entry.getKey().equals(id);
-            var classes = entry.getValue().getStyleClass();
-            if (on && !classes.contains("inv-cell-selected")) {
-                classes.add("inv-cell-selected");
+    // ---------------------------------------------------------------- the rail
+
+    /**
+     * One group's chip.
+     *
+     * <p>A legend rather than a heading: it names the group on hover, lights its
+     * cells so the group can be seen at a glance, and takes a drop so a profile
+     * can join without being moved. The cells it lights are wherever they are -
+     * membership here is not a position.
+     */
+    private Node chip(ProfileLayout.Group group) {
+        Region mark = new Region();
+        mark.getStyleClass().add("inv-chip");
+        mark.setStyle("-fx-background-color: " + group.color() + ";");
+        mark.setMinSize(14, 22);
+        mark.setPrefSize(14, 22);
+        mark.setMaxSize(14, 22);
+
+        int members = host.layout().membersOf(group.id()).size();
+        Tooltip tooltip = new Tooltip(group.name() + "  ·  " + I18n.t("groups.count", members));
+        tooltip.setShowDelay(Duration.millis(200));
+        Tooltip.install(mark, tooltip);
+
+        mark.setOnMouseEntered(event -> highlight(group.id(), true));
+        mark.setOnMouseExited(event -> highlight(group.id(), false));
+        ProfileMenu.installForGroup(mark, host, group);
+
+        mark.setOnDragOver(event -> {
+            String payload = ProfileDrag.key(event.getDragboard());
+            if (ProfileDrag.isProfile(payload)) {
+                event.acceptTransferModes(TransferMode.MOVE);
+                mark.getStyleClass().add("drop-into");
+            }
+            event.consume();
+        });
+        mark.setOnDragExited(event -> mark.getStyleClass().remove("drop-into"));
+        mark.setOnDragDropped(event -> {
+            String payload = ProfileDrag.key(event.getDragboard());
+            mark.getStyleClass().remove("drop-into");
+            if (ProfileDrag.isProfile(payload)) {
+                host.layout().join(ProfileDrag.id(payload), group.id());
+                event.setDropCompleted(true);
+                host.layoutChanged();
+            }
+            event.consume();
+        });
+        return mark;
+    }
+
+    private void highlight(String groupId, boolean on) {
+        for (Region cell : cellsByGroup.getOrDefault(groupId, List.of())) {
+            if (on && !cell.getStyleClass().contains("inv-cell-highlight")) {
+                cell.getStyleClass().add("inv-cell-highlight");
             } else if (!on) {
-                classes.remove("inv-cell-selected");
+                cell.getStyleClass().remove("inv-cell-highlight");
             }
         }
     }
 
+    // ---------------------------------------------------------------- the edges
+
+    /**
+     * The strip to the right of the last column.
+     *
+     * <p>On the edge it changes, because that is where the pointer already is
+     * when somebody wants another column, and because a control that sits where
+     * its effect appears needs no label to explain it. Faint until the pointer is
+     * in the grid, so it is not four buttons competing with the instances.
+     */
+    private Node columnEdge() {
+        VBox edge = new VBox(6, edgeButton("+", "grid.addColumn", () -> {
+            if (!host.layout().addColumn()) {
+                host.hint(I18n.t("grid.atMaximum"));
+                return;
+            }
+            host.layoutChanged();
+        }), edgeButton("−", "grid.removeColumn", () -> {
+            if (!host.layout().removeColumn()) {
+                host.hint(I18n.t("grid.noRoom"));
+                return;
+            }
+            host.layoutChanged();
+        }));
+        edge.getStyleClass().add("inv-edge");
+        edge.setAlignment(Pos.CENTER);
+        edge.setMinWidth(EDGE);
+        edge.setPrefWidth(EDGE);
+        edge.setMaxWidth(EDGE);
+        return edge;
+    }
+
+    /** The strip under the last row. */
+    private Node rowEdge() {
+        HBox edge = new HBox(6, edgeButton("+", "grid.addRow", () -> {
+            if (!host.layout().addRow()) {
+                host.hint(I18n.t("grid.atMaximum"));
+                return;
+            }
+            host.layoutChanged();
+        }), edgeButton("−", "grid.removeRow", () -> {
+            if (!host.layout().removeRow()) {
+                host.hint(I18n.t("grid.noRoom"));
+                return;
+            }
+            host.layoutChanged();
+        }));
+        edge.getStyleClass().add("inv-edge");
+        edge.setAlignment(Pos.CENTER);
+        edge.setMinHeight(EDGE);
+        edge.setPrefHeight(EDGE);
+        edge.setMaxHeight(EDGE);
+        return edge;
+    }
+
+    private Node edgeButton(String glyph, String tooltipKey, Runnable action) {
+        Label button = new Label(glyph);
+        button.getStyleClass().add("inv-edge-button");
+        button.setMinSize(18, 18);
+        button.setPrefSize(18, 18);
+        button.setAlignment(Pos.CENTER);
+        Tooltip tooltip = new Tooltip(I18n.t(tooltipKey));
+        tooltip.setShowDelay(Duration.millis(200));
+        Tooltip.install(button, tooltip);
+        button.setOnMouseClicked(event -> {
+            action.run();
+            event.consume();
+        });
+        return button;
+    }
+
     // ---------------------------------------------------------------- helpers
 
-    private static boolean rightHalf(DragEvent event, Region cell) {
-        return event.getX() > cell.getWidth() / 2;
+    private static void fix(Region region) {
+        region.setMinSize(CELL, CELL);
+        region.setPrefSize(CELL, CELL);
+        region.setMaxSize(CELL, CELL);
     }
 
     private void mark(Region node, String styleClass) {
@@ -439,7 +466,7 @@ public final class InventoryView {
 
     private void clearMark() {
         if (marked != null) {
-            marked.getStyleClass().removeAll("drop-before", "drop-after", "drop-into");
+            marked.getStyleClass().removeAll("drop-into", "drop-swap");
             marked = null;
         }
     }
@@ -461,22 +488,5 @@ public final class InventoryView {
             }
         }
         return null;
-    }
-
-    /** Kept for the toolbar above the grid, so it can size itself to the cells. */
-    public static double gridWidth() {
-        return RAIL + CELL * ProfileLayout.GRID_COLUMNS;
-    }
-
-    static {
-        // A guard rather than a comment: the cell size and the column count
-        // together decide the narrowest the window can usefully be, and the
-        // launcher's own minimum is 1120. If either number is raised past that,
-        // the grid gets a horizontal scrollbar at the default window size and
-        // the change is worth noticing here rather than on screen.
-        if (gridWidth() > 1120) {
-            System.err.println("inventory grid is " + gridWidth()
-                    + " px wide, which is wider than the default window");
-        }
     }
 }

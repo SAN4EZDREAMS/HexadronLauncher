@@ -22,6 +22,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,28 +30,32 @@ import java.util.Map;
 /**
  * The list of instances: rows, groups, and drag to rearrange.
  *
+ * <h2>The list has no order of its own</h2>
+ *
+ * <p>What it draws is {@link ProfileLayout#listRows()}: the grid's cells walked
+ * in reading order with the empty ones left out, and each group's header placed
+ * where its first member sits. So a hole in the grid is nothing here, exactly as
+ * specified - two profiles with a free cell between them are two consecutive
+ * rows.
+ *
+ * <p>Dragging a row therefore does not move a cell. It reorders which profile
+ * sits in which of the already-occupied cells, so the gaps stay where the user
+ * put them and only the contents change. Dragging a group header moves all of
+ * its members together, for the same reason.
+ *
+ * <p>Where a row is dropped also decides its group: a profile dropped among the
+ * members of a group joins that group, and one dropped among the loose rows
+ * leaves whatever group it was in. That is the reading of the gesture that
+ * matches what the row looks like once it lands.
+ *
  * <h2>Rows rather than a ListView</h2>
  *
  * <p>A {@code ListView} recycles its cells, and a recycled cell is the wrong
- * thing to hang a drag gesture and a drop indicator on: the cell under the
- * pointer at the end of a drag is not necessarily the cell the drag started
- * from, and the highlight ends up on whatever row the cell was reused for. The
- * list here is tens of rows, not thousands, so it is built as plain rows in a
- * {@link VBox} and drawn in full. Every row is its own node for as long as it is
- * on screen, which is what makes the drop line land where the pointer is.
- *
- * <p>A {@code TreeView} would give collapsing for free and take the same problem
- * back on, with the added cost that its disclosure arrow is not the {@code -}
- * and {@code +} this interface is specified to show.
- *
- * <h2>No state of its own</h2>
- *
- * <p>Everything drawn comes from {@link ProfileHost}: the profiles, the
- * arrangement, the selection, the search. Every drag ends in a call to
- * {@link ProfileLayout} through the host and then {@link ProfileHost#layoutChanged()},
- * which saves and rebuilds. That is why the grid is already correct when it is
- * switched to - it is reading the same arrangement this view just changed, not a
- * copy of it.
+ * thing to hang a drag and a drop indicator on: the cell under the pointer at
+ * the end of a drag is not necessarily the one the drag started from, so the
+ * highlight lands on whatever row the cell was reused for. This list is tens of
+ * rows, not thousands, so it is built as plain rows in a {@link VBox} and drawn
+ * in full.
  */
 public final class ProfileListView {
 
@@ -65,11 +70,9 @@ public final class ProfileListView {
     /**
      * The row of each profile on screen, for moving the selection highlight.
      *
-     * <p>Needed because selecting must not rebuild the list. Selection happens
-     * on mouse-pressed, which is also the press a drag starts from - so
-     * rebuilding there would replace the very node the drag was about to begin
-     * on, and the drag would never start. So the highlight is moved by changing
-     * a style class on rows that already exist.
+     * <p>Selection must not rebuild the list: it happens on mouse-pressed, which
+     * is the press a drag starts from, so a rebuild there would replace the node
+     * the drag was about to begin on and dragging would silently stop working.
      */
     private final Map<String, Region> rowsByProfile = new HashMap<>();
 
@@ -98,34 +101,27 @@ public final class ProfileListView {
         rowsByProfile.clear();
         rows.getChildren().clear();
 
-        ProfileLayout layout = host.layout();
         boolean anything = false;
+        List<ProfileLayout.ListRow> listRows = host.layout().listRows();
 
-        for (ProfileLayout.Entry entry : layout.entries()) {
-            if (entry.isGroup()) {
-                ProfileLayout.Group group = entry.group();
-                List<Profile> members = visible(group.members());
-                // A group with nothing matching the search is hidden with its
-                // members, rather than left as an empty heading the search
-                // cannot explain.
-                if (members.isEmpty() && !host.filter().isEmpty()) {
+        for (int index = 0; index < listRows.size(); index++) {
+            ProfileLayout.ListRow row = listRows.get(index);
+            if (row.isGroup()) {
+                // A group whose members are all filtered out is hidden with
+                // them, rather than left as a heading the search cannot explain.
+                if (!host.filter().isEmpty() && visibleMembers(row.group()) == 0) {
                     continue;
                 }
                 anything = true;
-                rows.getChildren().add(groupRow(group, members.size()));
-                if (!group.collapsed()) {
-                    for (Profile profile : members) {
-                        rows.getChildren().add(profileRow(profile, true));
-                    }
-                }
-            } else {
-                Profile profile = profile(entry.profileId());
-                if (profile == null || !host.matchesFilter(profile)) {
-                    continue;
-                }
-                anything = true;
-                rows.getChildren().add(profileRow(profile, false));
+                rows.getChildren().add(groupRow(row.group(), row.memberCount()));
+                continue;
             }
+            Profile profile = profile(row.profileId());
+            if (profile == null || !host.matchesFilter(profile)) {
+                continue;
+            }
+            anything = true;
+            rows.getChildren().add(profileRow(profile, row.isNested()));
         }
 
         if (!anything) {
@@ -137,9 +133,24 @@ public final class ProfileListView {
             rows.getChildren().add(holder);
         }
 
-        // The tail. Somewhere has to mean "past the last row, at the top level",
+        // The tail. Somewhere has to mean "after the last row and in no group",
         // or a profile dragged out of the last group has nowhere to land.
         rows.getChildren().add(tailTarget());
+    }
+
+    /** Moves the highlight without rebuilding anything. */
+    public void applySelection() {
+        Profile selected = host.selected();
+        String id = selected == null ? null : selected.id();
+        for (Map.Entry<String, Region> entry : rowsByProfile.entrySet()) {
+            boolean on = entry.getKey().equals(id);
+            var classes = entry.getValue().getStyleClass();
+            if (on && !classes.contains("profile-row-selected")) {
+                classes.add("profile-row-selected");
+            } else if (!on) {
+                classes.remove("profile-row-selected");
+            }
+        }
     }
 
     // ---------------------------------------------------------------- rows
@@ -178,23 +189,28 @@ public final class ProfileListView {
         ProfileMenu.install(row, host, profile);
 
         dragSource(row, ProfileDrag.profile(profile.id()));
-        dropTarget(row, payload -> {
+        dropTarget(row, (payload, after) -> {
+            ProfileLayout layout = host.layout();
+            String dragged = ProfileDrag.id(payload);
             if (ProfileDrag.isProfile(payload)) {
-                return dropped -> host.layout().moveProfileBeside(
-                        dropped.id(), profile.id(), dropped.after());
+                // The group of the row it lands next to. Dropped among a group's
+                // members it joins them; dropped among the loose rows it leaves.
+                layout.join(dragged, layout.groupOf(profile.id())
+                        .map(ProfileLayout.Group::id).orElse(null));
+                layout.moveProfileBeside(dragged, profile.id(), after);
+                return true;
             }
-            // A group dropped onto a profile row goes beside whatever top-level
-            // entry that row belongs to: the group it is in, or the row itself.
-            return dropped -> {
-                String target = host.layout().groupOf(profile.id())
-                        .map(ProfileLayout.Group::id).orElse(profile.id());
-                host.layout().moveEntryBeside(dropped.id(), target, dropped.after());
-            };
+            // A group dragged onto a row of its own is not a move.
+            if (layout.membersOf(dragged).contains(profile.id())) {
+                return false;
+            }
+            layout.moveGroupBeside(dragged, profile.id(), after);
+            return true;
         });
         return row;
     }
 
-    private Node groupRow(ProfileLayout.Group group, int shown) {
+    private Node groupRow(ProfileLayout.Group group, int memberCount) {
         Label toggle = new Label(group.collapsed() ? "+" : "−");
         toggle.getStyleClass().add("group-toggle");
         toggle.setOnMouseClicked(event -> {
@@ -209,7 +225,7 @@ public final class ProfileListView {
 
         Label name = new Label(group.name());
         name.getStyleClass().add("group-name");
-        Label count = new Label(I18n.t("groups.count", shown));
+        Label count = new Label(I18n.t("groups.count", memberCount));
         count.getStyleClass().add("group-count");
 
         HBox row = new HBox(8, toggle, chip, name, spacer(), count);
@@ -226,21 +242,39 @@ public final class ProfileListView {
         ProfileMenu.installForGroup(row, host, group);
 
         dragSource(row, ProfileDrag.group(group.id()));
-        dropTarget(row, payload -> {
-            if (ProfileDrag.isProfile(payload)) {
-                // Into the group. The half of the header the pointer is over
-                // decides first or last, which is the only reading of the
-                // gesture that lets a profile be put at the top of a group.
-                return dropped -> host.layout().moveProfile(dropped.id(), group.id(),
-                        dropped.after() ? Integer.MAX_VALUE : 0);
+        dropTarget(row, (payload, after) -> {
+            ProfileLayout layout = host.layout();
+            String dragged = ProfileDrag.id(payload);
+            if (!ProfileDrag.isProfile(payload)) {
+                if (dragged.equals(group.id())) {
+                    return false;
+                }
+                // Beside the group, using its first member as the anchor: the
+                // header itself has no cell of its own to be beside.
+                List<String> anchors = layout.membersOf(group.id());
+                if (anchors.isEmpty()) {
+                    return false;
+                }
+                layout.moveGroupBeside(dragged,
+                        after ? anchors.get(anchors.size() - 1) : anchors.get(0), after);
+                return true;
             }
-            return dropped -> host.layout().moveEntryBeside(
-                    dropped.id(), group.id(), dropped.after());
+            layout.join(dragged, group.id());
+            List<String> siblings = new ArrayList<>(layout.membersOf(group.id()));
+            siblings.remove(dragged);
+            if (!siblings.isEmpty()) {
+                // The half of the header the pointer is over decides first or
+                // last, which is the only reading that lets a profile be put at
+                // the top of a group.
+                layout.moveProfileBeside(dragged,
+                        after ? siblings.get(siblings.size() - 1) : siblings.get(0), after);
+            }
+            return true;
         });
         return row;
     }
 
-    /** The strip below the last row: a drop here means the end of the top level. */
+    /** The strip below the last row: a drop here means last, and in no group. */
     private Node tailTarget() {
         Region tail = new Region();
         tail.getStyleClass().add("profile-tail");
@@ -259,17 +293,22 @@ public final class ProfileListView {
             String payload = ProfileDrag.key(event.getDragboard());
             tail.getStyleClass().remove("drop-into");
             if (payload == null) {
+                event.consume();
                 return;
             }
+            ProfileLayout layout = host.layout();
+            List<String> order = layout.sequence();
+            if (order.isEmpty()) {
+                event.consume();
+                return;
+            }
+            String last = order.get(order.size() - 1);
+            String dragged = ProfileDrag.id(payload);
             if (ProfileDrag.isProfile(payload)) {
-                host.layout().moveProfileToEnd(ProfileDrag.id(payload), null);
+                layout.join(dragged, null);
+                layout.moveProfileBeside(dragged, last, true);
             } else {
-                List<ProfileLayout.Entry> entries = host.layout().entries();
-                if (!entries.isEmpty()) {
-                    ProfileLayout.Entry last = entries.get(entries.size() - 1);
-                    String target = last.isGroup() ? last.group().id() : last.profileId();
-                    host.layout().moveEntryBeside(ProfileDrag.id(payload), target, true);
-                }
+                layout.moveGroupBeside(dragged, last, true);
             }
             event.setDropCompleted(true);
             host.layoutChanged();
@@ -278,36 +317,12 @@ public final class ProfileListView {
         return tail;
     }
 
-    /** Moves the highlight without rebuilding anything. */
-    public void applySelection() {
-        Profile selected = host.selected();
-        String id = selected == null ? null : selected.id();
-        for (Map.Entry<String, Region> entry : rowsByProfile.entrySet()) {
-            boolean on = entry.getKey().equals(id);
-            var classes = entry.getValue().getStyleClass();
-            if (on && !classes.contains("profile-row-selected")) {
-                classes.add("profile-row-selected");
-            } else if (!on) {
-                classes.remove("profile-row-selected");
-            }
-        }
-    }
-
     // ---------------------------------------------------------------- dragging
 
-    /** What a drop worked out: which id was dragged, and whether it goes after. */
-    private record Dropped(String id, boolean after) {
-    }
-
+    /** What a drop does. Returns false when the gesture turned out to be a no-op. */
     @FunctionalInterface
     private interface DropAction {
-        void apply(Dropped dropped);
-    }
-
-    /** Chooses what a drop does, from the kind of thing on the dragboard. */
-    @FunctionalInterface
-    private interface DropPlan {
-        DropAction forPayload(String payload);
+        boolean apply(String payload, boolean after);
     }
 
     private void dragSource(Region row, String payload) {
@@ -316,10 +331,10 @@ public final class ProfileListView {
             ClipboardContent content = new ClipboardContent();
             content.putString(payload);
             board.setContent(content);
-            row.getProperties().put("hexadron-key", payload);
-            // The row itself as the drag image, so what is being moved is
-            // visible during the move rather than only at the end of it.
+            // The row itself as the drag image, so what is moving is visible
+            // during the move rather than only at the end of it.
             board.setDragView(row.snapshot(null, null), event.getX(), event.getY());
+            row.getProperties().put("hexadron-key", payload);
             row.getStyleClass().add("drag-source");
             event.consume();
         });
@@ -330,7 +345,7 @@ public final class ProfileListView {
         });
     }
 
-    private void dropTarget(Region row, DropPlan plan) {
+    private void dropTarget(Region row, DropAction action) {
         row.setOnDragOver(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
             if (payload == null || payload.equals(row.getProperties().get("hexadron-key"))) {
@@ -350,14 +365,9 @@ public final class ProfileListView {
         });
         row.setOnDragDropped(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
+            boolean after = after(event, row);
             clearMark();
-            if (payload == null) {
-                event.consume();
-                return;
-            }
-            DropAction action = plan.forPayload(payload);
-            if (action != null) {
-                action.apply(new Dropped(ProfileDrag.id(payload), after(event, row)));
+            if (payload != null && action.apply(payload, after)) {
                 event.setDropCompleted(true);
                 host.layoutChanged();
             }
@@ -384,15 +394,15 @@ public final class ProfileListView {
 
     // ---------------------------------------------------------------- helpers
 
-    private List<Profile> visible(List<String> ids) {
-        List<Profile> found = new java.util.ArrayList<>();
-        for (String id : ids) {
+    private int visibleMembers(ProfileLayout.Group group) {
+        int count = 0;
+        for (String id : host.layout().membersOf(group.id())) {
             Profile profile = profile(id);
             if (profile != null && host.matchesFilter(profile)) {
-                found.add(profile);
+                count++;
             }
         }
-        return found;
+        return count;
     }
 
     private Profile profile(String id) {

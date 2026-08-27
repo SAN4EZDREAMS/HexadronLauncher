@@ -88,7 +88,7 @@ public final class ProfileStore {
     public synchronized List<Profile> arranged() {
         layout.reconcile(profiles.values());
         List<Profile> ordered = new ArrayList<>();
-        for (String id : layout.orderedProfileIds()) {
+        for (String id : layout.sequence()) {
             Profile profile = profiles.get(id);
             if (profile != null) {
                 ordered.add(profile);

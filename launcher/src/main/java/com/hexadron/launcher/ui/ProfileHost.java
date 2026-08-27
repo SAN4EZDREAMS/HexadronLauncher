@@ -81,6 +81,19 @@ public interface ProfileHost {
     /** Asks for a name, makes a group, and puts {@code profile} in it when given one. */
     void createGroup(Profile profile);
 
+    /**
+     * Says something the user needs to read but must not be stopped by.
+     *
+     * <p>Used for a refusal with a reason - "there is nowhere to move these
+     * profiles to, widen the grid first". A dialog for that would be a dialog in
+     * the way of a gesture somebody is in the middle of repeating, so it goes on
+     * screen beside the grid and fades.
+     */
+    void hint(String message);
+
+    /** Opens the settings window. The same one from either interface. */
+    void openSettings();
+
     void renameGroup(ProfileLayout.Group group);
 
     void removeGroup(ProfileLayout.Group group);

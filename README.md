@@ -233,10 +233,12 @@ its own folder under `instances/`, so mods and worlds stay separate. Pictures
 chosen as instance icons are copied into `icons/`, named after their own
 content.
 
-`profiles.json` holds the profiles and, next to them, how they are arranged:
-the groups, the order, and which of the two views was last used. One file, so
-there is no way to end up with groups referring to profiles a separately
-restored file no longer has.
+`profiles.json` holds the profiles and, next to them, how they are arranged: the
+size of the grid, the cell each profile is in, the groups and who is in them, and
+which of the two views was last used. One file, so there is no way to end up with
+an arrangement referring to profiles that a separately restored file no longer
+has. An arrangement written by the first version - which had no grid, only an
+order - is read and carried over rather than discarded.
 
 Removing a profile asks what to do with that folder, and the two answers are
 both right some of the time: someone clearing out an old instance wants the
@@ -368,7 +370,7 @@ downloads them from Modrinth instead.
 
 ```
 +--------------------------------------------------------------+
-| H  HexadronLauncher [ search ]   [Inventory view] Lang: [ v ] |
+| H  HexadronLauncher [ search ] [Inventory][Settings] Lang:[v] |
 +---------------------+----------------------------------------+
 | Instances           |  Instance name                          |
 | - Modded set    (2) |  fabric-loader-0.19.3-26.2              |
@@ -415,6 +417,28 @@ between them:
   holding an icon with the instance name under it, as the game's own inventory
   is laid out.
 
+```
++---------------------------------------------------------------+
+| H  Inventory  [ search ] [New][New group][Sort]    [List][Set] |
++---------------------------------------------------------------+
+|   | +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ |+||
+| # | | [F] | | [Q] | |     | | [N] | |     | | [V] | |     | |-||
+|   | | Sky | | Pack| |     | | Neo | |     | | 1.8 | |     | |  ||
+|   | +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ |  ||
+| # | +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ |  ||
+|   | | [F] | |     | |     | | [F] | |     | |     | |     | |  ||
+|   | +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ +-----+ |  ||
+|   |                    [ + ]  [ - ]                          ||
++---------------------------------------------------------------+
+| Account: [ v ] [Add offline] [Sign in]              [ PLAY ]  |
++---------------------------------------------------------------+
+```
+
+The `#` marks on the left are the group chips, the `+` and `-` on the right add
+and remove a column, and the pair underneath add and remove a row. The two cells
+outlined in a group colour are in the same group whether or not they are next to
+each other.
+
 They are the same instances, not two lists kept in step. Neither view holds an
 order, a selection or a search of its own: both read one arrangement, and every
 drag, group, rename and click writes to it and redraws both. So a reorder made
@@ -422,17 +446,37 @@ in the grid is already true in the list before it is switched to, and there is n
 synchronising step that could be missed. `ProfileLayout` is that arrangement and
 `ProfileHost` is the only way either view can change it.
 
-Grouping is one level deep. In the list a group is a header with a `-` and `+`
-that collapses it; in the grid it is a band - it starts on a fresh row, its rows
-are tinted with the group colour, and a coloured rail down the left names it on
-hover and collapses it when clicked. Deleting a group never deletes instances:
-they go back to the top level, and the confirmation says so.
+The arrangement has exactly two parts, and that is what makes one of it: every
+instance sits in one **cell** of the grid, and every instance may belong to one
+**group**, which says nothing about where it sits. The grid draws the cells. The
+list walks the same cells in reading order and leaves the empty ones out, so a
+gap in the grid is nothing in the list - two instances with a free cell between
+them are two consecutive rows.
 
-Instances and whole groups are rearranged by dragging, in either view. A drop
-between two rows, or on the left or right half of a cell, reorders; a drop on a
-group header or on a group's rail moves an instance into that group; a free cell
-means the end of that group. The same moves are on the right-click menu as well,
-because a drag needs both ends visible at once and a keyboard has no drag.
+Cells are absolute. A drop on a free cell puts the instance in that cell and
+leaves it there; a drop on an occupied one exchanges the two. Nothing moves that
+was not dragged. The first version wrapped instances into as many rows as they
+needed, which made a free cell mean "the end" - so dragging an instance onto the
+empty cells at the end of the top row sent it to the bottom of the grid, and
+looked like a drag that had failed.
+
+Dragging in the *list* is a different question with a different answer: the list
+has no cells, so a row dragged to a new position reorders which instance sits in
+which of the already-occupied cells. The gaps stay where they were and only the
+contents change. Dragging a group header moves all its members together. Where a
+row lands also decides its group - dropped among a group's members it joins them,
+dropped among the loose rows it leaves - because that is what the row will look
+like once it lands.
+
+Grouping is one level deep. In the list a group is a header with a `-` and `+`
+that collapses it. In the grid it is a colour: its members' cells are outlined in
+it, and a chip on the left rail names the group on hover and lights those cells
+up wherever they are. Collapsing is therefore a list behaviour only - a cell has
+a fixed place, so a fold in the grid would have nothing to close over. Deleting a
+group never deletes or moves instances; the confirmation says so.
+
+The same moves are on the right-click menu as well, because a drag needs both
+ends visible at once and a keyboard has no drag.
 
 The grid covers the whole upper block when it opens, sliding down over it in
 about a quarter of a second - the two views are the same instances, and a hard
@@ -440,9 +484,40 @@ cut between them reads as a different screen. The footer stays: the account and
 the Play button belong to neither view. Which view was last used is remembered in
 `profiles.json`, so the launcher reopens as it was left.
 
-The grid is nine cells across and stays nine however wide the window is. That is
-deliberate: a cell's place is its place in the one shared order, so resizing the
-window must not move anything.
+### The size of the grid
+
+The grid is a fixed field of rows and columns, nine by three to begin with, and
+it never reflows - so its size is something to set rather than something that
+happens. The controls are on the edges where the change appears: a strip to the
+right of the last column and one under the last row, each with a `+` and a `-`,
+faint until the pointer is in the grid. The same two numbers are in the settings
+window for anybody who would rather type them.
+
+Removing an edge that still has instances behind it moves them into free cells
+and keeps them. When there are not enough free cells it does nothing and says so,
+beside the grid rather than in a dialog - the answer to "remove this row" is
+never to drop an instance off the end of it.
+
+The one thing that grows by itself is a grid with no room for a *new* instance:
+it gets another row, because an instance that exists and cannot be seen cannot be
+launched either.
+
+### Settings
+
+One button, in both views, opens the settings window. Everything the launcher
+can be told is there, on six tabs - interface, game, Java, downloads and mods,
+accounts, and the data folder - including the things that previously existed only
+in `launcher.json` or as a "never ask again" button inside a prompt.
+
+Save writes and Cancel writes nothing, the same rule as the instance editor:
+half of these cannot be undone by typing them back, and a cleared client id is
+not the same as the one that was there.
+
+The two grid numbers are on the Interface tab but are not stored with the
+settings - they live with the cells they describe, because narrowing the grid has
+to find somewhere for the instances in the removed column to go, and can fail. So
+the window asks and reports a refusal rather than writing a number the cells
+would then contradict.
 
 ### Instance icons
 

@@ -1,0 +1,437 @@
+package com.hexadron.launcher.ui;
+
+import com.hexadron.launcher.core.GameDirs;
+import com.hexadron.launcher.core.LauncherSettings;
+import com.hexadron.launcher.i18n.I18n;
+import com.hexadron.launcher.i18n.Language;
+import com.hexadron.launcher.launch.JavaRuntimes;
+import com.hexadron.launcher.profile.ProfileLayout;
+
+import javafx.collections.FXCollections;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.Dialog;
+import javafx.scene.control.Label;
+import javafx.scene.control.PasswordField;
+import javafx.scene.control.Spinner;
+import javafx.scene.control.SpinnerValueFactory;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
+import javafx.scene.control.TextField;
+import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.stage.Window;
+import javafx.util.StringConverter;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * The settings window.
+ *
+ * <h2>Why one window</h2>
+ *
+ * <p>Every setting the launcher already had lived somewhere else: the language in
+ * the header, the Java download policy in a "never ask again" button inside a
+ * prompt, the CurseForge key in the mod browser, and the rest only in
+ * {@code launcher.json}. That is fine for a setting you meet once and awkward for
+ * one you want to change: it has to be found again, and some of them could not be
+ * found at all without a text editor. So they are all here, reachable from either
+ * interface, and grouped by the question they answer rather than by the file they
+ * are stored in.
+ *
+ * <h2>Save writes, Cancel writes nothing</h2>
+ *
+ * <p>The same rule as {@link ProfileDialog}. Nothing on these tabs takes effect
+ * as it is typed, because half of it cannot be undone by typing it back - a
+ * cleared client id is not the same as the one that was there, and a grid that
+ * has already been narrowed has already moved profiles.
+ *
+ * <h2>The grid size is not a setting</h2>
+ *
+ * <p>The two spinners for the inventory grid are on the Interface tab, but the
+ * numbers live in {@link ProfileLayout} with the cells they describe, because
+ * narrowing the grid has to move the profiles that were in the removed column
+ * and can fail. So the dialog asks the layout to change and reports a refusal
+ * instead of writing a number that the cells would then contradict.
+ */
+public final class SettingsDialog {
+
+    private final LauncherSettings settings;
+    private final ProfileLayout layout;
+    private final GameDirs dirs;
+
+    // Interface
+    private final ComboBox<Language> languageBox = new ComboBox<>();
+    private final Spinner<Integer> columnsSpinner = new Spinner<>();
+    private final Spinner<Integer> rowsSpinner = new Spinner<>();
+    private final Spinner<Integer> splashSpinner = new Spinner<>();
+
+    // Game
+    private final CheckBox keepOpen = new CheckBox();
+    private final CheckBox minimiseToTray = new CheckBox();
+    private final CheckBox showAllVersions = new CheckBox();
+
+    // Java
+    private final ComboBox<JavaRuntimes.DownloadPolicy> javaPolicyBox = new ComboBox<>();
+
+    // Network and mods
+    private final Spinner<Integer> concurrencySpinner = new Spinner<>();
+    private final PasswordField curseForgeKey = new PasswordField();
+
+    // Accounts
+    private final TextField microsoftClientId = new TextField();
+    private final ComboBox<String> signInMethodBox = new ComboBox<>();
+    private final CheckBox secureHandshake = new CheckBox();
+    private final CheckBox fileCredentialStore = new CheckBox();
+
+    /** What changed, for the caller to act on after the dialog closes. */
+    public static final class Result {
+
+        private final boolean languageChanged;
+        private final boolean gridChanged;
+        private final List<String> refused;
+
+        private Result(boolean languageChanged, boolean gridChanged, List<String> refused) {
+            this.languageChanged = languageChanged;
+            this.gridChanged = gridChanged;
+            this.refused = List.copyOf(refused);
+        }
+
+        /** True when the interface language is now a different one. */
+        public boolean languageChanged() {
+            return languageChanged;
+        }
+
+        /** True when the grid changed shape, so both views need redrawing. */
+        public boolean gridChanged() {
+            return gridChanged;
+        }
+
+        /** Messages for changes that could not be made, ready to show. */
+        public List<String> refused() {
+            return refused;
+        }
+    }
+
+    public SettingsDialog(LauncherSettings settings, ProfileLayout layout, GameDirs dirs) {
+        this.settings = settings;
+        this.layout = layout;
+        this.dirs = dirs;
+    }
+
+    /**
+     * Opens the dialog.
+     *
+     * @return what changed when Save was pressed, empty when it was cancelled
+     */
+    public Optional<Result> show(Window owner) {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.initOwner(owner);
+        dialog.setTitle(I18n.t("settings.title"));
+        dialog.setHeaderText(null);
+        dialog.setResizable(true);
+
+        ButtonType save = new ButtonType(I18n.t("dialog.save"), ButtonBar.ButtonData.OK_DONE);
+        ButtonType cancel = new ButtonType(I18n.t("dialog.cancel"), ButtonBar.ButtonData.CANCEL_CLOSE);
+        dialog.getDialogPane().getButtonTypes().addAll(save, cancel);
+        dialog.getDialogPane().setContent(buildTabs());
+        dialog.getDialogPane().setPrefWidth(700);
+        Theme.apply(dialog.getDialogPane());
+
+        prefill();
+
+        if (dialog.showAndWait().filter(button -> button == save).isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(apply());
+    }
+
+    // ---------------------------------------------------------------- form
+
+    private TabPane buildTabs() {
+        TabPane tabs = new TabPane();
+        tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        tabs.getTabs().addAll(
+                tab("settings.tab.interface", interfaceTab()),
+                tab("settings.tab.game", gameTab()),
+                tab("settings.tab.java", javaTab()),
+                tab("settings.tab.network", networkTab()),
+                tab("settings.tab.accounts", accountsTab()),
+                tab("settings.tab.data", dataTab()));
+        return tabs;
+    }
+
+    private static Tab tab(String key, GridPane content) {
+        Tab tab = new Tab(I18n.t(key), content);
+        tab.setClosable(false);
+        return tab;
+    }
+
+    private GridPane interfaceTab() {
+        languageBox.setItems(FXCollections.observableArrayList(Language.all()));
+        languageBox.setMaxWidth(Double.MAX_VALUE);
+
+        spinner(columnsSpinner, ProfileLayout.MIN_COLUMNS, ProfileLayout.MAX_COLUMNS,
+                layout.columns());
+        spinner(rowsSpinner, ProfileLayout.MIN_ROWS, ProfileLayout.MAX_ROWS, layout.rows());
+        spinner(splashSpinner, 0, 15, settings.splashMinimumMillis() / 1000);
+
+        GridPane grid = form();
+        int row = 0;
+        grid.addRow(row++, label("label.language"), languageBox);
+        grid.addRow(row++, label("settings.grid.columns"), columnsSpinner);
+        grid.addRow(row++, label("settings.grid.rows"), rowsSpinner);
+        grid.addRow(row++, new Label(), note("settings.grid.note"));
+        grid.addRow(row++, label("settings.splash"), splashSpinner);
+        grid.addRow(row, new Label(), note("settings.splash.note"));
+        return grid;
+    }
+
+    private GridPane gameTab() {
+        keepOpen.setText(I18n.t("settings.keepOpen"));
+        minimiseToTray.setText(I18n.t("settings.tray"));
+        showAllVersions.setText(I18n.t("editor.showAll"));
+
+        GridPane grid = form();
+        int row = 0;
+        grid.addRow(row++, new Label(), keepOpen);
+        grid.addRow(row++, new Label(), minimiseToTray);
+        grid.addRow(row++, new Label(), note("settings.tray.note"));
+        grid.addRow(row, new Label(), showAllVersions);
+        return grid;
+    }
+
+    private GridPane javaTab() {
+        javaPolicyBox.setItems(FXCollections.observableArrayList(
+                JavaRuntimes.DownloadPolicy.values()));
+        javaPolicyBox.setMaxWidth(Double.MAX_VALUE);
+        javaPolicyBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(JavaRuntimes.DownloadPolicy policy) {
+                if (policy == null) {
+                    return "";
+                }
+                return switch (policy) {
+                    case ASK -> I18n.t("settings.java.ask");
+                    case ALWAYS -> I18n.t("settings.java.always");
+                    case NEVER -> I18n.t("settings.java.never");
+                };
+            }
+
+            @Override
+            public JavaRuntimes.DownloadPolicy fromString(String text) {
+                return null;
+            }
+        });
+
+        GridPane grid = form();
+        grid.addRow(0, label("settings.java"), javaPolicyBox);
+        grid.addRow(1, new Label(), note("settings.java.note"));
+        return grid;
+    }
+
+    private GridPane networkTab() {
+        spinner(concurrencySpinner, 1, 32, settings.downloadConcurrency());
+        curseForgeKey.setPromptText(I18n.t("settings.curseforge.prompt"));
+
+        GridPane grid = form();
+        int row = 0;
+        grid.addRow(row++, label("settings.concurrency"), concurrencySpinner);
+        grid.addRow(row++, new Label(), note("settings.concurrency.note"));
+        grid.addRow(row++, label("settings.curseforge"), curseForgeKey);
+        grid.addRow(row, new Label(), note("mods.curseforge.key.body"));
+        return grid;
+    }
+
+    private GridPane accountsTab() {
+        microsoftClientId.setPromptText(I18n.t("settings.clientId.prompt"));
+        signInMethodBox.setItems(FXCollections.observableArrayList("browser", "deviceCode"));
+        signInMethodBox.setMaxWidth(Double.MAX_VALUE);
+        signInMethodBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(String value) {
+                return "deviceCode".equals(value)
+                        ? I18n.t("settings.signIn.deviceCode")
+                        : I18n.t("settings.signIn.browser");
+            }
+
+            @Override
+            public String fromString(String text) {
+                return null;
+            }
+        });
+        secureHandshake.setText(I18n.t("settings.handshake"));
+        fileCredentialStore.setText(I18n.t("settings.fileStore"));
+
+        GridPane grid = form();
+        int row = 0;
+        grid.addRow(row++, label("settings.clientId"), microsoftClientId);
+        grid.addRow(row++, label("settings.signIn"), signInMethodBox);
+        grid.addRow(row++, new Label(), note("settings.signIn.note"));
+        grid.addRow(row++, new Label(), secureHandshake);
+        grid.addRow(row++, new Label(), note("settings.handshake.note"));
+        grid.addRow(row++, new Label(), fileCredentialStore);
+        grid.addRow(row, new Label(), note("settings.fileStore.note"));
+        return grid;
+    }
+
+    private GridPane dataTab() {
+        TextField path = new TextField(dirs.root().toString());
+        path.setEditable(false);
+        HBox.setHgrow(path, Priority.ALWAYS);
+
+        javafx.scene.control.Button open = new javafx.scene.control.Button(
+                I18n.t("action.openFolder"));
+        open.setOnAction(event -> openDataFolder());
+
+        HBox line = new HBox(8, path, open);
+        line.setAlignment(Pos.CENTER_LEFT);
+
+        GridPane grid = form();
+        grid.addRow(0, label("settings.dataFolder"), line);
+        grid.addRow(1, new Label(), note("settings.dataFolder.note"));
+        return grid;
+    }
+
+    /**
+     * Opens the data folder in the platform's file manager.
+     *
+     * <p>Failure is reported in the field rather than as an error: some Linux
+     * sessions have no AWT desktop integration at all, and the path is on screen
+     * beside the button in any case.
+     */
+    private void openDataFolder() {
+        try {
+            java.nio.file.Files.createDirectories(dirs.root());
+            if (java.awt.Desktop.isDesktopSupported()
+                    && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
+                java.awt.Desktop.getDesktop().open(dirs.root().toFile());
+            }
+        } catch (Exception ignored) {
+            // The path stays visible; nothing else to do from here.
+        }
+    }
+
+    private static GridPane form() {
+        GridPane grid = new GridPane();
+        grid.getStyleClass().add("form");
+        grid.setHgap(12);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(16));
+
+        ColumnConstraints labels = new ColumnConstraints();
+        labels.setMinWidth(210);
+        ColumnConstraints fields = new ColumnConstraints();
+        fields.setHgrow(Priority.ALWAYS);
+        fields.setFillWidth(true);
+        grid.getColumnConstraints().addAll(labels, fields);
+        return grid;
+    }
+
+    private static Label label(String key) {
+        Label label = new Label(I18n.t(key));
+        label.getStyleClass().add("form-label");
+        return label;
+    }
+
+    private static Label note(String key) {
+        Label note = new Label(I18n.t(key));
+        note.getStyleClass().add("muted");
+        note.setWrapText(true);
+        note.setMaxWidth(430);
+        return note;
+    }
+
+    private static void spinner(Spinner<Integer> spinner, int low, int high, int value) {
+        spinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(
+                low, high, Math.max(low, Math.min(high, value))));
+        spinner.setEditable(true);
+        spinner.setPrefWidth(120);
+    }
+
+    // ---------------------------------------------------------------- values
+
+    private void prefill() {
+        languageBox.setValue(I18n.current());
+        keepOpen.setSelected(settings.keepOpenWhilePlaying());
+        minimiseToTray.setSelected(settings.minimiseToTrayWhilePlaying());
+        showAllVersions.setSelected(settings.showAllVersions());
+        javaPolicyBox.setValue(settings.javaDownloadPolicy());
+        curseForgeKey.setText(settings.curseForgeApiKey());
+        microsoftClientId.setText(settings.microsoftClientId());
+        signInMethodBox.setValue(settings.usesBrowserSignIn() ? "browser" : "deviceCode");
+        secureHandshake.setSelected(settings.secureLaunchHandshake());
+        fileCredentialStore.setSelected(settings.useFileCredentialStore());
+    }
+
+    private Result apply() {
+        List<String> refused = new ArrayList<>();
+
+        Language language = languageBox.getValue();
+        boolean languageChanged = language != null && language != I18n.current();
+        if (languageChanged) {
+            I18n.use(language);
+            settings.language(language.code());
+        }
+
+        settings.keepOpenWhilePlaying(keepOpen.isSelected());
+        settings.minimiseToTrayWhilePlaying(minimiseToTray.isSelected());
+        settings.showAllVersions(showAllVersions.isSelected());
+        settings.javaDownloadPolicy(javaPolicyBox.getValue());
+        settings.downloadConcurrency(value(concurrencySpinner));
+        settings.curseForgeApiKey(curseForgeKey.getText());
+        settings.microsoftClientId(microsoftClientId.getText());
+        settings.microsoftSignInMethod(signInMethodBox.getValue());
+        settings.secureLaunchHandshake(secureHandshake.isSelected());
+        settings.useFileCredentialStore(fileCredentialStore.isSelected());
+        settings.splashMinimumMillis(value(splashSpinner) * 1000);
+
+        // The grid last, and reported rather than forced. Narrowing has to find
+        // free cells for the profiles it displaces, and when it cannot, the
+        // honest answer is that the number did not change.
+        boolean gridChanged = false;
+        int wantColumns = value(columnsSpinner);
+        int wantRows = value(rowsSpinner);
+        if (wantColumns != layout.columns()) {
+            if (layout.columns(wantColumns)) {
+                gridChanged = true;
+            } else {
+                refused.add(I18n.t("settings.grid.refusedColumns", layout.columns()));
+            }
+        }
+        if (wantRows != layout.rows()) {
+            if (layout.rows(wantRows)) {
+                gridChanged = true;
+            } else {
+                refused.add(I18n.t("settings.grid.refusedRows", layout.rows()));
+            }
+        }
+        return new Result(languageChanged, gridChanged, refused);
+    }
+
+    /**
+     * The value of an editable spinner.
+     *
+     * <p>An editable spinner keeps the typed text and the value apart until the
+     * field loses focus, so pressing Save straight after typing would otherwise
+     * read the number that was there before. Committing the text first is what
+     * makes the dialog agree with what is on screen.
+     */
+    private static int value(Spinner<Integer> spinner) {
+        try {
+            spinner.getEditor().commitValue();
+        } catch (RuntimeException ignored) {
+            // Unparseable text: the factory keeps the last good value.
+        }
+        Integer current = spinner.getValue();
+        return current == null ? 0 : current;
+    }
+}

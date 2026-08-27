@@ -101,7 +101,7 @@ final class ProfileMenu {
         submenu.getItems().addAll(newGroup, new SeparatorMenuItem());
 
         MenuItem none = item(I18n.t("groups.none"), () -> {
-            layout.moveProfileToEnd(profile.id(), null);
+            layout.join(profile.id(), null);
             host.layoutChanged();
         });
         none.setDisable(currentGroup == null);
@@ -109,7 +109,9 @@ final class ProfileMenu {
 
         for (ProfileLayout.Group group : layout.groups()) {
             MenuItem into = item(group.name(), () -> {
-                layout.moveProfileToEnd(profile.id(), group.id());
+                // Membership only: the profile keeps its cell, because a group
+                // is a colour in the grid and not a place.
+                layout.join(profile.id(), group.id());
                 layout.setCollapsed(group.id(), false);
                 host.layoutChanged();
             });

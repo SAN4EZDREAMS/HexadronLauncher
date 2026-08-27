@@ -163,6 +163,8 @@ public final class MainWindow implements ProfileHost {
     private final Button signInButton = new Button();
     private final Button removeAccountButton = new Button();
 
+    private final Button settingsButton = new Button();
+    private final Button gridSettingsButton = new Button();
     private final Button modeButton = new Button();
     private final Button gridModeButton = new Button();
     private final Button newGroupButton = new Button();
@@ -344,9 +346,10 @@ public final class MainWindow implements ProfileHost {
         });
 
         modeButton.setOnAction(event -> toggleMode());
+        settingsButton.setOnAction(event -> openSettings());
 
         HBox header = new HBox(10, mark, brandLabel, searchField, spacer(),
-                modeButton, languageTitle, languageBox);
+                modeButton, settingsButton, languageTitle, languageBox);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         return header;
@@ -413,11 +416,13 @@ public final class MainWindow implements ProfileHost {
         gridNewGroupButton.setOnAction(event -> createGroup(null));
         gridSortButton.setOnAction(event -> sortAlphabetically());
         gridModeButton.setOnAction(event -> toggleMode());
+        gridSettingsButton.setOnAction(event -> openSettings());
 
         gridHint.getStyleClass().add("muted");
 
         HBox bar = new HBox(10, mark, gridTitle, gridSearchField, gridNewButton,
-                gridNewGroupButton, gridSortButton, spacer(), gridHint, gridModeButton);
+                gridNewGroupButton, gridSortButton, spacer(), gridHint,
+                gridModeButton, gridSettingsButton);
         bar.getStyleClass().addAll("header", "inventory-bar");
         bar.setAlignment(Pos.CENTER_LEFT);
         return bar;
@@ -504,6 +509,69 @@ public final class MainWindow implements ProfileHost {
         layout().sortByName(profiles);
         layoutChanged();
     }
+
+    /**
+     * Opens the settings window and applies what came back.
+     *
+     * <p>Three of the answers need something doing beyond being written to
+     * launcher.json: a language change has to re-read every visible string, a
+     * grid change has to redraw both views, and a refused grid change has to be
+     * said out loud - a spinner that silently springs back looks like a bug in
+     * the spinner.
+     */
+    private void openSettingsWindow() {
+        SettingsDialog dialog = new SettingsDialog(service.settings(), layout(), service.dirs());
+        dialog.show(stage).ifPresent(result -> {
+            saveSettingsQuietly();
+            if (result.gridChanged()) {
+                saveProfilesQuietly();
+            }
+            if (result.languageChanged()) {
+                languageBox.setValue(I18n.current());
+                applyTexts();
+            }
+            rebuildViews();
+            showProfile(shown);
+            if (!result.refused().isEmpty()) {
+                showWarning(I18n.t("settings.grid.refusedHeader"),
+                        String.join("\n\n", result.refused()));
+            }
+        });
+    }
+
+    /**
+     * Puts a message where the grid is, for a few seconds.
+     *
+     * <p>Beside the thing it is about, and not modal: the refusals this carries
+     * come from clicking a small button on the grid's edge, and a dialog in front
+     * of that is a dialog in the way of the next click. It also goes to the log,
+     * which is where anybody asking why will be sent.
+     */
+    @Override
+    public void hint(String message) {
+        if (message == null || message.isBlank()) {
+            return;
+        }
+        gridHint.setText(message);
+        if (!gridHint.getStyleClass().contains("hint-warning")) {
+            gridHint.getStyleClass().add("hint-warning");
+        }
+        progress.log(message);
+        if (hintTimer != null) {
+            hintTimer.stop();
+        }
+        hintTimer = new javafx.animation.PauseTransition(Duration.seconds(5));
+        hintTimer.setOnFinished(event -> clearHint());
+        hintTimer.play();
+    }
+
+    private void clearHint() {
+        gridHint.getStyleClass().remove("hint-warning");
+        gridHint.setText(I18n.t("inventory.hint"));
+    }
+
+    /** Running countdown on a hint, so a second hint replaces the first cleanly. */
+    private javafx.animation.PauseTransition hintTimer;
 
     // ---------------------------------------------------------------- detail
 
@@ -736,8 +804,10 @@ public final class MainWindow implements ProfileHost {
         gridNewButton.setText(I18n.t("profiles.new"));
         gridNewGroupButton.setText(I18n.t("groups.new"));
         gridSortButton.setText(I18n.t("profiles.sort"));
+        settingsButton.setText(I18n.t("settings.open"));
+        gridSettingsButton.setText(I18n.t("settings.open"));
         gridTitle.setText(I18n.t("ui.mode.grid"));
-        gridHint.setText(I18n.t("inventory.hint"));
+        clearHint();
         gridSearchField.setPromptText(I18n.t("search.prompt"));
         applyModeTexts();
 
@@ -1515,6 +1585,11 @@ public final class MainWindow implements ProfileHost {
     }
 
     @Override
+    public void openSettings() {
+        openSettingsWindow();
+    }
+
+    @Override
     public void layoutChanged() {
         saveProfilesQuietly();
         rebuildViews();
@@ -1534,7 +1609,8 @@ public final class MainWindow implements ProfileHost {
             }
             ProfileLayout.Group group = layout().createGroup(name.trim());
             if (profile != null) {
-                layout().moveProfileToEnd(profile.id(), group.id());
+                // Membership, not a move: the profile keeps the cell it is in.
+                layout().join(profile.id(), group.id());
             }
             layoutChanged();
         });
@@ -1574,7 +1650,8 @@ public final class MainWindow implements ProfileHost {
             return;
         }
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                I18n.t("groups.remove.body", group.name(), group.size()));
+                I18n.t("groups.remove.body", group.name(),
+                        layout().membersOf(group.id()).size()));
         confirm.initOwner(stage);
         Theme.apply(confirm.getDialogPane());
         confirm.setHeaderText(I18n.t("groups.remove.header"));
