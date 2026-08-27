@@ -401,3 +401,258 @@
     -fx-background-insets: 0;
     -fx-padding: 0;
 }
+
+/* ==================================================================== */
+/* The two profile interfaces.                                          */
+/*                                                                      */
+/* One block, because the list and the inventory grid are the same       */
+/* instances shown twice: they share the row colours, the selection      */
+/* colour and the drop indicator, and a change to one of those has to    */
+/* reach both or the views stop looking like one program.                */
+/* ==================================================================== */
+
+/* ------------------------------------------------------------ the list */
+
+.profile-scroll,
+.profile-scroll > .viewport,
+.inv-scroll,
+.inv-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.profile-rows {
+    -fx-padding: 0 2 0 0;
+}
+
+.profile-row {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 7 10 7 10;
+    -fx-cursor: hand;
+    /* The drop line is drawn as a border, so every row reserves the space for
+       it. Without this the rows below a highlighted one shift down by a pixel
+       as the pointer moves, and the whole list appears to twitch. */
+    -fx-border-color: transparent;
+    -fx-border-width: 1 0 1 0;
+}
+
+.profile-row:hover {
+    -fx-background-color: -fx-base-2;
+}
+
+.profile-row-selected {
+    -fx-background-color: -fx-base-3;
+}
+
+/* A member of a group, indented so the group it belongs to is unambiguous. */
+.profile-row-nested {
+    -fx-padding: 7 10 7 26;
+}
+
+/* The row being dragged: still visible, clearly no longer in place. */
+.drag-source {
+    -fx-opacity: 0.4;
+}
+
+/* Where the drop will land. A line, not a highlight: a highlighted row says
+   "into this", and for a reorder the answer is "between these two". */
+.drop-above {
+    -fx-border-color: -fx-accent-1 transparent transparent transparent;
+    -fx-border-width: 2 0 0 0;
+}
+
+.drop-below {
+    -fx-border-color: transparent transparent -fx-accent-1 transparent;
+    -fx-border-width: 0 0 2 0;
+}
+
+/* "Into this container" - a group header, a free cell, the tail of the list. */
+.drop-into {
+    -fx-background-color: -fx-base-3;
+    -fx-border-color: -fx-accent-1;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+}
+
+.profile-tail {
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+}
+
+/* ----------------------------------------------------------- the groups */
+
+.group-row {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-padding: 5 10 5 8;
+    -fx-cursor: hand;
+    -fx-border-color: transparent;
+    -fx-border-width: 1 0 1 0;
+}
+
+.group-row:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+/* The - and + that collapse and expand. Wide enough to be a target, and
+   monospaced so the two glyphs occupy the same width and the name beside them
+   does not move when the group is collapsed. */
+.group-toggle {
+    -fx-font-family: "Consolas", "Menlo", monospace;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+    -fx-min-width: 16;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+}
+
+.group-chip {
+    -fx-min-width: 10;
+    -fx-min-height: 10;
+    -fx-max-width: 10;
+    -fx-max-height: 10;
+    -fx-background-radius: 3;
+}
+
+.group-name {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.group-count {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-1;
+}
+
+/* -------------------------------------------------- the inventory grid */
+
+.inventory-panel {
+    -fx-background-color: -fx-base-0;
+}
+
+/* The bar above the grid stands in for the header it covers, so it is the
+   header, plus a line to say it is a different view of the same thing. */
+.inventory-bar {
+    -fx-border-color: transparent transparent -fx-accent-0 transparent;
+    -fx-border-width: 0 0 2 0;
+}
+
+.inv-band {
+    -fx-background-color: transparent;
+}
+
+.inv-band-group {
+    -fx-background-radius: 0;
+}
+
+.inv-collapsed {
+    -fx-padding: 4 12 4 12;
+    -fx-cursor: hand;
+}
+
+/* The rail down the left of a group's rows: the only place a grid has room to
+   say which group a block of cells belongs to. */
+.inv-rail {
+    -fx-cursor: hand;
+}
+
+.inv-rail-first {
+    -fx-background-radius: 4 0 0 0;
+}
+
+.inv-rail-empty {
+    -fx-background-color: transparent;
+}
+
+/*
+ * A cell.
+ *
+ * The wide border is the whole point of this view - it is what makes a grid of
+ * icons read as an inventory rather than as a page of thumbnails - so it is
+ * drawn with two insets: an outer dark edge and an inner light one, which is
+ * the bevel the game's own slots have.
+ */
+.inv-cell {
+    -fx-background-color: -fx-base-3, -fx-base-1;
+    -fx-background-insets: 0, 3;
+    -fx-background-radius: 2, 0;
+    -fx-padding: 4;
+    -fx-cursor: hand;
+}
+
+.inv-cell:hover {
+    -fx-background-color: -fx-base-3, -fx-base-2;
+}
+
+.inv-cell-empty {
+    -fx-background-color: -fx-base-2, -fx-base-0;
+    -fx-background-insets: 0, 3;
+    -fx-opacity: 0.55;
+    -fx-cursor: default;
+}
+
+.inv-cell-selected {
+    -fx-background-color: -fx-accent-0, -fx-base-2;
+    -fx-background-insets: 0, 3;
+}
+
+/* The name under the icon, as on a desktop shortcut. Two lines at most: a
+   third would push the icon out of the cell. */
+.inv-name {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -fx-text-0;
+    -fx-alignment: center;
+}
+
+/* Where a dragged cell will land: a bar on the edge it will go in on, so left
+   and right are told apart without moving anything. */
+.inv-cell.drop-before {
+    -fx-border-color: -fx-accent-1;
+    -fx-border-width: 0 0 0 3;
+}
+
+.inv-cell.drop-after {
+    -fx-border-color: -fx-accent-1;
+    -fx-border-width: 0 3 0 0;
+}
+
+.inv-cell.drop-into {
+    -fx-background-color: -fx-accent-1, -fx-base-2;
+    -fx-background-insets: 0, 3;
+    -fx-opacity: 1;
+}
+
+/* --------------------------------------------------- the icon in the editor */
+
+.icon-preview {
+    -fx-background-color: -fx-base-3, -fx-base-1;
+    -fx-background-insets: 0, 2;
+    -fx-background-radius: 4, 2;
+}
+
+/* ------------------------------------------------------- context menus */
+
+.context-menu {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-padding: 4;
+}
+
+.context-menu .menu-item {
+    -fx-background-radius: 6;
+}
+
+.context-menu .menu-item:focused {
+    -fx-background-color: -fx-base-3;
+}
+
+.context-menu .menu-item .label {
+    -fx-text-fill: -fx-text-0;
+}
+
+.context-menu .menu-item:disabled .label {
+    -fx-text-fill: -fx-text-1;
+    -fx-opacity: 0.6;
+}

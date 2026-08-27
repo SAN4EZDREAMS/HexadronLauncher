@@ -19,6 +19,16 @@ public final class ProfileStore {
     private final GameDirs dirs;
     private final Path file;
     private final Map<String, Profile> profiles = new LinkedHashMap<>();
+
+    /**
+     * How the profiles are arranged, in the same file as the profiles.
+     *
+     * <p>The arrangement is the user's, so it belongs with the thing it
+     * arranges: one file to copy to another machine, one file written atomically
+     * when a drag ends, and no way to end up with groups referring to profiles
+     * that a separately restored file no longer has.
+     */
+    private ProfileLayout layout = new ProfileLayout();
     private String selectedId;
 
     public ProfileStore(GameDirs dirs) {
@@ -29,6 +39,7 @@ public final class ProfileStore {
     public synchronized ProfileStore load() throws IOException {
         profiles.clear();
         selectedId = null;
+        layout = new ProfileLayout();
         if (!Files.isRegularFile(file)) {
             return this;
         }
@@ -45,6 +56,8 @@ public final class ProfileStore {
         if (selectedId != null && !profiles.containsKey(selectedId)) {
             selectedId = null;
         }
+        layout = ProfileLayout.fromJson(root.get("layout"));
+        layout.reconcile(profiles.values());
         return this;
     }
 
@@ -55,7 +68,33 @@ public final class ProfileStore {
         if (selectedId != null) {
             root.put("selected", selectedId);
         }
+        root.put("layout", layout.toJson());
         root.write(file);
+    }
+
+    /** The shared arrangement: groups, order, and which interface is showing. */
+    public synchronized ProfileLayout layout() {
+        return layout;
+    }
+
+    /**
+     * The profiles in the arranged order - what both interfaces draw.
+     *
+     * <p>Not {@link #byRecency()}. Recency is a useful default for a launcher
+     * that arranges nothing, and it is exactly wrong once the user has put the
+     * list in an order by hand: playing one instance would move it and reorder
+     * the list underneath them.
+     */
+    public synchronized List<Profile> arranged() {
+        layout.reconcile(profiles.values());
+        List<Profile> ordered = new ArrayList<>();
+        for (String id : layout.orderedProfileIds()) {
+            Profile profile = profiles.get(id);
+            if (profile != null) {
+                ordered.add(profile);
+            }
+        }
+        return List.copyOf(ordered);
     }
 
     public synchronized List<Profile> all() {
@@ -93,11 +132,13 @@ public final class ProfileStore {
             selectedId = profile.id();
         }
         Files.createDirectories(gameDirectory(profile).resolve("mods"));
+        layout.reconcile(profiles.values());
         return profile;
     }
 
     public synchronized void remove(Profile profile) {
         profiles.remove(profile.id());
+        layout.reconcile(profiles.values());
         if (profile.id().equals(selectedId)) {
             selectedId = profiles.keySet().stream().findFirst().orElse(null);
         }

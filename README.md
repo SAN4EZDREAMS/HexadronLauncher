@@ -229,7 +229,14 @@ The launcher keeps all data in one folder:
 - Linux: `~/.local/share/hexadronlauncher`
 
 Libraries, assets and client jars are shared between profiles. Each profile has
-its own folder under `instances/`, so mods and worlds stay separate.
+its own folder under `instances/`, so mods and worlds stay separate. Pictures
+chosen as instance icons are copied into `icons/`, named after their own
+content.
+
+`profiles.json` holds the profiles and, next to them, how they are arranged:
+the groups, the order, and which of the two views was last used. One file, so
+there is no way to end up with groups referring to profiles a separately
+restored file no longer has.
 
 Removing a profile asks what to do with that folder, and the two answers are
 both right some of the time: someone clearing out an old instance wants the
@@ -361,12 +368,12 @@ downloads them from Modrinth instead.
 
 ```
 +--------------------------------------------------------------+
-| H  HexadronLauncher   [ search ]              Language: [ v ] |
+| H  HexadronLauncher [ search ]   [Inventory view] Lang: [ v ] |
 +---------------------+----------------------------------------+
 | Instances           |  Instance name                          |
-|  My world           |  fabric-loader-0.19.3-26.2              |
-|  26.2 · Fabric      |  +----------------------------------+   |
-|  ...                |  | Minecraft   26.2                 |   |
+| - Modded set    (2) |  fabric-loader-0.19.3-26.2              |
+|   [F] My world      |  +----------------------------------+   |
+|       26.2 · Fabric |  | Minecraft   26.2                 |   |
 |                     |  | Loader      Fabric · 0.19.3      |   |
 |                     |  | Memory      4096 MB              |   |
 |                     |  | Java        Detected automatically|  |
@@ -374,6 +381,7 @@ downloads them from Modrinth instead.
 |                     |  | Folder      ...\instances\1-027f96|  |
 |                     |  +----------------------------------+   |
 | [New][Edit][Remove] |  [Edit] [Install] [Mods...] [Folder]    |
+| [New group][Sort]   |                                         |
 |                     |  Mods (5)                               |
 |                     |   Sodium        [Hexadron Optimise]     |
 |                     |   Jade          [your choice]           |
@@ -386,15 +394,77 @@ downloads them from Modrinth instead.
 ```
 
 Nothing in the middle panel is an input. An instance is changed in a dialog
-reached by the Edit button or by double-clicking the list entry, and that dialog
-has a Save and a Cancel. The previous window edited the selected profile's
-fields in place, which meant a mistyped name was written to disk before it could
-be noticed and there was no point at which the values could be checked together.
+reached by the Edit button or by right-clicking the instance, and that dialog has
+a Save and a Cancel. The previous window edited the selected profile's fields in
+place, which meant a mistyped name was written to disk before it could be
+noticed and there was no point at which the values could be checked together.
 Prism Launcher and MultiMC edit instances the same way.
 
 The instance list is searchable by name, Minecraft version or loader. The Play
 button never moves: it sits in the footer next to the account, so the one action
 the launcher exists for is always in the same place.
+
+### Two views of the same instances
+
+There are two interfaces onto the profiles, and a button in the header switches
+between them:
+
+- **the list** - rows, grouped and indented, each row carrying the mark of its
+  mod loader;
+- **the inventory** - nine cells across with a thick bevelled border, each cell
+  holding an icon with the instance name under it, as the game's own inventory
+  is laid out.
+
+They are the same instances, not two lists kept in step. Neither view holds an
+order, a selection or a search of its own: both read one arrangement, and every
+drag, group, rename and click writes to it and redraws both. So a reorder made
+in the grid is already true in the list before it is switched to, and there is no
+synchronising step that could be missed. `ProfileLayout` is that arrangement and
+`ProfileHost` is the only way either view can change it.
+
+Grouping is one level deep. In the list a group is a header with a `-` and `+`
+that collapses it; in the grid it is a band - it starts on a fresh row, its rows
+are tinted with the group colour, and a coloured rail down the left names it on
+hover and collapses it when clicked. Deleting a group never deletes instances:
+they go back to the top level, and the confirmation says so.
+
+Instances and whole groups are rearranged by dragging, in either view. A drop
+between two rows, or on the left or right half of a cell, reorders; a drop on a
+group header or on a group's rail moves an instance into that group; a free cell
+means the end of that group. The same moves are on the right-click menu as well,
+because a drag needs both ends visible at once and a keyboard has no drag.
+
+The grid covers the whole upper block when it opens, sliding down over it in
+about a quarter of a second - the two views are the same instances, and a hard
+cut between them reads as a different screen. The footer stays: the account and
+the Play button belong to neither view. Which view was last used is remembered in
+`profiles.json`, so the launcher reopens as it was left.
+
+The grid is nine cells across and stays nine however wide the window is. That is
+deliberate: a cell's place is its place in the one shared order, so resizing the
+window must not move anything.
+
+### Instance icons
+
+Every instance shows the mark of its mod loader - Vanilla, Fabric, Quilt, Forge
+or NeoForge - and any instance can be given a picture instead, from the Icon row
+of the editor or from the right-click menu. PNG, JPEG, GIF and BMP are accepted,
+transparency is kept, and an animated GIF animates. The picture is scaled to fit
+in proportion, so any size works.
+
+The loader marks are drawn by the launcher, in `LoaderIcon`. They are not the
+projects' real logos: those are Fabric's, Quilt's, Forge's and NeoForge's own
+trade marks and are not this project's to redistribute. Anybody who does have
+the right to use them can drop a PNG at `/ui/loader/<loader id>.png` into the
+launcher's resources and it replaces the drawn mark, with scaling left off so
+pixel art stays pixel art.
+
+A chosen picture is copied into `icons/` in the data folder and the profile
+records only the file name. So the icon survives the original being renamed,
+deleted or left on a memory stick; two instances given the same picture share one
+file, because the file is named after its own content; and nothing in
+`profiles.json` is ever opened as a path, which a hand-edited absolute path would
+be.
 
 ## Java
 

@@ -14,11 +14,14 @@ import com.hexadron.launcher.mods.InstalledMod;
 import com.hexadron.launcher.mods.ModLibrary;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.profile.Profile;
+import com.hexadron.launcher.profile.ProfileLayout;
 
+import javafx.animation.FadeTransition;
+import javafx.animation.Interpolator;
+import javafx.animation.ParallelTransition;
+import javafx.animation.TranslateTransition;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
-import javafx.collections.transformation.FilteredList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -31,7 +34,6 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
-import javafx.scene.control.SelectionMode;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
@@ -41,9 +43,13 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
+import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -51,6 +57,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -73,16 +80,45 @@ import java.util.Locale;
  * {@link I18n}, and {@link #applyTexts()} re-reads all of them, so a language
  * change takes effect immediately instead of at the next start.
  */
-public final class MainWindow {
+public final class MainWindow implements ProfileHost {
 
     private final LauncherService service;
     private final Stage stage;
     private final TrayIntegration tray;
 
-    /** Every profile, and the search-filtered view the list actually shows. */
-    private final ObservableList<Profile> allProfiles = FXCollections.observableArrayList();
-    private final FilteredList<Profile> visibleProfiles = new FilteredList<>(allProfiles, profile -> true);
-    private final ListView<Profile> profileList = new ListView<>(visibleProfiles);
+    /**
+     * The profiles, the search, and the selection - once, for both interfaces.
+     *
+     * <p>This is the whole of the synchronisation between the list and the
+     * inventory grid: there is only one of each of these, both views read them,
+     * and neither keeps a copy. A rename, a reorder, a new group or a click
+     * changes what is here, and both views are rebuilt from it - so there is no
+     * state in one view that the other could be out of step with.
+     */
+    private final List<Profile> profiles = new ArrayList<>();
+
+    /** The search text, lower case and trimmed. Empty means no filter. */
+    private String filter = "";
+
+    private Profile selectedProfile;
+
+    private final ProfileListView listView;
+    private final InventoryView inventoryView;
+
+    /**
+     * The switchable area: everything above the footer.
+     *
+     * <p>The grid is a sibling of the whole upper block rather than a
+     * replacement for the middle of it, because what it has to do is cover the
+     * header, the instance list and the summary together. The footer stays: the
+     * account and the Play button belong to neither view, and a grid you have to
+     * leave in order to press Play would be a worse grid.
+     */
+    private final StackPane content = new StackPane();
+    private final VBox inventoryPanel = new VBox();
+
+    /** True while the cover animation runs, so a second click cannot interrupt it. */
+    private boolean switching;
 
     private final TextField searchField = new TextField();
     private final ComboBox<Account> accountBox = new ComboBox<>();
@@ -127,6 +163,17 @@ public final class MainWindow {
     private final Button signInButton = new Button();
     private final Button removeAccountButton = new Button();
 
+    private final Button modeButton = new Button();
+    private final Button gridModeButton = new Button();
+    private final Button newGroupButton = new Button();
+    private final Button sortButton = new Button();
+    private final Button gridNewButton = new Button();
+    private final Button gridNewGroupButton = new Button();
+    private final Button gridSortButton = new Button();
+    private final TextField gridSearchField = new TextField();
+    private final Label gridTitle = new Label();
+    private final Label gridHint = new Label();
+
     private final Label brandLabel = new Label();
     private final Label instancesTitle = new Label();
     private final Label accountTitle = new Label();
@@ -150,6 +197,11 @@ public final class MainWindow {
         this.stage = stage;
         this.tray = new TrayIntegration(stage);
         this.progress = new UiProgress(stageLabel, progressBar, logArea);
+        // After the fields above: both views are handed this window as their
+        // host and read everything through it, so nothing they read may still be
+        // uninitialised when they are built.
+        this.listView = new ProfileListView(this);
+        this.inventoryView = new InventoryView(this);
         service.javaRuntimes().consent(this::askAboutJavaDownload);
     }
 
@@ -224,10 +276,28 @@ public final class MainWindow {
         logArea.setWrapText(false);
         logArea.setFont(Font.font("Monospaced", 11));
 
+        BorderPane upper = new BorderPane();
+        upper.setTop(buildHeader());
+        upper.setLeft(buildSidebar());
+        upper.setCenter(buildDetail());
+
+        inventoryPanel.getStyleClass().add("inventory-panel");
+        inventoryPanel.getChildren().setAll(buildInventoryBar(), inventoryView.node());
+        VBox.setVgrow(inventoryView.node(), Priority.ALWAYS);
+        inventoryPanel.setVisible(false);
+        inventoryPanel.setManaged(false);
+
+        content.getChildren().setAll(upper, inventoryPanel);
+        // Clipped, because the grid is slid in from above its own top edge, and
+        // an unclipped child in JavaFX paints outside its parent quite happily -
+        // which during the animation means over the title bar.
+        Rectangle clip = new Rectangle();
+        clip.widthProperty().bind(content.widthProperty());
+        clip.heightProperty().bind(content.heightProperty());
+        content.setClip(clip);
+
         BorderPane root = new BorderPane();
-        root.setTop(buildHeader());
-        root.setLeft(buildSidebar());
-        root.setCenter(buildDetail());
+        root.setCenter(content);
         root.setBottom(buildFooter());
 
         Scene scene = new Scene(root, 1120, 740);
@@ -236,7 +306,13 @@ public final class MainWindow {
         applyTexts();
         refreshProfiles();
         refreshAccounts();
-        showProfile(profileList.getSelectionModel().getSelectedItem());
+        showProfile(selectedProfile);
+        // Reopen in the interface the launcher was closed in, and without the
+        // animation: an animation on start-up is a launcher that looks slower
+        // than it is.
+        if (layout().mode() == ProfileLayout.Mode.INVENTORY) {
+            setMode(ProfileLayout.Mode.INVENTORY, false);
+        }
         return scene;
     }
 
@@ -262,9 +338,15 @@ public final class MainWindow {
             saveSettingsQuietly();
             applyTexts();
             showProfile(shown);
+            // The rows carry translated text of their own - the group counts,
+            // the loader names - so a language change has to redraw them too.
+            rebuildViews();
         });
 
-        HBox header = new HBox(10, mark, brandLabel, searchField, spacer(), languageTitle, languageBox);
+        modeButton.setOnAction(event -> toggleMode());
+
+        HBox header = new HBox(10, mark, brandLabel, searchField, spacer(),
+                modeButton, languageTitle, languageBox);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         return header;
@@ -273,17 +355,9 @@ public final class MainWindow {
     // ---------------------------------------------------------------- sidebar
 
     private VBox buildSidebar() {
-        profileList.setPrefWidth(280);
-        profileList.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
-        profileList.setCellFactory(view -> new InstanceCell());
-        profileList.getSelectionModel().selectedItemProperty()
-                .addListener((observable, previous, selected) -> showProfile(selected));
-        // Double-click opens the editor, matching the list behaviour people expect.
-        profileList.setOnMouseClicked(event -> {
-            if (event.getClickCount() == 2 && profileList.getSelectionModel().getSelectedItem() != null) {
-                editSelectedProfile();
-            }
-        });
+        Region list = listView.node();
+        list.setPrefWidth(300);
+        list.setMinWidth(240);
 
         newButton.setMaxWidth(Double.MAX_VALUE);
         newButton.setOnAction(event -> createProfile());
@@ -298,40 +372,137 @@ public final class MainWindow {
         HBox.setHgrow(editButton, Priority.ALWAYS);
         HBox.setHgrow(removeButton, Priority.ALWAYS);
 
+        // Grouping and sorting are arrangement, not instance settings, so they
+        // sit with the list rather than in the instance editor.
+        newGroupButton.setMaxWidth(Double.MAX_VALUE);
+        newGroupButton.setOnAction(event -> createGroup(null));
+        sortButton.setMaxWidth(Double.MAX_VALUE);
+        sortButton.setOnAction(event -> sortAlphabetically());
+        HBox arrange = new HBox(6, newGroupButton, sortButton);
+        HBox.setHgrow(newGroupButton, Priority.ALWAYS);
+        HBox.setHgrow(sortButton, Priority.ALWAYS);
+
         instancesTitle.getStyleClass().add("section-title");
 
-        VBox pane = new VBox(8, instancesTitle, profileList, buttons);
+        VBox pane = new VBox(8, instancesTitle, list, buttons, arrange);
         pane.getStyleClass().add("sidebar");
-        VBox.setVgrow(profileList, Priority.ALWAYS);
+        VBox.setVgrow(list, Priority.ALWAYS);
         return pane;
     }
 
-    /** Name on top, version and loader underneath - enough to tell instances apart at a glance. */
-    private static final class InstanceCell extends ListCell<Profile> {
-        private final Label name = new Label();
-        private final Label subtitle = new Label();
-        private final VBox box = new VBox(2, name, subtitle);
+    // ---------------------------------------------------------------- inventory
 
-        InstanceCell() {
-            name.getStyleClass().add("instance-name");
-            subtitle.getStyleClass().add("instance-subtitle");
+    /**
+     * The bar above the grid.
+     *
+     * <p>The grid covers the header, so it has to carry the header's own
+     * controls again - and the search field is bound to the one it covered
+     * rather than being a second search. Typing in either is typing in both,
+     * which is the same principle as the arrangement: one piece of state, two
+     * places it can be seen.
+     */
+    private HBox buildInventoryBar() {
+        Label mark = new Label("H");
+        mark.getStyleClass().add("brand-mark");
+        gridTitle.getStyleClass().add("brand");
+
+        gridSearchField.setPrefWidth(240);
+        gridSearchField.textProperty().bindBidirectional(searchField.textProperty());
+
+        gridNewButton.setOnAction(event -> createProfile());
+        gridNewGroupButton.setOnAction(event -> createGroup(null));
+        gridSortButton.setOnAction(event -> sortAlphabetically());
+        gridModeButton.setOnAction(event -> toggleMode());
+
+        gridHint.getStyleClass().add("muted");
+
+        HBox bar = new HBox(10, mark, gridTitle, gridSearchField, gridNewButton,
+                gridNewGroupButton, gridSortButton, spacer(), gridHint, gridModeButton);
+        bar.getStyleClass().addAll("header", "inventory-bar");
+        bar.setAlignment(Pos.CENTER_LEFT);
+        return bar;
+    }
+
+    private void toggleMode() {
+        setMode(layout().mode().other(), true);
+    }
+
+    /**
+     * Shows one of the two interfaces.
+     *
+     * <p>The grid slides down over the upper block and fades in as it goes,
+     * because the two interfaces are the same instances and a cut between them
+     * reads as a different screen. 260 ms: long enough to be seen as a
+     * movement, short enough that somebody switching back and forth is not
+     * waiting for it.
+     *
+     * <p>The chosen mode is saved straight away, so the launcher reopens in the
+     * interface it was left in.
+     */
+    private void setMode(ProfileLayout.Mode mode, boolean animate) {
+        if (switching) {
+            return;
         }
+        layout().mode(mode);
+        saveProfilesQuietly();
+        applyModeTexts();
 
-        @Override
-        protected void updateItem(Profile profile, boolean empty) {
-            super.updateItem(profile, empty);
-            if (empty || profile == null) {
-                setGraphic(null);
-                setText(null);
+        if (mode == ProfileLayout.Mode.INVENTORY) {
+            inventoryView.rebuild();
+            inventoryPanel.setManaged(true);
+            inventoryPanel.setVisible(true);
+            if (!animate) {
+                inventoryPanel.setTranslateY(0);
+                inventoryPanel.setOpacity(1);
                 return;
             }
-            name.setText(profile.name());
-            subtitle.setText(profile.minecraftVersion()
-                    + (profile.loader() == LoaderType.VANILLA
-                            ? ""
-                            : "  ·  " + profile.loader().displayName()));
-            setGraphic(box);
+            slide(-coverHeight(), 0, () -> { });
+        } else {
+            if (!animate) {
+                hideInventoryPanel();
+                return;
+            }
+            slide(0, -coverHeight(), this::hideInventoryPanel);
         }
+    }
+
+    private void slide(double from, double to, Runnable done) {
+        switching = true;
+        inventoryPanel.setTranslateY(from);
+
+        TranslateTransition move = new TranslateTransition(Duration.millis(260), inventoryPanel);
+        move.setFromY(from);
+        move.setToY(to);
+        move.setInterpolator(Interpolator.EASE_BOTH);
+
+        FadeTransition fade = new FadeTransition(Duration.millis(220), inventoryPanel);
+        fade.setFromValue(to == 0 ? 0.2 : 1);
+        fade.setToValue(to == 0 ? 1 : 0);
+
+        ParallelTransition together = new ParallelTransition(move, fade);
+        together.setOnFinished(event -> {
+            switching = false;
+            done.run();
+        });
+        together.play();
+    }
+
+    private void hideInventoryPanel() {
+        inventoryPanel.setVisible(false);
+        inventoryPanel.setManaged(false);
+        inventoryPanel.setTranslateY(0);
+        inventoryPanel.setOpacity(1);
+    }
+
+    /** How far the grid has to travel to be off the top. Falls back before first layout. */
+    private double coverHeight() {
+        double height = content.getHeight();
+        return height > 0 ? height : 640;
+    }
+
+    private void sortAlphabetically() {
+        layout().sortByName(profiles);
+        layoutChanged();
     }
 
     // ---------------------------------------------------------------- detail
@@ -340,12 +511,7 @@ public final class MainWindow {
         detailName.getStyleClass().add("detail-title");
         detailSubtitle.getStyleClass().add("detail-subtitle");
 
-        installButton.setOnAction(event -> runInBackground(I18n.t("task.install"), () -> {
-            Profile profile = requireSelected();
-            service.installProfile(profile, progress);
-            progress.log(I18n.t("log.installed", profile.effectiveVersionId()));
-            Platform.runLater(() -> showProfile(profile));
-        }));
+        installButton.setOnAction(event -> installSelected());
 
         // Installing mods moved into its own window. It needs a search, a sort,
         // an installed list and a per-mod action - none of which fits beside an
@@ -432,8 +598,22 @@ public final class MainWindow {
         }
     }
 
+    private void installSelected() {
+        runInBackground(I18n.t("task.install"), () -> {
+            Profile profile = requireSelected();
+            service.installProfile(profile, progress);
+            progress.log(I18n.t("log.installed", profile.effectiveVersionId()));
+            Platform.runLater(() -> {
+                showProfile(profile);
+                // The list and the grid show the installed state in the row
+                // subtitle, so a finished install has to redraw them.
+                rebuildViews();
+            });
+        });
+    }
+
     private void openModBrowser() {
-        Profile profile = profileList.getSelectionModel().getSelectedItem();
+        Profile profile = selectedProfile;
         if (profile == null) {
             return;
         }
@@ -551,6 +731,16 @@ public final class MainWindow {
         removeAccountButton.setText(I18n.t("action.removeAccount"));
         playButton.setText(I18n.t(playing ? "action.stop" : "action.play"));
 
+        newGroupButton.setText(I18n.t("groups.new"));
+        sortButton.setText(I18n.t("profiles.sort"));
+        gridNewButton.setText(I18n.t("profiles.new"));
+        gridNewGroupButton.setText(I18n.t("groups.new"));
+        gridSortButton.setText(I18n.t("profiles.sort"));
+        gridTitle.setText(I18n.t("ui.mode.grid"));
+        gridHint.setText(I18n.t("inventory.hint"));
+        gridSearchField.setPromptText(I18n.t("search.prompt"));
+        applyModeTexts();
+
         accountTitle.setText(I18n.t("label.account"));
         languageTitle.setText(I18n.t("label.language"));
         logPane.setText(I18n.t("log.title"));
@@ -560,14 +750,30 @@ public final class MainWindow {
         }
     }
 
+    /**
+     * The two switch buttons.
+     *
+     * <p>Each says where it goes, not where it is. "Inventory" on a button in
+     * the list is ambiguous - it could as easily be a label for the view you are
+     * already in - and a button that has to be tried to find out what it does is
+     * a button that gets tried once and then avoided.
+     */
+    private void applyModeTexts() {
+        modeButton.setText(I18n.t("ui.mode.toGrid"));
+        gridModeButton.setText(I18n.t("ui.mode.toList"));
+    }
+
     // ---------------------------------------------------------------- actions
 
     private void applyFilter(String query) {
-        String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        visibleProfiles.setPredicate(profile -> needle.isEmpty()
-                || profile.name().toLowerCase(Locale.ROOT).contains(needle)
-                || profile.minecraftVersion().toLowerCase(Locale.ROOT).contains(needle)
-                || profile.loader().displayName().toLowerCase(Locale.ROOT).contains(needle));
+        filter = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        rebuildViews();
+    }
+
+    /** Redraws both interfaces from the shared arrangement. Tens of nodes, no network. */
+    private void rebuildViews() {
+        listView.rebuild();
+        inventoryView.rebuild();
     }
 
     private ProfileDialog newDialog() {
@@ -580,7 +786,8 @@ public final class MainWindow {
                 service::loaderSupport,
                 (loader, minecraftVersion) -> service.loaderVersions(loader, minecraftVersion)
                         .stream().map(LoaderVersion::version).toList(),
-                service.settings().showAllVersions());
+                service.settings().showAllVersions(),
+                service.dirs());
     }
 
     private void createProfile() {
@@ -591,7 +798,7 @@ public final class MainWindow {
                 service.profiles().save();
                 rememberVersionPreference(dialog);
                 refreshProfiles();
-                profileList.getSelectionModel().select(profile);
+                select(profile);
             } catch (IOException e) {
                 showError(I18n.t("profiles.create.failed"), e);
             }
@@ -599,7 +806,7 @@ public final class MainWindow {
     }
 
     private void editSelectedProfile() {
-        Profile profile = profileList.getSelectionModel().getSelectedItem();
+        Profile profile = selectedProfile;
         if (profile == null) {
             return;
         }
@@ -613,8 +820,7 @@ public final class MainWindow {
             saveProfilesQuietly();
             rememberVersionPreference(dialog);
             refreshProfiles();
-            profileList.getSelectionModel().select(edited);
-            showProfile(edited);
+            select(edited);
         });
     }
 
@@ -626,7 +832,7 @@ public final class MainWindow {
     }
 
     private void removeSelectedProfile() {
-        Profile profile = profileList.getSelectionModel().getSelectedItem();
+        Profile profile = selectedProfile;
         if (profile == null) {
             return;
         }
@@ -932,7 +1138,7 @@ public final class MainWindow {
     }
 
     private void openGameFolder() {
-        Profile profile = profileList.getSelectionModel().getSelectedItem();
+        Profile profile = selectedProfile;
         var folder = profile == null
                 ? service.dirs().root()
                 : service.profiles().gameDirectory(profile);
@@ -952,20 +1158,38 @@ public final class MainWindow {
 
     // ---------------------------------------------------------------- data
 
+    /**
+     * Re-reads the profiles and redraws both interfaces.
+     *
+     * <p>In arranged order, not by recency. Recency is the right default for a
+     * launcher that arranges nothing, and exactly wrong once the user has put
+     * the list in an order by hand: playing one instance would move it, and the
+     * list they arranged would rearrange itself underneath them.
+     */
     private void refreshProfiles() {
-        Profile previous = profileList.getSelectionModel().getSelectedItem();
-        allProfiles.setAll(service.profiles().byRecency());
-        applyFilter(searchField.getText());
-        if (previous != null && visibleProfiles.contains(previous)) {
-            profileList.getSelectionModel().select(previous);
-        } else {
-            service.profiles().selected()
-                    .filter(visibleProfiles::contains)
-                    .ifPresent(profileList.getSelectionModel()::select);
+        String previousId = selectedProfile == null ? null : selectedProfile.id();
+        profiles.clear();
+        profiles.addAll(service.profiles().arranged());
+
+        selectedProfile = null;
+        if (previousId != null) {
+            for (Profile profile : profiles) {
+                if (profile.id().equals(previousId)) {
+                    selectedProfile = profile;
+                    break;
+                }
+            }
         }
-        if (profileList.getSelectionModel().getSelectedItem() == null && !visibleProfiles.isEmpty()) {
-            profileList.getSelectionModel().selectFirst();
+        if (selectedProfile == null) {
+            selectedProfile = service.profiles().selected()
+                    .filter(profiles::contains)
+                    .orElse(profiles.isEmpty() ? null : profiles.get(0));
         }
+        if (selectedProfile != null) {
+            service.profiles().select(selectedProfile);
+        }
+        rebuildViews();
+        showProfile(selectedProfile);
     }
 
     private void refreshAccounts() {
@@ -1027,7 +1251,7 @@ public final class MainWindow {
     }
 
     private Profile requireSelected() throws IOException {
-        Profile profile = profileList.getSelectionModel().getSelectedItem();
+        Profile profile = selectedProfile;
         if (profile == null) {
             throw new IOException(I18n.t("profiles.selectFirst"));
         }
@@ -1086,7 +1310,7 @@ public final class MainWindow {
 
     private void setBusy(boolean value) {
         busy = value;
-        boolean hasProfile = profileList.getSelectionModel().getSelectedItem() != null;
+        boolean hasProfile = selectedProfile != null;
         playButton.setDisable(value || !hasProfile);
         installButton.setDisable(value || !hasProfile);
         // The browser runs its own downloads in its own window, so it stays
@@ -1143,6 +1367,224 @@ public final class MainWindow {
         alert.setTitle(header);
         alert.getDialogPane().setPrefWidth(width);
         alert.showAndWait();
+    }
+
+    // ------------------------------------------------------------ ProfileHost
+    //
+    // What the two views are allowed to ask for, and the only way they change
+    // anything. Every method here either reads the shared state above or writes
+    // it and calls rebuildViews(), which is why the list and the grid cannot
+    // disagree: there is one arrangement, one selection and one search, and both
+    // views are a drawing of them.
+
+    @Override
+    public LauncherService service() {
+        return service;
+    }
+
+    @Override
+    public ProfileLayout layout() {
+        return service.profiles().layout();
+    }
+
+    @Override
+    public List<Profile> profiles() {
+        return List.copyOf(profiles);
+    }
+
+    @Override
+    public String filter() {
+        return filter;
+    }
+
+    @Override
+    public boolean matchesFilter(Profile profile) {
+        if (filter.isEmpty()) {
+            return true;
+        }
+        if (profile == null) {
+            return false;
+        }
+        return profile.name().toLowerCase(Locale.ROOT).contains(filter)
+                || profile.minecraftVersion().toLowerCase(Locale.ROOT).contains(filter)
+                || profile.loader().displayName().toLowerCase(Locale.ROOT).contains(filter);
+    }
+
+    @Override
+    public Profile selected() {
+        return selectedProfile;
+    }
+
+    /**
+     * Selects a profile in both views and in the summary panel.
+     *
+     * <p>Moves a style class rather than rebuilding, and that is not an
+     * optimisation. Selection happens on mouse-pressed, which is the same press
+     * a drag begins with - rebuilding here would replace the node the drag was
+     * about to start from, and dragging would silently stop working.
+     */
+    @Override
+    public void select(Profile profile) {
+        if (profile == null) {
+            return;
+        }
+        selectedProfile = profile;
+        service.profiles().select(profile);
+        listView.applySelection();
+        inventoryView.applySelection();
+        showProfile(profile);
+    }
+
+    @Override
+    public void play(Profile profile) {
+        select(profile);
+        play();
+    }
+
+    @Override
+    public void edit(Profile profile) {
+        select(profile);
+        editSelectedProfile();
+    }
+
+    @Override
+    public void remove(Profile profile) {
+        select(profile);
+        removeSelectedProfile();
+    }
+
+    @Override
+    public void install(Profile profile) {
+        select(profile);
+        installSelected();
+    }
+
+    @Override
+    public void openMods(Profile profile) {
+        select(profile);
+        openModBrowser();
+    }
+
+    @Override
+    public void openFolder(Profile profile) {
+        select(profile);
+        openGameFolder();
+    }
+
+    /**
+     * Puts a picture of the user's choosing on a profile.
+     *
+     * <p>The file is copied into the launcher folder by {@link ProfileIcons},
+     * so the icon survives the original being moved or deleted, and nothing in
+     * profiles.json is ever a path the launcher opens.
+     */
+    @Override
+    public void chooseIcon(Profile profile) {
+        if (profile == null) {
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(I18n.t("icon.title"));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
+                I18n.t("icon.filter"), ProfileIcons.chooserPatterns()));
+        java.io.File chosen = chooser.showOpenDialog(stage);
+        if (chosen == null) {
+            return;
+        }
+        try {
+            profile.customIcon(ProfileIcons.store(chosen.toPath(), service.dirs()));
+            saveProfilesQuietly();
+            rebuildViews();
+            progress.log(I18n.t("icon.set", profile.name()));
+        } catch (IOException e) {
+            showError(I18n.t("icon.failed"), e);
+        }
+    }
+
+    @Override
+    public void clearIcon(Profile profile) {
+        if (profile == null || !profile.hasCustomIcon()) {
+            return;
+        }
+        // The file is left in the icons folder on purpose: another profile may
+        // be using it - the store names files by content, so identical pictures
+        // are one file - and an icon is a few kilobytes.
+        profile.customIcon(null);
+        saveProfilesQuietly();
+        rebuildViews();
+    }
+
+    @Override
+    public void layoutChanged() {
+        saveProfilesQuietly();
+        rebuildViews();
+    }
+
+    @Override
+    public void createGroup(Profile profile) {
+        TextInputDialog dialog = new TextInputDialog(I18n.t("groups.new.default"));
+        dialog.initOwner(stage);
+        Theme.apply(dialog.getDialogPane());
+        dialog.setTitle(I18n.t("groups.new.title"));
+        dialog.setHeaderText(I18n.t("groups.new.header"));
+        dialog.setContentText(I18n.t("groups.new.body"));
+        dialog.showAndWait().ifPresent(name -> {
+            if (name == null || name.isBlank()) {
+                return;
+            }
+            ProfileLayout.Group group = layout().createGroup(name.trim());
+            if (profile != null) {
+                layout().moveProfileToEnd(profile.id(), group.id());
+            }
+            layoutChanged();
+        });
+    }
+
+    @Override
+    public void renameGroup(ProfileLayout.Group group) {
+        if (group == null) {
+            return;
+        }
+        TextInputDialog dialog = new TextInputDialog(group.name());
+        dialog.initOwner(stage);
+        Theme.apply(dialog.getDialogPane());
+        dialog.setTitle(I18n.t("groups.rename"));
+        dialog.setHeaderText(I18n.t("groups.rename.header"));
+        dialog.setContentText(I18n.t("groups.new.body"));
+        dialog.showAndWait().ifPresent(name -> {
+            if (name == null || name.isBlank()) {
+                return;
+            }
+            layout().renameGroup(group.id(), name.trim());
+            layoutChanged();
+        });
+    }
+
+    /**
+     * Deletes a group and keeps the instances that were in it.
+     *
+     * <p>The confirmation says so, because "delete group" over a set of
+     * instances reads as though it deletes them. It does not, and nothing here
+     * touches a game folder - {@link #removeSelectedProfile()} is the only place
+     * that can.
+     */
+    @Override
+    public void removeGroup(ProfileLayout.Group group) {
+        if (group == null) {
+            return;
+        }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                I18n.t("groups.remove.body", group.name(), group.size()));
+        confirm.initOwner(stage);
+        Theme.apply(confirm.getDialogPane());
+        confirm.setHeaderText(I18n.t("groups.remove.header"));
+        confirm.getDialogPane().setPrefWidth(560);
+        if (confirm.showAndWait()
+                .filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {
+            return;
+        }
+        layout().removeGroup(group.id());
+        layoutChanged();
     }
 
     /** Called when the window closes: drop the tray icon and stop the game if wanted. */

@@ -1,5 +1,6 @@
 package com.hexadron.launcher.ui;
 
+import com.hexadron.launcher.core.GameDirs;
 import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.install.loader.LoaderType;
 import com.hexadron.launcher.install.loader.Loaders;
@@ -10,6 +11,7 @@ import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
@@ -19,11 +21,14 @@ import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.stage.FileChooser;
 import javafx.stage.Window;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
@@ -72,6 +77,24 @@ public final class ProfileDialog {
     private final Label versionNote = new Label();
     private final Label wrapperNote = new Label();
 
+    /**
+     * The icon row.
+     *
+     * <p>Here rather than only on the right-click menu because an icon is part
+     * of what an instance is, and because the moment somebody is most likely to
+     * want to set one is while they are naming a new instance - not later,
+     * hunting for it in a menu.
+     */
+    private final StackPane iconPreview = new StackPane();
+    private final Button chooseIconButton = new Button();
+    private final Button clearIconButton = new Button();
+    private final Label iconNote = new Label();
+
+    /** The chosen picture's file name, or null for "use the loader mark". */
+    private String customIcon;
+
+    private final GameDirs dirs;
+
     private final VersionSource versions;
     private final LoaderSupportSource loaderSupport;
     private final LoaderVersionSource loaderVersions;
@@ -80,11 +103,13 @@ public final class ProfileDialog {
     public ProfileDialog(VersionSource versions,
                          LoaderSupportSource loaderSupport,
                          LoaderVersionSource loaderVersions,
-                         boolean startWithAllVersions) {
+                         boolean startWithAllVersions,
+                         GameDirs dirs) {
         this.versions = versions;
         this.loaderSupport = loaderSupport;
         this.loaderVersions = loaderVersions;
         this.startWithAllVersions = startWithAllVersions;
+        this.dirs = dirs;
     }
 
     /**
@@ -174,6 +199,9 @@ public final class ProfileDialog {
         loaderBox.valueProperty().addListener((observable, previous, value) -> {
             loadVersionsAsync();
             loadLoaderVersionsAsync();
+            // The preview shows the loader mark when no picture is chosen, so
+            // changing the loader changes the preview.
+            refreshIconPreview();
         });
 
         loaderVersionBox.setMaxWidth(Double.MAX_VALUE);
@@ -210,6 +238,7 @@ public final class ProfileDialog {
 
         int row = 0;
         grid.addRow(row++, formLabel(I18n.t("editor.name")), nameField);
+        grid.addRow(row++, formLabel(I18n.t("editor.icon")), buildIconRow());
         grid.addRow(row++, formLabel(I18n.t("editor.version")), versionBox);
         grid.addRow(row++, new Label(), showAllVersions);
         grid.addRow(row++, new Label(), versionNote);
@@ -227,6 +256,86 @@ public final class ProfileDialog {
         return grid;
     }
 
+    /**
+     * Preview, a button to choose a picture, and a button to go back to the mark.
+     *
+     * <p>The preview is 48 pixels, which is the size the inventory grid draws,
+     * so what is chosen here is seen at the size it will actually appear - a
+     * picture that turns out to be unreadable is worth finding out about before
+     * saving rather than afterwards.
+     */
+    private HBox buildIconRow() {
+        iconPreview.getStyleClass().add("icon-preview");
+        iconPreview.setMinSize(52, 52);
+        iconPreview.setPrefSize(52, 52);
+        iconPreview.setMaxSize(52, 52);
+
+        chooseIconButton.setText(I18n.t("icon.choose"));
+        chooseIconButton.setOnAction(event -> chooseIcon());
+
+        clearIconButton.setText(I18n.t("icon.clear"));
+        clearIconButton.setOnAction(event -> {
+            customIcon = null;
+            refreshIconPreview();
+        });
+
+        iconNote.setText(I18n.t("editor.icon.note"));
+        iconNote.getStyleClass().add("muted");
+        iconNote.setWrapText(true);
+        iconNote.setMaxWidth(280);
+
+        HBox row = new HBox(10, iconPreview, chooseIconButton, clearIconButton, iconNote);
+        row.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        return row;
+    }
+
+    private void chooseIcon() {
+        if (dirs == null) {
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(I18n.t("icon.title"));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
+                I18n.t("icon.filter"), ProfileIcons.chooserPatterns()));
+        java.io.File chosen = chooser.showOpenDialog(iconPreview.getScene() == null
+                ? null : iconPreview.getScene().getWindow());
+        if (chosen == null) {
+            return;
+        }
+        try {
+            customIcon = ProfileIcons.store(chosen.toPath(), dirs);
+            refreshIconPreview();
+        } catch (IOException e) {
+            // Reported here and not swallowed: a picture that cannot be read is
+            // the one thing about this row the user has to know, and the message
+            // says which of the three reasons it was.
+            Alert alert = new Alert(Alert.AlertType.WARNING,
+                    e.getMessage() == null ? e.toString() : e.getMessage());
+            alert.setHeaderText(I18n.t("icon.failed"));
+            if (iconPreview.getScene() != null) {
+                alert.initOwner(iconPreview.getScene().getWindow());
+            }
+            Theme.apply(alert.getDialogPane());
+            alert.showAndWait();
+        }
+    }
+
+    private void refreshIconPreview() {
+        clearIconButton.setDisable(customIcon == null);
+        javafx.scene.Node mark = null;
+        if (customIcon != null && dirs != null) {
+            var image = ProfileIcons.load(dirs.icons().resolve(customIcon));
+            if (image != null) {
+                mark = ProfileIcons.view(image, 44);
+            }
+        }
+        if (mark == null) {
+            LoaderType loader = loaderBox.getValue() == null ? LoaderType.VANILLA : loaderBox.getValue();
+            mark = LoaderIcon.node(loader, 44);
+        }
+        iconPreview.getChildren().setAll(mark);
+    }
+
     private static Label formLabel(String text) {
         Label label = new Label(text);
         label.getStyleClass().add("form-label");
@@ -239,8 +348,11 @@ public final class ProfileDialog {
             memorySlider.setValue(Profile.defaultMemoryMegabytes());
             memoryLabel.setText(I18n.t("unit.megabytes",
                     String.valueOf(Profile.defaultMemoryMegabytes())));
+            refreshIconPreview();
             return;
         }
+        customIcon = existing.customIcon();
+        refreshIconPreview();
         nameField.setText(existing.name());
         versionBox.setValue(existing.minecraftVersion());
         loaderBox.setValue(existing.loader());
@@ -277,6 +389,7 @@ public final class ProfileDialog {
         profile.javaPath(javaField.getText());
         profile.extraJvmArguments(Arguments.split(jvmArgumentsField.getText()));
         profile.wrapperCommand(wrapperField.getText());
+        profile.customIcon(customIcon);
         return profile;
     }
 

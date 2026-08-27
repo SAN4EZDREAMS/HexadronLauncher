@@ -18,6 +18,9 @@ import java.util.UUID;
  */
 public final class Profile {
 
+    /** {@link #icon()} value meaning "use the mark of whichever loader is set". */
+    public static final String ICON_AUTO = "auto";
+
     private final String id;
     private String name;
     private String minecraftVersion;
@@ -34,7 +37,21 @@ public final class Profile {
     private Integer windowHeight;
     private boolean demo;
     private long lastPlayed;
+    /**
+     * Which built-in mark to show: {@code "auto"} for the one that matches the
+     * loader, or a loader id to pin one regardless of the loader.
+     */
     private String icon;
+    /**
+     * File name of a user-supplied icon inside {@code <root>/icons}, or null.
+     *
+     * <p>A name, not a path. The file is copied into the launcher's own folder
+     * when it is chosen, so an icon does not disappear because the picture it
+     * came from was tidied away, renamed, or was on a memory stick. A bare name
+     * also cannot escape that folder the way a stored absolute path from a
+     * hand-edited profiles.json could.
+     */
+    private String customIcon;
 
     private Profile(String id) {
         this.id = id;
@@ -50,7 +67,8 @@ public final class Profile {
         this.wrapperCommand = null;
         this.demo = false;
         this.lastPlayed = 0;
-        this.icon = "grass";
+        this.icon = ICON_AUTO;
+        this.customIcon = null;
     }
 
     public static Profile create(String name, String minecraftVersion, LoaderType loader) {
@@ -258,13 +276,50 @@ public final class Profile {
         return this;
     }
 
+    /** {@value #ICON_AUTO}, or the loader id whose mark is pinned. Never null. */
     public String icon() {
         return icon;
     }
 
     public Profile icon(String value) {
-        this.icon = value;
+        this.icon = (value == null || value.isBlank()) ? ICON_AUTO : value.trim();
         return this;
+    }
+
+    /** True when the mark follows the loader instead of being pinned. */
+    public boolean iconFollowsLoader() {
+        return ICON_AUTO.equalsIgnoreCase(icon);
+    }
+
+    /** File name of the user-supplied icon inside the launcher icons folder, or null. */
+    public String customIcon() {
+        return customIcon;
+    }
+
+    /**
+     * Sets the user-supplied icon by file name.
+     *
+     * <p>Anything with a path separator in it is refused rather than trimmed:
+     * the value comes out of a JSON file the user can edit, it is resolved
+     * against the launcher's icons folder, and {@code ../../} in a file name is
+     * the one way that resolution could point somewhere else.
+     */
+    public Profile customIcon(String value) {
+        if (value == null || value.isBlank()) {
+            this.customIcon = null;
+            return this;
+        }
+        String name = value.trim();
+        if (name.contains("/") || name.contains("\\") || name.contains("..")) {
+            this.customIcon = null;
+            return this;
+        }
+        this.customIcon = name;
+        return this;
+    }
+
+    public boolean hasCustomIcon() {
+        return customIcon != null;
     }
 
     // ---------------------------------------------------------------- persistence
@@ -286,6 +341,10 @@ public final class Profile {
                 .put("demo", demo)
                 .put("lastPlayed", lastPlayed)
                 .put("icon", icon);
+
+        if (customIcon != null) {
+            json.put("customIcon", customIcon);
+        }
 
         if (loaderVersion != null) {
             json.put("loaderVersion", loaderVersion);
@@ -322,7 +381,14 @@ public final class Profile {
         profile.wrapperCommand = json.get("wrapperCommand").asString(null);
         profile.demo = json.get("demo").asBool(false);
         profile.lastPlayed = json.get("lastPlayed").asLong(0);
-        profile.icon = json.get("icon").asString("grass");
+        // "grass" was the only value the field ever held, and it named a picture
+        // the launcher never had. It is read as "follow the loader" rather than
+        // migrated in a separate pass, so an old profiles.json needs no rewrite.
+        String storedIcon = json.get("icon").asString(ICON_AUTO);
+        profile.icon = ("grass".equalsIgnoreCase(storedIcon) || storedIcon.isBlank())
+                ? ICON_AUTO
+                : storedIcon;
+        profile.customIcon(json.get("customIcon").asString(null));
 
         int width = json.get("windowWidth").asInt(-1);
         int height = json.get("windowHeight").asInt(-1);

@@ -32,6 +32,7 @@ import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.profile.Profile;
+import com.hexadron.launcher.profile.ProfileLayout;
 import com.hexadron.launcher.util.Archives;
 import com.hexadron.launcher.util.Arguments;
 import com.hexadron.launcher.util.MavenCoordinate;
@@ -43,6 +44,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -90,6 +92,8 @@ public final class SelfCheck {
         forgeTokenLanguage();
         curseForgeKeyHandling();
         searchPaging();
+        profileArrangement();
+        profileIconValues();
         translations();
 
         System.out.println();
@@ -1066,6 +1070,194 @@ public final class SelfCheck {
         check("sha1 carried through", "aa".equals(manifest.find("26.2").orElseThrow().sha1()));
     }
 
+    // ---------------------------------------------------------------- arrangement
+
+    /**
+     * The one arrangement both profile interfaces draw.
+     *
+     * <p>Checked here because it is the only place the two views can disagree.
+     * They hold no order of their own - a drag in either calls the methods below
+     * and both are rebuilt from the result - so if the model keeps its
+     * invariants, the list and the grid cannot get out of step, and if it does
+     * not, they will and nothing on screen will say why.
+     *
+     * <p>The invariant that matters: every profile appears exactly once, whether
+     * it is loose or in a group, however it got there.
+     */
+    private static void profileArrangement() {
+        section("Profile arrangement");
+
+        List<Profile> profiles = new ArrayList<>();
+        for (String name : List.of("Zeta", "alpha", "Mid", "beta")) {
+            profiles.add(Profile.create(name, "26.2", LoaderType.FABRIC));
+        }
+        Map<String, String> id = new LinkedHashMap<>();
+        profiles.forEach(profile -> id.put(profile.name(), profile.id()));
+
+        ProfileLayout layout = new ProfileLayout();
+        check("an empty arrangement reports empty", layout.isEmpty());
+        check("reconcile seeds from the profiles", layout.reconcile(profiles));
+
+        List<String> seeded = new ArrayList<>();
+        for (String profileId : layout.orderedProfileIds()) {
+            profiles.stream().filter(profile -> profile.id().equals(profileId))
+                    .findFirst().ifPresent(profile -> seeded.add(profile.name()));
+        }
+        // Alphabetical on a first run: the order somebody who has arranged
+        // nothing expects, and the order the interface starts from.
+        check("the seeded order is alphabetical " + seeded,
+                seeded.equals(List.of("alpha", "beta", "Mid", "Zeta")));
+
+        ProfileLayout.Group group = layout.createGroup("Modded");
+        layout.moveProfileToEnd(id.get("Zeta"), group.id());
+        layout.moveProfileToEnd(id.get("alpha"), group.id());
+        check("a group holds what was moved into it",
+                layout.group(group.id()).orElseThrow().members()
+                        .equals(List.of(id.get("Zeta"), id.get("alpha"))));
+        check("a grouped profile knows its group",
+                layout.groupOf(id.get("alpha")).orElseThrow().id().equals(group.id()));
+        check("nothing is in two places at once",
+                new java.util.HashSet<>(layout.orderedProfileIds()).size()
+                        == layout.orderedProfileIds().size());
+        check("nothing was lost on the way in", layout.orderedProfileIds().size() == 4);
+
+        layout.moveProfileBeside(id.get("alpha"), id.get("Zeta"), false);
+        check("a reorder inside a group is a reorder, not a copy",
+                layout.group(group.id()).orElseThrow().members()
+                        .equals(List.of(id.get("alpha"), id.get("Zeta"))));
+
+        layout.moveEntryBeside(group.id(), id.get("beta"), false);
+        check("a group can be moved above a loose profile",
+                layout.entries().get(0).isGroup());
+
+        layout.moveProfileBeside(id.get("alpha"), id.get("beta"), true);
+        check("dropping beside a loose profile leaves the group",
+                layout.groupOf(id.get("alpha")).isEmpty());
+        check("the group keeps the rest", layout.group(group.id()).orElseThrow().size() == 1);
+        check("still four profiles after leaving a group",
+                layout.orderedProfileIds().size() == 4);
+
+        // The grid is the same arrangement wrapped into rows, so the two must
+        // hold the same profiles - this is the check that says the views agree.
+        int cells = 0;
+        for (ProfileLayout.Row row : layout.grid(null)) {
+            cells += row.profileIds().size();
+        }
+        check("the grid holds exactly what the list holds " + cells,
+                cells == layout.orderedProfileIds().size());
+
+        boolean groupRowsAreOwn = true;
+        for (ProfileLayout.Row row : layout.grid(null)) {
+            if (row.group() != null) {
+                for (String member : row.profileIds()) {
+                    groupRowsAreOwn &= layout.groupOf(member).isPresent();
+                }
+            }
+        }
+        check("a group row holds only that group", groupRowsAreOwn);
+
+        layout.setCollapsed(group.id(), true);
+        check("collapsing does not change the order",
+                layout.orderedProfileIds().size() == 4);
+        boolean strip = false;
+        for (ProfileLayout.Row row : layout.grid(null)) {
+            strip |= row.isCollapsedGroup() && row.hiddenCount() == 1;
+        }
+        check("a collapsed group becomes one strip", strip);
+        layout.setCollapsed(group.id(), false);
+
+        // Nine across, wrapping. Fixed so that resizing the window cannot move
+        // a profile, which is what having one shared order means.
+        ProfileLayout wide = new ProfileLayout();
+        List<Profile> many = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            many.add(Profile.create("p" + (100 + i), "26.2", LoaderType.VANILLA));
+        }
+        wide.reconcile(many);
+        List<ProfileLayout.Row> rows = wide.grid(null);
+        check("twenty profiles wrap into three rows " + rows.size(), rows.size() == 3);
+        check("a full row is nine wide",
+                rows.get(0).profileIds().size() == ProfileLayout.GRID_COLUMNS);
+        check("the last row holds the remainder", rows.get(2).profileIds().size() == 2);
+
+        // Round trip. The arrangement lives in profiles.json, so it has to
+        // survive being written and read as text.
+        layout.mode(ProfileLayout.Mode.INVENTORY);
+        ProfileLayout reread = ProfileLayout.fromJson(Json.parse(layout.toJson().toString()));
+        reread.reconcile(profiles);
+        check("the chosen interface survives a save",
+                reread.mode() == ProfileLayout.Mode.INVENTORY);
+        check("the order survives a save",
+                reread.orderedProfileIds().equals(layout.orderedProfileIds()));
+        check("the group name survives a save",
+                reread.group(group.id()).orElseThrow().name().equals("Modded"));
+        check("the group colour survives a save",
+                reread.group(group.id()).orElseThrow().color()
+                        .equals(layout.group(group.id()).orElseThrow().color()));
+
+        // profiles.json is editable by hand, and the arrangement is the part of
+        // it most likely to be edited or half-restored. A broken one degrades to
+        // the alphabetical order; it never hides a profile.
+        ProfileLayout broken = ProfileLayout.fromJson(Json.parse(
+                "{\"mode\":\"nonsense\",\"entries\":["
+                + "{\"type\":\"profile\",\"id\":\"ghost\"},"
+                + "{\"type\":\"group\",\"id\":\"g1\",\"members\":[\"ghost\",\"ghost\"]},"
+                + "{\"type\":\"group\",\"id\":\"g1\",\"name\":\"duplicate\"}]}"));
+        broken.reconcile(profiles);
+        check("an unknown interface name falls back to the list",
+                broken.mode() == ProfileLayout.Mode.LIST);
+        check("a duplicated group id is dropped", broken.groups().size() == 1);
+        check("ids of profiles that no longer exist are dropped",
+                new java.util.HashSet<>(broken.orderedProfileIds())
+                        .equals(new java.util.HashSet<>(id.values())));
+
+        ProfileLayout dissolved = new ProfileLayout();
+        dissolved.reconcile(profiles);
+        ProfileLayout.Group temporary = dissolved.createGroup("Temporary");
+        dissolved.moveProfileToEnd(id.get("Mid"), temporary.id());
+        dissolved.removeGroup(temporary.id());
+        check("deleting a group keeps its profiles",
+                dissolved.orderedProfileIds().contains(id.get("Mid")));
+        check("deleting a group removes the group", dissolved.groups().isEmpty());
+    }
+
+    /**
+     * The icon fields on a profile.
+     *
+     * <p>{@code customIcon} is a file name that is resolved inside the
+     * launcher's icons folder, and it comes out of a file the user can edit -
+     * so the check that matters is that it cannot be turned into a path
+     * pointing anywhere else.
+     */
+    private static void profileIconValues() {
+        section("Profile icons");
+
+        Profile profile = Profile.create("Test", "26.2", LoaderType.QUILT);
+        check("a new profile follows its loader", profile.iconFollowsLoader());
+        check("a new profile has no chosen picture", !profile.hasCustomIcon());
+
+        profile.customIcon("../../../etc/passwd");
+        check("a path escape is refused, not trimmed", profile.customIcon() == null);
+        profile.customIcon("C:\\Windows\\explorer.exe");
+        check("a Windows path is refused", profile.customIcon() == null);
+        profile.customIcon("0a1b2c3d4e5f6071.png");
+        check("a plain file name is kept",
+                "0a1b2c3d4e5f6071.png".equals(profile.customIcon()));
+
+        Json saved = profile.toJson();
+        Profile reread = Profile.fromJson(Json.parse(saved.toString()));
+        check("the chosen picture survives a save",
+                "0a1b2c3d4e5f6071.png".equals(reread.customIcon()));
+
+        // The field used to hold "grass", which named a picture the launcher
+        // never had. It has to read as "follow the loader" rather than as a
+        // missing file.
+        Profile old = Profile.fromJson(Json.parse(
+                "{\"id\":\"old-1\",\"name\":\"Old\",\"icon\":\"grass\"}"));
+        check("an old icon value reads as follow-the-loader", old.iconFollowsLoader());
+        check("an old profile has no chosen picture", !old.hasCustomIcon());
+    }
+
     // ---------------------------------------------------------------- translations
 
     /**
@@ -1152,7 +1344,15 @@ public final class SelfCheck {
                 "mods.curseforge.disabled", "mods.curseforge.setKey",
                 "mods.curseforge.key.header", "mods.curseforge.key.body",
                 "mods.curseforge.key.saved", "mods.searchPartial",
-                "editor.wrapper", "editor.wrapper.prompt", "editor.wrapper.note");
+                "editor.wrapper", "editor.wrapper.prompt", "editor.wrapper.note",
+                "ui.mode.grid", "ui.mode.toGrid", "ui.mode.toList", "inventory.hint",
+                "profiles.sort", "groups.new", "groups.new.title", "groups.new.header",
+                "groups.new.body", "groups.new.default", "groups.rename",
+                "groups.rename.header", "groups.remove", "groups.remove.header",
+                "groups.remove.body", "groups.collapse", "groups.expand",
+                "groups.count", "groups.moveTo", "groups.none",
+                "editor.icon", "editor.icon.note", "icon.title", "icon.choose",
+                "icon.clear", "icon.filter", "icon.failed", "icon.set");
         for (Language language : Language.all()) {
             I18n.use(language);
             List<String> unresolved = mustResolve.stream()

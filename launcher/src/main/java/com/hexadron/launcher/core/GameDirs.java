@@ -157,6 +157,18 @@ public final class GameDirs {
         return instances().resolve(profileId);
     }
 
+    /**
+     * User-supplied profile icons.
+     *
+     * <p>Chosen pictures are copied in here rather than referred to where they
+     * were found, so an icon survives the original being renamed, deleted or
+     * unplugged, and so the launcher never has to read a path out of
+     * profiles.json and open whatever it points at.
+     */
+    public Path icons() {
+        return root.resolve("icons");
+    }
+
     public Path cache() {
         return root.resolve("cache");
     }
