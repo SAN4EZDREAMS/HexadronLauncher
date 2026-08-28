@@ -341,9 +341,37 @@ public final class ProfileLayout {
         return insertRowAt(rows, null);
     }
 
-    /** Removes the last row. */
+    /** Removes the last row exactly. Used where a particular height is asked for. */
     public boolean removeRow() {
         return removeRowAt(rows - 1);
+    }
+
+    /**
+     * Removes the last row that is empty and in no group - the table's own minus.
+     *
+     * <p>Not simply the last row. A group at the bottom of the grid would make
+     * the button refuse while there was still an empty row above it doing
+     * nothing, which is a refusal the user can see is wrong. So the button takes
+     * away the last row that is nobody's and holds nothing, wherever it is.
+     *
+     * <p>It never moves a profile and never touches a group. A row with
+     * instances in it is emptied by dragging them somewhere, and a row that
+     * belongs to a group is taken off that group from the group's own controls -
+     * both are things to say deliberately rather than side effects of making the
+     * table smaller.
+     *
+     * @return false when every row is either in a group or has something in it
+     */
+    public boolean removeLastEmptyRow() {
+        if (rows <= MIN_ROWS) {
+            return false;
+        }
+        for (int row = rows - 1; row >= 0; row--) {
+            if (rowGroups.get(row) == null && rowIsEmpty(row)) {
+                return removeRowAt(row);
+            }
+        }
+        return false;
     }
 
     /**
@@ -464,11 +492,14 @@ public final class ProfileLayout {
     }
 
     /**
-     * Finds a new cell for each displaced profile.
+     * Finds a new cell for each displaced profile, in the group it is already in.
      *
-     * <p>Same group first, anywhere second. Keeping a profile in its group
-     * matters more than keeping it near where it was, because the group is
-     * something the user set and the exact cell after a resize is not.
+     * <p>Strictly in that group, with no fallback anywhere else - and the same
+     * for a profile in no group, which may only land in another ungrouped cell.
+     * Removing a column is a change to the shape of the table, and a change to
+     * the shape of the table must not change what anything belongs to. When the
+     * group has no room the answer is that the column stays, which the caller
+     * says out loud.
      *
      * @param allowed which of the surviving cells may be used
      * @return false when there are not enough, in which case nothing has moved
@@ -485,51 +516,32 @@ public final class ProfileLayout {
             taken.add(key(entry.getValue().row, entry.getValue().column));
         }
 
-        List<int[]> free = new ArrayList<>();
-        for (int row = 0; row < rows; row++) {
-            for (int column = 0; column < columns; column++) {
-                Cell candidate = new Cell(row, column);
-                if (allowed.test(candidate) && !taken.contains(key(row, column))) {
-                    free.add(new int[]{row, column});
-                }
-            }
-        }
-        if (free.size() < displaced.size()) {
-            return false;
-        }
-
-        // Two passes, so that every profile gets a chance at its own group
-        // before anybody takes a cell somewhere else.
         Map<String, int[]> chosen = new LinkedHashMap<>();
         Set<Long> used = new LinkedHashSet<>();
         for (String id : displaced) {
-            String wanted = rowGroups.get(cells.get(id).row);
-            for (int[] cell : free) {
-                if (used.contains(key(cell[0], cell[1]))) {
+            String container = rowGroups.get(cells.get(id).row);
+            int[] found = null;
+            for (int row = 0; row < rows && found == null; row++) {
+                if (!Objects.equals(rowGroups.get(row), container)) {
                     continue;
                 }
-                if (Objects.equals(rowGroups.get(cell[0]), wanted)) {
-                    chosen.put(id, cell);
-                    used.add(key(cell[0], cell[1]));
+                for (int column = 0; column < columns; column++) {
+                    if (!allowed.test(new Cell(row, column))
+                            || taken.contains(key(row, column))
+                            || used.contains(key(row, column))) {
+                        continue;
+                    }
+                    found = new int[]{row, column};
                     break;
                 }
             }
-        }
-        for (String id : displaced) {
-            if (chosen.containsKey(id)) {
-                continue;
+            if (found == null) {
+                return false;
             }
-            for (int[] cell : free) {
-                if (!used.contains(key(cell[0], cell[1]))) {
-                    chosen.put(id, cell);
-                    used.add(key(cell[0], cell[1]));
-                    break;
-                }
-            }
+            chosen.put(id, found);
+            used.add(key(found[0], found[1]));
         }
-        if (chosen.size() < displaced.size()) {
-            return false;
-        }
+
         for (Map.Entry<String, int[]> entry : chosen.entrySet()) {
             Cell cell = cells.get(entry.getKey());
             cell.row = entry.getValue()[0];

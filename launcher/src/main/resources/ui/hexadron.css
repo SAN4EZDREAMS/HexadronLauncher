@@ -578,11 +578,42 @@
     -fx-background-color: transparent;
 }
 
-/* The group's name, written along its plate. */
+/*
+ * The group's name, written along its plate.
+ *
+ * Grey smoothing is asked for rather than left to the default. Text under a
+ * rotation cannot use the platform's sub-pixel smoothing, so it silently falls
+ * back to grey - and bold at ten and a half pixels through that fallback came
+ * out hard-edged next to the same name drawn upright in a collapsed strip.
+ * Naming the smoothing, dropping the bold and going up half a pixel makes the
+ * two match.
+ */
 .inv-plate-name {
-    -fx-font-size: 10.5px;
-    -fx-font-weight: bold;
+    -fx-font-size: 11px;
+    -fx-font-weight: normal;
+    -fx-font-smoothing-type: gray;
+    -fx-text-fill: rgba(255, 255, 255, 0.92);
+}
+
+/* A group's own row buttons, at the right end of its band. The colour is set by
+   the view, from the group, so that with three groups on screen there is no
+   question which one a plus belongs to. */
+.inv-group-edge {
+    -fx-padding: 2;
+}
+
+.inv-group-edge-button {
     -fx-text-fill: white;
+    -fx-opacity: 0.55;
+}
+
+.inv-band-group:hover .inv-group-edge-button {
+    -fx-opacity: 1;
+}
+
+.inv-group-edge-button:hover {
+    -fx-opacity: 1;
+    -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.5), 6, 0.4, 0, 0);
 }
 
 /* The strip a collapsed group folds into. It carries the name, because a folded
@@ -719,10 +750,44 @@
     -fx-opacity: 0.6;
 }
 
-/* A refusal, said beside the grid rather than in a dialog in front of it. */
-.hint-warning {
-    -fx-text-fill: #e0b25a;
-    -fx-font-weight: bold;
+/*
+ * A refusal, said over the bottom of the view rather than squeezed into the
+ * toolbar - where it arrived ellipsised, which is the one thing a message
+ * explaining a refusal must not be.
+ */
+.toast {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 10;
+    -fx-border-color: #e0b25a;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 12 14 12 12;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.55), 22, 0.2, 0, 6);
+}
+
+.toast-marker {
+    -fx-background-color: #e0b25a;
+    -fx-background-radius: 2;
+    -fx-min-width: 3;
+    -fx-min-height: 34;
+    -fx-max-width: 3;
+}
+
+.toast-text {
+    -fx-text-fill: -fx-text-0;
+    -fx-font-size: 12.5px;
+}
+
+.toast-close {
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 15px;
+    -fx-min-width: 18;
+    -fx-alignment: center;
+}
+
+.toast-close:hover {
+    -fx-text-fill: -fx-text-0;
 }
 
 /* ------------------------------------------------------- settings window */

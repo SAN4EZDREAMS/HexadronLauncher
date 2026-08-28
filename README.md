@@ -483,10 +483,14 @@ Clicking the plate folds the band into one strip and folds the list with it -
 which is what owning rows buys, and why the control did nothing in the version
 where membership was a property of the instance instead.
 
-A group's own two row items are on its right-click menu rather than on the grid's
-edges, because "one more row in this group" is a different thing from "one more
-row in the table". Deleting a group deletes and moves nothing: its rows simply
-stop belonging to it.
+A group has its own `+` and `-` at the right end of its band, in the group's own
+colour, and the same two items on its right-click menu. They are separate from
+the grid's edge strips because "one more row in this group" is a different thing
+from "one more row in the table", and they are coloured because with three groups
+on screen a plain plus does not say which group it belongs to.
+
+Deleting a group deletes and moves nothing: its rows simply stop belonging to
+it.
 
 The same moves are on the right-click menu as well, because a drag needs both
 ends visible at once and a keyboard has no drag.
@@ -506,16 +510,25 @@ right of the last column and one under the last row, each with a `+` and a `-`,
 faint until the pointer is in the grid. The same two numbers are in the settings
 window for anybody who would rather type them.
 
-Removing an edge that still has instances behind it moves them into free cells
-and keeps them - into a free cell of the same group first, so that resizing the
-table does not quietly move an instance out of its group. When there are not
-enough free cells it does nothing and says so, beside the grid rather than in a
-dialog: the answer to "remove this row" is never to drop an instance off the end
-of it.
+Removing a **column** takes a cell off every row, so it moves the instances that
+were in it - and only ever into a free cell of the same group. A change to the
+shape of the table is not allowed to change what anything belongs to, so when the
+group has no free cell the column stays and the launcher says why. That is
+stricter than finding the instance a cell somewhere else, and it has to be: the
+looser version quietly moved an instance out of its group, which looked like the
+group had lost it.
 
-Removing a row is a change to the table and never to the groups, so a row that is
-the last one its group has will not go either. Deleting a group is its own action
-and stays that way.
+Removing a **row** moves nothing at all. The `-` under the grid takes away the
+last row that is empty and belongs to no group, wherever in the grid that row is -
+so a group sitting at the bottom does not make the button refuse while an empty
+row above it is doing nothing. It refuses only when every row is either in a group
+or has instances in it, and then the two things to do about that - empty a row, or
+take a row off a group - are both deliberate acts with their own controls.
+
+A refusal appears as a panel over the bottom of the view, with room for the whole
+sentence, and goes away by itself or when clicked. It is also written to the log.
+It is not a dialog: these come from clicking a small button on the grid's edge,
+and a modal in front of that is a modal in the way of the next click.
 
 The one thing that grows by itself is a grid with no room for a *new* instance:
 it gets another row, because an instance that exists and cannot be seen cannot be

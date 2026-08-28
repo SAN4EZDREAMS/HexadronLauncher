@@ -188,6 +188,7 @@ public final class InventoryView {
             }
             row.getChildren().add(lines);
         }
+        row.getChildren().add(groupEdge(band, height));
 
         if (band.group() != null) {
             // derive() rather than an alpha: the band sits over the window
@@ -493,11 +494,11 @@ public final class InventoryView {
     }
 
     /**
-     * The strip under the last row.
+     * The strip under the grid.
      *
-     * <p>Removing a row is a change to the table and never to the groups, so the
-     * last row of a group is refused with a reason rather than taking the group
-     * down with it.
+     * <p>Removing a row here is a change to the table and never to the groups,
+     * so it takes the last row that is empty and in no group. A row belonging to
+     * a group is added and removed from that group's own buttons instead.
      */
     private Node rowEdge() {
         HBox edge = new HBox(6,
@@ -509,13 +510,11 @@ public final class InventoryView {
                     host.layoutChanged();
                 }),
                 edgeButton("−", "grid.removeRow", () -> {
-                    ProfileLayout layout = host.layout();
-                    int last = layout.rows() - 1;
-                    boolean lastOfGroup = layout.rowGroup(last)
-                            .map(group -> layout.rowsOf(group.id()).size() <= 1)
-                            .orElse(false);
-                    if (!layout.removeRow()) {
-                        host.hint(I18n.t(lastOfGroup ? "grid.lastGroupRow" : "grid.noRoom"));
+                    // The last row that is empty and in nobody's group, wherever
+                    // it is: a group sitting at the bottom must not make the
+                    // button refuse while an empty row above it does nothing.
+                    if (!host.layout().removeLastEmptyRow()) {
+                        host.hint(I18n.t("grid.noEmptyRow"));
                         return;
                     }
                     host.layoutChanged();
@@ -526,6 +525,73 @@ public final class InventoryView {
         edge.setPrefHeight(EDGE);
         edge.setMaxHeight(EDGE);
         return edge;
+    }
+
+    /**
+     * A group's own two row buttons, at the right end of its band.
+     *
+     * <p>The table's strips change the size of the table; these change the size
+     * of one group, and the two are different enough that one pair of buttons
+     * cannot mean both. They are in the group's own colour so that with three
+     * groups on screen there is no question which one a plus belongs to.
+     *
+     * <p>Every band reserves the same width, empty for rows in no group, so that
+     * the table's own column strip stays in one place instead of jumping left
+     * and right as the bands change.
+     */
+    private Node groupEdge(ProfileLayout.Band band, double height) {
+        VBox edge = new VBox(4);
+        edge.setAlignment(Pos.CENTER);
+        edge.setMinSize(EDGE, height);
+        edge.setPrefSize(EDGE, height);
+        edge.setMaxSize(EDGE, height);
+
+        ProfileLayout.Group group = band.group();
+        if (group == null || band.isCollapsed()) {
+            // Nothing to add a row to while it is folded, and nothing at all for
+            // rows that are in no group.
+            edge.getStyleClass().add("inv-plate-empty");
+            return edge;
+        }
+
+        edge.getStyleClass().add("inv-group-edge");
+        edge.getChildren().addAll(
+                groupButton("+", "groups.addRow", group, () -> {
+                    if (!host.layout().addRowToGroup(group.id())) {
+                        host.hint(I18n.t("grid.atMaximum"));
+                        return;
+                    }
+                    host.layoutChanged();
+                }),
+                groupButton("−", "groups.removeRow", group, () -> {
+                    ProfileLayout layout = host.layout();
+                    boolean onlyRow = layout.rowsOf(group.id()).size() <= 1;
+                    if (!layout.removeRowFromGroup(group.id())) {
+                        host.hint(I18n.t(onlyRow ? "grid.lastGroupRow" : "grid.noRoomInGroup"));
+                        return;
+                    }
+                    host.layoutChanged();
+                }));
+        return edge;
+    }
+
+    private Node groupButton(String glyph, String tooltipKey,
+                             ProfileLayout.Group group, Runnable action) {
+        Label button = new Label(glyph);
+        button.getStyleClass().addAll("inv-edge-button", "inv-group-edge-button");
+        button.setMinSize(18, 18);
+        button.setPrefSize(18, 18);
+        button.setAlignment(Pos.CENTER);
+        button.setStyle("-fx-background-color: " + group.color() + ";"
+                + " -fx-border-color: derive(" + group.color() + ", 25%);");
+        Tooltip tooltip = new Tooltip(I18n.t(tooltipKey) + "  ·  " + group.name());
+        tooltip.setShowDelay(Duration.millis(200));
+        Tooltip.install(button, tooltip);
+        button.setOnMouseClicked(event -> {
+            action.run();
+            event.consume();
+        });
+        return button;
     }
 
     private Node edgeButton(String glyph, String tooltipKey, Runnable action) {

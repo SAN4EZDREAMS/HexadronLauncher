@@ -176,6 +176,22 @@ public final class MainWindow implements ProfileHost {
     private final Label gridTitle = new Label();
     private final Label gridHint = new Label();
 
+    /**
+     * A refusal, said over the bottom of whichever view is showing.
+     *
+     * <p>It was a label in the grid's toolbar, sharing a row with five buttons,
+     * which meant the one message worth reading was the one thing on screen with
+     * no room to be read - it arrived ellipsised. A panel over the content area
+     * has the width for a whole sentence, wraps, and is in front of the thing the
+     * message is about rather than off in a corner.
+     *
+     * <p>Not a dialog: these come from clicking a small button on the grid's
+     * edge, and a modal in front of that is a modal in the way of the next click.
+     */
+    private final HBox toast = new HBox(10);
+    private final Label toastText = new Label();
+    private javafx.animation.PauseTransition toastTimer;
+
     private final Label brandLabel = new Label();
     private final Label instancesTitle = new Label();
     private final Label accountTitle = new Label();
@@ -289,7 +305,7 @@ public final class MainWindow implements ProfileHost {
         inventoryPanel.setVisible(false);
         inventoryPanel.setManaged(false);
 
-        content.getChildren().setAll(upper, inventoryPanel);
+        content.getChildren().setAll(upper, inventoryPanel, buildToast());
         // Clipped, because the grid is slid in from above its own top edge, and
         // an unclipped child in JavaFX paints outside its parent quite happily -
         // which during the animation means over the title bar.
@@ -444,6 +460,33 @@ public final class MainWindow implements ProfileHost {
         return bar;
     }
 
+    private HBox buildToast() {
+        toastText.setWrapText(true);
+        toastText.setMaxWidth(620);
+        toastText.setMinHeight(Region.USE_PREF_SIZE);
+        toastText.getStyleClass().add("toast-text");
+
+        Region marker = new Region();
+        marker.getStyleClass().add("toast-marker");
+
+        Label close = new Label("×");
+        close.getStyleClass().add("toast-close");
+        javafx.scene.control.Tooltip.install(close,
+                new javafx.scene.control.Tooltip(I18n.t("toast.dismiss")));
+
+        toast.getChildren().setAll(marker, toastText, close);
+        toast.getStyleClass().add("toast");
+        toast.setAlignment(Pos.CENTER_LEFT);
+        toast.setMaxWidth(Region.USE_PREF_SIZE);
+        toast.setMaxHeight(Region.USE_PREF_SIZE);
+        toast.setVisible(false);
+        toast.setManaged(false);
+        toast.setOnMouseClicked(event -> dismissToast());
+        StackPane.setAlignment(toast, Pos.BOTTOM_CENTER);
+        StackPane.setMargin(toast, new Insets(0, 24, 22, 24));
+        return toast;
+    }
+
     private void toggleMode() {
         setMode(layout().mode().other(), true);
     }
@@ -563,31 +606,53 @@ public final class MainWindow implements ProfileHost {
      * of that is a dialog in the way of the next click. It also goes to the log,
      * which is where anybody asking why will be sent.
      */
+    /**
+     * Shows a message over the bottom of the content area for a few seconds.
+     *
+     * <p>Nine seconds, because these sentences say what to do about the refusal
+     * as well as what it was, and five is not long enough to read one and act on
+     * it. A click dismisses it sooner, and the log keeps it afterwards.
+     */
     @Override
     public void hint(String message) {
         if (message == null || message.isBlank()) {
             return;
         }
-        gridHint.setText(message);
-        if (!gridHint.getStyleClass().contains("hint-warning")) {
-            gridHint.getStyleClass().add("hint-warning");
-        }
+        toastText.setText(message);
         progress.log(message);
-        if (hintTimer != null) {
-            hintTimer.stop();
+
+        toast.setManaged(true);
+        toast.setVisible(true);
+        FadeTransition in = new FadeTransition(Duration.millis(160), toast);
+        in.setFromValue(toast.getOpacity() < 1 ? 0 : 1);
+        in.setToValue(1);
+        in.play();
+
+        if (toastTimer != null) {
+            toastTimer.stop();
         }
-        hintTimer = new javafx.animation.PauseTransition(Duration.seconds(5));
-        hintTimer.setOnFinished(event -> clearHint());
-        hintTimer.play();
+        toastTimer = new javafx.animation.PauseTransition(Duration.seconds(9));
+        toastTimer.setOnFinished(event -> dismissToast());
+        toastTimer.play();
     }
 
-    private void clearHint() {
-        gridHint.getStyleClass().remove("hint-warning");
-        gridHint.setText(I18n.t("inventory.hint"));
+    private void dismissToast() {
+        if (toastTimer != null) {
+            toastTimer.stop();
+            toastTimer = null;
+        }
+        if (!toast.isVisible()) {
+            return;
+        }
+        FadeTransition out = new FadeTransition(Duration.millis(160), toast);
+        out.setFromValue(toast.getOpacity());
+        out.setToValue(0);
+        out.setOnFinished(event -> {
+            toast.setVisible(false);
+            toast.setManaged(false);
+        });
+        out.play();
     }
-
-    /** Running countdown on a hint, so a second hint replaces the first cleanly. */
-    private javafx.animation.PauseTransition hintTimer;
 
     // ---------------------------------------------------------------- detail
 
@@ -843,7 +908,7 @@ public final class MainWindow implements ProfileHost {
         settingsButton.setText(I18n.t("settings.open"));
         gridSettingsButton.setText(I18n.t("settings.open"));
         gridTitle.setText(I18n.t("ui.mode.grid"));
-        clearHint();
+        gridHint.setText(I18n.t("inventory.hint"));
         gridSearchField.setPromptText(I18n.t("search.prompt"));
         applyModeTexts();
 

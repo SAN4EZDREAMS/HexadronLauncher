@@ -1282,6 +1282,37 @@ public final class SelfCheck {
         check("everything else stayed put", cellUnchanged(narrow, id.get("beta"), pinned));
         check("every cell is inside the grid", allInside(narrow));
 
+        // A resize may never move a profile out of its group. When the group
+        // has no free cell for the one being displaced, the column stays.
+        ProfileLayout strict = new ProfileLayout();
+        List<Profile> eleven = new ArrayList<>();
+        for (int i = 0; i < 11; i++) {
+            eleven.add(Profile.create("strict" + i, "26.2", LoaderType.VANILLA));
+        }
+        strict.reconcile(eleven);
+        ProfileLayout.Group packed = strict.createGroup("Packed");
+        for (int i = 0; i < 9; i++) {
+            strict.join(eleven.get(i).id(), packed.id());
+        }
+        check("the group is exactly full",
+                strict.membersOf(packed.id()).size() == strict.columns()
+                        && strict.rowsOf(packed.id()).size() == 1);
+        String edgeProfile = strict.at(strict.rowsOf(packed.id()).get(0),
+                strict.columns() - 1).orElseThrow();
+        check("a full group refuses to lose a column", !strict.removeColumn());
+        check("the refusal moved nobody",
+                strict.groupOf(edgeProfile).orElseThrow().id().equals(packed.id())
+                        && strict.cellOf(edgeProfile).orElseThrow()[1]
+                                == strict.columns() - 1);
+        check("nobody was pushed out of the group",
+                strict.membersOf(packed.id()).size() == 9);
+        check("giving the group a row makes room", strict.addRowToGroup(packed.id()));
+        check("and then the column can go", strict.removeColumn());
+        check("the displaced profile is still in its group",
+                strict.groupOf(edgeProfile).orElseThrow().id().equals(packed.id()));
+        check("and everybody is still placed", strict.occupied() == 11);
+        check("inside the grid", allInside(strict));
+
         ProfileLayout full = new ProfileLayout();
         List<Profile> nine = new ArrayList<>();
         for (int i = 0; i < 9; i++) {
@@ -1297,6 +1328,31 @@ public final class SelfCheck {
         check("still nine profiles", full.occupied() == 9);
         check("all of them inside the grid", allInside(full));
         check("no two share a cell", noSharedCells(full));
+
+        // -------------------------------------------------- the table's own minus
+        //
+        // It takes the last row that is empty and in no group, wherever that is.
+        // A group at the bottom must not make the button refuse while an empty
+        // row above it is doing nothing.
+        ProfileLayout bottom = new ProfileLayout();
+        bottom.reconcile(profiles);
+        ProfileLayout.Group tail = bottom.createGroup("Tail");
+        check("the empty row below the group goes first", bottom.removeLastEmptyRow());
+        check("the group is now the last row",
+                bottom.rowsOf(tail.id()).get(0) == bottom.rows() - 1);
+        check("an empty row above the group", bottom.insertRowAt(1, null));
+        check("the button skips the group and takes that one",
+                bottom.removeLastEmptyRow());
+        check("the group survived", bottom.group(tail.id()).isPresent());
+        check("and is still the last row",
+                bottom.rowsOf(tail.id()).get(0) == bottom.rows() - 1);
+        check("nothing was moved", bottom.occupied() == 4);
+        check("with no empty ungrouped row left it refuses",
+                !bottom.removeLastEmptyRow());
+        check("and the grid is unchanged", bottom.rows() == 2);
+        check("the group is untouched by the refusal",
+                bottom.group(tail.id()).isPresent()
+                        && bottom.rowsOf(tail.id()).size() == 1);
 
         // -------------------------------------------------- moving a group
         ProfileLayout moved = new ProfileLayout();
@@ -1652,7 +1708,8 @@ public final class SelfCheck {
                 "settings.handshake", "settings.handshake.note", "settings.fileStore",
                 "settings.fileStore.note", "settings.dataFolder",
                 "settings.dataFolder.note", "groups.addRow", "groups.removeRow",
-                "groups.folded", "grid.lastGroupRow");
+                "groups.folded", "grid.lastGroupRow", "grid.noEmptyRow",
+                "grid.noRoomInGroup", "toast.dismiss");
         for (Language language : Language.all()) {
             I18n.use(language);
             List<String> unresolved = mustResolve.stream()
