@@ -1371,6 +1371,87 @@ public final class SelfCheck {
         check("moving a group lost nobody", moved.occupied() == 4);
         check("every cell still inside", allInside(moved));
 
+        // -------------------------------------------------- a group on one row
+        //
+        // "New group here" points at a row rather than taking the first free one,
+        // and that row may already have instances in it. Both answers to that
+        // have to work, and neither may lose anybody.
+        ProfileLayout here = new ProfileLayout();
+        here.reconcile(profiles);
+        check("the row that was pointed at is not empty", here.occupantsInRow(0) == 4);
+
+        ProfileLayout takes = ProfileLayout.fromJson(Json.parse(here.toJson().toString()));
+        takes.reconcile(profiles);
+        ProfileLayout.Group taken = takes.claimRow(0, "Takes them", true);
+        check("a group can take the row it was asked for", taken != null);
+        check("it owns that row", takes.rowsOf(taken.id()).equals(List.of(0)));
+        check("and the instances that were in it are its members",
+                takes.membersOf(taken.id()).size() == 4);
+        check("nobody moved", takes.occupantsInRow(0) == 4);
+
+        ProfileLayout evicts = ProfileLayout.fromJson(Json.parse(here.toJson().toString()));
+        evicts.reconcile(profiles);
+        ProfileLayout.Group emptied = evicts.claimRow(0, "Moves them out", false);
+        check("or the row can be cleared for it", emptied != null);
+        check("the group starts empty", evicts.membersOf(emptied.id()).isEmpty());
+        check("and everybody is still placed", evicts.occupied() == 4);
+        check("outside every group",
+                evicts.sequence().stream().allMatch(entry -> evicts.groupOf(entry).isEmpty()));
+        check("inside the grid", allInside(evicts));
+        check("no two in one cell", noSharedCells(evicts));
+
+        // Nowhere to put them means another row, not a refusal and not a group
+        // that swallowed them anyway.
+        ProfileLayout cramped = new ProfileLayout();
+        List<Profile> twentyseven = new ArrayList<>();
+        for (int i = 0; i < 27; i++) {
+            twentyseven.add(Profile.create("cramped" + i, "26.2", LoaderType.VANILLA));
+        }
+        cramped.reconcile(twentyseven);
+        check("the grid is exactly full", cramped.freeCells() == 0);
+        int wasRows = cramped.rows();
+        ProfileLayout.Group grew = cramped.claimRow(0, "Needs room", false);
+        check("the grid grew to make room", grew != null && cramped.rows() > wasRows);
+        check("everybody is still placed", cramped.occupied() == 27);
+        check("and none of them landed in the new group",
+                cramped.membersOf(grew.id()).isEmpty());
+        check("all inside the grid", allInside(cramped));
+        check("no two in one cell", noSharedCells(cramped));
+
+        ProfileLayout twice = new ProfileLayout();
+        twice.reconcile(profiles);
+        ProfileLayout.Group first = twice.claimRow(1, "First", true);
+        check("a row can be claimed", first != null);
+        check("but not twice", twice.claimRow(1, "Second", true) == null);
+        check("and the first group is untouched",
+                twice.rowsOf(first.id()).equals(List.of(1)) && twice.groups().size() == 1);
+
+        // -------------------------------------------------- dragging a band
+        ProfileLayout dragged = new ProfileLayout();
+        dragged.reconcile(profiles);
+        ProfileLayout.Group band = dragged.createGroup("Band");
+        dragged.join(id.get("Zeta"), band.id());
+        dragged.addRowToGroup(band.id());
+        List<Integer> startedAt = dragged.rowsOf(band.id());
+        check("the band can be moved above the first row",
+                dragged.moveBandBeside(band.id(), 0, false));
+        check("it is now at the top", dragged.rowsOf(band.id()).get(0) == 0);
+        check("its rows stayed together",
+                dragged.rowsOf(band.id()).get(1) - dragged.rowsOf(band.id()).get(0) == 1);
+        check("its member came with it",
+                dragged.groupOf(id.get("Zeta")).orElseThrow().id().equals(band.id()));
+        check("nobody was lost " + startedAt, dragged.occupied() == 4);
+        check("a band cannot be dropped on itself",
+                !dragged.moveBandBeside(band.id(), dragged.rowsOf(band.id()).get(0), true));
+        check("moving the top band up again does nothing",
+                !dragged.moveGroupBy(band.id(), true));
+        check("but it can go down", dragged.moveGroupBy(band.id(), false));
+        check("its rows are still together",
+                dragged.rowsOf(band.id()).get(1) - dragged.rowsOf(band.id()).get(0) == 1);
+        check("and it is no longer at the top", dragged.rowsOf(band.id()).get(0) > 0);
+        check("still four profiles", dragged.occupied() == 4);
+        check("all inside", allInside(dragged));
+
         // -------------------------------------------------- sorting
         ProfileLayout tidy = new ProfileLayout();
         tidy.reconcile(profiles);
@@ -1709,7 +1790,12 @@ public final class SelfCheck {
                 "settings.fileStore.note", "settings.dataFolder",
                 "settings.dataFolder.note", "groups.addRow", "groups.removeRow",
                 "groups.folded", "grid.lastGroupRow", "grid.noEmptyRow",
-                "grid.noRoomInGroup", "toast.dismiss");
+                "grid.noRoomInGroup", "toast.dismiss", "groups.plate.hint",
+                "groups.moveUp", "groups.moveDown", "groups.moveFailed",
+                "grid.newGroupHere", "grid.rowInGroup",
+                "grid.newGroupHere.occupants.header",
+                "grid.newGroupHere.occupants.body", "grid.newGroupHere.take",
+                "grid.newGroupHere.move", "grid.newGroupHere.failed");
         for (Language language : Language.all()) {
             I18n.use(language);
             List<String> unresolved = mustResolve.stream()

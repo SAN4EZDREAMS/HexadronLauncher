@@ -7,16 +7,18 @@ import com.hexadron.launcher.profile.ProfileLayout;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
@@ -47,18 +49,24 @@ import java.util.Set;
  * profile into one of those cells is how it joins the group and dragging it out
  * is how it leaves, because the row it sits in is the only record of membership.
  *
- * <p>Clicking the plate collapses the band to a single strip that still carries
- * the name, and the list folds with it. That is what a group owning rows buys:
- * there is something to close over.
+ * <p>The plate is also the handle for the band. Dragging it moves the whole
+ * group above or below another band, and clicking it folds the band to a single
+ * strip that still carries the name.
  *
  * <h2>Growing and shrinking it</h2>
  *
- * <p>The grid never reflows, so its size is something the user sets, from the
- * strips on the edges where the change appears - faint until the pointer is in
- * the grid - or from the settings window. Removing an edge moves the profiles
- * behind it into free cells and keeps them; when there are none it does nothing
- * and says so. A row that is the last one its group has will not go either: that
- * would delete a group as a side effect of resizing a table.
+ * <p>The grid never reflows, so its size is something the user sets. The two
+ * strips are outside the table on the axis each one changes - columns above it,
+ * at the right where a column appears, rows below it - and faint until the
+ * pointer is in the grid. They used to be a column down the right-hand side,
+ * level with whichever band happened to be beside them, which read as belonging
+ * to that group.
+ *
+ * <p>Removing an edge moves the profiles behind it into free cells of their own
+ * group and keeps them; when there is no room it does nothing and says so. The
+ * row strip only ever takes a row that is empty and in no group: a group's rows
+ * are added and removed from the group's own two buttons, at the right end of
+ * its band and in its own colour.
  */
 public final class InventoryView {
 
@@ -79,10 +87,16 @@ public final class InventoryView {
 
     private final ProfileHost host;
     private final VBox bands = new VBox(0);
+    private final HBox columnStrip = new HBox(6);
+    private final HBox rowStrip = new HBox(6);
     private final ScrollPane scroll = new ScrollPane();
     private final Label empty = new Label();
 
     private Region marked;
+
+    /** The band showing a drop line, and the inline style to put back on it. */
+    private HBox markedBand;
+    private String markedBandStyle;
 
     /**
      * The cell of each profile on screen, for moving the selection highlight.
@@ -100,17 +114,17 @@ public final class InventoryView {
         bands.setFillWidth(false);
         bands.setAlignment(Pos.TOP_LEFT);
 
-        HBox withColumnEdge = new HBox(0, bands, columnEdge());
-        withColumnEdge.setAlignment(Pos.TOP_LEFT);
+        buildColumnStrip();
+        buildRowStrip();
 
-        VBox frame = new VBox(0, withColumnEdge, rowEdge());
+        VBox frame = new VBox(0, columnStrip, bands, rowStrip);
         frame.getStyleClass().add("inv-frame");
         frame.setFillWidth(false);
         frame.setAlignment(Pos.TOP_LEFT);
 
         StackPane centred = new StackPane(frame);
         centred.setAlignment(Pos.TOP_CENTER);
-        centred.setPadding(new Insets(14, 14, 24, 14));
+        centred.setPadding(new Insets(6, 14, 24, 14));
 
         scroll.setContent(centred);
         scroll.setFitToWidth(true);
@@ -129,7 +143,7 @@ public final class InventoryView {
 
     /** Rebuilds the whole grid from the arrangement. */
     public void rebuild() {
-        marked = null;
+        clearMark();
         cellsByProfile.clear();
         bands.getChildren().clear();
 
@@ -139,6 +153,16 @@ public final class InventoryView {
         for (ProfileLayout.Band band : layout.bands()) {
             bands.getChildren().add(band(band, visible));
         }
+
+        // Both strips are as wide as a band, so the column one can sit over the
+        // right-hand edge it changes and the row one under the left.
+        double width = PLATE + CELL * layout.columns() + EDGE;
+        columnStrip.setMinWidth(width);
+        columnStrip.setPrefWidth(width);
+        columnStrip.setMaxWidth(width);
+        rowStrip.setMinWidth(width);
+        rowStrip.setPrefWidth(width);
+        rowStrip.setMaxWidth(width);
 
         if (layout.occupied() == 0) {
             empty.setText(I18n.t("instance.none.body"));
@@ -190,15 +214,63 @@ public final class InventoryView {
         }
         row.getChildren().add(groupEdge(band, height));
 
+        String base = "";
         if (band.group() != null) {
             // derive() rather than an alpha: the band sits over the window
             // background, and a translucent tint would pick up whatever happened
             // to be behind it - including the band above.
             row.getStyleClass().add("inv-band-group");
-            row.setStyle("-fx-background-color: derive(" + band.group().color() + ", -74%);"
-                    + " -fx-border-color: derive(" + band.group().color() + ", -40%);");
+            base = "-fx-background-color: derive(" + band.group().color() + ", -74%);"
+                    + " -fx-border-color: derive(" + band.group().color() + ", -40%);";
+            row.setStyle(base);
         }
+        row.getProperties().put("hexadron-base-style", base);
+
+        bandDropTarget(row, band);
         return row;
+    }
+
+    /**
+     * A band as a place to drop a group.
+     *
+     * <p>The indicator is written into the band's inline style rather than added
+     * as a style class, because the band already carries an inline border colour
+     * for its group tint - and in JavaFX an inline style beats the stylesheet, so
+     * a class setting the accent border would never have shown.
+     */
+    private void bandDropTarget(HBox row, ProfileLayout.Band band) {
+        row.setOnDragOver(event -> {
+            String payload = ProfileDrag.key(event.getDragboard());
+            if (!ProfileDrag.isGroup(payload) || ownsBand(band, ProfileDrag.id(payload))) {
+                return;
+            }
+            event.acceptTransferModes(TransferMode.MOVE);
+            markBand(row, event.getY() > row.getHeight() / 2);
+            event.consume();
+        });
+        row.setOnDragExited(event -> {
+            if (markedBand == row) {
+                clearMark();
+            }
+        });
+        row.setOnDragDropped(event -> {
+            String payload = ProfileDrag.key(event.getDragboard());
+            boolean after = event.getY() > row.getHeight() / 2;
+            clearMark();
+            if (!ProfileDrag.isGroup(payload) || band.rows().isEmpty()) {
+                return;
+            }
+            if (host.layout().moveBandBeside(ProfileDrag.id(payload),
+                    band.rows().get(after ? band.rows().size() - 1 : 0), after)) {
+                event.setDropCompleted(true);
+                host.layoutChanged();
+            }
+            event.consume();
+        });
+    }
+
+    private static boolean ownsBand(ProfileLayout.Band band, String groupId) {
+        return band.group() != null && band.group().id().equals(groupId);
     }
 
     /**
@@ -208,9 +280,9 @@ public final class InventoryView {
      * in none - the same width, so that grouped and ungrouped rows line up and
      * the grid still reads as one grid.
      *
-     * <p>The name is written along the plate rather than above the band, because
-     * a heading over a band would cost a row of height for one line of text, and
-     * the plate is already there.
+     * <p>It does three things, which is what makes it the band's handle: it says
+     * which group this is, a click folds the band, and a drag moves the whole
+     * group past another band.
      */
     private Node plate(ProfileLayout.Band band, double height) {
         StackPane plate = new StackPane();
@@ -240,7 +312,8 @@ public final class InventoryView {
         }
 
         Tooltip tooltip = new Tooltip(group.name() + "  ·  "
-                + I18n.t("groups.count", band.memberCount()));
+                + I18n.t("groups.count", band.memberCount())
+                + "\n" + I18n.t("groups.plate.hint"));
         tooltip.setShowDelay(Duration.millis(200));
         Tooltip.install(plate, tooltip);
 
@@ -252,14 +325,31 @@ public final class InventoryView {
         });
         ProfileMenu.installForGroup(plate, host, group);
 
+        plate.setOnDragDetected(event -> {
+            Dragboard board = plate.startDragAndDrop(TransferMode.MOVE);
+            ClipboardContent payload = new ClipboardContent();
+            payload.putString(ProfileDrag.group(group.id()));
+            board.setContent(payload);
+            board.setDragView(plate.snapshot(null, null), event.getX(), event.getY());
+            plate.getStyleClass().add("drag-source");
+            event.consume();
+        });
+        plate.setOnDragDone(event -> {
+            plate.getStyleClass().remove("drag-source");
+            clearMark();
+            event.consume();
+        });
+
         // A drop on the plate is the shortest way to say "into this group",
-        // wherever there is room in it.
+        // wherever there is room in it. A group dropped here is not for the plate
+        // to handle - it is left to bubble up to the band.
         plate.setOnDragOver(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
-            if (ProfileDrag.isProfile(payload)) {
-                event.acceptTransferModes(TransferMode.MOVE);
-                mark(plate, "drop-into");
+            if (!ProfileDrag.isProfile(payload)) {
+                return;
             }
+            event.acceptTransferModes(TransferMode.MOVE);
+            mark(plate, "drop-into");
             event.consume();
         });
         plate.setOnDragExited(event -> {
@@ -269,15 +359,16 @@ public final class InventoryView {
         });
         plate.setOnDragDropped(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
+            if (!ProfileDrag.isProfile(payload)) {
+                return;
+            }
             clearMark();
-            if (ProfileDrag.isProfile(payload)) {
-                if (host.layout().join(ProfileDrag.id(payload), group.id())) {
-                    host.layout().setCollapsed(group.id(), false);
-                    event.setDropCompleted(true);
-                    host.layoutChanged();
-                } else {
-                    host.hint(I18n.t("grid.noRoom"));
-                }
+            if (host.layout().join(ProfileDrag.id(payload), group.id())) {
+                host.layout().setCollapsed(group.id(), false);
+                event.setDropCompleted(true);
+                host.layoutChanged();
+            } else {
+                host.hint(I18n.t("grid.noRoom"));
             }
             event.consume();
         });
@@ -385,13 +476,16 @@ public final class InventoryView {
             event.consume();
         });
 
-        // An occupied cell accepts a drop as an exchange. No before-or-after: the
-        // two profiles swap places, so which half of the cell the pointer is over
-        // does not change the outcome and must not pretend to.
+        // An occupied cell accepts a profile as an exchange. No before-or-after:
+        // the two swap places, so which half of the cell the pointer is over does
+        // not change the outcome and must not pretend to. A group is left
+        // unconsumed, for the band underneath to deal with.
         cell.setOnDragOver(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
-            if (!ProfileDrag.isProfile(payload)
-                    || profile.id().equals(ProfileDrag.id(payload))) {
+            if (!ProfileDrag.isProfile(payload)) {
+                return;
+            }
+            if (profile.id().equals(ProfileDrag.id(payload))) {
                 event.consume();
                 return;
             }
@@ -403,17 +497,17 @@ public final class InventoryView {
             if (marked == cell) {
                 clearMark();
             }
-            event.consume();
         });
         cell.setOnDragDropped(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
-            clearMark();
-            if (ProfileDrag.isProfile(payload)) {
-                host.layout().cellOf(profile.id()).ifPresent(place ->
-                        host.layout().placeAt(ProfileDrag.id(payload), place[0], place[1]));
-                event.setDropCompleted(true);
-                host.layoutChanged();
+            if (!ProfileDrag.isProfile(payload)) {
+                return;
             }
+            clearMark();
+            host.layout().cellOf(profile.id()).ifPresent(place ->
+                    host.layout().placeAt(ProfileDrag.id(payload), place[0], place[1]));
+            event.setDropCompleted(true);
+            host.layoutChanged();
             event.consume();
         });
         return cell;
@@ -425,51 +519,79 @@ public final class InventoryView {
      * <p>A place, not padding. Dropping here puts the profile in this exact cell
      * and leaves it there - and, since the row decides the group, this is also
      * how a profile joins or leaves one.
+     *
+     * <p>It has a menu of its own, because the two things somebody wants at an
+     * empty cell are a new instance and a group starting on that row, and neither
+     * has anywhere else to be asked for.
      */
     private Node emptyCell(int row, int column) {
         StackPane cell = new StackPane();
         cell.getStyleClass().addAll("inv-cell", "inv-cell-empty");
         fix(cell);
 
+        cell.setOnContextMenuRequested(event -> {
+            ContextMenu menu = emptyCellMenu(row);
+            menu.show(cell, event.getScreenX(), event.getScreenY());
+            Theme.apply(menu.getScene());
+            event.consume();
+        });
+
         cell.setOnDragOver(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
-            if (ProfileDrag.isProfile(payload)) {
-                event.acceptTransferModes(TransferMode.MOVE);
-                mark(cell, "drop-into");
+            if (!ProfileDrag.isProfile(payload)) {
+                return;
             }
+            event.acceptTransferModes(TransferMode.MOVE);
+            mark(cell, "drop-into");
             event.consume();
         });
         cell.setOnDragExited(event -> {
             if (marked == cell) {
                 clearMark();
             }
-            event.consume();
         });
         cell.setOnDragDropped(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
-            clearMark();
-            if (ProfileDrag.isProfile(payload)) {
-                host.layout().placeAt(ProfileDrag.id(payload), row, column);
-                event.setDropCompleted(true);
-                host.layoutChanged();
+            if (!ProfileDrag.isProfile(payload)) {
+                return;
             }
+            clearMark();
+            host.layout().placeAt(ProfileDrag.id(payload), row, column);
+            event.setDropCompleted(true);
+            host.layoutChanged();
             event.consume();
         });
         return cell;
     }
 
+    private ContextMenu emptyCellMenu(int row) {
+        ContextMenu menu = new ContextMenu();
+
+        MenuItem newProfile = new MenuItem(I18n.t("profiles.new"));
+        newProfile.setOnAction(event -> host.createProfile());
+
+        MenuItem newGroup = new MenuItem(I18n.t("grid.newGroupHere"));
+        newGroup.setOnAction(event -> host.createGroupInRow(row));
+        // A row that already belongs to a group cannot be taken by a second one,
+        // and saying so with a disabled item is clearer than an error afterwards.
+        newGroup.setDisable(host.layout().rowGroup(row).isPresent());
+
+        menu.getItems().addAll(newProfile, new SeparatorMenuItem(), newGroup);
+        return menu;
+    }
+
     // ---------------------------------------------------------------- the edges
 
     /**
-     * The strip to the right of the last column.
+     * The strip above the grid, at its right-hand end.
      *
-     * <p>On the edge it changes, because that is where the pointer already is
-     * when somebody wants another column, and a control that sits where its
-     * effect appears needs no label. Faint until the pointer is in the grid, so
-     * it is not four buttons competing with the instances.
+     * <p>Above the table and over the edge it changes. It was a column down the
+     * right-hand side, vertically centred, which put it level with whichever band
+     * happened to be beside it and next to that group's own two buttons - so the
+     * one pair that changes the whole table looked like it belonged to one group.
      */
-    private Node columnEdge() {
-        VBox edge = new VBox(6,
+    private void buildColumnStrip() {
+        columnStrip.getChildren().setAll(
                 edgeButton("+", "grid.addColumn", () -> {
                     if (!host.layout().addColumn()) {
                         host.hint(I18n.t("grid.atMaximum"));
@@ -484,24 +606,22 @@ public final class InventoryView {
                     }
                     host.layoutChanged();
                 }));
-        edge.getStyleClass().add("inv-edge");
-        edge.setAlignment(Pos.CENTER);
-        edge.setMinWidth(EDGE);
-        edge.setPrefWidth(EDGE);
-        edge.setMaxWidth(EDGE);
-        VBox.setVgrow(edge, Priority.NEVER);
-        return edge;
+        columnStrip.getStyleClass().add("inv-edge");
+        columnStrip.setAlignment(Pos.CENTER_RIGHT);
+        columnStrip.setMinHeight(EDGE);
+        columnStrip.setPrefHeight(EDGE);
+        columnStrip.setMaxHeight(EDGE);
     }
 
     /**
-     * The strip under the grid.
+     * The strip under the grid, at its left-hand end.
      *
-     * <p>Removing a row here is a change to the table and never to the groups,
-     * so it takes the last row that is empty and in no group. A row belonging to
-     * a group is added and removed from that group's own buttons instead.
+     * <p>Removing a row here is a change to the table and never to the groups, so
+     * it takes the last row that is empty and in no group. A row belonging to a
+     * group is added and removed from that group's own buttons instead.
      */
-    private Node rowEdge() {
-        HBox edge = new HBox(6,
+    private void buildRowStrip() {
+        rowStrip.getChildren().setAll(
                 edgeButton("+", "grid.addRow", () -> {
                     if (!host.layout().addRow()) {
                         host.hint(I18n.t("grid.atMaximum"));
@@ -510,21 +630,17 @@ public final class InventoryView {
                     host.layoutChanged();
                 }),
                 edgeButton("−", "grid.removeRow", () -> {
-                    // The last row that is empty and in nobody's group, wherever
-                    // it is: a group sitting at the bottom must not make the
-                    // button refuse while an empty row above it does nothing.
                     if (!host.layout().removeLastEmptyRow()) {
                         host.hint(I18n.t("grid.noEmptyRow"));
                         return;
                     }
                     host.layoutChanged();
                 }));
-        edge.getStyleClass().add("inv-edge");
-        edge.setAlignment(Pos.CENTER);
-        edge.setMinHeight(EDGE);
-        edge.setPrefHeight(EDGE);
-        edge.setMaxHeight(EDGE);
-        return edge;
+        rowStrip.getStyleClass().add("inv-edge");
+        rowStrip.setAlignment(Pos.CENTER_LEFT);
+        rowStrip.setMinHeight(EDGE);
+        rowStrip.setPrefHeight(EDGE);
+        rowStrip.setMaxHeight(EDGE);
     }
 
     /**
@@ -536,8 +652,8 @@ public final class InventoryView {
      * groups on screen there is no question which one a plus belongs to.
      *
      * <p>Every band reserves the same width, empty for rows in no group, so that
-     * the table's own column strip stays in one place instead of jumping left
-     * and right as the bands change.
+     * the table's own strips stay in one place instead of jumping left and right
+     * as the bands change.
      */
     private Node groupEdge(ProfileLayout.Band band, double height) {
         VBox edge = new VBox(4);
@@ -624,10 +740,28 @@ public final class InventoryView {
         marked = node;
     }
 
+    /** The accent line saying which side of this band the group will land on. */
+    private void markBand(HBox row, boolean after) {
+        clearMark();
+        Object base = row.getProperties().get("hexadron-base-style");
+        markedBandStyle = base == null ? "" : base.toString();
+        markedBand = row;
+        row.setStyle(markedBandStyle
+                + " -fx-border-color: " + (after
+                        ? "transparent transparent -fx-accent-1 transparent;"
+                        : "-fx-accent-1 transparent transparent transparent;")
+                + " -fx-border-width: " + (after ? "0 0 3 0;" : "3 0 0 0;"));
+    }
+
     private void clearMark() {
         if (marked != null) {
             marked.getStyleClass().removeAll("drop-into", "drop-swap");
             marked = null;
+        }
+        if (markedBand != null) {
+            markedBand.setStyle(markedBandStyle);
+            markedBand = null;
+            markedBandStyle = null;
         }
     }
 
@@ -648,10 +782,5 @@ public final class InventoryView {
             }
         }
         return null;
-    }
-
-    /** Kept so a caller can size a container to the grid without guessing. */
-    public static double gridWidth(int columns) {
-        return PLATE + CELL * columns + EDGE;
     }
 }

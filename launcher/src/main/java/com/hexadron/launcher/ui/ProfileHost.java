@@ -81,6 +81,19 @@ public interface ProfileHost {
     /** Asks for a name, makes a group, and puts {@code profile} in it when given one. */
     void createGroup(Profile profile);
 
+    /** Opens the editor for a brand new instance. */
+    void createProfile();
+
+    /**
+     * Makes a group that takes one particular row of the grid.
+     *
+     * <p>Separate from {@link #createGroup} because a row that was pointed at may
+     * already have instances in it, and the two answers to that - the group takes
+     * them, or they move out of its way - are the user's to give. The host asks;
+     * the layout does as it is told.
+     */
+    void createGroupInRow(int row);
+
     /**
      * Says something the user needs to read but must not be stopped by.
      *

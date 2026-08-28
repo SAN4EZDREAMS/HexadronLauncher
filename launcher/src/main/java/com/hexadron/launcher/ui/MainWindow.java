@@ -961,7 +961,8 @@ public final class MainWindow implements ProfileHost {
                 service.dirs());
     }
 
-    private void createProfile() {
+    @Override
+    public void createProfile() {
         ProfileDialog dialog = newDialog();
         dialog.show(stage, null).ifPresent(profile -> {
             try {
@@ -1712,6 +1713,63 @@ public final class MainWindow implements ProfileHost {
             if (profile != null) {
                 // Membership, not a move: the profile keeps the cell it is in.
                 layout().join(profile.id(), group.id());
+            }
+            layoutChanged();
+        });
+    }
+
+    /**
+     * Makes a group that takes the row the user pointed at.
+     *
+     * <p>Two questions, in the order they matter: what the group is called, and -
+     * only when that row already has instances in it - whether the group takes
+     * them or they move out of its way. Guessing either one is worse than asking:
+     * a group that swallowed three unrelated instances and a group that scattered
+     * them are both wrong half the time.
+     */
+    @Override
+    public void createGroupInRow(int row) {
+        ProfileLayout layout = layout();
+        if (layout.rowGroup(row).isPresent()) {
+            hint(I18n.t("grid.rowInGroup"));
+            return;
+        }
+
+        TextInputDialog dialog = new TextInputDialog(I18n.t("groups.new.default"));
+        dialog.initOwner(stage);
+        Theme.apply(dialog.getDialogPane());
+        dialog.setTitle(I18n.t("groups.new.title"));
+        dialog.setHeaderText(I18n.t("groups.new.header"));
+        dialog.setContentText(I18n.t("groups.new.body"));
+        dialog.showAndWait().ifPresent(name -> {
+            if (name == null || name.isBlank()) {
+                return;
+            }
+            boolean keepOccupants = true;
+            int occupants = layout.occupantsInRow(row);
+            if (occupants > 0) {
+                ButtonType take = new ButtonType(
+                        I18n.t("grid.newGroupHere.take"), ButtonBar.ButtonData.OTHER);
+                ButtonType moveOut = new ButtonType(
+                        I18n.t("grid.newGroupHere.move"), ButtonBar.ButtonData.OTHER);
+                ButtonType cancel = new ButtonType(
+                        I18n.t("action.cancel"), ButtonBar.ButtonData.CANCEL_CLOSE);
+                Alert ask = new Alert(Alert.AlertType.CONFIRMATION,
+                        I18n.t("grid.newGroupHere.occupants.body", occupants),
+                        take, moveOut, cancel);
+                ask.initOwner(stage);
+                Theme.apply(ask.getDialogPane());
+                ask.setHeaderText(I18n.t("grid.newGroupHere.occupants.header"));
+                ask.getDialogPane().setPrefWidth(620);
+                var answer = ask.showAndWait();
+                if (answer.isEmpty() || answer.get() == cancel) {
+                    return;
+                }
+                keepOccupants = answer.get() == take;
+            }
+            if (layout.claimRow(row, name.trim(), keepOccupants) == null) {
+                hint(I18n.t("grid.newGroupHere.failed"));
+                return;
             }
             layoutChanged();
         });

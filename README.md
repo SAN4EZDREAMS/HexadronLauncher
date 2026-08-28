@@ -483,9 +483,21 @@ tint across its rows with a coloured plate down the left carrying its name along
 it. The list used to indent its members and nothing more, which left the question
 the grid answers at a glance unanswered - where a group ends, and which of two
 adjacent groups a row belongs to.
-Clicking the plate folds the band into one strip and folds the list with it -
-which is what owning rows buys, and why the control did nothing in the version
-where membership was a property of the instance instead.
+The plate is also the band's handle: clicking it folds the band into one strip
+and folds the list with it - which is what owning rows buys, and why the control
+did nothing in the version where membership was a property of the instance
+instead - and dragging it moves the whole group above or below another band. The
+same two moves are on the group's menu, because a drag needs both ends on screen
+at once and is not available from a keyboard at all.
+
+A group can also be started on one particular row, from the right-click menu of
+any empty cell in it. If that row already has instances, the launcher asks which
+of the two things it should do rather than guessing: the group takes them, or
+they move out of its way into free cells that belong to no group - and the grid
+gets another row if there is nowhere to put them. A row is used to make that room
+and never a column, because a new row belongs to no group and every one of its
+cells is somewhere those instances may go, while a new column puts one cell
+inside each existing group as well.
 
 A group has its own `+` and `-` at the right end of its band, in the group's own
 colour, and the same two items on its right-click menu. They are separate from
@@ -509,9 +521,13 @@ the Play button belong to neither view. Which view was last used is remembered i
 
 The grid is a fixed field of rows and columns, nine by three to begin with, and
 it never reflows - so its size is something to set rather than something that
-happens. The controls are on the edges where the change appears: a strip to the
-right of the last column and one under the last row, each with a `+` and a `-`,
-faint until the pointer is in the grid. The same two numbers are in the settings
+happens. The controls are outside the table, on the axis each one changes: a strip above
+it at the right-hand end for columns, one below it at the left for rows, each with
+a `+` and a `-`, faint until the pointer is in the grid. The column pair used to
+be a column down the right-hand side, vertically centred - which put it level
+with whichever band happened to be beside it, next to that group's own two
+buttons, so the pair that changes the whole table looked like it belonged to one
+group. The same two numbers are in the settings
 window for anybody who would rather type them.
 
 Removing a **column** takes a cell off every row, so it moves the instances that

@@ -158,6 +158,24 @@ final class ProfileMenu {
                 }),
                 item(I18n.t("groups.rename"), () -> host.renameGroup(group)),
                 new SeparatorMenuItem(),
+                // The menu's way of doing what dragging the plate does. A drag
+                // needs both ends on screen at once, and is not available at all
+                // from a keyboard.
+                item(I18n.t("groups.moveUp"), () -> {
+                    if (!layout.moveGroupBy(group.id(), true)) {
+                        host.hint(I18n.t("groups.moveFailed"));
+                        return;
+                    }
+                    host.layoutChanged();
+                }),
+                item(I18n.t("groups.moveDown"), () -> {
+                    if (!layout.moveGroupBy(group.id(), false)) {
+                        host.hint(I18n.t("groups.moveFailed"));
+                        return;
+                    }
+                    host.layoutChanged();
+                }),
+                new SeparatorMenuItem(),
                 item(I18n.t("groups.addRow"), () -> {
                     if (!layout.addRowToGroup(group.id())) {
                         host.hint(I18n.t("grid.atMaximum"));

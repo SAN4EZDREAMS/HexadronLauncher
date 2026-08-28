@@ -707,6 +707,113 @@ public final class ProfileLayout {
         return group;
     }
 
+    /**
+     * Makes a group that takes one particular row - the row the user pointed at.
+     *
+     * <p>{@link #createGroup} takes the first free row, which is right for "make
+     * me a group" and wrong for "make a group here". A row that is pointed at may
+     * already have instances in it, and there are two honest answers to that, so
+     * the caller asks and passes the answer down rather than guessing.
+     *
+     * @param keepOccupants true when the instances already in that row are to
+     *                      become the group's members; false to move them out
+     *                      into free cells that belong to no group first
+     * @return the new group, or null when the row cannot be taken - it is already
+     *         in a group, or its occupants have nowhere to go
+     */
+    public Group claimRow(int row, String name, boolean keepOccupants) {
+        if (row < 0 || row >= rows || rowGroups.get(row) != null) {
+            return null;
+        }
+        if (!keepOccupants) {
+            List<String> occupants = new ArrayList<>();
+            for (int column = 0; column < columns; column++) {
+                at(row, column).ifPresent(occupants::add);
+            }
+            if (!evacuate(occupants, row)) {
+                return null;
+            }
+        }
+        String safe = (name == null || name.isBlank()) ? "Group" : name.trim();
+        Group group = new Group(newGroupId(), safe, PALETTE.get(groups.size() % PALETTE.size()));
+        groups.add(group);
+        rowGroups.put(row, group.id);
+        return group;
+    }
+
+    /**
+     * Moves profiles out to the nearest free cells that belong to no group,
+     * growing the grid when there are not enough.
+     *
+     * <p>By rows and never by columns, and that is not arbitrary: a new row
+     * belongs to no group, so every one of its cells is somewhere these profiles
+     * may go. A new column puts one cell into each existing group's rows as well,
+     * so most of what it adds is unusable here - it would widen every group on
+     * screen and still might not make room.
+     *
+     * @return false only when the grid is already as tall as it goes
+     */
+    private boolean evacuate(List<String> movers, int exceptRow) {
+        if (movers.isEmpty()) {
+            return true;
+        }
+        while (freeUngroupedCells(exceptRow) < movers.size()) {
+            if (!addRow()) {
+                return false;
+            }
+        }
+        for (String id : movers) {
+            int[] cell = firstFreeUngrouped(exceptRow);
+            if (cell == null) {
+                return false;
+            }
+            Cell target = cells.get(id);
+            target.row = cell[0];
+            target.column = cell[1];
+        }
+        return true;
+    }
+
+    private int freeUngroupedCells(int exceptRow) {
+        int free = 0;
+        for (int row = 0; row < rows; row++) {
+            if (row == exceptRow || rowGroups.get(row) != null) {
+                continue;
+            }
+            for (int column = 0; column < columns; column++) {
+                if (at(row, column).isEmpty()) {
+                    free++;
+                }
+            }
+        }
+        return free;
+    }
+
+    private int[] firstFreeUngrouped(int exceptRow) {
+        for (int row = 0; row < rows; row++) {
+            if (row == exceptRow || rowGroups.get(row) != null) {
+                continue;
+            }
+            for (int column = 0; column < columns; column++) {
+                if (at(row, column).isEmpty()) {
+                    return new int[]{row, column};
+                }
+            }
+        }
+        return null;
+    }
+
+    /** How many instances are in a row - what the "this row is not empty" question needs. */
+    public int occupantsInRow(int row) {
+        int count = 0;
+        for (int column = 0; column < columns; column++) {
+            if (at(row, column).isPresent()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     private boolean rowIsEmpty(int row) {
         for (Cell cell : cells.values()) {
             if (cell.row == row) {
@@ -892,6 +999,64 @@ public final class ProfileLayout {
             destination = after ? theirs.get(theirs.size() - 1) : theirs.get(0);
         }
         moveRowsBeside(block, destination, after);
+    }
+
+    /**
+     * Moves a group's rows next to another row, keeping the group together.
+     *
+     * <p>Takes a row rather than a profile, which is what a drag in the grid
+     * actually has: the pointer is over a band, not over an instance. When the
+     * destination row belongs to another group the whole of that group is
+     * stepped over instead of split, because a group with somebody else's row in
+     * the middle of it is not a group any more.
+     *
+     * @return false when there is no such move to make
+     */
+    public boolean moveBandBeside(String groupId, int destinationRow, boolean after) {
+        List<Integer> block = rowsOf(groupId);
+        if (block.isEmpty() || destinationRow < 0 || destinationRow >= rows
+                || block.contains(destinationRow)) {
+            return false;
+        }
+        int destination = destinationRow;
+        String targetGroup = rowGroups.get(destinationRow);
+        if (targetGroup != null) {
+            List<Integer> theirs = rowsOf(targetGroup);
+            destination = after ? theirs.get(theirs.size() - 1) : theirs.get(0);
+        }
+        moveRowsBeside(block, destination, after);
+        return true;
+    }
+
+    /**
+     * Moves a group past the band above or below it.
+     *
+     * <p>The menu's way of doing what dragging the plate does, because a drag
+     * needs both ends on screen at once and is not available from a keyboard at
+     * all.
+     *
+     * @return false when the group is already the first or last band
+     */
+    public boolean moveGroupBy(String groupId, boolean up) {
+        List<Band> all = bands();
+        int index = -1;
+        for (int i = 0; i < all.size(); i++) {
+            Group group = all.get(i).group();
+            if (group != null && group.id.equals(groupId)) {
+                index = i;
+                break;
+            }
+        }
+        if (index < 0) {
+            return false;
+        }
+        int neighbour = up ? index - 1 : index + 1;
+        if (neighbour < 0 || neighbour >= all.size()) {
+            return false;
+        }
+        List<Integer> theirRows = all.get(neighbour).rows();
+        int destination = up ? theirRows.get(0) : theirRows.get(theirRows.size() - 1);
+        return moveBandBeside(groupId, destination, !up);
     }
 
     /** Moves a block of rows next to another row, keeping every cell with its row. */
