@@ -1697,22 +1697,37 @@ public final class MainWindow implements ProfileHost {
         rebuildViews();
     }
 
+    /**
+     * Makes a group, asking for its name and its colour first.
+     *
+     * <p>The colour is asked for at the same moment as the name because in the
+     * grid it is the only thing that says which band is which, so it is as much
+     * a part of what the group is. The default offered is a palette colour no
+     * other group is using.
+     */
+    /**
+     * Makes a group, asking for its name and its colour first.
+     *
+     * <p>The colour is asked for at the same moment as the name because in the
+     * grid it is the only thing that says which band is which, so it is as much
+     * a part of what the group is. The colour offered is the one the layout would
+     * have picked anyway - the first in the palette no other group is using - so
+     * the dialog shows what would happen and lets it be changed.
+     *
+     * <p>Nothing is created until Save. Making the group first so the dialog
+     * could read its colour would mean a cancel had to unmake it, and a cancel
+     * that has to undo something is a cancel that can leave something behind.
+     */
     @Override
     public void createGroup(Profile profile) {
-        TextInputDialog dialog = new TextInputDialog(I18n.t("groups.new.default"));
-        dialog.initOwner(stage);
-        Theme.apply(dialog.getDialogPane());
-        dialog.setTitle(I18n.t("groups.new.title"));
-        dialog.setHeaderText(I18n.t("groups.new.header"));
-        dialog.setContentText(I18n.t("groups.new.body"));
-        dialog.showAndWait().ifPresent(name -> {
-            if (name == null || name.isBlank()) {
-                return;
-            }
-            ProfileLayout.Group group = layout().createGroup(name.trim());
+        new GroupDialog().show(stage, I18n.t("groups.new.default"),
+                layout().nextPaletteColor()).ifPresent(choice -> {
+            ProfileLayout.Group made = layout().createGroup(choice.name());
+            made.color(choice.color());
             if (profile != null) {
-                // Membership, not a move: the profile keeps the cell it is in.
-                layout().join(profile.id(), group.id());
+                // Membership is the row, so this moves the profile into one of
+                // the group's cells.
+                layout().join(profile.id(), made.id());
             }
             layoutChanged();
         });
@@ -1735,18 +1750,13 @@ public final class MainWindow implements ProfileHost {
             return;
         }
 
-        TextInputDialog dialog = new TextInputDialog(I18n.t("groups.new.default"));
-        dialog.initOwner(stage);
-        Theme.apply(dialog.getDialogPane());
-        dialog.setTitle(I18n.t("groups.new.title"));
-        dialog.setHeaderText(I18n.t("groups.new.header"));
-        dialog.setContentText(I18n.t("groups.new.body"));
-        dialog.showAndWait().ifPresent(name -> {
-            if (name == null || name.isBlank()) {
-                return;
-            }
+        // The colour offered is the one the layout would pick anyway, so the
+        // dialog shows what would happen and lets it be changed.
+        String suggested = layout.nextPaletteColor();
+        new GroupDialog().show(stage, I18n.t("groups.new.default"), suggested).ifPresent(choice -> {
             boolean keepOccupants = true;
             int occupants = layout.occupantsInRow(row);
+            // Asked before the group exists, so a cancel leaves nothing behind.
             if (occupants > 0) {
                 ButtonType take = new ButtonType(
                         I18n.t("grid.newGroupHere.take"), ButtonBar.ButtonData.OTHER);
@@ -1767,30 +1777,24 @@ public final class MainWindow implements ProfileHost {
                 }
                 keepOccupants = answer.get() == take;
             }
-            if (layout.claimRow(row, name.trim(), keepOccupants) == null) {
+            ProfileLayout.Group made = layout.claimRow(row, choice.name(), keepOccupants);
+            if (made == null) {
                 hint(I18n.t("grid.newGroupHere.failed"));
                 return;
             }
+            made.color(choice.color());
             layoutChanged();
         });
     }
 
     @Override
-    public void renameGroup(ProfileLayout.Group group) {
+    public void editGroup(ProfileLayout.Group group) {
         if (group == null) {
             return;
         }
-        TextInputDialog dialog = new TextInputDialog(group.name());
-        dialog.initOwner(stage);
-        Theme.apply(dialog.getDialogPane());
-        dialog.setTitle(I18n.t("groups.rename"));
-        dialog.setHeaderText(I18n.t("groups.rename.header"));
-        dialog.setContentText(I18n.t("groups.new.body"));
-        dialog.showAndWait().ifPresent(name -> {
-            if (name == null || name.isBlank()) {
-                return;
-            }
-            layout().renameGroup(group.id(), name.trim());
+        new GroupDialog().show(stage, group.name(), group.color()).ifPresent(choice -> {
+            layout().renameGroup(group.id(), choice.name());
+            group.color(choice.color());
             layoutChanged();
         });
     }

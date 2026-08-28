@@ -118,6 +118,36 @@ public final class ProfileLayout {
             "#3d6ea5", "#8a5a3c", "#6b4a8f", "#2d7d46",
             "#a5843d", "#a53d5c", "#3d8a8a", "#6f7d3d");
 
+    /** The colours a group may be given, for the picker to offer. */
+    public static List<String> palette() {
+        return PALETTE;
+    }
+
+    /**
+     * The first colour no group is using, or the next one round when they are all
+     * taken.
+     *
+     * <p>By count it used to be, which handed the fourth group the fourth colour
+     * even when the first three had been deleted - so two groups on screen could
+     * share a colour while six were unused, and the colour is the only thing that
+     * says which band is which.
+     */
+    /** The colour a new group would be given. For a dialog that offers it first. */
+    public String nextPaletteColor() {
+        return nextColor();
+    }
+
+    private String nextColor() {
+        Set<String> used = new LinkedHashSet<>();
+        groups.forEach(group -> used.add(group.color));
+        for (String candidate : PALETTE) {
+            if (!used.contains(candidate)) {
+                return candidate;
+            }
+        }
+        return PALETTE.get(groups.size() % PALETTE.size());
+    }
+
     /** A named group. It owns rows; the profiles in those rows are its members. */
     public static final class Group {
 
@@ -684,7 +714,7 @@ public final class ProfileLayout {
      */
     public Group createGroup(String name) {
         String safe = (name == null || name.isBlank()) ? "Group" : name.trim();
-        Group group = new Group(newGroupId(), safe, PALETTE.get(groups.size() % PALETTE.size()));
+        Group group = new Group(newGroupId(), safe, nextColor());
         groups.add(group);
 
         for (int row = 0; row < rows; row++) {
@@ -735,7 +765,7 @@ public final class ProfileLayout {
             }
         }
         String safe = (name == null || name.isBlank()) ? "Group" : name.trim();
-        Group group = new Group(newGroupId(), safe, PALETTE.get(groups.size() % PALETTE.size()));
+        Group group = new Group(newGroupId(), safe, nextColor());
         groups.add(group);
         rowGroups.put(row, group.id);
         return group;

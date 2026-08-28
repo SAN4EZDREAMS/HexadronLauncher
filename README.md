@@ -479,8 +479,11 @@ is how that instance joins; dragging it out is how it leaves.
 
 In both views a group is a band. In the list it is a tinted panel with a coloured
 rail down the left, holding the header and its members; in the grid it is the same
-tint across its rows with a coloured plate down the left carrying its name along
-it. The list used to indent its members and nothing more, which left the question
+tint across its rows, the cells themselves included, with a coloured plate down
+the left carrying its name along it. In the list the heading carries no colour
+chip and no grey - the rail and the tint already say the colour, and everything
+written on the band is white at one opacity or another, so the only colour in the
+block is the group's. The list used to indent its members and nothing more, which left the question
 the grid answers at a glance unanswered - where a group ends, and which of two
 adjacent groups a row belongs to.
 The plate is also the band's handle: clicking it folds the band into one strip
@@ -504,6 +507,18 @@ colour, and the same two items on its right-click menu. They are separate from
 the grid's edge strips because "one more row in this group" is a different thing
 from "one more row in the table", and they are coloured because with three groups
 on screen a plain plus does not say which group it belongs to.
+
+Its name and its colour are both set from its own settings, and both are offered
+when it is created. The colour matters more than it looks: in the grid a group has
+no heading, so the colour is the only thing that says which band is which. A new
+group is given the first palette colour no other group is using, and the palette
+is fixed - every colour in it stays legible as a band behind the cells and as a
+plate with white text on it, which an arbitrary colour would not.
+
+The fold control appears in the list only once a group has something in it. A
+group with no members reads identically folded and unfolded there, so a `-` that
+visibly did nothing was a control reporting itself broken. The grid keeps its own,
+because there a band has rows to close over even when it is empty.
 
 Deleting a group deletes and moves nothing: its rows simply stop belonging to
 it.

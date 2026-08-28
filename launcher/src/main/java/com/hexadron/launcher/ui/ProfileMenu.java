@@ -156,7 +156,7 @@ final class ProfileMenu {
                     layout.setCollapsed(group.id(), !group.collapsed());
                     host.layoutChanged();
                 }),
-                item(I18n.t("groups.rename"), () -> host.renameGroup(group)),
+                item(I18n.t("groups.settings"), () -> host.editGroup(group)),
                 new SeparatorMenuItem(),
                 // The menu's way of doing what dragging the plate does. A drag
                 // needs both ends on screen at once, and is not available at all

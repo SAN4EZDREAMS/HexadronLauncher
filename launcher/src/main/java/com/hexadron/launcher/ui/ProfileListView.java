@@ -263,25 +263,42 @@ public final class ProfileListView {
         return band;
     }
 
+    /**
+     * A group's heading.
+     *
+     * <p>No colour chip on it: the band's own rail and tint already carry the
+     * colour, and a third mark of the same colour on the same line was one thing
+     * too many. Everything left is white at one opacity or another over the group
+     * tint, so the only colour in the block is the group's.
+     *
+     * <p>The fold control appears only when there is something to fold. A group
+     * with no members reads identically folded and unfolded here, so a {@code -}
+     * that visibly did nothing was a control reporting itself broken; the grid
+     * keeps its own, because there a band has rows to close over even when it is
+     * empty.
+     */
     private Node groupRow(ProfileLayout.Group group, int memberCount) {
-        Label toggle = new Label(group.collapsed() ? "+" : "−");
-        toggle.getStyleClass().add("group-toggle");
-        toggle.setOnMouseClicked(event -> {
-            host.layout().setCollapsed(group.id(), !group.collapsed());
-            host.layoutChanged();
-            event.consume();
-        });
-
-        Region chip = new Region();
-        chip.getStyleClass().add("group-chip");
-        chip.setStyle("-fx-background-color: " + group.color() + ";");
+        Label toggle = new Label();
+        if (memberCount == 0) {
+            toggle.setText("·");
+            toggle.getStyleClass().addAll("group-toggle", "group-toggle-idle");
+            Tooltip.install(toggle, new Tooltip(I18n.t("groups.empty.hint")));
+        } else {
+            toggle.setText(group.collapsed() ? "+" : "−");
+            toggle.getStyleClass().add("group-toggle");
+            toggle.setOnMouseClicked(event -> {
+                host.layout().setCollapsed(group.id(), !group.collapsed());
+                host.layoutChanged();
+                event.consume();
+            });
+        }
 
         Label name = new Label(group.name());
         name.getStyleClass().add("group-name");
         Label count = new Label(I18n.t("groups.count", memberCount));
         count.getStyleClass().add("group-count");
 
-        HBox row = new HBox(8, toggle, chip, name, spacer(), count);
+        HBox row = new HBox(8, toggle, name, spacer(), count);
         row.setAlignment(Pos.CENTER_LEFT);
         // Transparent, not the usual panel colour: the header sits on its own
         // band now, and a second background over the tint would hide it.
@@ -289,7 +306,8 @@ public final class ProfileListView {
         Tooltip.install(row, new Tooltip(group.name()));
 
         row.setOnMouseClicked(event -> {
-            if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
+            if (memberCount > 0 && event.getButton() == MouseButton.PRIMARY
+                    && event.getClickCount() == 2) {
                 host.layout().setCollapsed(group.id(), !group.collapsed());
                 host.layoutChanged();
             }

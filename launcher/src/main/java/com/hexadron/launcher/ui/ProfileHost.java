@@ -107,7 +107,8 @@ public interface ProfileHost {
     /** Opens the settings window. The same one from either interface. */
     void openSettings();
 
-    void renameGroup(ProfileLayout.Group group);
+    /** Opens the group's own settings: its name and its colour. */
+    void editGroup(ProfileLayout.Group group);
 
     void removeGroup(ProfileLayout.Group group);
 }

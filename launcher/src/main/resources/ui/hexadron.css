@@ -20,6 +20,10 @@
     -fx-accent-1: #359152;
     -fx-danger-0: #b3403a;
 
+    /* Overridden per cell by the view, from the cell's group. Declared here so
+       that a cell in no group still resolves it instead of raising a CSS error. */
+    -fx-group-tint: #23272f;
+
     -fx-background-color: -fx-base-0;
     -fx-font-family: "Segoe UI", "Inter", "Noto Sans", sans-serif;
     -fx-font-size: 13px;
@@ -470,13 +474,41 @@
     -fx-background-radius: 8 0 0 8;
 }
 
-/* Inside a band the header needs no panel of its own - the band is the panel. */
+/*
+ * Inside a band the header needs no panel of its own - the band is the panel.
+ *
+ * Everything on it is white at some opacity rather than the interface's greys.
+ * A grey caption over a coloured tint is two colour families fighting, which is
+ * what made the heading look muddy; one family over the group's colour reads as
+ * one object.
+ */
 .group-row-banded {
     -fx-background-color: transparent;
+    -fx-border-color: transparent transparent rgba(255, 255, 255, 0.09) transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 5 10 6 8;
 }
 
 .group-row-banded:hover {
-    -fx-background-color: rgba(255, 255, 255, 0.07);
+    -fx-background-color: rgba(255, 255, 255, 0.06);
+}
+
+.profile-band .group-name {
+    -fx-text-fill: white;
+    -fx-font-size: 12px;
+}
+
+.profile-band .group-count {
+    -fx-text-fill: rgba(255, 255, 255, 0.45);
+}
+
+.profile-band .group-toggle {
+    -fx-text-fill: rgba(255, 255, 255, 0.8);
+}
+
+/* The version line under a member's name, in the same white family. */
+.profile-band .profile-row-nested .instance-subtitle {
+    -fx-text-fill: rgba(255, 255, 255, 0.42);
 }
 
 /* A member of a group. The rail already sets the block apart, so the indent is
@@ -543,12 +575,11 @@
     -fx-cursor: hand;
 }
 
-.group-chip {
-    -fx-min-width: 10;
-    -fx-min-height: 10;
-    -fx-max-width: 10;
-    -fx-max-height: 10;
-    -fx-background-radius: 3;
+/* The place the fold control would be, in a group that has nothing to fold. */
+.group-toggle-idle {
+    -fx-text-fill: -fx-text-1;
+    -fx-opacity: 0.5;
+    -fx-cursor: default;
 }
 
 .group-name {
@@ -736,6 +767,25 @@
     -fx-background-color: -fx-base-3, -fx-base-2;
 }
 
+/*
+ * A cell in a group takes the group's colour.
+ *
+ * Built from -fx-group-tint, which the view sets on the cell as a looked-up
+ * colour. That is the whole reason it is not simply an inline background: an
+ * inline background beats the stylesheet, so the hover and selected rules below
+ * would never have applied to a cell in a group.
+ *
+ * Declared after the plain rules and at the same specificity, so it wins on
+ * order; the hover and selected variants repeat that pairing.
+ */
+.inv-cell-tinted {
+    -fx-background-color: derive(-fx-group-tint, -46%), derive(-fx-group-tint, -68%);
+}
+
+.inv-cell-tinted:hover {
+    -fx-background-color: derive(-fx-group-tint, -32%), derive(-fx-group-tint, -56%);
+}
+
 .inv-cell-empty {
     -fx-background-color: -fx-base-2, -fx-base-0;
     -fx-background-insets: 0, 3;
@@ -743,8 +793,19 @@
     -fx-cursor: default;
 }
 
+.inv-cell-empty.inv-cell-tinted {
+    -fx-background-color: derive(-fx-group-tint, -56%), derive(-fx-group-tint, -76%);
+    -fx-opacity: 0.75;
+}
+
 .inv-cell-selected {
     -fx-background-color: -fx-accent-0, -fx-base-2;
+    -fx-background-insets: 0, 3;
+}
+
+/* Selected and in a group: the accent ring stays, the inside keeps the tint. */
+.inv-cell-tinted.inv-cell-selected {
+    -fx-background-color: -fx-accent-0, derive(-fx-group-tint, -56%);
     -fx-background-insets: 0, 3;
 }
 
@@ -886,4 +947,26 @@
 .password-field:focused {
     -fx-border-color: -fx-accent-0;
     -fx-border-radius: 8;
+}
+
+/* ------------------------------------------------------ the group's colour */
+
+.swatch {
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: rgba(255, 255, 255, 0.12);
+    -fx-border-width: 1;
+    -fx-cursor: hand;
+}
+
+.swatch:hover {
+    -fx-border-color: rgba(255, 255, 255, 0.55);
+}
+
+/* The chosen one, marked with a ring rather than by changing its own colour -
+   the colour is the thing being chosen and must stay exactly what it is. */
+.swatch-chosen {
+    -fx-border-color: -fx-text-0;
+    -fx-border-width: 2;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.6), 8, 0.2, 0, 2);
 }

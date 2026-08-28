@@ -208,7 +208,7 @@ public final class InventoryView {
             VBox lines = new VBox(0);
             lines.setFillWidth(false);
             for (int index : band.rows()) {
-                lines.getChildren().add(cells(index, visible));
+                lines.getChildren().add(cells(index, band.group(), visible));
             }
             row.getChildren().add(lines);
         }
@@ -403,7 +403,7 @@ public final class InventoryView {
         return strip;
     }
 
-    private Node cells(int row, Set<String> visible) {
+    private Node cells(int row, ProfileLayout.Group group, Set<String> visible) {
         HBox line = new HBox(0);
         line.setFillHeight(false);
         line.getStyleClass().add("inv-line");
@@ -412,14 +412,33 @@ public final class InventoryView {
             Profile profile = id.map(this::profile).orElse(null);
             boolean shown = profile != null
                     && (visible == null || visible.contains(profile.id()));
-            line.getChildren().add(shown ? cell(profile) : emptyCell(row, column));
+            line.getChildren().add(shown
+                    ? cell(profile, group)
+                    : emptyCell(row, column, group));
         }
         return line;
     }
 
+    /**
+     * Gives a cell its group's colour without taking over its background.
+     *
+     * <p>The colour goes into a looked-up colour on the cell, and the stylesheet
+     * builds every background from that - resting, hover and selected alike. The
+     * obvious thing, an inline {@code -fx-background-color} on the cell, would
+     * have won against the stylesheet and left a tinted cell with no hover and no
+     * visible selection at all.
+     */
+    private static void tint(Region cell, ProfileLayout.Group group) {
+        if (group == null) {
+            return;
+        }
+        cell.getStyleClass().add("inv-cell-tinted");
+        cell.setStyle("-fx-group-tint: " + group.color() + ";");
+    }
+
     // ---------------------------------------------------------------- cells
 
-    private Node cell(Profile profile) {
+    private Node cell(Profile profile, ProfileLayout.Group group) {
         Node icon = ProfileIcons.node(profile, host.service().dirs(), ICON);
 
         Label name = new Label(profile.name());
@@ -438,6 +457,7 @@ public final class InventoryView {
         StackPane cell = new StackPane(content);
         cell.getStyleClass().add("inv-cell");
         fix(cell);
+        tint(cell, group);
         if (profile.equals(host.selected())) {
             cell.getStyleClass().add("inv-cell-selected");
         }
@@ -445,9 +465,8 @@ public final class InventoryView {
 
         String tip = profile.name() + "\n"
                 + profile.minecraftVersion() + "  ·  " + profile.loader().displayName();
-        Optional<ProfileLayout.Group> group = host.layout().groupOf(profile.id());
-        if (group.isPresent()) {
-            tip = tip + "\n" + group.get().name();
+        if (group != null) {
+            tip = tip + "\n" + group.name();
         }
         Tooltip tooltip = new Tooltip(tip);
         tooltip.setShowDelay(Duration.millis(400));
@@ -524,10 +543,11 @@ public final class InventoryView {
      * empty cell are a new instance and a group starting on that row, and neither
      * has anywhere else to be asked for.
      */
-    private Node emptyCell(int row, int column) {
+    private Node emptyCell(int row, int column, ProfileLayout.Group group) {
         StackPane cell = new StackPane();
         cell.getStyleClass().addAll("inv-cell", "inv-cell-empty");
         fix(cell);
+        tint(cell, group);
 
         cell.setOnContextMenuRequested(event -> {
             ContextMenu menu = emptyCellMenu(row);
