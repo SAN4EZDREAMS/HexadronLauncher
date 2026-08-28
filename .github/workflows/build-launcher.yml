@@ -52,12 +52,20 @@ jobs:
         with:
           java-version: '25'
           distribution: 'microsoft'
+      # Кешує ~/.gradle/wrapper/dists, тож дистрибутив качається лише при
+      # промаху кеша - після зміни версії Gradle або його витіснення. Саме той
+      # промах і падав: розрив з'єднання під час завантаження. Кількість спроб
+      # задана у gradle/wrapper/gradle-wrapper.properties, і причина там же.
       - name: setup gradle
         uses: gradle/actions/setup-gradle@v6
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
       # Окремим кроком, хоч `assemble` міг би бути один: коли червоніє саме цей
       # крок, зрозуміло, що зламана логіка ядра, а не компіляція.
+      #
+      # Але одне застереження: це ПЕРШИЙ крок, який запускає ./gradlew, тож
+      # завантаження дистрибутива Gradle падає теж тут - і виглядає як поламане
+      # ядро, хоч у стектрейсі буде org.gradle.wrapper.Download, а не наш код.
       - name: verify the launch core
         run: ./gradlew --configure-on-demand :launcher:selfCheck
       # `assemble`, а не `build`. `build` = `assemble` + `check`, а `check`
