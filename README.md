@@ -464,6 +464,12 @@ needed, which made a free cell mean "the end" - so dragging an instance onto the
 empty cells at the end of the top row sent it to the bottom of the grid, and
 looked like a drag that had failed.
 
+A group can be left anywhere, including between two empty rows. Each row that
+belongs to no group is a band of its own, so every one of them is a separate
+place to drop into; a group's own rows stay one band, because a group is moved and
+folded whole. Merged, a run of empty rows offered a dropped group only two
+positions - above all of them or below all of them.
+
 Groups do not nest, and the drop line says so. A group dragged over a row that
 happens to be inside another group is shown landing above or below that whole
 band, never between two of its members - which is what actually happens, since

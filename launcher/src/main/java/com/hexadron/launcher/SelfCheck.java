@@ -1452,6 +1452,63 @@ public final class SelfCheck {
         check("still four profiles", dragged.occupied() == 4);
         check("all inside", allInside(dragged));
 
+        // -------------------------------------------------- between empty rows
+        //
+        // A run of empty rows used to be one band, so a dropped group could only
+        // go above all of them or below all of them - there was no way to leave
+        // one sitting between two empty rows. Each row in no group is its own
+        // band now, and that is the property to hold on to.
+        ProfileLayout between = new ProfileLayout();
+        between.reconcile(profiles);
+        between.addRow();
+        check("four rows, the first one occupied", between.rows() == 4
+                && between.occupantsInRow(0) == 4);
+        ProfileLayout.Group loose = between.claimRow(3, "Loose", true);
+        check("a group at the bottom", loose != null
+                && between.rowsOf(loose.id()).equals(List.of(3)));
+        check("rows one and two are empty and in no group",
+                between.occupantsInRow(1) == 0 && between.occupantsInRow(2) == 0
+                        && between.rowGroup(1).isEmpty() && between.rowGroup(2).isEmpty());
+
+        long single = between.bands().stream()
+                .filter(strip -> strip.group() == null)
+                .filter(strip -> strip.rows().size() == 1)
+                .count();
+        long ungrouped = between.bands().stream()
+                .filter(strip -> strip.group() == null).count();
+        check("every row in no group is a band of its own " + single + "/" + ungrouped,
+                single == ungrouped && ungrouped == 3);
+
+        check("the group can be dropped above the second empty row",
+                between.moveBandBeside(loose.id(), 2, false));
+        check("and it lands between the two empty rows",
+                between.rowsOf(loose.id()).equals(List.of(2)));
+        check("with an empty row above it",
+                between.rowGroup(1).isEmpty() && between.occupantsInRow(1) == 0);
+        check("and an empty row below it",
+                between.rowGroup(3).isEmpty() && between.occupantsInRow(3) == 0);
+        check("the occupied row is untouched", between.occupantsInRow(0) == 4);
+        check("nobody was lost", between.occupied() == 4);
+        check("all inside the grid", allInside(between));
+
+        check("and it can be dropped below that row again",
+                between.moveBandBeside(loose.id(), 3, true));
+        check("landing at the bottom", between.rowsOf(loose.id()).equals(List.of(3)));
+        check("still four rows", between.rows() == 4);
+
+        // A group's own rows stay one band, because a group moves and folds whole.
+        ProfileLayout whole = new ProfileLayout();
+        whole.reconcile(profiles);
+        ProfileLayout.Group deep = whole.createGroup("Deep");
+        whole.addRowToGroup(deep.id());
+        check("the group owns two rows", whole.rowsOf(deep.id()).size() == 2);
+        long groupBands = whole.bands().stream()
+                .filter(strip -> strip.group() != null).count();
+        check("and they are still one band " + groupBands, groupBands == 1);
+        check("bands still cover every row",
+                whole.bands().stream().mapToInt(strip -> strip.rows().size()).sum()
+                        == whole.rows());
+
         // -------------------------------------------------- groups never nest
         //
         // Dropping a group on a row that is inside another group is not a way to

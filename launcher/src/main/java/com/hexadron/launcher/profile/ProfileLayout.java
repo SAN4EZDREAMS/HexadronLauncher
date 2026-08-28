@@ -1174,14 +1174,24 @@ public final class ProfileLayout {
         return List.copyOf(out);
     }
 
-    /** The grid, as runs of consecutive rows sharing a group. */
+    /**
+     * The grid, as bands.
+     *
+     * <p>A group's consecutive rows are one band, because a group has to be moved
+     * and folded as a whole. Rows in no group are one band each, and that is the
+     * difference that matters: merged, a run of empty rows offered a dropped group
+     * only two places - above all of them or below all of them - so a group could
+     * not be left sitting between two empty rows. Alone, each row is its own
+     * target and the group lands exactly where the line was drawn.
+     */
     public List<Band> bands() {
         List<Band> out = new ArrayList<>();
         int row = 0;
         while (row < rows) {
             String groupId = rowGroups.get(row);
             int end = row;
-            while (end + 1 < rows && Objects.equals(rowGroups.get(end + 1), groupId)) {
+            while (groupId != null && end + 1 < rows
+                    && Objects.equals(rowGroups.get(end + 1), groupId)) {
                 end++;
             }
             List<Integer> block = new ArrayList<>();
