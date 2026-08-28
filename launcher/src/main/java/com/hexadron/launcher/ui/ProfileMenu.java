@@ -35,28 +35,57 @@ import javafx.scene.control.SeparatorMenuItem;
  */
 final class ProfileMenu {
 
+    /**
+     * The menu that is on screen, if any.
+     *
+     * <p>One field for the whole interface, because a second menu must replace
+     * the first rather than join it. Every right-click built a fresh menu and
+     * showed it without hiding what was already up, so clicking twice in the same
+     * cell left two menus stacked, and a few clicks left a pile of them - each
+     * one live, each one over the last.
+     *
+     * <p>Static, and that is deliberate: the menus come from three different
+     * places - a cell, a plate, an empty cell - and "only one menu at a time" is
+     * a fact about the screen rather than about any one of them.
+     */
+    private static ContextMenu showing;
+
     private ProfileMenu() {
+    }
+
+    /**
+     * Shows a menu, replacing whatever was up before it.
+     *
+     * <p>The stylesheet is applied after {@code show} and not before: a popup has
+     * no scene until it is on screen, and an unstyled menu over a dark window
+     * reads as a different program.
+     */
+    static void show(ContextMenu menu, Node node, double screenX, double screenY) {
+        if (showing != null) {
+            showing.hide();
+        }
+        showing = menu;
+        menu.setOnHidden(event -> {
+            if (showing == menu) {
+                showing = null;
+            }
+        });
+        menu.show(node, screenX, screenY);
+        Theme.apply(menu.getScene());
     }
 
     /** Attaches the profile menu to any node. Replaces an earlier handler. */
     static void install(Node node, ProfileHost host, Profile profile) {
         node.setOnContextMenuRequested(event -> {
-            ContextMenu menu = forProfile(host, profile);
-            menu.show(node, event.getScreenX(), event.getScreenY());
-            // After show, not before: a popup has no scene until it is on
-            // screen, and an unstyled menu over a dark window reads as a
-            // different program.
-            Theme.apply(menu.getScene());
+            show(forProfile(host, profile), node, event.getScreenX(), event.getScreenY());
             event.consume();
         });
     }
 
-    /** Attaches the group menu to any node - the list header, or the grid rail. */
+    /** Attaches the group menu to any node - the list header, or the grid plate. */
     static void installForGroup(Node node, ProfileHost host, ProfileLayout.Group group) {
         node.setOnContextMenuRequested(event -> {
-            ContextMenu menu = forGroup(host, group);
-            menu.show(node, event.getScreenX(), event.getScreenY());
-            Theme.apply(menu.getScene());
+            show(forGroup(host, group), node, event.getScreenX(), event.getScreenY());
             event.consume();
         });
     }

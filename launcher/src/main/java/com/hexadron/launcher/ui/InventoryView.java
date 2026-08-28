@@ -550,9 +550,8 @@ public final class InventoryView {
         tint(cell, group);
 
         cell.setOnContextMenuRequested(event -> {
-            ContextMenu menu = emptyCellMenu(row);
-            menu.show(cell, event.getScreenX(), event.getScreenY());
-            Theme.apply(menu.getScene());
+            ProfileMenu.show(emptyCellMenu(row), cell,
+                    event.getScreenX(), event.getScreenY());
             event.consume();
         });
 
@@ -584,19 +583,27 @@ public final class InventoryView {
         return cell;
     }
 
+    /**
+     * The menu of a free cell.
+     *
+     * <p>"New group in this row" is left out entirely for a row that already
+     * belongs to a group, rather than shown greyed. A row can only be in one
+     * group, so on those cells the item is not a thing that is temporarily
+     * unavailable - it is not a thing at all, and an empty cell inside a group
+     * has exactly one thing to offer.
+     */
     private ContextMenu emptyCellMenu(int row) {
         ContextMenu menu = new ContextMenu();
 
         MenuItem newProfile = new MenuItem(I18n.t("profiles.new"));
         newProfile.setOnAction(event -> host.createProfile());
+        menu.getItems().add(newProfile);
 
-        MenuItem newGroup = new MenuItem(I18n.t("grid.newGroupHere"));
-        newGroup.setOnAction(event -> host.createGroupInRow(row));
-        // A row that already belongs to a group cannot be taken by a second one,
-        // and saying so with a disabled item is clearer than an error afterwards.
-        newGroup.setDisable(host.layout().rowGroup(row).isPresent());
-
-        menu.getItems().addAll(newProfile, new SeparatorMenuItem(), newGroup);
+        if (host.layout().rowGroup(row).isEmpty()) {
+            MenuItem newGroup = new MenuItem(I18n.t("grid.newGroupHere"));
+            newGroup.setOnAction(event -> host.createGroupInRow(row));
+            menu.getItems().addAll(new SeparatorMenuItem(), newGroup);
+        }
         return menu;
     }
 
