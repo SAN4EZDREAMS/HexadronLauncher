@@ -477,8 +477,12 @@ free row of the grid, or adds a row when there is none, so it never displaces
 anybody and it starts with room in it. Dragging an instance into one of its cells
 is how that instance joins; dragging it out is how it leaves.
 
-In the list a group is a header with a `-` and `+`. In the grid it is a band: a
-tint across its rows and a coloured plate down the left with its name along it.
+In both views a group is a band. In the list it is a tinted panel with a coloured
+rail down the left, holding the header and its members; in the grid it is the same
+tint across its rows with a coloured plate down the left carrying its name along
+it. The list used to indent its members and nothing more, which left the question
+the grid answers at a glance unanswered - where a group ends, and which of two
+adjacent groups a row belongs to.
 Clicking the plate folds the band into one strip and folds the list with it -
 which is what owning rows buys, and why the control did nothing in the version
 where membership was a property of the instance instead.

@@ -95,33 +95,60 @@ public final class ProfileListView {
         return scroll;
     }
 
-    /** Rebuilds every row from the arrangement. Cheap: tens of rows, no network. */
+    /**
+     * Rebuilds every row from the arrangement. Cheap: tens of rows, no network.
+     *
+     * <p>A group is drawn as one block - a tinted panel with a coloured rail down
+     * its left, holding the header and its members - rather than as rows that
+     * happen to be indented. Indentation alone left the question the grid answers
+     * at a glance unanswered here: where a group ends, and which of two adjacent
+     * groups a row belongs to.
+     */
     public void rebuild() {
         marked = null;
         rowsByProfile.clear();
         rows.getChildren().clear();
 
-        boolean anything = false;
-        List<ProfileLayout.ListRow> listRows = host.layout().listRows();
-
-        for (int index = 0; index < listRows.size(); index++) {
-            ProfileLayout.ListRow row = listRows.get(index);
+        // Filtered first, so a band knows which of its members are actually
+        // going to be drawn inside it.
+        List<ProfileLayout.ListRow> drawn = new ArrayList<>();
+        for (ProfileLayout.ListRow row : host.layout().listRows()) {
             if (row.isGroup()) {
                 // A group whose members are all filtered out is hidden with
                 // them, rather than left as a heading the search cannot explain.
-                if (!host.filter().isEmpty() && visibleMembers(row.group()) == 0) {
-                    continue;
+                if (host.filter().isEmpty() || visibleMembers(row.group()) > 0) {
+                    drawn.add(row);
                 }
-                anything = true;
-                rows.getChildren().add(groupRow(row.group(), row.memberCount()));
                 continue;
             }
             Profile profile = profile(row.profileId());
-            if (profile == null || !host.matchesFilter(profile)) {
+            if (profile != null && host.matchesFilter(profile)) {
+                drawn.add(row);
+            }
+        }
+
+        boolean anything = !drawn.isEmpty();
+        VBox band = null;
+
+        for (ProfileLayout.ListRow row : drawn) {
+            if (row.isGroup()) {
+                band = new VBox(2);
+                band.getStyleClass().add("profile-band-content");
+                band.getChildren().add(groupRow(row.group(), row.memberCount()));
+                rows.getChildren().add(bandFor(row.group(), band));
                 continue;
             }
-            anything = true;
-            rows.getChildren().add(profileRow(profile, row.isNested()));
+            Profile profile = profile(row.profileId());
+            if (profile == null) {
+                continue;
+            }
+            // A nested row goes into the open band; anything else closes it.
+            if (row.isNested() && band != null) {
+                band.getChildren().add(profileRow(profile, true));
+            } else {
+                band = null;
+                rows.getChildren().add(profileRow(profile, false));
+            }
         }
 
         if (!anything) {
@@ -209,6 +236,33 @@ public final class ProfileListView {
         return row;
     }
 
+    /**
+     * The panel behind a group and its members.
+     *
+     * <p>The same shape the grid draws: a tint of the group's colour with a solid
+     * rail down the left. {@code derive} rather than a translucent fill, because
+     * the panel sits over the sidebar and a translucent tint would pick up
+     * whatever happened to be behind it - including the band above.
+     *
+     * <p>The tint is on this panel and not on the rows, so a row's own hover and
+     * selection colours still paint over it. An inline background on the rows
+     * would have won against the stylesheet and left a selected row in a group
+     * with no visible selection at all.
+     */
+    private Node bandFor(ProfileLayout.Group group, VBox content) {
+        Region rail = new Region();
+        rail.getStyleClass().add("profile-band-rail");
+        rail.setStyle("-fx-background-color: " + group.color() + ";");
+        rail.setMaxHeight(Double.MAX_VALUE);
+
+        HBox band = new HBox(0, rail, content);
+        band.getStyleClass().add("profile-band");
+        band.setStyle("-fx-background-color: derive(" + group.color() + ", -74%);"
+                + " -fx-border-color: derive(" + group.color() + ", -45%);");
+        HBox.setHgrow(content, Priority.ALWAYS);
+        return band;
+    }
+
     private Node groupRow(ProfileLayout.Group group, int memberCount) {
         Label toggle = new Label(group.collapsed() ? "+" : "−");
         toggle.getStyleClass().add("group-toggle");
@@ -229,7 +283,9 @@ public final class ProfileListView {
 
         HBox row = new HBox(8, toggle, chip, name, spacer(), count);
         row.setAlignment(Pos.CENTER_LEFT);
-        row.getStyleClass().add("group-row");
+        // Transparent, not the usual panel colour: the header sits on its own
+        // band now, and a second background over the tint would hide it.
+        row.getStyleClass().addAll("group-row", "group-row-banded");
         Tooltip.install(row, new Tooltip(group.name()));
 
         row.setOnMouseClicked(event -> {

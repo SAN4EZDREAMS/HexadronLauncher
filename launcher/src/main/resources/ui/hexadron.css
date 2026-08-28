@@ -444,9 +444,45 @@
     -fx-background-color: -fx-base-3;
 }
 
-/* A member of a group, indented so the group it belongs to is unambiguous. */
+/*
+ * A group in the list is one block, the same as a band in the grid: a tint of
+ * the group's colour with a solid rail down the left, holding the header and its
+ * members. Indentation on its own could not say where a group ended or which of
+ * two adjacent groups a row belonged to.
+ *
+ * The tint is on this panel rather than on the rows so that a row's own hover
+ * and selection colours still paint over it.
+ */
+.profile-band {
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+}
+
+.profile-band-content {
+    -fx-padding: 3 3 3 3;
+}
+
+.profile-band-rail {
+    -fx-min-width: 4;
+    -fx-pref-width: 4;
+    -fx-max-width: 4;
+    -fx-background-radius: 8 0 0 8;
+}
+
+/* Inside a band the header needs no panel of its own - the band is the panel. */
+.group-row-banded {
+    -fx-background-color: transparent;
+}
+
+.group-row-banded:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.07);
+}
+
+/* A member of a group. The rail already sets the block apart, so the indent is
+   only enough to tell a member from a heading. */
 .profile-row-nested {
-    -fx-padding: 7 10 7 26;
+    -fx-padding: 7 10 7 16;
 }
 
 /* The row being dragged: still visible, clearly no longer in place. */
