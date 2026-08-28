@@ -67,6 +67,10 @@ public final class ProfileListView {
     /** The row currently showing a drop line, so it can be cleared again. */
     private Region marked;
 
+    /** The band showing a drop line, and the inline style to put back on it. */
+    private Region markedBand;
+    private String markedBandStyle;
+
     /**
      * The row of each profile on screen, for moving the selection highlight.
      *
@@ -128,14 +132,20 @@ public final class ProfileListView {
         }
 
         boolean anything = !drawn.isEmpty();
-        VBox band = null;
+        VBox content = null;
+        HBox band = null;
 
         for (ProfileLayout.ListRow row : drawn) {
             if (row.isGroup()) {
-                band = new VBox(2);
-                band.getStyleClass().add("profile-band-content");
-                band.getChildren().add(groupRow(row.group(), row.memberCount()));
-                rows.getChildren().add(bandFor(row.group(), band));
+                content = new VBox(2);
+                content.getStyleClass().add("profile-band-content");
+                // The panel first, so that every row inside it can be told which
+                // band it is in - which is what lets a dropped group be shown
+                // landing beside the whole block rather than inside it.
+                band = bandFor(row.group(), content);
+                Node header = groupRow(row.group(), row.memberCount(), band);
+                content.getChildren().add(header);
+                rows.getChildren().add(band);
                 continue;
             }
             Profile profile = profile(row.profileId());
@@ -143,11 +153,12 @@ public final class ProfileListView {
                 continue;
             }
             // A nested row goes into the open band; anything else closes it.
-            if (row.isNested() && band != null) {
-                band.getChildren().add(profileRow(profile, true));
+            if (row.isNested() && content != null) {
+                content.getChildren().add(profileRow(profile, true, band));
             } else {
+                content = null;
                 band = null;
-                rows.getChildren().add(profileRow(profile, false));
+                rows.getChildren().add(profileRow(profile, false, null));
             }
         }
 
@@ -182,7 +193,7 @@ public final class ProfileListView {
 
     // ---------------------------------------------------------------- rows
 
-    private Node profileRow(Profile profile, boolean inGroup) {
+    private Node profileRow(Profile profile, boolean inGroup, Region band) {
         Node icon = ProfileIcons.node(profile, host.service().dirs(), 22);
 
         Label name = new Label(profile.name());
@@ -216,7 +227,7 @@ public final class ProfileListView {
         ProfileMenu.install(row, host, profile);
 
         dragSource(row, ProfileDrag.profile(profile.id()));
-        dropTarget(row, (payload, after) -> {
+        dropTarget(row, band, (payload, after) -> {
             ProfileLayout layout = host.layout();
             String dragged = ProfileDrag.id(payload);
             if (ProfileDrag.isProfile(payload)) {
@@ -226,12 +237,11 @@ public final class ProfileListView {
                 layout.moveProfileBeside(dragged, profile.id(), after);
                 return true;
             }
-            // A group dragged onto a row of its own is not a move.
-            if (layout.membersOf(dragged).contains(profile.id())) {
-                return false;
-            }
-            layout.moveGroupBeside(dragged, profile.id(), after);
-            return true;
+            // By row, so that the layout steps over the target's whole group
+            // rather than splitting it - and so the drop line the user was shown
+            // is where the group actually lands.
+            int targetRow = layout.cellOf(profile.id()).map(cell -> cell[0]).orElse(-1);
+            return targetRow >= 0 && layout.moveBandBeside(dragged, targetRow, after);
         });
         return row;
     }
@@ -249,7 +259,7 @@ public final class ProfileListView {
      * would have won against the stylesheet and left a selected row in a group
      * with no visible selection at all.
      */
-    private Node bandFor(ProfileLayout.Group group, VBox content) {
+    private HBox bandFor(ProfileLayout.Group group, VBox content) {
         Region rail = new Region();
         rail.getStyleClass().add("profile-band-rail");
         rail.setStyle("-fx-background-color: " + group.color() + ";");
@@ -257,8 +267,11 @@ public final class ProfileListView {
 
         HBox band = new HBox(0, rail, content);
         band.getStyleClass().add("profile-band");
-        band.setStyle("-fx-background-color: derive(" + group.color() + ", -74%);"
-                + " -fx-border-color: derive(" + group.color() + ", -45%);");
+        String base = "-fx-background-color: derive(" + group.color() + ", -74%);"
+                + " -fx-border-color: derive(" + group.color() + ", -45%);";
+        band.setStyle(base);
+        band.getProperties().put("hexadron-base-style", base);
+        band.getProperties().put("hexadron-group", group.id());
         HBox.setHgrow(content, Priority.ALWAYS);
         return band;
     }
@@ -277,7 +290,7 @@ public final class ProfileListView {
      * keeps its own, because there a band has rows to close over even when it is
      * empty.
      */
-    private Node groupRow(ProfileLayout.Group group, int memberCount) {
+    private Node groupRow(ProfileLayout.Group group, int memberCount, Region band) {
         Label toggle = new Label();
         if (memberCount == 0) {
             toggle.setText("·");
@@ -315,22 +328,21 @@ public final class ProfileListView {
         ProfileMenu.installForGroup(row, host, group);
 
         dragSource(row, ProfileDrag.group(group.id()));
-        dropTarget(row, (payload, after) -> {
+        dropTarget(row, band, (payload, after) -> {
             ProfileLayout layout = host.layout();
             String dragged = ProfileDrag.id(payload);
             if (!ProfileDrag.isProfile(payload)) {
                 if (dragged.equals(group.id())) {
                     return false;
                 }
-                // Beside the group, using its first member as the anchor: the
-                // header itself has no cell of its own to be beside.
-                List<String> anchors = layout.membersOf(group.id());
-                if (anchors.isEmpty()) {
+                // By row rather than by member, so that a group with nothing in
+                // it is still somewhere another group can be dropped beside.
+                List<Integer> theirs = layout.rowsOf(group.id());
+                if (theirs.isEmpty()) {
                     return false;
                 }
-                layout.moveGroupBeside(dragged,
-                        after ? anchors.get(anchors.size() - 1) : anchors.get(0), after);
-                return true;
+                return layout.moveBandBeside(dragged,
+                        after ? theirs.get(theirs.size() - 1) : theirs.get(0), after);
             }
             if (!layout.join(dragged, group.id())) {
                 host.hint(I18n.t("grid.noRoom"));
@@ -436,7 +448,22 @@ public final class ProfileListView {
         });
     }
 
-    private void dropTarget(Region row, DropAction action) {
+    /**
+     * A row as a place to drop something.
+     *
+     * <p>What gets the drop line depends on what is being dragged, and that is
+     * the whole point of {@code band}. A profile lands between two rows, so the
+     * line goes on the row. A group cannot land inside another group - groups do
+     * not nest - so when one is dragged over a row that is inside a band, the
+     * line goes above or below the whole band. It used to go on the row, which
+     * drew an insertion line between two members of somebody else's group and
+     * promised a nesting that was never going to happen: the layout stepped over
+     * the whole target group, so the group landed somewhere the user had not been
+     * shown.
+     *
+     * @param band the band this row is inside, or null for a row in no group
+     */
+    private void dropTarget(Region row, Region band, DropAction action) {
         row.setOnDragOver(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
             if (payload == null || payload.equals(row.getProperties().get("hexadron-key"))) {
@@ -444,19 +471,33 @@ public final class ProfileListView {
                 event.consume();
                 return;
             }
+            boolean movingGroup = ProfileDrag.isGroup(payload);
+            if (movingGroup && band != null
+                    && ProfileDrag.id(payload).equals(band.getProperties().get("hexadron-group"))) {
+                // Its own band. A group cannot be moved inside itself either.
+                event.consume();
+                return;
+            }
             event.acceptTransferModes(TransferMode.MOVE);
-            mark(row, after(event, row));
+            if (movingGroup && band != null) {
+                markBand(band, afterBand(event, band));
+            } else {
+                mark(row, after(event, row));
+            }
             event.consume();
         });
         row.setOnDragExited(event -> {
-            if (marked == row) {
+            if (marked == row || markedBand == band) {
                 clearMark();
             }
             event.consume();
         });
         row.setOnDragDropped(event -> {
             String payload = ProfileDrag.key(event.getDragboard());
-            boolean after = after(event, row);
+            boolean movingGroup = ProfileDrag.isGroup(payload);
+            boolean after = movingGroup && band != null
+                    ? afterBand(event, band)
+                    : after(event, row);
             clearMark();
             if (payload != null && action.apply(payload, after)) {
                 event.setDropCompleted(true);
@@ -470,16 +511,53 @@ public final class ProfileListView {
         return event.getY() > row.getHeight() / 2;
     }
 
+    /**
+     * Which side of a whole band the pointer is on.
+     *
+     * <p>In scene coordinates, because the event arrives on a row inside the band
+     * and its own y tells us nothing about where the band's middle is - pointing
+     * at the top half of the last member is still the bottom half of the band.
+     */
+    private static boolean afterBand(DragEvent event, Region band) {
+        var bounds = band.localToScene(band.getBoundsInLocal());
+        return event.getSceneY() > bounds.getMinY() + bounds.getHeight() / 2;
+    }
+
     private void mark(Region row, boolean below) {
         clearMark();
         row.getStyleClass().add(below ? "drop-below" : "drop-above");
         marked = row;
     }
 
+    /**
+     * The accent line saying which side of this band the group will land on.
+     *
+     * <p>Written into the band's inline style rather than added as a style class,
+     * because the band already carries an inline border colour for its tint - and
+     * in JavaFX an inline style beats the stylesheet, so a class setting the
+     * accent border would never have shown.
+     */
+    private void markBand(Region band, boolean below) {
+        clearMark();
+        Object base = band.getProperties().get("hexadron-base-style");
+        markedBandStyle = base == null ? "" : base.toString();
+        markedBand = band;
+        band.setStyle(markedBandStyle
+                + " -fx-border-color: " + (below
+                        ? "transparent transparent -fx-accent-1 transparent;"
+                        : "-fx-accent-1 transparent transparent transparent;")
+                + " -fx-border-width: " + (below ? "0 0 3 0;" : "3 0 0 0;"));
+    }
+
     private void clearMark() {
         if (marked != null) {
             marked.getStyleClass().removeAll("drop-above", "drop-below", "drop-into");
             marked = null;
+        }
+        if (markedBand != null) {
+            markedBand.setStyle(markedBandStyle);
+            markedBand = null;
+            markedBandStyle = null;
         }
     }
 

@@ -1452,6 +1452,44 @@ public final class SelfCheck {
         check("still four profiles", dragged.occupied() == 4);
         check("all inside", allInside(dragged));
 
+        // -------------------------------------------------- groups never nest
+        //
+        // Dropping a group on a row that is inside another group is not a way to
+        // put one group into another - there is no such thing. Whatever row is
+        // aimed at, the target's whole block is stepped over, and the two groups
+        // come out one after the other rather than interleaved.
+        ProfileLayout nested = new ProfileLayout();
+        nested.reconcile(profiles);
+        ProfileLayout.Group outer = nested.createGroup("Outer");
+        nested.join(id.get("Zeta"), outer.id());
+        ProfileLayout.Group inner = nested.createGroup("Inner");
+        nested.join(id.get("Mid"), inner.id());
+        nested.addRowToGroup(inner.id());
+        check("two groups, one of them two rows deep",
+                nested.rowsOf(outer.id()).size() == 1
+                        && nested.rowsOf(inner.id()).size() == 2);
+        check("neither is interleaved to begin with", groupRowsAreContiguous(nested));
+
+        int deepInside = nested.rowsOf(inner.id()).get(1);
+        check("a group can be dropped on a row inside another",
+                nested.moveBandBeside(outer.id(), deepInside, false));
+        check("but it does not end up inside it", groupRowsAreContiguous(nested));
+        check("its member came with it",
+                nested.groupOf(id.get("Zeta")).orElseThrow().id().equals(outer.id()));
+        check("and the other group kept its own",
+                nested.groupOf(id.get("Mid")).orElseThrow().id().equals(inner.id()));
+        check("nobody was lost", nested.occupied() == 4);
+        check("everything is inside the grid", allInside(nested));
+
+        int deepInsideAfter = nested.rowsOf(inner.id()).get(0);
+        check("the same from the other side",
+                nested.moveBandBeside(outer.id(), deepInsideAfter, true));
+        check("still not interleaved", groupRowsAreContiguous(nested));
+        check("a group cannot be dropped on a row of its own",
+                !nested.moveBandBeside(outer.id(), nested.rowsOf(outer.id()).get(0), true));
+        check("nothing changed by the refusal", groupRowsAreContiguous(nested)
+                && nested.occupied() == 4);
+
         // -------------------------------------------------- sorting
         ProfileLayout tidy = new ProfileLayout();
         tidy.reconcile(profiles);
@@ -1607,6 +1645,25 @@ public final class SelfCheck {
             int[] cell = layout.cellOf(id).orElseThrow();
             if (!seen.add(cell[0] + ":" + cell[1])) {
                 return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Every group's rows sit next to each other.
+     *
+     * <p>The property behind "groups do not nest": if one group's rows were ever
+     * split by another's, the two would be interleaved on screen and there would
+     * be no honest way to draw either of them as a band.
+     */
+    private static boolean groupRowsAreContiguous(ProfileLayout layout) {
+        for (ProfileLayout.Group group : layout.groups()) {
+            List<Integer> owned = layout.rowsOf(group.id());
+            for (int i = 1; i < owned.size(); i++) {
+                if (owned.get(i) - owned.get(i - 1) != 1) {
+                    return false;
+                }
             }
         }
         return true;

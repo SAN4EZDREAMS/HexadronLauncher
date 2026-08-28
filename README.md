@@ -464,6 +464,12 @@ needed, which made a free cell mean "the end" - so dragging an instance onto the
 empty cells at the end of the top row sent it to the bottom of the grid, and
 looked like a drag that had failed.
 
+Groups do not nest, and the drop line says so. A group dragged over a row that
+happens to be inside another group is shown landing above or below that whole
+band, never between two of its members - which is what actually happens, since
+the target's block is stepped over rather than split. The line used to go on the
+row under the pointer and promised a nesting that was never going to occur.
+
 Dragging in the *list* is a different question with a different answer: the list
 has no cells, so a row dragged to a new position reorders which instance sits in
 which of the already-occupied cells. The gaps stay where they were and only the

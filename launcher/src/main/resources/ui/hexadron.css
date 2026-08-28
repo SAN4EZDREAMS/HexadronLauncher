@@ -777,13 +777,23 @@
  *
  * Declared after the plain rules and at the same specificity, so it wins on
  * order; the hover and selected variants repeat that pairing.
+ *
+ * The numbers matter more than they look. At -68% the inside of a cell came out
+ * at #0e2816 for a green group - which is the right hue and so dark that it reads
+ * as black, sitting on a band that was only a shade darker again. The colour was
+ * being applied correctly and could not be seen, which is the same thing as not
+ * being applied.
+ *
+ * The cell is now clearly lighter than the band behind it, so it still reads as a
+ * slot rather than a hole, and clearly the group's colour rather than the
+ * interface's grey.
  */
 .inv-cell-tinted {
-    -fx-background-color: derive(-fx-group-tint, -46%), derive(-fx-group-tint, -68%);
+    -fx-background-color: derive(-fx-group-tint, -26%), derive(-fx-group-tint, -52%);
 }
 
 .inv-cell-tinted:hover {
-    -fx-background-color: derive(-fx-group-tint, -32%), derive(-fx-group-tint, -56%);
+    -fx-background-color: derive(-fx-group-tint, -8%), derive(-fx-group-tint, -36%);
 }
 
 .inv-cell-empty {
@@ -794,8 +804,8 @@
 }
 
 .inv-cell-empty.inv-cell-tinted {
-    -fx-background-color: derive(-fx-group-tint, -56%), derive(-fx-group-tint, -76%);
-    -fx-opacity: 0.75;
+    -fx-background-color: derive(-fx-group-tint, -46%), derive(-fx-group-tint, -66%);
+    -fx-opacity: 0.8;
 }
 
 .inv-cell-selected {
@@ -805,7 +815,7 @@
 
 /* Selected and in a group: the accent ring stays, the inside keeps the tint. */
 .inv-cell-tinted.inv-cell-selected {
-    -fx-background-color: -fx-accent-0, derive(-fx-group-tint, -56%);
+    -fx-background-color: -fx-accent-0, derive(-fx-group-tint, -40%);
     -fx-background-insets: 0, 3;
 }
 
