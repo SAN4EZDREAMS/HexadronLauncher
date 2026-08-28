@@ -638,16 +638,38 @@
     -fx-padding: 2;
 }
 
+/*
+ * Nearly invisible at rest, and that is the point.
+ *
+ * They were at 0.55 opacity over a saturated fill, which over the dark band read
+ * as a control already switched on - the group looked like it had two lit
+ * buttons attached to it at all times. A control that is not being used should
+ * not be brighter than the content it sits beside.
+ *
+ * Three steps rather than two: barely there until the pointer is somewhere in
+ * the group, half-lit then so it can be found at all, and full only under the
+ * pointer itself. Without the middle step the buttons are invisible to anybody
+ * who does not already know they exist.
+ */
 .inv-group-edge-button {
     -fx-text-fill: white;
-    -fx-opacity: 0.55;
+    -fx-opacity: 0.12;
 }
 
 .inv-band-group:hover .inv-group-edge-button {
-    -fx-opacity: 1;
+    -fx-opacity: 0.38;
 }
 
-.inv-group-edge-button:hover {
+/*
+ * Scoped to the band on purpose, and it has to be.
+ *
+ * A plain `.inv-group-edge-button:hover` is one class and one pseudo-class,
+ * which loses on specificity to the two-class rule above - and since the button
+ * is inside the band, both rules match whenever the pointer is on the button.
+ * The plain rule therefore never applied and the button stopped at 0.38, never
+ * reaching the state that says it can be clicked.
+ */
+.inv-band-group:hover .inv-group-edge-button:hover {
     -fx-opacity: 1;
     -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.5), 6, 0.4, 0, 0);
 }
@@ -691,6 +713,7 @@
     -fx-background-color: -fx-accent-0;
     -fx-border-color: -fx-accent-1;
     -fx-text-fill: white;
+    -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.35), 6, 0.4, 0, 0);
 }
 
 /*
