@@ -79,6 +79,16 @@ public final class SettingsDialog {
     private final CheckBox minimiseToTray = new CheckBox();
     private final CheckBox showAllVersions = new CheckBox();
 
+    /**
+     * Read every installed file before every launch.
+     *
+     * <p>In the Game tab rather than beside the credential settings, because
+     * what it changes is what happens when Play is pressed. It is the one
+     * setting here that trades a measurable amount of the user's time for a
+     * threat model, so the note under it says which trade, in those terms.
+     */
+    private final CheckBox verifyEveryLaunch = new CheckBox();
+
     // Java
     private final ComboBox<JavaRuntimes.DownloadPolicy> javaPolicyBox = new ComboBox<>();
 
@@ -208,13 +218,16 @@ public final class SettingsDialog {
         keepOpen.setText(I18n.t("settings.keepOpen"));
         minimiseToTray.setText(I18n.t("settings.tray"));
         showAllVersions.setText(I18n.t("editor.showAll"));
+        verifyEveryLaunch.setText(I18n.t("settings.verify"));
 
         GridPane grid = form();
         int row = 0;
         grid.addRow(row++, new Label(), keepOpen);
         grid.addRow(row++, new Label(), minimiseToTray);
         grid.addRow(row++, new Label(), note("settings.tray.note"));
-        grid.addRow(row, new Label(), showAllVersions);
+        grid.addRow(row++, new Label(), showAllVersions);
+        grid.addRow(row++, new Label(), verifyEveryLaunch);
+        grid.addRow(row, new Label(), note("settings.verify.note"));
         return grid;
     }
 
@@ -384,6 +397,7 @@ public final class SettingsDialog {
         keepOpen.setSelected(settings.keepOpenWhilePlaying());
         minimiseToTray.setSelected(settings.minimiseToTrayWhilePlaying());
         showAllVersions.setSelected(settings.showAllVersions());
+        verifyEveryLaunch.setSelected(settings.verifyEveryLaunch());
         javaPolicyBox.setValue(settings.javaDownloadPolicy());
         curseForgeKey.setText(settings.curseForgeApiKey());
         signInMethodBox.setValue(settings.usesBrowserSignIn() ? "browser" : "deviceCode");
@@ -404,6 +418,7 @@ public final class SettingsDialog {
         settings.keepOpenWhilePlaying(keepOpen.isSelected());
         settings.minimiseToTrayWhilePlaying(minimiseToTray.isSelected());
         settings.showAllVersions(showAllVersions.isSelected());
+        settings.verifyEveryLaunch(verifyEveryLaunch.isSelected());
         settings.javaDownloadPolicy(javaPolicyBox.getValue());
         settings.downloadConcurrency(value(concurrencySpinner));
         settings.curseForgeApiKey(curseForgeKey.getText());

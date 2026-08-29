@@ -68,6 +68,29 @@ public final class LauncherSettings {
     private boolean keepOpenWhilePlaying = true;
 
     /**
+     * Read and hash every installed file before every launch, instead of
+     * trusting the record of what was already checked.
+     *
+     * <p>Off by default, and that default is a judgement about where the risk
+     * actually is rather than about how much a check costs. What is skipped by
+     * default is re-reading a file that is the same length, was not written
+     * since, and is being checked against the same hash as last time. Evading
+     * that means writing into the launcher's own data directory, restoring the
+     * size and the timestamp, and editing the ledger - and anyone who can do the
+     * first of those can also drop a jar into an instance's {@code mods} folder,
+     * which the game loads with no hashing at all. The reading, meanwhile, costs
+     * a modern version around five thousand file opens and two thirds of a
+     * gigabyte, every time Play is pressed.
+     *
+     * <p>On, it is the older behaviour exactly: the ledger is not consulted, the
+     * natives are unpacked again from their jars, and nothing on disk is taken
+     * on trust. Offered because "my machine, my rules" is a legitimate position,
+     * and because somebody who suspects tampering should not have to press
+     * Install / repair before every session to act on it.
+     */
+    private boolean verifyEveryLaunch = false;
+
+    /**
      * Hide the window to the notification area while the game runs.
      *
      * <p>On by default. A launcher left on the taskbar is one more window to
@@ -146,6 +169,7 @@ public final class LauncherSettings {
         secureLaunchHandshake = json.get("secureLaunchHandshake").asBool(secureLaunchHandshake);
         useFileCredentialStore = json.get("useFileCredentialStore").asBool(useFileCredentialStore);
         keepOpenWhilePlaying = json.get("keepOpenWhilePlaying").asBool(keepOpenWhilePlaying);
+        verifyEveryLaunch = json.get("verifyEveryLaunch").asBool(verifyEveryLaunch);
         minimiseToTrayWhilePlaying = json.get("minimiseToTrayWhilePlaying")
                 .asBool(minimiseToTrayWhilePlaying);
         downloadConcurrency = json.get("downloadConcurrency").asInt(downloadConcurrency);
@@ -169,6 +193,7 @@ public final class LauncherSettings {
                 .put("secureLaunchHandshake", secureLaunchHandshake)
                 .put("useFileCredentialStore", useFileCredentialStore)
                 .put("keepOpenWhilePlaying", keepOpenWhilePlaying)
+                .put("verifyEveryLaunch", verifyEveryLaunch)
                 .put("minimiseToTrayWhilePlaying", minimiseToTrayWhilePlaying)
                 .put("downloadConcurrency", downloadConcurrency)
                 .put("showAllVersions", showAllVersions)
@@ -277,6 +302,17 @@ public final class LauncherSettings {
 
     public boolean keepOpenWhilePlaying() {
         return keepOpenWhilePlaying;
+    }
+
+    /** @see #verifyEveryLaunch */
+    public boolean verifyEveryLaunch() {
+        return verifyEveryLaunch;
+    }
+
+    /** @see #verifyEveryLaunch */
+    public LauncherSettings verifyEveryLaunch(boolean value) {
+        this.verifyEveryLaunch = value;
+        return this;
     }
 
     public LauncherSettings keepOpenWhilePlaying(boolean value) {

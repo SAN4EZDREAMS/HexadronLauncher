@@ -1,6 +1,7 @@
 package com.hexadron.launcher.net;
 
 import com.hexadron.launcher.core.Progress;
+import com.hexadron.launcher.core.VerifiedFiles;
 import com.hexadron.launcher.util.Hashes;
 
 import java.io.IOException;
@@ -10,6 +11,7 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -40,12 +42,54 @@ public final class Downloader {
 
     private final int concurrency;
 
+    /**
+     * What has already been checked, so a file is not read to be told what it
+     * was told last time.
+     *
+     * <p>Defaults to the ledger that knows nothing, which is exactly the old
+     * behaviour: every file with a published hash gets hashed. The application
+     * hands it a real one; a repair hands it {@link VerifiedFiles#DISABLED}
+     * again so that the whole install is read from disk.
+     */
+    private volatile VerifiedFiles verified = VerifiedFiles.DISABLED;
+
+    /**
+     * Whether the ledger may be believed, as opposed to only written to.
+     *
+     * <p>Two different things, and keeping them apart is what makes "verify
+     * everything" affordable to turn on and off. With this false every file with
+     * a published hash is read and hashed - the ledger answers nothing - but
+     * what matched is still recorded. So a user who tries the setting and turns
+     * it off again does not pay for a cold ledger afterwards, and a user who
+     * leaves it on is not quietly building a record nobody reads.
+     *
+     * <p>Never a shortcut: false can only ever mean more work, never less.
+     */
+    private volatile boolean trustLedger = true;
+
     public Downloader() {
         this(DEFAULT_CONCURRENCY);
     }
 
     public Downloader(int concurrency) {
         this.concurrency = Math.max(1, concurrency);
+    }
+
+    /** @see #verified */
+    public Downloader verified(VerifiedFiles ledger) {
+        this.verified = ledger == null ? VerifiedFiles.DISABLED : ledger;
+        return this;
+    }
+
+    /** @see #verified */
+    public VerifiedFiles verified() {
+        return verified;
+    }
+
+    /** @see #trustLedger */
+    public Downloader trustLedger(boolean value) {
+        this.trustLedger = value;
+        return this;
     }
 
     /** A task that could not be fetched from any of its URLs. */
@@ -187,6 +231,9 @@ public final class Downloader {
                 if (task.executable()) {
                     makeExecutable(destination);
                 }
+                // Just written and just verified, so the next launch has no
+                // reason to read it again.
+                verified.record(destination, task.sha1(), VerifiedFiles.attributesOf(destination));
                 return;
             } catch (IOException e) {
                 lastFailure = e;
@@ -202,23 +249,49 @@ public final class Downloader {
                 : new IOException("no usable URL for " + task.description());
     }
 
+    /**
+     * Whether the file is already what the task would download.
+     *
+     * <p>One {@code stat} up front, and the ledger consulted before the file is
+     * read: on a launch where nothing has changed this is the whole of the work,
+     * and the several thousand file reads it replaces are the difference between
+     * a game that starts and a launcher that appears to have hung.
+     *
+     * <p>A file the ledger does not vouch for is hashed exactly as before, and
+     * recorded once it matches - so the first launch after this change is as
+     * slow as every launch was, and the second is not.
+     */
     private boolean isAlreadyValid(DownloadTask task) {
         Path destination = task.destination();
-        if (!Files.isRegularFile(destination)) {
+        BasicFileAttributes attributes = VerifiedFiles.attributesOf(destination);
+        if (attributes == null) {
             return false;
         }
         if (task.sha1() != null) {
-            return Hashes.matchesSha1(destination, task.sha1());
+            if (trustLedger && verified.isVerified(destination, task.sha1(), attributes)) {
+                return true;
+            }
+            if (!Hashes.matchesSha1(destination, task.sha1())) {
+                return false;
+            }
+            // Recorded only if the file did not change while it was being read.
+            // The attributes above were taken before the hash, so writing them
+            // down together with a hash computed after it would put a record in
+            // the ledger describing a state that was never actually verified -
+            // and the whole value of the ledger is that everything in it was.
+            BasicFileAttributes after = VerifiedFiles.attributesOf(destination);
+            if (after != null
+                    && after.size() == attributes.size()
+                    && after.lastModifiedTime().equals(attributes.lastModifiedTime())) {
+                verified.record(destination, task.sha1(), after);
+            }
+            return true;
         }
         // No checksum published. Fall back to size when we have one, otherwise
         // trust existence - re-downloading unhashed artifacts on every launch
         // would make startup unusable.
         if (task.size() > 0) {
-            try {
-                return Files.size(destination) == task.size();
-            } catch (IOException e) {
-                return false;
-            }
+            return attributes.size() == task.size();
         }
         return true;
     }

@@ -753,10 +753,17 @@ public final class MainWindow implements ProfileHost {
         }
     }
 
+    /**
+     * The Install / repair button.
+     *
+     * <p>Asks for a full verification, unlike a launch: the launcher normally
+     * trusts its record of which files it has already checked, and this button
+     * exists for the case where that record is exactly what is in doubt.
+     */
     private void installSelected() {
         runInBackground(I18n.t("task.install"), () -> {
             Profile profile = requireSelected();
-            service.installProfile(profile, progress);
+            service.installProfile(profile, progress, true);
             progress.log(I18n.t("log.installed", profile.effectiveVersionId()));
             Platform.runLater(() -> {
                 showProfile(profile);

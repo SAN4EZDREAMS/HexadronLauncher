@@ -2,7 +2,10 @@ package com.hexadron.launcher;
 
 import com.hexadron.launcher.auth.Account;
 import com.hexadron.launcher.core.GameDirs;
+import com.hexadron.launcher.core.Progress;
+import com.hexadron.launcher.core.VerifiedFiles;
 import com.hexadron.launcher.i18n.I18n;
+import com.hexadron.launcher.install.NativesExtractor;
 import com.hexadron.launcher.install.loader.ForgeInstaller;
 import com.hexadron.launcher.install.loader.LoaderInstaller;
 import com.hexadron.launcher.install.loader.LoaderType;
@@ -34,6 +37,7 @@ import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.profile.Profile;
 import com.hexadron.launcher.profile.ProfileLayout;
 import com.hexadron.launcher.util.Archives;
+import com.hexadron.launcher.util.Hashes;
 import com.hexadron.launcher.util.Arguments;
 import com.hexadron.launcher.util.MavenCoordinate;
 import com.hexadron.launcher.util.Platform;
@@ -95,6 +99,8 @@ public final class SelfCheck {
         profileArrangement();
         profileIconValues();
         offlineRelaunch();
+        verificationLedger();
+        nativesReuse();
         translations();
 
         System.out.println();
@@ -1901,6 +1907,7 @@ public final class SelfCheck {
                 "settings.grid.refusedHeader", "settings.grid.refusedColumns",
                 "settings.grid.refusedRows", "settings.splash", "settings.splash.note",
                 "settings.keepOpen", "settings.tray", "settings.tray.note",
+                "settings.verify", "settings.verify.note",
                 "settings.java", "settings.java.ask", "settings.java.always",
                 "settings.java.never", "settings.java.note", "settings.concurrency",
                 "settings.concurrency.note", "settings.curseforge",
@@ -2736,6 +2743,226 @@ public final class SelfCheck {
         java.nio.file.Path file = dirs.versionJson(versionId);
         java.nio.file.Files.createDirectories(file.getParent());
         java.nio.file.Files.writeString(file, json);
+    }
+
+    /**
+     * Not re-reading a gigabyte of files that were already checked.
+     *
+     * <p>The ledger is a performance change with a security argument attached,
+     * which is exactly the kind that has to be pinned down by tests rather than
+     * by a comment. The claim is: it may skip a hash only when the file is the
+     * same length, was not written since, and is being checked against the same
+     * hash as last time. Each of those three is one check below.
+     */
+    private static void verificationLedger() {
+        section("Verification ledger");
+
+        java.nio.file.Path work = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-ledger-check");
+            GameDirs dirs = new GameDirs(work);
+            dirs.createBaseDirectories();
+
+            java.nio.file.Path file = work.resolve("libraries").resolve("thing.jar");
+            java.nio.file.Files.createDirectories(file.getParent());
+            java.nio.file.Files.writeString(file, "the original contents");
+            String hash = Hashes.sha1(file);
+
+            VerifiedFiles ledger = VerifiedFiles.load(dirs);
+            check("an unknown file is not verified",
+                    !ledger.isVerified(file, hash, VerifiedFiles.attributesOf(file)));
+
+            ledger.record(file, hash, VerifiedFiles.attributesOf(file));
+            check("a recorded, untouched file is verified",
+                    ledger.isVerified(file, hash, VerifiedFiles.attributesOf(file)));
+            check("but not against a different hash",
+                    !ledger.isVerified(file, "0000000000000000000000000000000000000000",
+                            VerifiedFiles.attributesOf(file)));
+
+            // Rewritten with content of a different length: the case of a
+            // truncated or half-written file.
+            java.nio.file.Files.writeString(file, "shorter");
+            check("a file of a different length is not verified",
+                    !ledger.isVerified(file, hash, VerifiedFiles.attributesOf(file)));
+
+            // Rewritten with content of exactly the same length. Only the
+            // timestamp gives it away, which is why the timestamp is recorded.
+            java.nio.file.Files.writeString(file, "the original contents");
+            java.nio.file.Files.setLastModifiedTime(file,
+                    java.nio.file.attribute.FileTime.fromMillis(
+                            java.nio.file.Files.getLastModifiedTime(file).toMillis() + 5000));
+            check("a file written since is not verified, even at the same length",
+                    !ledger.isVerified(file, hash, VerifiedFiles.attributesOf(file)));
+
+            check("a file that has gone has no attributes to check",
+                    VerifiedFiles.attributesOf(work.resolve("absent.jar")) == null);
+            check("and a directory is not a file",
+                    VerifiedFiles.attributesOf(work) == null);
+
+            // Survives a restart: the whole point is that Monday's work counts
+            // on Tuesday.
+            java.nio.file.Files.writeString(file, "final contents");
+            String finalHash = Hashes.sha1(file);
+            ledger.record(file, finalHash, VerifiedFiles.attributesOf(file));
+            ledger.save();
+
+            VerifiedFiles reopened = VerifiedFiles.load(dirs);
+            check("the ledger survives being reloaded",
+                    reopened.isVerified(file, finalHash, VerifiedFiles.attributesOf(file)));
+
+            // Nothing may enter the ledger that was not hashed and matched
+            // first. This is the invariant the whole argument rests on: the
+            // ledger is an optimisation of a check, never a substitute for one.
+            java.nio.file.Path never = work.resolve("libraries").resolve("never-checked.jar");
+            java.nio.file.Files.writeString(never, "downloaded but never hashed");
+            ledger.record(never, null, VerifiedFiles.attributesOf(never));
+            check("a file with no hash is not recorded",
+                    !ledger.isVerified(never, Hashes.sha1(never),
+                            VerifiedFiles.attributesOf(never)));
+
+            // The setting that turns the ledger off. Default and persistence
+            // both matter: a security setting that silently forgets it was
+            // switched on is worse than not having one.
+            com.hexadron.launcher.core.LauncherSettings settings =
+                    new com.hexadron.launcher.core.LauncherSettings(dirs);
+            check("full verification is off by default", !settings.verifyEveryLaunch());
+            settings.verifyEveryLaunch(true);
+            settings.save();
+            check("and survives being written and read back",
+                    new com.hexadron.launcher.core.LauncherSettings(dirs)
+                            .load().verifyEveryLaunch());
+            settings.verifyEveryLaunch(false);
+            settings.save();
+            check("and can be turned off again",
+                    !new com.hexadron.launcher.core.LauncherSettings(dirs)
+                            .load().verifyEveryLaunch());
+
+            check("the disabled ledger verifies nothing",
+                    !VerifiedFiles.DISABLED.isVerified(file, finalHash,
+                            VerifiedFiles.attributesOf(file)));
+            VerifiedFiles.DISABLED.record(file, finalHash, VerifiedFiles.attributesOf(file));
+            check("and learns nothing when told",
+                    !VerifiedFiles.DISABLED.isVerified(file, finalHash,
+                            VerifiedFiles.attributesOf(file)));
+        } catch (IOException e) {
+            check("the verification ledger check can run: " + e.getMessage(), false);
+        } finally {
+            if (work != null) {
+                deleteRecursively(work);
+            }
+        }
+    }
+
+    /**
+     * Not unpacking the same native jars before every launch.
+     *
+     * <p>The directory was wiped and re-extracted every time, which for a
+     * version with thirty megabytes of natives is thousands of small writes
+     * between pressing Play and the game starting. It is now skipped when the
+     * jars it came from are unchanged - and repair can still force it, which is
+     * the half that is easy to leave out.
+     */
+    private static void nativesReuse() {
+        section("Natives reuse");
+
+        java.nio.file.Path work = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-natives-check");
+
+            java.nio.file.Path jar = work.resolve("lwjgl-natives.jar");
+            try (var out = new java.util.zip.ZipOutputStream(
+                    java.nio.file.Files.newOutputStream(jar))) {
+                out.putNextEntry(new java.util.zip.ZipEntry("native/lwjgl.dll"));
+                out.write("from the jar".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                out.closeEntry();
+            }
+
+            Library library = Library.parse(Json.parse("""
+                    {"name": "org.lwjgl:lwjgl-platform:2.9.4",
+                     "natives": {"windows": "natives-windows", "linux": "natives-linux",
+                                 "osx": "natives-osx"},
+                     "downloads": {"classifiers": {
+                       "natives-windows": {"url": "https://example/w.jar", "sha1": "aa", "size": 1},
+                       "natives-linux": {"url": "https://example/l.jar", "sha1": "bb", "size": 1},
+                       "natives-osx": {"url": "https://example/o.jar", "sha1": "cc", "size": 1}}}}
+                    """));
+            check("the test library is a legacy native container",
+                    library.isLegacyNativeContainer() && library.nativeArtifact() != null);
+
+            java.nio.file.Path target = work.resolve("natives");
+            Progress quiet = Progress.NOOP;
+
+            // How many times the jars were looked up. Unpacking consults them
+            // once to describe them and once to read them; skipping consults
+            // them only to describe them. Counting is the probe because the
+            // obvious one - editing an extracted file and seeing whether the
+            // edit survives - now measures the opposite thing: an edited native
+            // is meant to be detected and replaced. See below.
+            java.util.concurrent.atomic.AtomicInteger consulted =
+                    new java.util.concurrent.atomic.AtomicInteger();
+            java.util.function.Function<Library, java.nio.file.Path> counting = lib -> {
+                consulted.incrementAndGet();
+                return jar;
+            };
+
+            NativesExtractor.extractAll(List.of(library), counting, target, quiet);
+            int whenUnpacking = consulted.getAndSet(0);
+
+            java.nio.file.Path extracted = target.resolve("lwjgl.dll");
+            check("the native is unpacked the first time",
+                    java.nio.file.Files.isRegularFile(extracted));
+
+            NativesExtractor.extractAll(List.of(library), counting, target, quiet);
+            check("an unchanged, untouched directory is not unpacked again",
+                    consulted.get() < whenUnpacking);
+            check("and what was unpacked is still there",
+                    "from the jar".equals(java.nio.file.Files.readString(extracted)));
+
+            java.nio.file.Files.writeString(extracted, "replaced by hand");
+            NativesExtractor.forget(target);
+            NativesExtractor.extractAll(List.of(library), lib -> jar, target, quiet);
+            check("repair unpacks it again",
+                    "from the jar".equals(java.nio.file.Files.readString(extracted)));
+
+            // A different jar in the same place.
+            try (var out = new java.util.zip.ZipOutputStream(
+                    java.nio.file.Files.newOutputStream(jar))) {
+                out.putNextEntry(new java.util.zip.ZipEntry("native/lwjgl.dll"));
+                out.write("from a newer jar entirely".getBytes(
+                        java.nio.charset.StandardCharsets.UTF_8));
+                out.closeEntry();
+            }
+            NativesExtractor.extractAll(List.of(library), lib -> jar, target, quiet);
+            check("a changed jar is unpacked again",
+                    "from a newer jar entirely".equals(java.nio.file.Files.readString(extracted)));
+
+            // The security half. This directory is handed to the game as
+            // -Djava.library.path, so everything in it is native code that gets
+            // loaded. Wiping it before every launch used to destroy anything
+            // planted here; skipping that is only safe because the stamp
+            // describes the contents as well as the jars.
+            java.nio.file.Files.writeString(extracted, "tampered with, same length");
+            NativesExtractor.extractAll(List.of(library), lib -> jar, target, quiet);
+            check("an edited native is detected and replaced",
+                    "from a newer jar entirely".equals(java.nio.file.Files.readString(extracted)));
+
+            java.nio.file.Path planted = target.resolve("evil.dll");
+            java.nio.file.Files.writeString(planted, "not from any jar");
+            NativesExtractor.extractAll(List.of(library), lib -> jar, target, quiet);
+            check("a file planted beside the natives is removed",
+                    !java.nio.file.Files.isRegularFile(planted));
+
+            java.nio.file.Files.delete(extracted);
+            NativesExtractor.extractAll(List.of(library), lib -> jar, target, quiet);
+            check("a deleted native is put back",
+                    java.nio.file.Files.isRegularFile(extracted));
+        } catch (IOException e) {
+            check("the natives reuse check can run: " + e.getMessage(), false);
+        } finally {
+            if (work != null) {
+                deleteRecursively(work);
+            }
+        }
     }
 
     private static void section(String name) {

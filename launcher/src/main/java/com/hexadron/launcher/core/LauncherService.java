@@ -43,6 +43,14 @@ public final class LauncherService {
     private final GameDirs dirs;
     private final LauncherSettings settings;
     private final Downloader downloader;
+
+    /**
+     * Which files have already been checked against their hash.
+     *
+     * <p>Owned here because it outlives any one install: the point is that the
+     * work done on Monday's launch is still done on Tuesday's.
+     */
+    private final VerifiedFiles verified;
     private final VersionInstaller versionInstaller;
     private final ProfileStore profiles;
     private final AccountStore accounts;
@@ -81,6 +89,11 @@ public final class LauncherService {
         this.dirs = dirs.createBaseDirectories();
         this.settings = settings;
         this.downloader = new Downloader(settings.downloadConcurrency());
+        // Read once, at start-up, off the launch path: it is one file, and
+        // reading it while the user waits for the game would be the wrong place
+        // to spend the time it exists to save.
+        this.verified = VerifiedFiles.load(this.dirs);
+        this.downloader.verified(verified);
         this.versionInstaller = new VersionInstaller(dirs, downloader);
         step.accept("profiles");
         this.profiles = new ProfileStore(dirs).load();
@@ -255,8 +268,28 @@ public final class LauncherService {
      */
     public VersionJson installProfile(Profile profile, Progress progress)
             throws IOException, InterruptedException {
+        return installProfile(profile, progress, false);
+    }
+
+    /**
+     * @param verifyEverything read and hash every file rather than trusting the
+     *                         record of what was checked before. What the
+     *                         Install / repair button passes: somebody pressing
+     *                         it is saying they do not trust what is on disk, and
+     *                         the one job it has is to find out. The
+     *                         {@code verifyEveryLaunch} setting adds the same
+     *                         thing to every launch
+     */
+    public VersionJson installProfile(Profile profile, Progress progress, boolean verifyEverything)
+            throws IOException, InterruptedException {
+        boolean full = verifyEverything || settings.verifyEveryLaunch();
+        // The ledger stays attached either way, and only stops being believed.
+        // Writing to it costs nothing on a pass that is reading every file
+        // anyway, and it means turning the setting back off does not buy one
+        // more slow launch on top of the ones it already cost.
+        downloader.trustLedger(!full);
         try {
-            return install(profile, progress);
+            return install(profile, progress, full);
         } catch (Http.OfflineException e) {
             // Something genuinely had to be fetched and could not be. Said in
             // terms of what the user can do about it, because "request to
@@ -266,10 +299,16 @@ public final class LauncherService {
             throw new IOException("'" + profile.name() + "' is not fully installed yet, and "
                     + e.getMessage() + ". Connect to the internet once to finish installing it;"
                     + " after that it starts without a connection.", e);
+        } finally {
+            // Written even when the install failed: the files that were checked
+            // before it failed were still checked, and the next attempt should
+            // not repeat that part.
+            verified.save();
+            downloader.trustLedger(true);
         }
     }
 
-    private VersionJson install(Profile profile, Progress progress)
+    private VersionJson install(Profile profile, Progress progress, boolean verifyEverything)
             throws IOException, InterruptedException {
 
         if (profile.minecraftVersion() == null || profile.minecraftVersion().isBlank()) {
@@ -305,6 +344,13 @@ public final class LauncherService {
 
             versionId = installer.install(profile.minecraftVersion(), loaderVersion,
                     versionInstaller, progress);
+        }
+
+        if (verifyEverything) {
+            // The natives directory is unpacked from jars rather than downloaded,
+            // so nothing about it is on record in the ledger. Repair has to say
+            // so separately.
+            com.hexadron.launcher.install.NativesExtractor.forget(dirs.natives(versionId));
         }
 
         VersionJson version = versionInstaller.install(versionId, gameDir, progress);
