@@ -18,6 +18,7 @@ import com.hexadron.launcher.launch.LaunchWrapperJar;
 import com.hexadron.launcher.meta.AssetIndex;
 import com.hexadron.launcher.meta.VersionJson;
 import com.hexadron.launcher.meta.VersionManifest;
+import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.mods.CurseForgeProvider;
 import com.hexadron.launcher.mods.ModInstaller;
 import com.hexadron.launcher.mods.ModPack;
@@ -242,8 +243,33 @@ public final class LauncherService {
      * client jar, libraries, natives and assets.
      *
      * <p>Safe to re-run: it verifies and repairs rather than redownloading.
+     *
+     * <p>And safe to re-run with no internet, which is the harder half. Every
+     * step here already does nothing when what it would fetch is on disk with
+     * the right hash - except the loader lookup, which used to ask
+     * {@code meta.fabricmc.net} which builds exist before every single launch,
+     * only to re-approve a version that had been pinned and installed days
+     * earlier. That turned "start the instance I installed yesterday" into a
+     * request that fails four times and then refuses to start the game. See
+     * {@link #installedVersionId}.
      */
     public VersionJson installProfile(Profile profile, Progress progress)
+            throws IOException, InterruptedException {
+        try {
+            return install(profile, progress);
+        } catch (Http.OfflineException e) {
+            // Something genuinely had to be fetched and could not be. Said in
+            // terms of what the user can do about it, because "request to
+            // https://... failed after 4 attempts" reads as a fault in the
+            // launcher rather than as "you are offline, and this instance is not
+            // finished installing".
+            throw new IOException("'" + profile.name() + "' is not fully installed yet, and "
+                    + e.getMessage() + ". Connect to the internet once to finish installing it;"
+                    + " after that it starts without a connection.", e);
+        }
+    }
+
+    private VersionJson install(Profile profile, Progress progress)
             throws IOException, InterruptedException {
 
         if (profile.minecraftVersion() == null || profile.minecraftVersion().isBlank()) {
@@ -253,7 +279,11 @@ public final class LauncherService {
         Path gameDir = profiles.gameDirectory(profile);
         String versionId = profile.minecraftVersion();
 
-        if (profile.loader() != LoaderType.VANILLA) {
+        String installed = installedVersionId(profile);
+        if (installed != null) {
+            versionId = installed;
+            progress.log("Using the installed %s", versionId);
+        } else if (profile.loader() != LoaderType.VANILLA) {
             LoaderInstaller installer = Loaders.installerFor(profile.loader());
 
             LoaderVersion loaderVersion;
@@ -281,6 +311,35 @@ public final class LauncherService {
         profile.versionId(versionId);
         profiles.save();
         return version;
+    }
+
+    /**
+     * The manifest this profile can launch from without asking anybody, or null
+     * when the loader still has to be installed.
+     *
+     * <p>Rests on one guarantee, which is what makes it safe to trust a recorded
+     * id rather than re-derive it: {@link Profile} clears {@code versionId} in
+     * the setters for the Minecraft version, the loader and the loader version.
+     * So a non-null one is not "some id from the past" - it is the id of a
+     * manifest installed for exactly the three values the profile holds now.
+     * Change any of them and this returns null on the next launch, and the
+     * loader is fetched again.
+     *
+     * <p>Vanilla profiles pass through here too: their id is the Minecraft
+     * version, and having it and its chain on disk says the same thing.
+     *
+     * <p>What this deliberately does not check is the client jar, the libraries
+     * or the assets. Those are verified by hash a few lines later, in
+     * {@link #install}, which repairs what is missing and downloads nothing when
+     * nothing is. The question here is narrower: whether a network round trip is
+     * needed to find out which manifest to launch.
+     */
+    private String installedVersionId(Profile profile) {
+        String recorded = profile.versionId();
+        if (recorded == null || !versionInstaller.resolver().isFullyInstalled(recorded)) {
+            return null;
+        }
+        return recorded;
     }
 
     /** Installs a mod pack into a profile's mods directory. */

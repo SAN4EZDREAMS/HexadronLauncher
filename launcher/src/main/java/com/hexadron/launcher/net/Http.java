@@ -144,6 +144,31 @@ public final class Http {
     }
 
     /** A non-2xx response that should surface to the caller rather than be retried. */
+    /**
+     * The host was never reached: no DNS, no route, or the connection was
+     * refused.
+     *
+     * <p>Its own type because it is the one network failure a caller can
+     * sensibly act on rather than report. "Fabric's meta service answered 503"
+     * has to be surfaced; "there is no internet" is something the launcher
+     * should already have avoided needing, and where it could not, it can at
+     * least say so in those words.
+     */
+    public static final class OfflineException extends IOException {
+
+        private final String host;
+
+        OfflineException(String host, Throwable cause) {
+            super("the launcher cannot reach " + host + " - there is no internet connection", cause);
+            this.host = host;
+        }
+
+        /** The host that could not be reached. */
+        public String host() {
+            return host;
+        }
+    }
+
     public static final class HttpStatusException extends IOException {
         private final int statusCode;
         private final String uri;
@@ -374,14 +399,44 @@ public final class Http {
                 throw e;
             } catch (IOException e) {
                 lastFailure = e;
-                if (attempt == MAX_ATTEMPTS) {
+                if (attempt == MAX_ATTEMPTS || isUnreachable(e)) {
                     break;
                 }
                 sleepBackoff(attempt, null);
             }
         }
+        if (isUnreachable(lastFailure)) {
+            // Not retried to the end, and not reported as a request that failed
+            // four times: there is nothing to retry and nothing the launcher
+            // did wrong. Callers that can carry on without this request - a
+            // launch of something already installed - test for this type.
+            throw new OfflineException(request.uri().getHost(), lastFailure);
+        }
         throw new IOException("request to " + request.uri() + " failed after " + MAX_ATTEMPTS + " attempts",
                 lastFailure);
+    }
+
+    /**
+     * Whether a failure means the host was never reached at all.
+     *
+     * <p>These three are the shape of "no network": no DNS answer, a refused or
+     * unanswered connection, no route. None of them is transient in the way a
+     * 503 is, so retrying them three more times only makes the user wait longer
+     * for the same answer. A read that dies mid-transfer is a different thing
+     * and is still retried.
+     */
+    private static boolean isUnreachable(IOException failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.net.UnknownHostException
+                    || cause instanceof java.net.ConnectException
+                    || cause instanceof java.net.NoRouteToHostException) {
+                return true;
+            }
+            if (cause.getCause() == cause) {
+                break;
+            }
+        }
+        return false;
     }
 
     private static boolean isRetryableStatus(int status) {

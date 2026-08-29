@@ -94,6 +94,7 @@ public final class SelfCheck {
         searchPaging();
         profileArrangement();
         profileIconValues();
+        offlineRelaunch();
         translations();
 
         System.out.println();
@@ -2652,6 +2653,90 @@ public final class SelfCheck {
     }
 
     // ---------------------------------------------------------------- harness
+
+    /**
+     * Launching something already installed must not need the network.
+     *
+     * <p>The property under test is the one that decides it: a version counts as
+     * installed only when its whole {@code inheritsFrom} chain is on disk. A
+     * loader manifest without its Minecraft version is half an install, and
+     * treating it as a whole one would skip the fetch that is genuinely needed
+     * and fail later, inside the launch, with something far less obvious.
+     *
+     * <p>This is the check that would have caught the release where every launch
+     * asked meta.fabricmc.net which loader builds exist - a question already
+     * answered, in {@code profiles.json}, when the instance was installed.
+     */
+    private static void offlineRelaunch() {
+        section("Offline relaunch");
+
+        java.nio.file.Path work = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-offline-check");
+            GameDirs dirs = new GameDirs(work);
+            com.hexadron.launcher.meta.VersionResolver resolver =
+                    new com.hexadron.launcher.meta.VersionResolver(dirs);
+
+            writeVersionJson(dirs, "26.2", """
+                    {"id": "26.2", "mainClass": "net.minecraft.client.main.Main"}
+                    """);
+            writeVersionJson(dirs, "fabric-loader-0.19.3-26.2", """
+                    {"id": "fabric-loader-0.19.3-26.2",
+                     "inheritsFrom": "26.2",
+                     "mainClass": "net.fabricmc.loader.impl.launch.knot.KnotClient"}
+                    """);
+
+            check("a loader manifest with its parent on disk needs no network",
+                    resolver.isFullyInstalled("fabric-loader-0.19.3-26.2"));
+            check("so does the plain Minecraft version it inherits from",
+                    resolver.isFullyInstalled("26.2"));
+
+            check("a version that was never installed does not",
+                    !resolver.isFullyInstalled("fabric-loader-0.19.3-26.1"));
+            check("nor does an unset version id",
+                    !resolver.isFullyInstalled(null));
+            check("nor does a blank one",
+                    !resolver.isFullyInstalled("   "));
+
+            // The half install: the loader wrote its manifest, then the vanilla
+            // fetch failed. isInstalled says yes to the child, which is exactly
+            // the trap.
+            java.nio.file.Files.delete(dirs.versionJson("26.2"));
+            check("a loader manifest whose parent is missing is not installed",
+                    !resolver.isFullyInstalled("fabric-loader-0.19.3-26.2"));
+            check("even though the manifest itself is still there",
+                    resolver.isInstalled("fabric-loader-0.19.3-26.2"));
+
+            // A pair that inherits from each other. Nothing writes this, but a
+            // hand-edited versions folder can, and the answer has to be "install
+            // it again" rather than a hang.
+            writeVersionJson(dirs, "loop-a", """
+                    {"id": "loop-a", "inheritsFrom": "loop-b", "mainClass": "M"}
+                    """);
+            writeVersionJson(dirs, "loop-b", """
+                    {"id": "loop-b", "inheritsFrom": "loop-a", "mainClass": "M"}
+                    """);
+            check("a cycle is not installed rather than a hang",
+                    !resolver.isFullyInstalled("loop-a"));
+
+            writeVersionJson(dirs, "broken", "{ not json");
+            check("a malformed manifest is not installed",
+                    !resolver.isFullyInstalled("broken"));
+        } catch (IOException e) {
+            check("the offline relaunch check can run: " + e.getMessage(), false);
+        } finally {
+            if (work != null) {
+                deleteRecursively(work);
+            }
+        }
+    }
+
+    private static void writeVersionJson(GameDirs dirs, String versionId, String json)
+            throws IOException {
+        java.nio.file.Path file = dirs.versionJson(versionId);
+        java.nio.file.Files.createDirectories(file.getParent());
+        java.nio.file.Files.writeString(file, json);
+    }
 
     private static void section(String name) {
         System.out.println("-- " + name);

@@ -95,4 +95,32 @@ public final class VersionResolver {
     public boolean isInstalled(String versionId) {
         return Files.isRegularFile(dirs.versionJson(versionId));
     }
+
+    /**
+     * Whether this version and everything it inherits from are on disk and
+     * readable.
+     *
+     * <p>The difference from {@link #isInstalled} is the chain.
+     * {@code fabric-loader-0.19.3-26.2} being present says nothing about 26.2
+     * being present, and a launch needs both - so "installed" for the purpose of
+     * deciding whether anything has to be fetched is this, not that.
+     *
+     * <p>Answers with a boolean rather than throwing because the caller is asking
+     * a question, not attempting the work: a missing link here means "go and
+     * install it", and the install path reports its own failures far better than
+     * an exception raised while deciding whether to take it.
+     */
+    public boolean isFullyInstalled(String versionId) {
+        if (versionId == null || versionId.isBlank()) {
+            return false;
+        }
+        try {
+            chain(versionId);
+            return true;
+        } catch (IOException e) {
+            // Missing, malformed, cyclic or too long - all of which mean the
+            // install path has to run.
+            return false;
+        }
+    }
 }
