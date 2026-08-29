@@ -36,6 +36,11 @@ import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.profile.Profile;
 import com.hexadron.launcher.profile.ProfileLayout;
+import com.hexadron.launcher.skin.LocalSkinService;
+import com.hexadron.launcher.skin.PngSize;
+import com.hexadron.launcher.skin.SkinProfile;
+import com.hexadron.launcher.skin.SkinSession;
+import com.hexadron.launcher.skin.SkinStore;
 import com.hexadron.launcher.util.Archives;
 import com.hexadron.launcher.util.Hashes;
 import com.hexadron.launcher.util.Arguments;
@@ -101,6 +106,7 @@ public final class SelfCheck {
         offlineRelaunch();
         verificationLedger();
         nativesReuse();
+        skins();
         translations();
 
         System.out.println();
@@ -1897,6 +1903,31 @@ public final class SelfCheck {
                 "color.hex", "color.rgb",
                 "groups.empty.hint",
                 "groups.count", "groups.moveTo", "groups.none",
+                "action.editAccount",
+                "account.edit.title",
+                "account.edit.failed",
+                "account.kind.offline",
+                "account.kind.microsoft",
+                "account.skin",
+                "account.cape",
+                "account.source",
+                "account.skin.choose",
+                "account.skin.clear",
+                "account.skin.none",
+                "account.skin.upload",
+                "account.skin.uploaded",
+                "account.skin.premium.note",
+                "account.model.classic",
+                "account.model.slim",
+                "account.cape.apply",
+                "account.cape.applied",
+                "account.cape.none",
+                "account.cape.note",
+                "account.source.local",
+                "account.source.local.note",
+                "account.source.remote",
+                "account.source.remote.note",
+                "account.busy",
                 "editor.icon", "editor.icon.note", "icon.title", "icon.choose",
                 "icon.clear", "icon.filter", "icon.failed", "icon.set",
                 "grid.addColumn", "grid.removeColumn", "grid.addRow", "grid.removeRow",
@@ -2962,6 +2993,208 @@ public final class SelfCheck {
             if (work != null) {
                 deleteRecursively(work);
             }
+        }
+    }
+
+    /**
+     * Skins: what is accepted, what is served, and to whom.
+     *
+     * <p>The interesting part is not that a skin can be chosen - it is that the
+     * local service answers for exactly one profile and returns "no textures"
+     * for everybody else. A service that invented an answer for another player
+     * would be putting made-up data where the game expects a fact about a real
+     * person, and it would do it silently.
+     */
+    private static void skins() {
+        section("Skins");
+
+        java.nio.file.Path work = null;
+        LocalSkinService service = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-skin-check");
+            GameDirs dirs = new GameDirs(work);
+            dirs.createBaseDirectories();
+
+            // --- what counts as a picture -------------------------------------
+            check("a non-PNG has no readable size",
+                    PngSize.read("this is not a png at all!!".getBytes(
+                            java.nio.charset.StandardCharsets.UTF_8)) == null);
+            check("a truncated header has none either",
+                    PngSize.read(new byte[]{(byte) 0x89, 'P', 'N', 'G'}) == null);
+
+            java.nio.file.Path skin = work.resolve("skin.png");
+            java.nio.file.Files.write(skin, png(64, 64));
+            java.nio.file.Path old = work.resolve("old.png");
+            java.nio.file.Files.write(old, png(64, 32));
+            java.nio.file.Path wrong = work.resolve("wrong.png");
+            java.nio.file.Files.write(wrong, png(128, 128));
+            java.nio.file.Path cape = work.resolve("cape.png");
+            java.nio.file.Files.write(cape, png(64, 32));
+
+            int[] size = PngSize.read(skin);
+            check("a PNG header gives its size",
+                    size != null && size[0] == 64 && size[1] == 64);
+
+            SkinStore store = new SkinStore(dirs);
+            String skinName = store.store(skin, false);
+            check("a 64x64 skin is accepted", skinName != null);
+            check("so is the 64x32 sheet from before 1.8", store.store(old, false) != null);
+            check("and it lands in the skins folder, named by content",
+                    store.file(skinName) != null
+                            && store.file(skinName).startsWith(dirs.skins()));
+
+            boolean refused = false;
+            try {
+                store.store(wrong, false);
+            } catch (IOException expected) {
+                refused = true;
+            }
+            check("a picture of the wrong size is refused", refused);
+
+            refused = false;
+            try {
+                store.store(skin, true);
+            } catch (IOException expected) {
+                refused = true;
+            }
+            check("a 64x64 file is refused as a cape", refused);
+
+            String capeName = store.store(cape, true);
+            check("a 64x32 cape is accepted", capeName != null);
+
+            // A name from a hand-edited skins.json cannot walk out of the folder.
+            check("a stored name is resolved inside the skins folder only",
+                    store.file("../../../etc/passwd") == null);
+
+            // --- who wears what, across a restart ------------------------------
+            SkinProfile worn = SkinProfile.empty()
+                    .withSkin(skinName).withCape(capeName)
+                    .withModel(SkinProfile.Model.SLIM);
+            store.put("offline:1234", worn);
+            store.save();
+
+            SkinProfile reloaded = new SkinStore(dirs).load().of("offline:1234");
+            check("what an account wears survives a restart",
+                    skinName.equals(reloaded.skin())
+                            && capeName.equals(reloaded.cape())
+                            && reloaded.model() == SkinProfile.Model.SLIM);
+            check("an account with no skin wears nothing",
+                    new SkinStore(dirs).load().of("offline:nobody").isEmpty());
+
+            check("a profile with nothing to show needs no service",
+                    !SkinProfile.empty().needsService());
+            check("one with a skin does", worn.needsService());
+            check("and a remote service does even with no local pictures",
+                    SkinProfile.empty().withSource(SkinProfile.Source.REMOTE)
+                            .withService("https://example/api").needsService());
+
+            // --- what the local service actually answers -----------------------
+            java.util.UUID uuid = java.util.UUID.nameUUIDFromBytes(
+                    "OfflinePlayer:Tester".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            service = LocalSkinService.start(uuid, "Tester", worn, store,
+                    work.resolve("key.json"));
+
+            String root = service.root();
+            check("the service listens on the loopback interface only",
+                    root.startsWith("http://127.0.0.1:"));
+
+            Json described = Json.parse(new String(java.util.Base64.getDecoder()
+                    .decode(service.prefetchedMetadata()),
+                    java.nio.charset.StandardCharsets.UTF_8));
+            check("it publishes a signing key",
+                    described.get("signaturePublickey").asString("")
+                            .contains("BEGIN PUBLIC KEY"));
+            check("and allows textures only from this machine",
+                    described.get("skinDomains").size() == 2);
+
+            String undashed = uuid.toString().replace("-", "");
+            Json profile = Json.parse(get(root + "/sessionserver/session/minecraft/profile/" + undashed));
+            check("it answers for the account it was started for",
+                    undashed.equals(profile.get("id").asString("")));
+
+            Json property = profile.get("properties").get(0);
+            check("with a signed textures property",
+                    "textures".equals(property.get("name").asString(""))
+                            && !property.get("signature").asString("").isBlank());
+
+            Json textures = Json.parse(new String(java.util.Base64.getDecoder()
+                    .decode(property.get("value").asString("")),
+                    java.nio.charset.StandardCharsets.UTF_8)).get("textures");
+            check("carrying the skin", textures.get("SKIN").get("url").asString("").startsWith(root));
+            check("the arm width", "slim".equals(
+                    textures.get("SKIN").get("metadata").get("model").asString("")));
+            check("and the cape", textures.get("CAPE").get("url").asString("").startsWith(root));
+
+            // The whole point of the design, in one check.
+            check("and nothing at all about any other player",
+                    status(root + "/sessionserver/session/minecraft/profile/"
+                            + java.util.UUID.randomUUID().toString().replace("-", "")) == 204);
+
+            byte[] served = bytes(textures.get("SKIN").get("url").asString(""));
+            check("the texture it points at is the file that was chosen",
+                    java.util.Arrays.equals(served,
+                            java.nio.file.Files.readAllBytes(store.file(skinName))));
+            check("and a texture it never published is not served",
+                    status(root + "/textures/" + "0".repeat(64)) == 404);
+
+            check("a launch with no skin attaches no agent",
+                    !SkinSession.none().isActive()
+                            && SkinSession.none().arguments().isEmpty());
+        } catch (IOException e) {
+            check("the skin check can run: " + e.getMessage(), false);
+        } finally {
+            if (service != null) {
+                service.close();
+            }
+            if (work != null) {
+                deleteRecursively(work);
+            }
+        }
+    }
+
+    /** A PNG header of the given size, with no image data. Enough to be measured. */
+    private static byte[] png(int width, int height) {
+        byte[] bytes = new byte[24];
+        byte[] signature = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+        System.arraycopy(signature, 0, bytes, 0, 8);
+        bytes[11] = 13;
+        bytes[12] = 'I';
+        bytes[13] = 'H';
+        bytes[14] = 'D';
+        bytes[15] = 'R';
+        putInt(bytes, 16, width);
+        putInt(bytes, 20, height);
+        return bytes;
+    }
+
+    private static void putInt(byte[] bytes, int at, int value) {
+        bytes[at] = (byte) (value >>> 24);
+        bytes[at + 1] = (byte) (value >>> 16);
+        bytes[at + 2] = (byte) (value >>> 8);
+        bytes[at + 3] = (byte) value;
+    }
+
+    private static String get(String url) throws IOException {
+        return new String(bytes(url), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static byte[] bytes(String url) throws IOException {
+        java.net.HttpURLConnection connection =
+                (java.net.HttpURLConnection) java.net.URI.create(url).toURL().openConnection();
+        try (java.io.InputStream in = connection.getInputStream()) {
+            return in.readAllBytes();
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static int status(String url) throws IOException {
+        java.net.HttpURLConnection connection =
+                (java.net.HttpURLConnection) java.net.URI.create(url).toURL().openConnection();
+        try {
+            return connection.getResponseCode();
+        } finally {
+            connection.disconnect();
         }
     }
 

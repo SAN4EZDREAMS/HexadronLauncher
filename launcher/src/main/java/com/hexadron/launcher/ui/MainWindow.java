@@ -170,6 +170,7 @@ public final class MainWindow implements ProfileHost {
     private final Button addAccountButton = new Button();
     private final Button signInButton = new Button();
     private final Button removeAccountButton = new Button();
+    private final Button editAccountButton = new Button();
 
     private final Button settingsButton = new Button();
     private final Button gridSettingsButton = new Button();
@@ -774,6 +775,31 @@ public final class MainWindow implements ProfileHost {
         });
     }
 
+    /**
+     * Opens the account editor for whichever account is selected.
+     *
+     * <p>The skin is saved here rather than inside the dialog: the dialog hands
+     * back what was chosen and touches no state, the same rule as the instance
+     * and group editors, so a cancelled edit cannot leave half a change behind.
+     * What the dialog does do by itself is talk to Mojang, and only when a
+     * button in it is pressed - those are writes to an account elsewhere, and
+     * Cancel could not undo them anyway.
+     */
+    private void editSelectedAccount() {
+        Account account = accountBox.getValue();
+        if (account == null) {
+            return;
+        }
+        new AccountDialog(account, service.skins()).show(stage).ifPresent(result -> {
+            service.skins().put(account.id(), result.skin());
+            try {
+                service.skins().save();
+            } catch (IOException e) {
+                showError(I18n.t("account.edit.failed"), e);
+            }
+        });
+    }
+
     private void openModBrowser() {
         Profile profile = selectedProfile;
         if (profile == null) {
@@ -821,14 +847,18 @@ public final class MainWindow implements ProfileHost {
 
         addAccountButton.setOnAction(event -> addOfflineAccount());
         signInButton.setOnAction(event -> signInWithMicrosoft());
+        editAccountButton.setOnAction(event -> editSelectedAccount());
         removeAccountButton.getStyleClass().add("danger");
         removeAccountButton.setOnAction(event -> removeSelectedAccount());
         accountBox.setPrefWidth(230);
         accountBox.valueProperty().addListener((observable, previous, value) ->
                 removeAccountButton.setDisable(value == null));
+        accountBox.valueProperty().addListener((observable, previous, value) ->
+                editAccountButton.setDisable(value == null));
+        editAccountButton.setDisable(accountBox.getValue() == null);
 
         HBox controls = new HBox(8, accountTitle, accountBox, addAccountButton, signInButton,
-                removeAccountButton, spacer(), playButton);
+                editAccountButton, removeAccountButton, spacer(), playButton);
         controls.setAlignment(Pos.CENTER_LEFT);
 
         stageLabel.getStyleClass().add("muted");
@@ -911,6 +941,7 @@ public final class MainWindow implements ProfileHost {
         addAccountButton.setText(I18n.t("action.addOffline"));
         signInButton.setText(I18n.t(signingIn ? "action.signIn.cancel" : "action.signIn"));
         removeAccountButton.setText(I18n.t("action.removeAccount"));
+        editAccountButton.setText(I18n.t("action.editAccount"));
         playButton.setText(I18n.t(playing ? "action.stop" : "action.play"));
 
         newGroupButton.setText(I18n.t("groups.new"));

@@ -169,6 +169,36 @@ public final class GameDirs {
         return root.resolve("icons");
     }
 
+    /**
+     * Skins and capes the user chose, and the record of who wears what.
+     *
+     * <p>Copied in here for the same reasons as profile icons: a skin outlives
+     * the file it was picked from, two accounts wearing the same picture share
+     * one copy, and nothing in a settings file is ever a path the launcher
+     * opens. It is also what the local skin service reads from, so it has to be
+     * somewhere the launcher owns rather than somewhere the user pointed at.
+     */
+    public Path skins() {
+        return root.resolve("skins");
+    }
+
+    /** Who wears what: account id to skin, cape and model. */
+    public Path skinsFile() {
+        return skins().resolve("skins.json");
+    }
+
+    /**
+     * Java agents the launcher attaches to the game.
+     *
+     * <p>Only one so far, the skin agent. Its own directory rather than the
+     * cache because deleting it is not free - it has to be fetched again - and
+     * because a folder called "agents" is a readable answer to "what is this
+     * launcher adding to my JVM".
+     */
+    public Path agents() {
+        return root.resolve("agents");
+    }
+
     public Path cache() {
         return root.resolve("cache");
     }
@@ -180,7 +210,7 @@ public final class GameDirs {
     /** Creates the directories that must exist before anything else runs. */
     public GameDirs createBaseDirectories() throws IOException {
         for (Path p : new Path[]{root, versions(), libraries(), assetIndexes(), assetObjects(),
-                instances(), cache(), logs(), javaRuntimes()}) {
+                instances(), cache(), logs(), javaRuntimes(), skins()}) {
             Files.createDirectories(p);
         }
         return this;

@@ -27,6 +27,8 @@ import com.hexadron.launcher.mods.ModrinthProvider;
 import com.hexadron.launcher.net.Downloader;
 import com.hexadron.launcher.profile.Profile;
 import com.hexadron.launcher.profile.ProfileStore;
+import com.hexadron.launcher.skin.SkinSession;
+import com.hexadron.launcher.skin.SkinStore;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -51,6 +53,9 @@ public final class LauncherService {
      * work done on Monday's launch is still done on Tuesday's.
      */
     private final VerifiedFiles verified;
+
+    /** Skins and capes, and which account wears which. */
+    private final SkinStore skinStore;
     private final VersionInstaller versionInstaller;
     private final ProfileStore profiles;
     private final AccountStore accounts;
@@ -104,6 +109,7 @@ public final class LauncherService {
         this.secretStore = SecretStores.forHost(this.dirs, settings.useFileCredentialStore());
         step.accept("accounts");
         this.accounts = new AccountStore(this.dirs, secretStore).load();
+        this.skinStore = new SkinStore(this.dirs).load();
         this.javaLocator = new JavaLocator(dirs);
         // One resolver, shared by launching and by the loader installers, so a
         // profile can never install against one Java and start on another.
@@ -525,6 +531,11 @@ public final class LauncherService {
         accounts.save();
     }
 
+    /** The skins and capes on this machine, and which account wears which. */
+    public SkinStore skins() {
+        return skinStore;
+    }
+
     /** Refreshes a Microsoft account's token if it is close to expiry. */
     public Account ensureFresh(Account account, Progress progress) throws IOException, InterruptedException {
         if (!account.needsRefresh()) {
@@ -588,14 +599,29 @@ public final class LauncherService {
                     + "for this launch. Do not share JVM crash logs from this session.");
         }
 
-        LaunchCommandBuilder.LaunchCommand command =
-                commandBuilder.build(version, profile, player, gameDir, assetsDir, java, wrapperJar);
+        // Started before the command is built, because the command has to carry
+        // the address it listens on. Closed by the exit handler below, so the
+        // socket lives exactly as long as the game does.
+        SkinSession skins = SkinSession.open(player, skinStore, dirs, progress);
+
+        LaunchCommandBuilder.LaunchCommand command = commandBuilder.build(
+                version, profile, player, gameDir, assetsDir, java, wrapperJar, skins.arguments());
 
         progress.log("Command: %s", command.toLoggableString(player.accessToken()));
 
         profile.markPlayed();
         profiles.save();
 
-        return gameLauncher.start(command, onOutput, onExit, progress);
+        try {
+            return gameLauncher.start(command, onOutput, exit -> {
+                skins.close();
+                onExit.accept(exit);
+            }, progress);
+        } catch (IOException | RuntimeException e) {
+            // The game never started, so nothing will ever call the exit handler
+            // that would have closed it.
+            skins.close();
+            throw e;
+        }
     }
 }

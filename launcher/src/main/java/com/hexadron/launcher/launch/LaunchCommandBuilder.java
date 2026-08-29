@@ -101,6 +101,21 @@ public final class LaunchCommandBuilder {
     public LaunchCommand build(VersionJson version, Profile profile, Account account,
                                Path gameDir, Path assetsDir, JavaLocator.JavaRuntime java,
                                Path wrapperJar) {
+        return build(version, profile, account, gameDir, assetsDir, java, wrapperJar, List.of());
+    }
+
+    /**
+     * @param agentArguments JVM arguments that must come before the version's
+     *                       own - the skin service's {@code -javaagent} and the
+     *                       properties that configure it. Separate from
+     *                       {@code profile.extraJvmArguments()} because those are
+     *                       the user's and go last, where they can override
+     *                       anything; an agent that arrives after the class it
+     *                       has to transform has arrived too late
+     */
+    public LaunchCommand build(VersionJson version, Profile profile, Account account,
+                               Path gameDir, Path assetsDir, JavaLocator.JavaRuntime java,
+                               Path wrapperJar, List<String> agentArguments) {
 
         // The wrapper is pointless for an offline account, whose "token" is the
         // literal string "0", and it must not be used when the jar is missing.
@@ -145,6 +160,11 @@ public final class LaunchCommandBuilder {
         if (Platform.isMac()) {
             command.add("-XstartOnFirstThread");
         }
+
+        // Before the version's own arguments and before the classpath: an agent
+        // transforms classes as they load, so it has to be attached while the
+        // authentication library is still unloaded.
+        command.addAll(agentArguments);
 
         List<String> jvmArguments = new ArrayList<>();
         for (Argument argument : version.jvmArguments()) {

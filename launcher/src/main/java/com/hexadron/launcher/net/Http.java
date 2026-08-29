@@ -347,6 +347,33 @@ public final class Http {
         return Json.parse(response.body());
     }
 
+    /**
+     * Sends a body with a method the small helpers above do not cover, over an
+     * authenticated connection, and returns the response only when it succeeded.
+     *
+     * <p>Used for the Minecraft profile API, which changes a skin with a
+     * multipart POST and a cape with PUT and DELETE. HTTPS is enforced and the
+     * request is not retried, for the same reason as the other authenticated
+     * calls: repeating a write is not the same as repeating a read.
+     */
+    public static String authSend(String method, String url, byte[] body,
+                                  Map<String, String> headers)
+            throws IOException, InterruptedException {
+        requireHttps(url);
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Accept", "application/json");
+        HttpRequest.BodyPublisher publisher = body == null
+                ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofByteArray(body);
+        HttpResponse<String> response = AUTH_CLIENT.send(
+                requestBuilder(url, merged).method(method, publisher).build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() / 100 != 2) {
+            throw new HttpStatusException(response.statusCode(), url, response.body());
+        }
+        return response.body();
+    }
+
     public static String encodeForm(Map<String, String> form) {
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, String> e : form.entrySet()) {
