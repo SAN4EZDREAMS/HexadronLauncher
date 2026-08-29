@@ -325,7 +325,7 @@ public final class ProfileListView {
                 host.layoutChanged();
             }
         });
-        ProfileMenu.installForGroup(row, host, group);
+        ProfileMenu.installForGroup(row, host, group, false);
 
         dragSource(row, ProfileDrag.group(group.id()));
         dropTarget(row, band, (payload, after) -> {

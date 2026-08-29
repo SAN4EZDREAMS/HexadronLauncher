@@ -126,6 +126,17 @@
     -fx-text-fill: -fx-text-1;
 }
 
+/* A plate under the instance picture, so a transparent or pixel-art icon has
+   an edge of its own instead of floating on the panel background. */
+.detail-icon {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 12;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 6;
+}
+
 .summary {
     -fx-background-color: -fx-base-1;
     -fx-background-radius: 10;

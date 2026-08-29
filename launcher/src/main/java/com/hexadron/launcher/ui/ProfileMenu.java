@@ -82,10 +82,20 @@ final class ProfileMenu {
         });
     }
 
-    /** Attaches the group menu to any node - the list header, or the grid plate. */
-    static void installForGroup(Node node, ProfileHost host, ProfileLayout.Group group) {
+    /**
+     * Attaches the group menu to any node - the list header, or the grid plate.
+     *
+     * @param rows whether the two row items belong in this menu. Rows are a fact
+     *             about the grid: they are the cells a group occupies there, and
+     *             they are visible, draggable and countable only in that view.
+     *             The list draws a group as a heading and its instances beneath
+     *             it, with no rows on screen at all, so "add a row" there is an
+     *             item that changes something the user cannot see.
+     */
+    static void installForGroup(Node node, ProfileHost host, ProfileLayout.Group group,
+            boolean rows) {
         node.setOnContextMenuRequested(event -> {
-            show(forGroup(host, group), node, event.getScreenX(), event.getScreenY());
+            show(forGroup(host, group, rows), node, event.getScreenX(), event.getScreenY());
             event.consume();
         });
     }
@@ -162,23 +172,13 @@ final class ProfileMenu {
      * <p>A group owns rows, so the two row items belong here rather than on the
      * grid's edges: the strips there change the size of the whole table, and
      * "one more row in this group" is a different thing that has to be said
-     * about a particular group.
+     * about a particular group. They are in this menu only when it is opened
+     * from the grid - see {@code rows}.
      */
-    private static ContextMenu forGroup(ProfileHost host, ProfileLayout.Group group) {
+    private static ContextMenu forGroup(ProfileHost host, ProfileLayout.Group group,
+            boolean rows) {
         ContextMenu menu = new ContextMenu();
         ProfileLayout layout = host.layout();
-
-        MenuItem removeRow = item(I18n.t("groups.removeRow"), () -> {
-            if (!layout.removeRowFromGroup(group.id())) {
-                // Either it is the group's only row, or the profiles in it have
-                // nowhere to go. Both are worth saying rather than doing nothing.
-                host.hint(I18n.t(layout.rowsOf(group.id()).size() <= 1
-                        ? "grid.lastGroupRow" : "grid.noRoom"));
-                return;
-            }
-            host.layoutChanged();
-        });
-        removeRow.setDisable(layout.rowsOf(group.id()).size() <= 1);
 
         menu.getItems().addAll(
                 item(I18n.t(group.collapsed() ? "groups.expand" : "groups.collapse"), () -> {
@@ -204,17 +204,35 @@ final class ProfileMenu {
                     }
                     host.layoutChanged();
                 }),
-                new SeparatorMenuItem(),
-                item(I18n.t("groups.addRow"), () -> {
-                    if (!layout.addRowToGroup(group.id())) {
-                        host.hint(I18n.t("grid.atMaximum"));
-                        return;
-                    }
-                    host.layoutChanged();
-                }),
-                removeRow,
-                new SeparatorMenuItem(),
-                item(I18n.t("groups.remove"), () -> host.removeGroup(group)));
+                new SeparatorMenuItem());
+
+        if (rows) {
+            MenuItem removeRow = item(I18n.t("groups.removeRow"), () -> {
+                if (!layout.removeRowFromGroup(group.id())) {
+                    // Either it is the group's only row, or the profiles in it
+                    // have nowhere to go. Both are worth saying rather than
+                    // doing nothing.
+                    host.hint(I18n.t(layout.rowsOf(group.id()).size() <= 1
+                            ? "grid.lastGroupRow" : "grid.noRoom"));
+                    return;
+                }
+                host.layoutChanged();
+            });
+            removeRow.setDisable(layout.rowsOf(group.id()).size() <= 1);
+
+            menu.getItems().addAll(
+                    item(I18n.t("groups.addRow"), () -> {
+                        if (!layout.addRowToGroup(group.id())) {
+                            host.hint(I18n.t("grid.atMaximum"));
+                            return;
+                        }
+                        host.layoutChanged();
+                    }),
+                    removeRow,
+                    new SeparatorMenuItem());
+        }
+
+        menu.getItems().add(item(I18n.t("groups.remove"), () -> host.removeGroup(group)));
         return menu;
     }
 

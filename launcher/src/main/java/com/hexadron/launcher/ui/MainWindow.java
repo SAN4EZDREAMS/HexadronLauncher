@@ -3,7 +3,6 @@ package com.hexadron.launcher.ui;
 import com.hexadron.launcher.auth.Account;
 import com.hexadron.launcher.core.LauncherService;
 import com.hexadron.launcher.i18n.I18n;
-import com.hexadron.launcher.i18n.Language;
 import com.hexadron.launcher.install.loader.LoaderType;
 import com.hexadron.launcher.install.loader.LoaderVersion;
 import com.hexadron.launcher.launch.GameLauncher;
@@ -122,7 +121,16 @@ public final class MainWindow implements ProfileHost {
 
     private final TextField searchField = new TextField();
     private final ComboBox<Account> accountBox = new ComboBox<>();
-    private final ComboBox<Language> languageBox = new ComboBox<>();
+
+    /**
+     * The profile's picture, beside its name.
+     *
+     * <p>The same picture the list and the grid show - the chosen one, or the
+     * loader's mark - and drawn larger here because this is the one place with
+     * room for it. The list has thirty rows to fit; this panel describes one
+     * instance, and the picture is the fastest part of it to read.
+     */
+    private final StackPane detailIcon = new StackPane();
 
     private final Label detailName = new Label();
     private final Label detailSubtitle = new Label();
@@ -195,7 +203,6 @@ public final class MainWindow implements ProfileHost {
     private final Label brandLabel = new Label();
     private final Label instancesTitle = new Label();
     private final Label accountTitle = new Label();
-    private final Label languageTitle = new Label();
 
     private GameLauncher.GameSession session;
     private volatile boolean busy;
@@ -349,28 +356,15 @@ public final class MainWindow implements ProfileHost {
         searchField.setPrefWidth(260);
         searchField.textProperty().addListener((observable, previous, value) -> applyFilter(value));
 
-        languageBox.setItems(FXCollections.observableArrayList(Language.all()));
-        languageBox.setValue(I18n.current());
-        languageBox.setPrefWidth(150);
-        languageBox.valueProperty().addListener((observable, previous, value) -> {
-            if (value == null || value == I18n.current()) {
-                return;
-            }
-            I18n.use(value);
-            service.settings().language(value.code());
-            saveSettingsQuietly();
-            applyTexts();
-            showProfile(shown);
-            // The rows carry translated text of their own - the group counts,
-            // the loader names - so a language change has to redraw them too.
-            rebuildViews();
-        });
-
         modeButton.setOnAction(event -> toggleMode());
         settingsButton.setOnAction(event -> openSettings());
 
+        // No language box here. The setting lives in the settings window, and a
+        // setting with two homes is a setting that disagrees with itself; the
+        // two buttons left are the two that are pressed often enough to earn the
+        // far end of the bar.
         HBox header = new HBox(10, mark, brandLabel, searchField, spacer(),
-                modeButton, settingsButton, languageTitle, languageBox);
+                modeButton, settingsButton);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         keepLabels(header);
@@ -586,7 +580,6 @@ public final class MainWindow implements ProfileHost {
                 saveProfilesQuietly();
             }
             if (result.languageChanged()) {
-                languageBox.setValue(I18n.current());
                 applyTexts();
             }
             rebuildViews();
@@ -656,9 +649,13 @@ public final class MainWindow implements ProfileHost {
 
     // ---------------------------------------------------------------- detail
 
+    /** Edge length of the picture beside the detail title, in pixels. */
+    private static final double DETAIL_ICON_SIZE = 52;
+
     private VBox buildDetail() {
         detailName.getStyleClass().add("detail-title");
         detailSubtitle.getStyleClass().add("detail-subtitle");
+        detailIcon.getStyleClass().add("detail-icon");
 
         installButton.setOnAction(event -> installSelected());
 
@@ -694,7 +691,16 @@ public final class MainWindow implements ProfileHost {
         VBox modsBox = new VBox(6, modsTitle, modsList);
         VBox.setVgrow(modsList, Priority.ALWAYS);
 
-        VBox pane = new VBox(14, detailName, detailSubtitle, summary, actions, modsBox);
+        // The two lines are stacked and the picture stands beside both of them,
+        // rather than beside the name alone: the version under the name belongs
+        // to the same instance, and a picture centred on one line of a two-line
+        // heading sits visibly high.
+        VBox titles = new VBox(2, detailName, detailSubtitle);
+        titles.setAlignment(Pos.CENTER_LEFT);
+        HBox heading = new HBox(14, detailIcon, titles);
+        heading.setAlignment(Pos.CENTER_LEFT);
+
+        VBox pane = new VBox(14, heading, summary, actions, modsBox);
         pane.getStyleClass().add("detail");
         VBox.setVgrow(modsBox, Priority.ALWAYS);
         return pane;
@@ -913,7 +919,6 @@ public final class MainWindow implements ProfileHost {
         applyModeTexts();
 
         accountTitle.setText(I18n.t("label.account"));
-        languageTitle.setText(I18n.t("label.language"));
         logPane.setText(I18n.t("log.title"));
 
         if (!busy) {
@@ -1384,6 +1389,8 @@ public final class MainWindow implements ProfileHost {
         modsButton.setDisable(!present);
         playButton.setDisable(!present || busy);
 
+        updateDetailIcon(profile);
+
         if (!present) {
             detailName.setText(I18n.t("instance.none.title"));
             detailSubtitle.setText(I18n.t("instance.none.body"));
@@ -1420,6 +1427,26 @@ public final class MainWindow implements ProfileHost {
                         .format(Instant.ofEpochMilli(profile.lastPlayed())));
         summaryFolderValue.setText(service.profiles().gameDirectory(profile).toString());
         refreshModsList(profile);
+    }
+
+    /**
+     * Puts the selected profile's picture beside its name.
+     *
+     * <p>Hidden rather than replaced by a placeholder when nothing is selected:
+     * the panel then reads "no instance selected", and a mark next to that
+     * sentence would be a mark for an instance that does not exist.
+     */
+    private void updateDetailIcon(Profile profile) {
+        if (profile == null) {
+            detailIcon.getChildren().clear();
+            detailIcon.setVisible(false);
+            detailIcon.setManaged(false);
+            return;
+        }
+        detailIcon.setVisible(true);
+        detailIcon.setManaged(true);
+        detailIcon.getChildren().setAll(
+                ProfileIcons.node(profile, service.dirs(), DETAIL_ICON_SIZE));
     }
 
     private Profile requireSelected() throws IOException {
@@ -1667,6 +1694,7 @@ public final class MainWindow implements ProfileHost {
             profile.customIcon(ProfileIcons.store(chosen.toPath(), service.dirs()));
             saveProfilesQuietly();
             rebuildViews();
+            updateDetailIcon(shown);
             progress.log(I18n.t("icon.set", profile.name()));
         } catch (IOException e) {
             showError(I18n.t("icon.failed"), e);
@@ -1684,6 +1712,7 @@ public final class MainWindow implements ProfileHost {
         profile.customIcon(null);
         saveProfilesQuietly();
         rebuildViews();
+        updateDetailIcon(shown);
     }
 
     @Override

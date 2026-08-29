@@ -323,7 +323,7 @@ public final class InventoryView {
                 host.layoutChanged();
             }
         });
-        ProfileMenu.installForGroup(plate, host, group);
+        ProfileMenu.installForGroup(plate, host, group, true);
 
         plate.setOnDragDetected(event -> {
             Dragboard board = plate.startDragAndDrop(TransferMode.MOVE);
@@ -399,7 +399,7 @@ public final class InventoryView {
             host.layout().setCollapsed(group.id(), false);
             host.layoutChanged();
         });
-        ProfileMenu.installForGroup(strip, host, group);
+        ProfileMenu.installForGroup(strip, host, group, true);
         return strip;
     }
 
