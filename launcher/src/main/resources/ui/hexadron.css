@@ -1001,6 +1001,52 @@
     -fx-text-fill: -fx-text-0;
 }
 
+/* ---------------------------------------------------------- colour chooser */
+
+/* The saturation-brightness square. Its three background layers are written
+   inline, because the bottom one is the picked hue and changes as it is picked;
+   what belongs here is the shape it is painted into. */
+.chooser-field {
+    -fx-background-radius: 8;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-cursor: hand;
+}
+
+.chooser-hue {
+    -fx-background-color: linear-gradient(to bottom,
+        #ff0000 0%, #ffff00 16.7%, #00ff00 33.3%, #00ffff 50%,
+        #0000ff 66.7%, #ff00ff 83.3%, #ff0000 100%);
+    -fx-background-radius: 6;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-cursor: hand;
+}
+
+/* White over a dark border, so the mark is visible on the yellow of the bar as
+   well as on the blue. A single colour is not, at either end. */
+.chooser-hue-mark {
+    -fx-background-color: -fx-text-0;
+    -fx-border-color: rgba(0, 0, 0, 0.75);
+    -fx-border-width: 1;
+}
+
+.chooser-thumb {
+    -fx-fill: transparent;
+    -fx-stroke: white;
+    -fx-stroke-width: 2;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.85), 5, 0.3, 0, 1);
+}
+
+.chooser-preview {
+    -fx-background-radius: 6;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+}
+
 /* The chosen one, marked with a ring rather than by changing its own colour -
    the colour is the thing being chosen and must stay exactly what it is. */
 .swatch-chosen {

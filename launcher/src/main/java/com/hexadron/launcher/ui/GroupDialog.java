@@ -8,11 +8,11 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
-import javafx.scene.control.ColorPicker;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.Separator;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.ColumnConstraints;
@@ -21,7 +21,7 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
-import javafx.scene.paint.Color;
+import javafx.scene.layout.VBox;
 import javafx.stage.Window;
 
 import java.util.ArrayList;
@@ -45,10 +45,17 @@ import java.util.Optional;
  *
  * <p>The fixed palette is the fast path: sixteen colours that are known to work
  * as a band behind the cells and as a plate with white text on it, so the usual
- * case is one click. Beside it is a full picker, because a fixed palette is a
- * guess about what somebody's arrangement means, and a launcher has no business
- * telling a user that their eight servers may not each have the colour they
- * think of them in.
+ * case is one click. Below it, under a rule of its own, is the shelf of colours
+ * this user mixed and the button that mixes another - because a fixed palette is
+ * a guess about what somebody's arrangement means, and a launcher has no
+ * business telling a user that their eight servers may not each have the colour
+ * they think of them in.
+ *
+ * <p>The two are separated rather than run together. Sixteen squares followed by
+ * more squares is one long row in which nothing says where the launcher's
+ * suggestions stop and the user's own colours start - and only the second half
+ * can be taken away again, so the boundary has to be visible before anybody
+ * right-clicks looking for it.
  *
  * <p>What is mixed there is kept - in {@link LauncherSettings}, not on the group
  * - and offered on every later group as an extra swatch. A colour that has to be
@@ -80,9 +87,37 @@ public final class GroupDialog {
     /** Writes {@link #settings} to disk. Null means the caller does not care. */
     private final Runnable persist;
 
+    /**
+     * How many swatches fit on a row, and so how wide the rows are.
+     *
+     * <p>Fixed rather than left to the pane, because a {@link FlowPane} works out
+     * its preferred height from {@code prefWrapLength} and then lays out at
+     * whatever width it is actually given. When the two differ the dialog is
+     * sized for one number of rows and drawn with another, which is how the
+     * buttons ended up under the bottom edge.
+     */
+    private static final int PER_ROW = 11;
+
+    private static final double GAP = 6;
+    private static final double ROW_WIDTH = SWATCH * PER_ROW + GAP * (PER_ROW - 1);
+
     private final TextField nameField = new TextField();
-    private final FlowPane swatches = new FlowPane(6, 6);
-    private final ColorPicker picker = new ColorPicker();
+
+    /** The fixed palette. */
+    private final FlowPane fixed = new FlowPane(GAP, GAP);
+
+    /** The colours this user mixed, and the button that mixes another. */
+    private final FlowPane mine = new FlowPane(GAP, GAP);
+
+    /**
+     * The dialog itself, so a row of swatches appearing or disappearing can grow
+     * the window with it. It is not resizable, and a fixed-size window does not
+     * re-fit itself around content that changed after it opened.
+     */
+    private Dialog<ButtonType> dialog;
+
+    /** Owner of the colour chooser this dialog opens. */
+    private Window owner;
 
     private String chosen;
 
@@ -118,7 +153,8 @@ public final class GroupDialog {
      * @return the name and colour when Save was pressed, empty when cancelled
      */
     public Optional<Choice> show(Window owner, String name, String color) {
-        Dialog<ButtonType> dialog = new Dialog<>();
+        this.owner = owner;
+        dialog = new Dialog<>();
         dialog.initOwner(owner);
         dialog.setTitle(I18n.t("groups.settings.title"));
         dialog.setHeaderText(null);
@@ -156,11 +192,23 @@ public final class GroupDialog {
         nameField.setText(name == null ? I18n.t("groups.new.default") : name);
         nameField.setPromptText(I18n.t("groups.name.prompt"));
 
-        swatches.setAlignment(Pos.CENTER_LEFT);
-        // Wraps rather than scrolls: every colour has to be visible at once for
-        // the row to be a palette instead of a list to be paged through.
-        swatches.setPrefWrapLength(SWATCH * 11 + 6 * 10);
+        for (FlowPane pane : List.of(fixed, mine)) {
+            pane.setAlignment(Pos.CENTER_LEFT);
+            // Wraps rather than scrolls: every colour has to be visible at once
+            // for this to be a palette instead of a list to be paged through.
+            pane.setPrefWrapLength(ROW_WIDTH);
+            pane.setMaxWidth(ROW_WIDTH);
+        }
         rebuildSwatches();
+
+        Separator rule = new Separator();
+        rule.setMaxWidth(ROW_WIDTH);
+
+        Label mineTitle = new Label(I18n.t("groups.color.mine"));
+        mineTitle.getStyleClass().add("muted");
+
+        VBox colors = new VBox(10, fixed, rule, mineTitle, mine);
+        colors.setMaxWidth(ROW_WIDTH);
 
         GridPane grid = new GridPane();
         grid.getStyleClass().add("form");
@@ -176,7 +224,7 @@ public final class GroupDialog {
         grid.getColumnConstraints().addAll(labels, fields);
 
         grid.addRow(0, formLabel(I18n.t("groups.name")), nameField);
-        grid.addRow(1, formLabel(I18n.t("groups.color")), swatches);
+        grid.addRow(1, formLabel(I18n.t("groups.color")), colors);
         return grid;
     }
 
@@ -192,24 +240,47 @@ public final class GroupDialog {
     }
 
     /**
-     * Redraws the row.
+     * Redraws both rows.
      *
-     * <p>Wholesale rather than by touching the one swatch that changed: the row
-     * has under twenty children, and every way of doing it in place has to keep
-     * the selection ring, the shelf and the order in step by hand.
+     * <p>Wholesale rather than by touching the one swatch that changed: there are
+     * under forty children, and every way of doing it in place has to keep the
+     * selection ring, the shelf and the order in step by hand.
      */
     private void rebuildSwatches() {
-        swatches.getChildren().clear();
+        fixed.getChildren().clear();
         if (inherited != null) {
-            swatches.getChildren().add(swatch(inherited, false));
+            fixed.getChildren().add(swatch(inherited, false));
         }
         for (String candidate : ProfileLayout.palette()) {
-            swatches.getChildren().add(swatch(candidate, false));
+            fixed.getChildren().add(swatch(candidate, false));
         }
+
+        mine.getChildren().clear();
         for (String candidate : customColors()) {
-            swatches.getChildren().add(swatch(candidate, true));
+            mine.getChildren().add(swatch(candidate, true));
         }
-        swatches.getChildren().add(mixer());
+        mine.getChildren().add(mixer());
+
+        refit();
+    }
+
+    /**
+     * Grows the window around the swatches after they change.
+     *
+     * <p>Deferred by one pulse: the pane being measured has only just been handed
+     * its children, and the size that matters is the one after the next layout
+     * rather than the one still on the pane now.
+     */
+    private void refit() {
+        if (dialog == null || dialog.getDialogPane().getScene() == null) {
+            return;
+        }
+        javafx.application.Platform.runLater(() -> {
+            Window window = dialog.getDialogPane().getScene().getWindow();
+            if (window != null) {
+                window.sizeToScene();
+            }
+        });
     }
 
     /**
@@ -269,46 +340,50 @@ public final class GroupDialog {
     }
 
     /**
-     * The mixer: a "+" over a real colour picker.
+     * The "+" at the end of the shelf: opens the launcher's colour chooser.
      *
-     * <p>The picker itself is present but invisible and deaf to the mouse, and
-     * the "+" over it opens it. That way the popup - the platform's own colour
-     * chooser, with a hue bar, a saturation square and a hex field - anchors
-     * under the swatch it came from, while the row keeps one shape of control
-     * rather than a line of squares and then a combo box.
+     * <p>The same square as a swatch, dashed and empty, so it reads as one more
+     * place a colour can come from rather than as a control of another kind
+     * dropped at the end of the row.
      */
     private Region mixer() {
-        picker.setOpacity(0);
-        picker.setMouseTransparent(true);
-        picker.setFocusTraversable(false);
-        picker.setMinSize(SWATCH, SWATCH);
-        picker.setPrefSize(SWATCH, SWATCH);
-        picker.setMaxSize(SWATCH, SWATCH);
-        picker.setOnAction(event -> mixed(picker.getValue()));
-
         Label plus = new Label("+");
         plus.getStyleClass().add("swatch-add-mark");
 
-        StackPane button = new StackPane(picker, plus);
+        StackPane button = new StackPane(plus);
         button.getStyleClass().addAll("swatch", "swatch-add");
         button.setMinSize(SWATCH, SWATCH);
         button.setPrefSize(SWATCH, SWATCH);
         button.setMaxSize(SWATCH, SWATCH);
         Tooltip.install(button, new Tooltip(I18n.t("groups.color.custom")));
         button.setOnMouseClicked(event -> {
-            picker.setValue(Color.web(chosen));
-            picker.show();
+            new ColorChooserDialog().show(window(), chosen).ifPresent(this::mixed);
             event.consume();
         });
         return button;
     }
 
-    /** Takes a colour from the picker: selects it, and puts it on the shelf. */
-    private void mixed(Color color) {
-        if (color == null) {
+    /** The window the chooser belongs in front of: this dialog, or its owner. */
+    private Window window() {
+        if (dialog != null && dialog.getDialogPane().getScene() != null
+                && dialog.getDialogPane().getScene().getWindow() != null) {
+            return dialog.getDialogPane().getScene().getWindow();
+        }
+        return owner;
+    }
+
+    /**
+     * Takes a colour from the chooser: selects it, and puts it on the shelf.
+     *
+     * <p>Only what OK was pressed on gets this far. The platform picker this
+     * replaced fired on every change inside itself, so a minute of moving one
+     * slider filled the shelf with near-identical colours and pushed out
+     * everything that had been mixed on purpose.
+     */
+    private void mixed(String hex) {
+        if (hex == null || !hex.matches("#[0-9a-fA-F]{6}")) {
             return;
         }
-        String hex = hex(color);
         chosen = hex;
         if (settings != null && settings.addCustomGroupColor(hex)) {
             save();
@@ -327,20 +402,6 @@ public final class GroupDialog {
         if (persist != null) {
             persist.run();
         }
-    }
-
-    /**
-     * {@code #rrggbb} for a picked colour.
-     *
-     * <p>Opacity is dropped rather than carried: the value becomes a band behind
-     * the cells and a plate under white text, and a half-transparent one of
-     * either is a group whose colour depends on what is behind it.
-     */
-    private static String hex(Color color) {
-        return String.format(Locale.ROOT, "#%02x%02x%02x",
-                Math.round(color.getRed() * 255),
-                Math.round(color.getGreen() * 255),
-                Math.round(color.getBlue() * 255));
     }
 
     private static Label formLabel(String text) {
