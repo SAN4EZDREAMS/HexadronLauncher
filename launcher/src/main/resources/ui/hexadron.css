@@ -15,7 +15,12 @@
     -fx-base-2: #23272f;   /* controls */
     -fx-base-3: #2f343d;   /* borders, hover */
     -fx-text-0: #e6e8ec;   /* primary text */
-    -fx-text-1: #9aa2b1;   /* secondary text */
+    /* Secondary text: notes under a control, subtitles, hints. Lifted from
+       #9aa2b1, which cleared the contrast threshold on paper and still read as
+       switched-off on a real screen - these are whole sentences of explanation,
+       not decoration, and the ones worth reading are the ones that were faded
+       the most. */
+    -fx-text-1: #aab3c2;   /* secondary text */
     -fx-accent-0: #2d7d46; /* Minecraft green, for the one action that matters */
     -fx-accent-1: #359152;
     -fx-danger-0: #b3403a;
@@ -224,6 +229,42 @@
     -fx-text-fill: -fx-text-0;
 }
 
+/* Radio buttons had no rule at all, so JavaFX drew them from its own light
+   theme: dark text on this window's dark panel, which is how a legible label
+   ends up unreadable while the note under it is fine. */
+.radio-button {
+    -fx-text-fill: -fx-text-0;
+}
+
+.radio-button .radio {
+    -fx-background-color: -fx-base-2;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 1em;
+    -fx-border-width: 1;
+    -fx-padding: 4;
+}
+
+.radio-button:hover .radio {
+    -fx-border-color: -fx-text-1;
+}
+
+.radio-button:selected .radio {
+    -fx-background-color: -fx-accent-0;
+    -fx-border-color: -fx-accent-1;
+}
+
+/* The dot. Painted in the button's own text colour so it stays visible on the
+   accent fill. */
+.radio-button .radio .dot {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 3;
+}
+
+.radio-button:selected .radio .dot {
+    -fx-background-color: white;
+}
+
 .check-box .box {
     -fx-background-color: -fx-base-2;
     -fx-background-radius: 4;
@@ -262,6 +303,17 @@
 
 .separator .line {
     -fx-border-color: -fx-base-3;
+}
+
+/* A control that is off still has to be readable: the text in it is what says
+   what turning it on would do. The platform default fades it to a third of its
+   contrast, which on a dark surface is close to invisible. */
+.text-field:disabled,
+.combo-box:disabled,
+.radio-button:disabled,
+.check-box:disabled,
+.button:disabled {
+    -fx-opacity: 0.72;
 }
 
 /* ------------------------------------------------------------------ footer */
