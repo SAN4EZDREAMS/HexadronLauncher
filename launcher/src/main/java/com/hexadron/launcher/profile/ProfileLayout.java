@@ -116,7 +116,15 @@ public final class ProfileLayout {
      */
     private static final List<String> PALETTE = List.of(
             "#3d6ea5", "#8a5a3c", "#6b4a8f", "#2d7d46",
-            "#a5843d", "#a53d5c", "#3d8a8a", "#6f7d3d");
+            "#a5843d", "#a53d5c", "#3d8a8a", "#6f7d3d",
+            // Sixteen rather than eight. Eight was one colour per group before
+            // two groups had to share, which on a screen full of bands is the
+            // point at which the colour stops answering "which group is this".
+            // These sit at the same lightness as the first eight - dark enough
+            // for white text on a plate, light enough to read as a band - and
+            // fill the hues the first eight leave out.
+            "#a54a3d", "#4d8a3d", "#3d8a6e", "#3d7f9c",
+            "#4a4f9c", "#8a3d8f", "#a53d7d", "#5f6b7d");
 
     /** The colours a group may be given, for the picker to offer. */
     public static List<String> palette() {

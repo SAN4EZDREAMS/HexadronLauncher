@@ -984,6 +984,23 @@
     -fx-border-color: rgba(255, 255, 255, 0.55);
 }
 
+/* The mixer at the end of the row: the same square, dashed and empty, so it
+   reads as "one more colour" rather than as a colour of its own. */
+.swatch-add {
+    -fx-background-color: -fx-base-2;
+    -fx-border-color: rgba(255, 255, 255, 0.35);
+    -fx-border-style: segments(3, 3) line-cap round;
+}
+
+.swatch-add-mark {
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 15px;
+}
+
+.swatch-add:hover .swatch-add-mark {
+    -fx-text-fill: -fx-text-0;
+}
+
 /* The chosen one, marked with a ring rather than by changing its own colour -
    the colour is the thing being chosen and must stay exactly what it is. */
 .swatch-chosen {

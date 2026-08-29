@@ -6,6 +6,9 @@ import com.hexadron.launcher.launch.JavaRuntimes;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 /** Launcher-wide settings persisted to {@code launcher.json}. */
 public final class LauncherSettings {
@@ -111,6 +114,23 @@ public final class LauncherSettings {
      */
     private String language = "";
 
+    /**
+     * Colours the user mixed for groups, newest first.
+     *
+     * <p>Here rather than on the group that first used one, because a colour
+     * that has to be mixed again for every group it is wanted on is a colour
+     * nobody uses twice. The dialog offers these beside the fixed palette, so a
+     * colour is mixed once and then picked.
+     *
+     * <p>Capped at {@link #CUSTOM_COLOR_LIMIT}. The list is a shelf of colours
+     * within reach, and a shelf that never drops anything stops being one - it
+     * becomes a second palette, longer than the first and mostly one-offs.
+     */
+    private final List<String> customGroupColors = new ArrayList<>();
+
+    /** How many mixed colours are kept. The oldest falls off beyond this. */
+    public static final int CUSTOM_COLOR_LIMIT = 16;
+
     public LauncherSettings(GameDirs dirs) {
         this.file = dirs.settingsFile();
     }
@@ -134,6 +154,10 @@ public final class LauncherSettings {
         javaDownloadPolicy = JavaRuntimes.DownloadPolicy
                 .parse(json.get("javaDownloadPolicy").asString(javaDownloadPolicy)).stored();
         language = json.get("language").asString(language);
+        customGroupColors.clear();
+        for (Json entry : json.get("customGroupColors").elements()) {
+            addCustomGroupColor(entry.asString(null));
+        }
         return this;
     }
 
@@ -151,7 +175,50 @@ public final class LauncherSettings {
                 .put("splashMinimumMillis", splashMinimumMillis)
                 .put("javaDownloadPolicy", javaDownloadPolicy)
                 .put("language", language)
+                .put("customGroupColors", colorsAsJson())
                 .write(file);
+    }
+
+    private Json colorsAsJson() {
+        Json array = Json.array();
+        customGroupColors.forEach(array::add);
+        return array;
+    }
+
+    /** The mixed colours, newest first. Never null, possibly empty. */
+    public List<String> customGroupColors() {
+        return List.copyOf(customGroupColors);
+    }
+
+    /**
+     * Remembers a mixed colour, moving it to the front if it is already known.
+     *
+     * <p>Anything that is not {@code #rrggbb} is dropped rather than stored: the
+     * value ends up in a JavaFX inline style, and a bad one there does not fail
+     * loudly - it makes a swatch that silently paints nothing.
+     *
+     * @return true when the shelf changed, so the caller knows whether to save
+     */
+    public boolean addCustomGroupColor(String value) {
+        if (value == null || !value.matches("#[0-9a-fA-F]{6}")) {
+            return false;
+        }
+        String normalised = value.toLowerCase(Locale.ROOT);
+        if (!customGroupColors.isEmpty() && customGroupColors.get(0).equals(normalised)) {
+            return false;
+        }
+        customGroupColors.remove(normalised);
+        customGroupColors.add(0, normalised);
+        while (customGroupColors.size() > CUSTOM_COLOR_LIMIT) {
+            customGroupColors.remove(customGroupColors.size() - 1);
+        }
+        return true;
+    }
+
+    /** Forgets a mixed colour. Groups already painted with it keep it. */
+    public boolean removeCustomGroupColor(String value) {
+        return value != null
+                && customGroupColors.remove(value.toLowerCase(Locale.ROOT));
     }
 
     public String microsoftClientId() {

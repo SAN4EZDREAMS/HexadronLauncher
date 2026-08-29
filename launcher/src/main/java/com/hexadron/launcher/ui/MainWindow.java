@@ -1715,6 +1715,18 @@ public final class MainWindow implements ProfileHost {
         updateDetailIcon(shown);
     }
 
+    /**
+     * A group dialog that remembers the colours mixed in it.
+     *
+     * <p>Handed the settings and a way to write them, because a mixed colour is
+     * launcher-wide rather than part of the group it was mixed for - and it is
+     * saved the moment it is mixed, so cancelling the dialog does not throw the
+     * work away.
+     */
+    private GroupDialog groupDialog() {
+        return new GroupDialog(service.settings(), this::saveSettingsQuietly);
+    }
+
     @Override
     public void openSettings() {
         openSettingsWindow();
@@ -1749,7 +1761,7 @@ public final class MainWindow implements ProfileHost {
      */
     @Override
     public void createGroup(Profile profile) {
-        new GroupDialog().show(stage, I18n.t("groups.new.default"),
+        groupDialog().show(stage, I18n.t("groups.new.default"),
                 layout().nextPaletteColor()).ifPresent(choice -> {
             ProfileLayout.Group made = layout().createGroup(choice.name());
             made.color(choice.color());
@@ -1782,7 +1794,7 @@ public final class MainWindow implements ProfileHost {
         // The colour offered is the one the layout would pick anyway, so the
         // dialog shows what would happen and lets it be changed.
         String suggested = layout.nextPaletteColor();
-        new GroupDialog().show(stage, I18n.t("groups.new.default"), suggested).ifPresent(choice -> {
+        groupDialog().show(stage, I18n.t("groups.new.default"), suggested).ifPresent(choice -> {
             boolean keepOccupants = true;
             int occupants = layout.occupantsInRow(row);
             // Asked before the group exists, so a cancel leaves nothing behind.
@@ -1821,7 +1833,7 @@ public final class MainWindow implements ProfileHost {
         if (group == null) {
             return;
         }
-        new GroupDialog().show(stage, group.name(), group.color()).ifPresent(choice -> {
+        groupDialog().show(stage, group.name(), group.color()).ifPresent(choice -> {
             layout().renameGroup(group.id(), choice.name());
             group.color(choice.color());
             layoutChanged();
