@@ -70,7 +70,10 @@ public final class ModInstaller {
 
         List<String> missing = new ArrayList<>();
         for (ModPack.Entry entry : pack.entries()) {
-            if (entry.optional()) {
+            // A conditional entry is not part of what makes the set installable:
+            // whether it belongs at all depends on the build another entry
+            // resolves to, which is not known until the install runs.
+            if (entry.optional() || entry.isConditional()) {
                 continue;
             }
             ModProvider provider = providers.get(entry.provider());
@@ -110,11 +113,20 @@ public final class ModInstaller {
         Set<String> visited = new LinkedHashSet<>();
 
         Deque<Pending> queue = new ArrayDeque<>();
+        List<ModPack.Entry> conditional = new ArrayList<>();
         for (ModPack.Entry entry : pack.entries()) {
+            if (entry.isConditional()) {
+                // Held back: the condition is about what another entry resolves
+                // to, so it cannot be answered until that one has.
+                conditional.add(entry);
+                continue;
+            }
             queue.add(new Pending(entry.provider(), entry.projectId(), entry.versionId(),
                     entry.label(), entry.optional(), 0));
         }
 
+        boolean conditionsAnswered = false;
+        while (true) {
         while (!queue.isEmpty()) {
             Pending pending = queue.poll();
             String key = InstalledMod.keyOf(pending.provider, pending.projectId);
@@ -188,6 +200,21 @@ public final class ModInstaller {
             }
         }
 
+        if (conditionsAnswered) {
+            break;
+        }
+        conditionsAnswered = true;
+        for (ModPack.Entry entry : conditional) {
+            String verdict = conditionVerdict(entry, resolved);
+            if (verdict != null) {
+                skipped.add(entry.label() + " (" + verdict + ")");
+                continue;
+            }
+            queue.add(new Pending(entry.provider(), entry.projectId(), entry.versionId(),
+                    entry.label(), true, 0));
+        }
+        }
+
         ModLibrary library = ModLibrary.read(modsDir);
 
         // Files this pack used to own and no longer does. Manual entries are not
@@ -229,6 +256,37 @@ public final class ModInstaller {
         }
 
         return new Result(List.copyOf(resolved.values()), List.copyOf(skipped), List.copyOf(manual));
+    }
+
+    /**
+     * Whether a conditional entry belongs in this install.
+     *
+     * @return null when it does, otherwise why it does not - in words that go
+     *         into the log, because "a mod in the set was not installed" is
+     *         only useful with the reason attached
+     */
+    private static String conditionVerdict(ModPack.Entry entry, Map<String, ModFile> resolved) {
+        ModPack.Condition condition = entry.onlyWith();
+        ModFile companion = resolved.get(
+                InstalledMod.keyOf(condition.provider(), condition.projectId()));
+        if (companion == null) {
+            return "there is no " + condition.projectId() + " in this set to go with";
+        }
+
+        String version = ModVersions.of(companion.displayName(), companion.fileName());
+        if (version == null) {
+            // Deliberately the cautious way round. This mod exists to patch a
+            // gap in an older companion and conflicts with the newer one, so a
+            // wrong "yes" is a game that will not start, while a wrong "no" is
+            // at worst the warning screen it was meant to remove.
+            return "the version of " + companion.fileName() + " could not be read,"
+                    + " so it was left out rather than guessed at";
+        }
+        if (!ModVersions.isBelow(version, condition.versionBelow())) {
+            return companion.fileName() + " is " + version + ", which is "
+                    + condition.versionBelow() + " or newer and does not need it";
+        }
+        return null;
     }
 
     /** Removes every file a pack owns, and only those. */

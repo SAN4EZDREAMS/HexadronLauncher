@@ -32,6 +32,8 @@ import com.hexadron.launcher.mods.ModFile;
 import com.hexadron.launcher.mods.ModInstaller;
 import com.hexadron.launcher.mods.ModLibrary;
 import com.hexadron.launcher.mods.ModOrigin;
+import com.hexadron.launcher.mods.ModPack;
+import com.hexadron.launcher.mods.ModVersions;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.net.ProxyChoice;
@@ -112,6 +114,7 @@ public final class SelfCheck {
         offlineRelaunch();
         unreachableHosts();
         proxyRouting();
+        modCompatibility();
         verificationLedger();
         nativesReuse();
         skins();
@@ -2898,6 +2901,99 @@ public final class SelfCheck {
             if (work != null) {
                 deleteRecursively(work);
             }
+        }
+    }
+
+    /**
+     * A compatibility mod that must not always be installed.
+     *
+     * <p>Indium exists to give Sodium the Fabric Rendering API. Sodium 0.6 has
+     * that built in and is <em>incompatible</em> with Indium, so the same set of
+     * mods needs it on one Minecraft version and is broken by it on another.
+     * Every version string below is a real Modrinth {@code version_number} or
+     * file name, because the parsing is the whole of the decision.
+     */
+    private static void modCompatibility() {
+        section("Mod compatibility conditions");
+
+        // --- reading a mod's own version out of what Modrinth publishes -----
+        // The Minecraft version comes first in these strings, so the naive
+        // "first number in the string" answers 1.20.1 and every comparison
+        // after it is meaningless.
+        check("a Modrinth version number gives the mod's version, not Minecraft's",
+                "0.5.13".equals(ModVersions.of("mc1.20.1-0.5.13-fabric", null)));
+        check("and does when the mod version is higher than the game's",
+                "0.8.13".equals(ModVersions.of("mc1.21.1-0.8.13-fabric", null)));
+        check("a beta tag does not become the version",
+                "0.8.13".equals(ModVersions.of("mc1.21.1-0.8.13-beta.2-fabric", null)));
+        check("a plain version number is itself",
+                "0.5.11".equals(ModVersions.of("mc1.20.1-0.5.11", null)));
+        check("the jar name answers when the published name does not",
+                "0.6.13".equals(ModVersions.of(null, "sodium-fabric-0.6.13+mc1.21.1.jar")));
+        check("and when the game version comes first in the jar name",
+                "0.5.13".equals(ModVersions.of("", "sodium-fabric-mc1.20.1-0.5.13.jar")));
+        check("a string with no version in it reads as nothing, not as a guess",
+                ModVersions.of("latest", "sodium.jar") == null);
+
+        // --- comparing --------------------------------------------------
+        check("0.5.13 is below 0.6.0", ModVersions.isBelow("0.5.13", "0.6.0"));
+        check("0.6.0 is not below itself", !ModVersions.isBelow("0.6.0", "0.6.0"));
+        check("0.8.13 is not below 0.6.0", !ModVersions.isBelow("0.8.13", "0.6.0"));
+        // The range these comparisons actually live in, and the one string
+        // comparison gets backwards.
+        check("0.10.0 is above 0.9.9", !ModVersions.isBelow("0.10.0", "0.9.9"));
+        check("0.9.9 is below 0.10.0", ModVersions.isBelow("0.9.9", "0.10.0"));
+        check("a shorter version is padded, not truncated",
+                ModVersions.isBelow("0.6", "0.6.1") && !ModVersions.isBelow("0.6.0", "0.6"));
+        check("an unknown version is never below anything",
+                !ModVersions.isBelow(null, "0.6.0"));
+
+        // --- the pack as it ships -------------------------------------------
+        try {
+            ModPack pack = ModPack.hexadronOptimise();
+
+            ModPack.Entry indium = null;
+            ModPack.Entry sodium = null;
+            for (ModPack.Entry entry : pack.entries()) {
+                if (entry.label().equals("Indium")) {
+                    indium = entry;
+                }
+                if (entry.label().equals("Sodium")) {
+                    sodium = entry;
+                }
+            }
+
+            check("the set contains Sodium", sodium != null);
+            check("and Indium, which it did not before", indium != null);
+            check("Indium is conditional rather than always installed",
+                    indium != null && indium.isConditional());
+            check("it is optional, so a version with no build for it is a note not a failure",
+                    indium != null && indium.optional());
+            check("the condition names Sodium",
+                    indium != null && sodium != null
+                            && indium.onlyWith().projectId().equals(sodium.projectId()));
+            check("and the boundary is the release that made it unnecessary",
+                    indium != null && indium.onlyWith().versionBelow().equals("0.6.0"));
+
+            // What the condition decides, on the two builds that actually ship.
+            check("so on Minecraft 1.20.1, where Sodium is 0.5.13, Indium goes in",
+                    ModVersions.isBelow(
+                            ModVersions.of("mc1.20.1-0.5.13-fabric", null),
+                            indium.onlyWith().versionBelow()));
+            check("and on 1.21.1, where Sodium is 0.8.13, it stays out",
+                    !ModVersions.isBelow(
+                            ModVersions.of("mc1.21.1-0.8.13-fabric", null),
+                            indium.onlyWith().versionBelow()));
+
+            // A conditional entry cannot make the set look uninstallable before
+            // anything has been resolved.
+            for (ModPack.Entry entry : pack.entries()) {
+                if (entry.isConditional()) {
+                    check("a conditional entry is optional by construction", entry.optional());
+                }
+            }
+        } catch (IOException e) {
+            check("the set contains Sodium", false);
         }
     }
 
