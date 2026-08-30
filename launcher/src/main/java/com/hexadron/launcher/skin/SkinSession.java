@@ -10,19 +10,30 @@ import java.util.List;
 /**
  * The skin arrangement for one run of the game.
  *
- * <p>Everything the launch path has to know about skins is behind this: what to
- * add to the command line, and when to let go. A profile with nothing to show
- * produces {@link #none()}, whose argument list is empty and whose close does
- * nothing - so a launch that wants no skins is exactly the launch it was before
- * any of this existed, down to the command line.
+ * <p>Everything the launch path has to know about skins is behind this: who the
+ * game is started as, what to add to the command line, and when to let go. A
+ * profile with nothing to show produces {@link #none()}, whose argument list is
+ * empty and whose close does nothing - so a launch that wants no skins is
+ * exactly the launch it was before any of this existed, down to the command
+ * line.
+ *
+ * <h2>Two halves, and why they are separate calls</h2>
+ *
+ * <p>{@link #identity} answers "who is playing", and {@link #open} answers
+ * "where does the game look for textures". They are apart because the first
+ * changes the account the rest of the launch is built from - the token that
+ * has to be kept off the command line, the name written into the world - and
+ * that has to be settled before the command is assembled, while the second
+ * opens a socket that must not be left listening if anything after it fails.
  *
  * <h2>Failure is not fatal</h2>
  *
  * <p>Nothing here can stop a game from starting. The agent cannot be fetched,
- * the loopback port cannot be bound, the key cannot be written: each is logged
- * and the launch continues without skins. Somebody pressing Play wants to play,
- * and a launcher that refuses because a cosmetic service did not come up has
- * misjudged what it was asked to do.
+ * the loopback port cannot be bound, the service will not renew a token: each
+ * is logged and the launch continues without skins, as the account that was
+ * already selected. Somebody pressing Play wants to play, and a launcher that
+ * refuses because a cosmetic service did not come up has misjudged what it was
+ * asked to do.
  */
 public final class SkinSession implements AutoCloseable {
 
@@ -52,17 +63,80 @@ public final class SkinSession implements AutoCloseable {
     }
 
     /**
-     * Opens whatever this account's skin settings ask for.
+     * Who the game should be started as.
      *
+     * <h2>Why the identity changes at all</h2>
+     *
+     * <p>A skin service is asked about a player by UUID, and answers about the
+     * accounts it knows. An offline account's UUID is derived from a name on
+     * this machine and has never been near the service, so pointing the game at
+     * one while playing as that account produces a launch where every lookup
+     * correctly answers "no such profile" and nothing appears - which is
+     * indistinguishable, from the outside, from a broken feature.
+     *
+     * <p>So a remote service means playing as the account on that service: its
+     * UUID, its name, its token. That is also the thing that makes the skin
+     * visible to other players - on a server pointed at the same service, that
+     * UUID is who you are to everybody on it.
+     *
+     * @return the account to launch as, which is the one passed in whenever
+     *         there is no remote service or no usable sign-in for it
+     */
+    public static Account identity(Account account, SkinProfile profile,
+                                   SkinCredentials credentials, Progress progress) {
+
+        if (account == null || profile == null || credentials == null
+                || profile.source() != SkinProfile.Source.REMOTE
+                || profile.service().isBlank()) {
+            return account;
+        }
+
+        YggdrasilAuth.Session saved = credentials.load(account.id()).orElse(null);
+        if (saved == null || !saved.isFor(profile.service())) {
+            // Worth saying plainly. The alternative is a launch that looks
+            // successful and a skin that never appears, with nothing in the log
+            // pointing at the reason.
+            progress.log("Skins: not signed in to %s, so the game starts as %s and that service"
+                            + " has never heard of this profile. Sign in from the account window.",
+                    profile.service(), account.username());
+            return account;
+        }
+
+        try {
+            YggdrasilAuth.Session live = saved;
+            if (!YggdrasilAuth.validate(saved)) {
+                live = YggdrasilAuth.refresh(saved);
+                credentials.save(account.id(), live);
+            }
+            progress.log("Skins: playing as %s on %s", live.name(), live.root());
+            return new Account(Account.AccountType.MICROSOFT, live.name(), live.uuid(),
+                    live.accessToken(), null, Long.MAX_VALUE, "0");
+
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            progress.log("Skins: %s would not renew the sign-in (%s). The game starts as %s,"
+                            + " without skins from that service.",
+                    profile.service(), YggdrasilAuth.describe(e), account.username());
+            return account;
+        }
+    }
+
+    /**
+     * Opens whatever this profile asks for.
+     *
+     * @param profile the account's skin settings, read before the identity was
+     *                resolved - the settings belong to the account that was
+     *                selected, not to the one the game ends up being launched as
+     * @param player  the account the game is actually started as, which for a
+     *                local service is whose UUID the loopback service answers
+     *                about
      * @return a session that is always safe to use and always safe to close
      */
-    public static SkinSession open(Account account, SkinStore store, GameDirs dirs,
-                                   Progress progress) {
-        if (account == null || store == null) {
-            return none();
-        }
-        SkinProfile profile = store.of(account.id());
-        if (!profile.needsService()) {
+    public static SkinSession open(SkinProfile profile, Account player, SkinStore store,
+                                   GameDirs dirs, Progress progress) {
+        if (profile == null || player == null || store == null || !profile.needsService()) {
             return none();
         }
 
@@ -80,7 +154,7 @@ public final class SkinSession implements AutoCloseable {
             }
 
             LocalSkinService local = LocalSkinService.start(
-                    account.uuid(), account.username(), profile, store,
+                    player.uuid(), player.username(), profile, store,
                     dirs.skins().resolve("signing-key.json"));
             progress.log("Skins: serving this account's skin from %s", local.root());
             return new SkinSession(local,

@@ -39,10 +39,12 @@ import com.hexadron.launcher.profile.ProfileLayout;
 import com.hexadron.launcher.skin.LocalSkinService;
 import com.hexadron.launcher.skin.PngSize;
 import com.hexadron.launcher.skin.SkinLayout;
+import com.hexadron.launcher.skin.SkinCredentials;
 import com.hexadron.launcher.skin.SkinProfile;
 import com.hexadron.launcher.skin.SkinSession;
 import com.hexadron.launcher.skin.SkinStore;
 import com.hexadron.launcher.skin.SkinTemplate;
+import com.hexadron.launcher.skin.YggdrasilAuth;
 import com.hexadron.launcher.util.Archives;
 import com.hexadron.launcher.util.Hashes;
 import com.hexadron.launcher.util.Arguments;
@@ -111,6 +113,7 @@ public final class SelfCheck {
         skins();
         skinLayout();
         skinTemplates();
+        skinService();
         translations();
 
         System.out.println();
@@ -1819,6 +1822,16 @@ public final class SelfCheck {
      * sentence with a hole in it. Both are caught here, before release, rather
      * than by a user who cannot read the fallback language.
      */
+    /**
+     * A conversion specifier of the kind {@code String.format} understands.
+     *
+     * <p>Deliberately narrow: {@code %} on its own is a per cent sign and turns
+     * up in ordinary sentences, so only a {@code %} followed by an argument
+     * index or one of the specifiers actually used in this codebase counts.
+     */
+    private static final java.util.regex.Pattern PRINTF =
+            java.util.regex.Pattern.compile("%(\\d+\\$)?[sdfn]");
+
     private static void translations() {
         section("Translations");
 
@@ -1867,6 +1880,20 @@ public final class SelfCheck {
                 }
             }
             check(code + ": every placeholder survives formatting " + swallowed, swallowed.isEmpty());
+
+            // Bundle values go through MessageFormat and never through
+            // String.format, so a printf placeholder in one is not a
+            // placeholder - it is the literal text "%s", shown to the user
+            // exactly as written. Consistent across every language, which is
+            // why the check above waves it through, and wrong in every one.
+            List<String> printf = new ArrayList<>();
+            for (Map.Entry<String, String> entry : bundle.entrySet()) {
+                if (PRINTF.matcher(entry.getValue()).find()) {
+                    printf.add(entry.getKey());
+                }
+            }
+            check(code + ": no printf placeholder where MessageFormat is used " + printf,
+                    printf.isEmpty());
         }
 
         // The active language must survive a switch and a switch back.
@@ -1932,6 +1959,12 @@ public final class SelfCheck {
                 "account.source.remote",
                 "account.source.remote.note",
                 "account.busy",
+                "account.service.signin", "account.service.signin.again",
+                "account.service.signout", "account.service.signedin",
+                "account.service.signedout", "account.service.elsewhere",
+                "signin.title", "signin.service", "signin.user", "signin.user.hint",
+                "signin.password", "signin.button", "signin.busy", "signin.incomplete",
+                "signin.failed", "signin.address.bad", "signin.nostore", "signin.notsaved",
                 "account.preview.empty", "account.preview.left", "account.preview.right", "account.preview.in", "account.preview.out", "account.drop.rejected",
                 "template.part.head",
                 "template.part.hat",
@@ -3372,6 +3405,111 @@ public final class SelfCheck {
      * opaque are, and that pressing the button twice does not write over an
      * evening's work.
      */
+    /**
+     * Signing in to a third-party skin service.
+     *
+     * <p>Nothing here touches the network. What is checked is the part that
+     * goes wrong silently: an address that is a slash away from every endpoint
+     * 404ing, a UUID in the form the game will not take, a saved sign-in that
+     * belongs to a service other than the one now configured - each of which
+     * ends as "I pasted the address and nothing happened".
+     */
+    private static void skinService() {
+        section("Skin service sign-in");
+
+        check("a trailing slash is trimmed off the address",
+                YggdrasilAuth.normalise("https://littleskin.cn/api/yggdrasil/")
+                        .equals("https://littleskin.cn/api/yggdrasil"));
+        check("and so is more than one",
+                YggdrasilAuth.normalise(" https://example.org/api//  ")
+                        .equals("https://example.org/api"));
+
+        check("an address without a scheme is refused",
+                YggdrasilAuth.reasonToRefuse("littleskin.cn/api/yggdrasil") != null);
+        // The password is in that request body. There is no version of sending
+        // it in the clear that this launcher offers.
+        check("so is a plain http one",
+                YggdrasilAuth.reasonToRefuse("http://littleskin.cn/api/yggdrasil") != null);
+        check("an empty address is refused",
+                YggdrasilAuth.reasonToRefuse("   ") != null);
+        check("an https address is accepted",
+                YggdrasilAuth.reasonToRefuse("https://littleskin.cn/api/yggdrasil") == null);
+
+        try {
+            java.util.UUID dashed = YggdrasilAuth.undash("069a79f444e94726a5befca90e38aaf5");
+            check("an undashed profile id becomes a UUID",
+                    dashed.toString().equals("069a79f4-44e9-4726-a5be-fca90e38aaf5"));
+            check("an already-dashed one survives the trip",
+                    YggdrasilAuth.undash("069a79f4-44e9-4726-a5be-fca90e38aaf5").equals(dashed));
+        } catch (IOException e) {
+            check("an undashed profile id becomes a UUID", false);
+        }
+
+        boolean refusedShortId = false;
+        try {
+            YggdrasilAuth.undash("nope");
+        } catch (IOException expected) {
+            refusedShortId = true;
+        }
+        check("an unreadable profile id is refused rather than guessed", refusedShortId);
+
+        YggdrasilAuth.Session session = new YggdrasilAuth.Session(
+                "https://littleskin.cn/api/yggdrasil", "client-token", "access-token",
+                java.util.UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5"), "Notch");
+
+        YggdrasilAuth.Session read = YggdrasilAuth.Session.fromJson(
+                com.hexadron.launcher.json.Json.parse(session.toJson().toString()));
+        check("a saved sign-in reads back as it was written",
+                read != null && read.equals(session));
+        check("a damaged one reads back as nothing at all",
+                YggdrasilAuth.Session.fromJson(
+                        com.hexadron.launcher.json.Json.parse("{\"root\":\"x\"}")) == null);
+
+        // The address field can be edited after signing in, and a token issued
+        // by one service means nothing at another.
+        check("a sign-in knows the service it was issued by",
+                session.isFor("https://littleskin.cn/api/yggdrasil/"));
+        check("and knows when it is for a different one",
+                !session.isFor("https://ely.by/api/yggdrasil"));
+
+        check("a refusal is reported in the service's own words",
+                YggdrasilAuth.describe(new com.hexadron.launcher.net.Http.HttpStatusException(
+                        403, "https://example.org/authserver/authenticate",
+                        "{\"error\":\"ForbiddenOperationException\","
+                                + "\"errorMessage\":\"Invalid credentials.\"}"))
+                        .equals("Invalid credentials."));
+        check("an address that is not a service at all says so",
+                YggdrasilAuth.describe(new com.hexadron.launcher.net.Http.HttpStatusException(
+                        404, "https://example.org/authserver/authenticate", "<html>Not Found</html>"))
+                        .contains("not a skin service"));
+
+        // --- the launch identity ------------------------------------------
+        Account offline = Account.offline("Player");
+        Progress quiet = Progress.NOOP;
+
+        check("a local profile is played as the account that was selected",
+                SkinSession.identity(offline, SkinProfile.empty(), null, quiet) == offline);
+
+        SkinProfile remote = SkinProfile.empty()
+                .withSource(SkinProfile.Source.REMOTE)
+                .withService("https://littleskin.cn/api/yggdrasil");
+        check("a remote profile with no store behind it is too",
+                SkinSession.identity(offline, remote, null, quiet) == offline);
+        check("a remote profile with no sign-in saved is too",
+                SkinSession.identity(offline, remote, new SkinCredentials(null), quiet) == offline);
+        check("and a remote profile with no address is too",
+                SkinSession.identity(offline, SkinProfile.empty()
+                                .withSource(SkinProfile.Source.REMOTE),
+                        new SkinCredentials(null), quiet) == offline);
+
+        // A remote service is worth attaching with no local pictures at all;
+        // a local one is not, because there would be nothing to serve.
+        check("a remote profile asks for the service to be attached",
+                remote.needsService());
+        check("an empty local profile does not",
+                !SkinProfile.empty().needsService());
+    }
+
     private static void skinTemplates() {
         section("Skin templates");
 

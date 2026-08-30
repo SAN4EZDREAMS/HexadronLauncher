@@ -3,9 +3,11 @@ package com.hexadron.launcher.ui;
 import com.hexadron.launcher.auth.Account;
 import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.skin.MinecraftSkinApi;
+import com.hexadron.launcher.skin.SkinCredentials;
 import com.hexadron.launcher.skin.SkinProfile;
 import com.hexadron.launcher.skin.SkinStore;
 import com.hexadron.launcher.skin.SkinTemplate;
+import com.hexadron.launcher.skin.YggdrasilAuth;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -73,6 +75,7 @@ public final class AccountDialog {
     }
 
     private final SkinStore store;
+    private final SkinCredentials credentials;
     private final Account account;
 
     private SkinProfile profile;
@@ -87,13 +90,23 @@ public final class AccountDialog {
     private final RadioButton localSource = new RadioButton();
     private final RadioButton remoteSource = new RadioButton();
 
+    private final Label signedIn = new Label();
+    private final Button signIn = new Button();
+    private final Button signOut = new Button();
+
+    /** The saved sign-in for this account, as this window last knew it. */
+    private YggdrasilAuth.Session session;
+
     /** The skin held at Mojang, for a premium account. Drawn, never stored. */
     private Image remoteSkin;
 
-    public AccountDialog(Account account, SkinStore store) {
+    public AccountDialog(Account account, SkinStore store, SkinCredentials credentials) {
         this.account = account;
         this.store = store;
+        this.credentials = credentials;
         this.profile = store.of(account.id());
+        this.session = credentials == null
+                ? null : credentials.load(account.id()).orElse(null);
     }
 
     public Optional<Result> show(Window owner) {
@@ -238,13 +251,74 @@ public final class AccountDialog {
 
         serviceField.setPromptText("https://littleskin.cn/api/yggdrasil");
         serviceField.setMaxWidth(Double.MAX_VALUE);
+        serviceField.textProperty().addListener((observable, previous, value) -> refreshSource());
 
         sourceNote.getStyleClass().add("muted");
         sourceNote.setWrapText(true);
         sourceNote.setMinHeight(Region.USE_PREF_SIZE);
 
+        signIn.setText(I18n.t("account.service.signin"));
+        signIn.setOnAction(event -> signIn());
+        signOut.setText(I18n.t("account.service.signout"));
+        signOut.setOnAction(event -> signOut());
+
+        signedIn.getStyleClass().add("muted");
+        signedIn.setWrapText(true);
+        signedIn.setMinHeight(Region.USE_PREF_SIZE);
+
+        HBox buttons = new HBox(6, signIn, signOut);
+        buttons.setAlignment(Pos.CENTER_LEFT);
+
         return new VBox(8, title("account.source"), localSource, remoteSource,
-                serviceField, sourceNote);
+                serviceField, buttons, signedIn, sourceNote);
+    }
+
+    // -------------------------------------------------------------- signing in
+
+    /**
+     * Signs in to the service in the address field.
+     *
+     * <p>Saved the moment it succeeds rather than on Save, for the same reason
+     * the premium buttons write immediately: Cancel cannot un-issue a token, and
+     * a window that quietly discarded one would leave the user signed in at the
+     * service and signed out here.
+     */
+    private void signIn() {
+        String address = serviceField.getText();
+        String refusal = YggdrasilAuth.reasonToRefuse(address);
+        if (refusal != null) {
+            status.setText(I18n.t("signin.address.bad"));
+            return;
+        }
+        if (credentials == null) {
+            status.setText(I18n.t("signin.nostore"));
+            return;
+        }
+
+        String clientToken = session == null ? null : session.clientToken();
+        new YggdrasilSignInDialog(address, clientToken)
+                .show(signIn.getScene() == null ? null : signIn.getScene().getWindow())
+                .ifPresent(signedInAs -> {
+                    try {
+                        credentials.save(account.id(), signedInAs);
+                        session = signedInAs;
+                        profile = profile.withService(signedInAs.root());
+                        serviceField.setText(signedInAs.root());
+                        status.setText("");
+                    } catch (IOException e) {
+                        status.setText(I18n.t("signin.notsaved", e.getMessage()));
+                    }
+                    refreshSource();
+                });
+    }
+
+    private void signOut() {
+        if (credentials != null) {
+            credentials.forget(account.id());
+        }
+        session = null;
+        status.setText("");
+        refreshSource();
     }
 
     // ------------------------------------------------------------------ actions
@@ -443,6 +517,25 @@ public final class AccountDialog {
         serviceField.setDisable(!remote);
         sourceNote.setText(I18n.t(remote
                 ? "account.source.remote.note" : "account.source.local.note"));
+
+        signIn.setDisable(!remote);
+        signIn.setText(I18n.t(session == null
+                ? "account.service.signin" : "account.service.signin.again"));
+        signOut.setDisable(!remote || session == null);
+
+        // The address in the field and the address the saved sign-in was issued
+        // by can differ, because the field can be edited after signing in. Said
+        // out loud, because otherwise the launch is the first place it shows -
+        // as a skin that does not appear.
+        if (!remote) {
+            signedIn.setText("");
+        } else if (session == null) {
+            signedIn.setText(I18n.t("account.service.signedout"));
+        } else if (!session.isFor(serviceField.getText())) {
+            signedIn.setText(I18n.t("account.service.elsewhere", session.root()));
+        } else {
+            signedIn.setText(I18n.t("account.service.signedin", session.name()));
+        }
     }
 
     private static Image load(Path file) {

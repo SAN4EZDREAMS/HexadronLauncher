@@ -790,7 +790,7 @@ public final class MainWindow implements ProfileHost {
         if (account == null) {
             return;
         }
-        new AccountDialog(account, service.skins()).show(stage).ifPresent(result -> {
+        new AccountDialog(account, service.skins(), service.skinCredentials()).show(stage).ifPresent(result -> {
             service.skins().put(account.id(), result.skin());
             try {
                 service.skins().save();

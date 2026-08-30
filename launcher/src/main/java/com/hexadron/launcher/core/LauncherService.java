@@ -27,6 +27,8 @@ import com.hexadron.launcher.mods.ModrinthProvider;
 import com.hexadron.launcher.net.Downloader;
 import com.hexadron.launcher.profile.Profile;
 import com.hexadron.launcher.profile.ProfileStore;
+import com.hexadron.launcher.skin.SkinCredentials;
+import com.hexadron.launcher.skin.SkinProfile;
 import com.hexadron.launcher.skin.SkinSession;
 import com.hexadron.launcher.skin.SkinStore;
 
@@ -56,6 +58,7 @@ public final class LauncherService {
 
     /** Skins and capes, and which account wears which. */
     private final SkinStore skinStore;
+    private final SkinCredentials skinCredentials;
     private final VersionInstaller versionInstaller;
     private final ProfileStore profiles;
     private final AccountStore accounts;
@@ -110,6 +113,7 @@ public final class LauncherService {
         step.accept("accounts");
         this.accounts = new AccountStore(this.dirs, secretStore).load();
         this.skinStore = new SkinStore(this.dirs).load();
+        this.skinCredentials = new SkinCredentials(secretStore);
         this.javaLocator = new JavaLocator(dirs);
         // One resolver, shared by launching and by the loader installers, so a
         // profile can never install against one Java and start on another.
@@ -536,6 +540,11 @@ public final class LauncherService {
         return skinStore;
     }
 
+    /** Saved sign-ins at third-party skin services, one per account. */
+    public SkinCredentials skinCredentials() {
+        return skinCredentials;
+    }
+
     /** Refreshes a Microsoft account's token if it is close to expiry. */
     public Account ensureFresh(Account account, Progress progress) throws IOException, InterruptedException {
         if (!account.needsRefresh()) {
@@ -576,6 +585,15 @@ public final class LauncherService {
         }
 
         Account player = ensureFresh(account, progress);
+
+        // Settled here, before anything is built from the account: a remote
+        // skin service is played as the account on that service, and that
+        // decides the name written into the world, the token that has to be
+        // kept off the command line, and the UUID every other player resolves.
+        // The settings themselves stay keyed to the account that was selected.
+        SkinProfile skin = skinStore.of(account.id());
+        player = SkinSession.identity(player, skin, skinCredentials, progress);
+
         VersionJson version = installProfile(profile, progress);
 
         Path gameDir = profiles.gameDirectory(profile);
@@ -602,7 +620,7 @@ public final class LauncherService {
         // Started before the command is built, because the command has to carry
         // the address it listens on. Closed by the exit handler below, so the
         // socket lives exactly as long as the game does.
-        SkinSession skins = SkinSession.open(player, skinStore, dirs, progress);
+        SkinSession skins = SkinSession.open(skin, player, skinStore, dirs, progress);
 
         LaunchCommandBuilder.LaunchCommand command = commandBuilder.build(
                 version, profile, player, gameDir, assetsDir, java, wrapperJar, skins.arguments());
