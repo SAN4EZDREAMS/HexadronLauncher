@@ -171,11 +171,27 @@ public final class AccountDialog {
         status.setMinHeight(Region.USE_PREF_SIZE);
         form.getChildren().add(status);
 
-        HBox root = new HBox(form);
+        // In a scroller of a fixed height, and that height is the point.
+        //
+        // The form is not the same height in every state: the sign-in row and
+        // the line under it exist only for a service, and the two notes wrap to
+        // different numbers of lines. Left to size itself, the window - and the
+        // figure beside it - jumped every time the radio button was clicked.
+        // Fixed here, the window is the same window whatever is selected, and
+        // the rare state that does not fit scrolls instead of resizing
+        // everything around it.
+        javafx.scene.control.ScrollPane scroller = new javafx.scene.control.ScrollPane(form);
+        scroller.getStyleClass().add("form-scroll");
+        scroller.setFitToWidth(true);
+        scroller.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
+        scroller.setPrefViewportHeight(viewer.getPrefHeight());
+        scroller.setMinHeight(viewer.getPrefHeight());
+        scroller.setPrefHeight(viewer.getPrefHeight());
+        scroller.setMaxHeight(viewer.getPrefHeight());
+
+        HBox root = new HBox(scroller);
         root.getChildren().add(0, viewer);
-        VBox.setVgrow(viewer, Priority.ALWAYS);
-        HBox.setHgrow(form, Priority.ALWAYS);
-        viewer.setPrefHeight(430);
+        HBox.setHgrow(scroller, Priority.ALWAYS);
 
         viewer.onFileDropped(this::dropped);
 
@@ -452,7 +468,7 @@ public final class AccountDialog {
         try {
             String stored = store.store(chosen.toPath(), cape);
             profile = cape ? profile.withCape(stored) : profile.withSkin(stored);
-            status.setText(usingService() ? I18n.t("account.service.fileunused") : "");
+            status.setText(noteFor(chosen.toPath(), cape));
             refresh();
         } catch (IOException e) {
             status.setText(e.getMessage());
@@ -511,11 +527,32 @@ public final class AccountDialog {
         try {
             String stored = store.store(file, cape);
             profile = cape ? profile.withCape(stored) : profile.withSkin(stored);
-            status.setText(usingService() ? I18n.t("account.service.fileunused") : "");
+            status.setText(noteFor(file, cape));
             refresh();
         } catch (IOException e) {
             status.setText(e.getMessage());
         }
+    }
+
+    /**
+     * What to say about a file that has just been taken.
+     *
+     * <p>Said at the moment of choosing, because the alternative is what
+     * happened before: a high-resolution skin was accepted, stored, served,
+     * verified - and thrown away by the game with one line in a log the user
+     * has no reason to open, leaving the default skin and no explanation
+     * anywhere.
+     */
+    private String noteFor(Path file, boolean cape) {
+        if (usingService()) {
+            return I18n.t("account.service.fileunused");
+        }
+        int[] size = com.hexadron.launcher.skin.PngSize.read(file);
+        if (size != null
+                && com.hexadron.launcher.skin.SkinSheets.needsResizing(size[0], size[1], cape)) {
+            return I18n.t("account.skin.resized", size[0] + "x" + size[1]);
+        }
+        return "";
     }
 
     private void uploadSkin() {

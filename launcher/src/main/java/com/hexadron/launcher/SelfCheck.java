@@ -45,6 +45,7 @@ import com.hexadron.launcher.skin.SkinLayout;
 import com.hexadron.launcher.skin.DefaultSkin;
 import com.hexadron.launcher.skin.SkinCredentials;
 import com.hexadron.launcher.skin.SkinProfile;
+import com.hexadron.launcher.skin.SkinSheets;
 import com.hexadron.launcher.skin.SkinSession;
 import com.hexadron.launcher.skin.SkinStore;
 import com.hexadron.launcher.skin.SkinTemplate;
@@ -115,11 +116,13 @@ public final class SelfCheck {
         unreachableHosts();
         proxyRouting();
         modCompatibility();
+        stylesheet();
         verificationLedger();
         nativesReuse();
         skins();
         skinLayout();
         skinTemplates();
+        skinSheets();
         skinService();
         translations();
 
@@ -1952,6 +1955,7 @@ public final class SelfCheck {
                 "account.skin.choose",
                 "account.skin.clear",
                 "account.skin.none",
+                "account.skin.resized",
                 "account.skin.upload",
                 "account.skin.uploaded",
                 "account.skin.premium.note",
@@ -2997,6 +3001,66 @@ public final class SelfCheck {
         }
     }
 
+    /**
+     * The stylesheet, as far as it can be checked without a screen.
+     *
+     * <p>JavaFX does not fail on a stylesheet it cannot parse - it logs a
+     * warning nobody reads and draws the control from modena instead, which on
+     * a dark panel means light-grey text on light-grey. That is how the radio
+     * buttons in the account window ended up unreadable: they had no rule at
+     * all, and nothing said so. Braces and the classes the interface actually
+     * asks for are cheap to check here and expensive to notice on screen.
+     */
+    private static void stylesheet() {
+        section("Stylesheet");
+
+        String css;
+        try (java.io.InputStream in =
+                     SelfCheck.class.getResourceAsStream("/ui/hexadron.css")) {
+            if (in == null) {
+                check("the stylesheet is on the classpath", false);
+                return;
+            }
+            css = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            check("the stylesheet is on the classpath", false);
+            return;
+        }
+        check("the stylesheet is on the classpath", true);
+
+        int depth = 0;
+        boolean balanced = true;
+        for (int i = 0; i < css.length() && balanced; i++) {
+            char c = css.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                balanced = depth >= 0;
+            }
+        }
+        check("its braces balance", balanced && depth == 0);
+
+        // Every class the code adds by name. A rule that is not here is a
+        // control drawn by modena on a dark panel.
+        for (String styleClass : new String[]{
+                "root", "label", "muted", "button", "text-field", "radio-button",
+                "check-box", "combo-box", "section-title", "form-label", "detail-title",
+                "detail-icon", "skin-viewer", "viewer-button", "swatch", "swatch-add",
+                "chooser-field", "chooser-hue", "chooser-thumb", "chooser-preview",
+                "scroll-pane", "scroll-bar", "profile-scroll", "inv-scroll"}) {
+            check("." + styleClass + " is styled", css.contains("." + styleClass));
+        }
+
+        // The scroller added to the account window is not the only one: the
+        // profile list and the inventory view were drawing modena's light bar
+        // down the side of a dark panel for want of these.
+        check("scrollbar thumbs are styled, not left to modena",
+                css.contains(".scroll-bar > .thumb"));
+        check("and the viewport behind them is transparent",
+                css.contains(".scroll-pane > .viewport"));
+    }
+
     private static void offlineRelaunch() {
         section("Offline relaunch");
 
@@ -3782,6 +3846,137 @@ public final class SelfCheck {
         } catch (IOException e) {
             check("the stand-in skin is a 64 by 64 sheet", false);
         }
+    }
+
+    /**
+     * The size Minecraft will actually accept.
+     *
+     * <p>This is the check that was missing, and its absence cost a working
+     * feature. The launcher accepted a 512x512 skin, stored it, served it,
+     * signed it - and the client answered, in its own log and nowhere else:
+     *
+     * <pre>Discarding incorrectly sized (512x512) skin texture</pre>
+     *
+     * <p>{@code SkinTextureDownloader} takes 64x64 and the pre-1.8 64x32, and
+     * nothing else. Every number below is that rule.
+     */
+    private static void skinSheets() {
+        section("Skin sheet sizes");
+
+        java.nio.file.Path work = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-sheet-check");
+
+            // --- what needs doing, and what does not ------------------------
+            check("a 64x64 sheet is already what the game takes",
+                    !SkinSheets.needsResizing(64, 64, false));
+            check("so is the sheet from before 1.8",
+                    !SkinSheets.needsResizing(64, 32, false));
+            check("a 512x512 skin does not fit and has to be resized",
+                    SkinSheets.needsResizing(512, 512, false));
+            check("nor does 128x128", SkinSheets.needsResizing(128, 128, false));
+            check("nor a high-resolution legacy sheet",
+                    SkinSheets.needsResizing(256, 128, false));
+            check("a cape from before 1.8 is reshaped",
+                    SkinSheets.needsResizing(22, 17, true));
+            check("a 64x32 cape is not", !SkinSheets.needsResizing(64, 32, true));
+            check("a size that fits no rule is left alone",
+                    !SkinSheets.needsResizing(100, 100, false));
+
+            // --- a sheet that needs nothing comes back untouched -------------
+            java.nio.file.Path plain = work.resolve("plain.png");
+            java.awt.image.BufferedImage small = coloured(64, 64);
+            javax.imageio.ImageIO.write(small, "png", plain.toFile());
+            byte[] before = java.nio.file.Files.readAllBytes(plain);
+            check("and is served byte for byte, not re-encoded",
+                    java.util.Arrays.equals(before, SkinSheets.forGame(plain, false)));
+
+            // --- the case from the bug report -------------------------------
+            java.nio.file.Path huge = work.resolve("huge.png");
+            javax.imageio.ImageIO.write(magnify(small, 8), "png", huge.toFile());
+            byte[] served = SkinSheets.forGame(huge, false);
+            int[] size = PngSize.read(served);
+            check("a 512x512 skin is served to the game as 64x64",
+                    size != null && size[0] == 64 && size[1] == 64);
+
+            // The property that matters: a high-resolution skin is nearly
+            // always a 64x64 one that was enlarged, so shrinking it again has
+            // to give back exactly what it started as - not something close.
+            java.awt.image.BufferedImage back = javax.imageio.ImageIO.read(
+                    new java.io.ByteArrayInputStream(served));
+            boolean identical = true;
+            for (int x = 0; x < 64 && identical; x++) {
+                for (int y = 0; y < 64 && identical; y++) {
+                    identical = back.getRGB(x, y) == small.getRGB(x, y);
+                }
+            }
+            check("and an enlarged 64x64 shrinks back to exactly itself", identical);
+
+            // --- a legacy sheet keeps its shape ------------------------------
+            java.nio.file.Path legacy = work.resolve("legacy.png");
+            javax.imageio.ImageIO.write(magnify(coloured(64, 32), 4), "png", legacy.toFile());
+            int[] legacySize = PngSize.read(SkinSheets.forGame(legacy, false));
+            check("a 256x128 sheet becomes 64x32, not 64x64",
+                    legacySize != null && legacySize[0] == 64 && legacySize[1] == 32);
+
+            // --- the old cape shape -----------------------------------------
+            java.nio.file.Path oldCape = work.resolve("cape.png");
+            javax.imageio.ImageIO.write(coloured(22, 17), "png", oldCape.toFile());
+            int[] capeSize = PngSize.read(SkinSheets.forGame(oldCape, true));
+            check("a 22x17 cape is put back on a 64x32 sheet",
+                    capeSize != null && capeSize[0] == 64 && capeSize[1] == 32);
+
+            // --- transparency is not dragged towards black -------------------
+            // Half of every block transparent, half solid red. Premultiplied,
+            // the colour that survives is red; averaged raw it comes out dark.
+            java.awt.image.BufferedImage patchy =
+                    new java.awt.image.BufferedImage(128, 128,
+                            java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            for (int x = 0; x < 128; x++) {
+                for (int y = 0; y < 128; y++) {
+                    patchy.setRGB(x, y, x % 2 == 0 ? 0x00000000 : 0xFFFF0000);
+                }
+            }
+            java.nio.file.Path fringe = work.resolve("fringe.png");
+            javax.imageio.ImageIO.write(patchy, "png", fringe.toFile());
+            java.awt.image.BufferedImage shrunk = javax.imageio.ImageIO.read(
+                    new java.io.ByteArrayInputStream(SkinSheets.forGame(fringe, false)));
+            int pixel = shrunk.getRGB(10, 10);
+            check("a half-transparent block keeps its colour rather than going dark",
+                    (pixel & 0x00FFFFFF) == 0x00FF0000);
+            check("and keeps half its opacity", Math.abs(((pixel >>> 24) & 0xFF) - 128) <= 1);
+
+        } catch (IOException e) {
+            check("a 512x512 skin is served to the game as 64x64", false);
+        } finally {
+            deleteRecursively(work);
+        }
+    }
+
+    /** A deterministic pattern, so a shrink can be compared against it. */
+    private static java.awt.image.BufferedImage coloured(int width, int height) {
+        java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(
+                width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                image.setRGB(x, y, 0xFF000000 | (x * 4 % 256) << 16 | (y * 4 % 256) << 8 | 0x40);
+            }
+        }
+        return image;
+    }
+
+    /** Nearest-neighbour enlargement - what a skin site's "HD" version is. */
+    private static java.awt.image.BufferedImage magnify(
+            java.awt.image.BufferedImage source, int factor) {
+        java.awt.image.BufferedImage out = new java.awt.image.BufferedImage(
+                source.getWidth() * factor, source.getHeight() * factor,
+                java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        for (int x = 0; x < out.getWidth(); x++) {
+            for (int y = 0; y < out.getHeight(); y++) {
+                out.setRGB(x, y, source.getRGB(x / factor, y / factor));
+            }
+        }
+        return out;
     }
 
     private static void skinTemplates() {

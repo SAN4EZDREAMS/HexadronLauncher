@@ -79,9 +79,10 @@ public final class LocalSkinService implements AutoCloseable {
     private final Json metadata;
 
     /** Texture hash to the file it names. Two entries at most. */
-    private final Map<String, Path> textures;
+    private final Map<String, byte[]> textures;
 
-    private LocalSkinService(HttpServer server, String root, Json metadata, Map<String, Path> textures) {
+    private LocalSkinService(HttpServer server, String root, Json metadata,
+                             Map<String, byte[]> textures) {
         this.server = server;
         this.root = root;
         this.metadata = metadata;
@@ -116,9 +117,14 @@ public final class LocalSkinService implements AutoCloseable {
 
         KeyPair keys = keys(keyFile);
 
-        Map<String, Path> textures = new HashMap<>();
-        Path skin = store.file(profile.skin());
-        Path cape = store.file(profile.cape());
+        // The bytes to serve, not the files. Minecraft takes a 64x64 sheet and
+        // the pre-1.8 64x32, and discards everything else with one line in its
+        // own log - so a high-resolution skin arrived, verified, and vanished.
+        // The file on disk stays as the user chose it; this is what goes down
+        // the wire.
+        Map<String, byte[]> textures = new HashMap<>();
+        byte[] skin = sheet(store.file(profile.skin()), false);
+        byte[] cape = sheet(store.file(profile.cape()), true);
 
         HttpServer server = HttpServer.create(
                 new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
@@ -126,6 +132,9 @@ public final class LocalSkinService implements AutoCloseable {
 
         Json textureSet = Json.object();
         if (skin != null) {
+            // Of the bytes served rather than of the file: they can differ, and
+            // a name that does not describe what is behind it is a bug waiting
+            // for a cache to find it.
             String hash = hashOf(skin);
             textures.put(hash, skin);
             Json entry = Json.object().put("url", root + "/textures/" + hash);
@@ -173,12 +182,12 @@ public final class LocalSkinService implements AutoCloseable {
                 return;
             }
             if (path.startsWith("/textures/")) {
-                Path file = textures.get(path.substring("/textures/".length()));
-                if (file == null || !Files.isRegularFile(file)) {
+                byte[] texture = textures.get(path.substring("/textures/".length()));
+                if (texture == null) {
                     respond(exchange, 404, "text/plain", new byte[0]);
                     return;
                 }
-                respond(exchange, 200, "image/png", Files.readAllBytes(file));
+                respond(exchange, 200, "image/png", texture);
                 return;
             }
             if (path.startsWith("/sessionserver/session/minecraft/profile/")) {
@@ -335,11 +344,42 @@ public final class LocalSkinService implements AutoCloseable {
         return "-----BEGIN PUBLIC KEY-----\n" + body + "\n-----END PUBLIC KEY-----\n";
     }
 
-    private static String hashOf(Path file) throws IOException {
-        // Named by content, as Mojang's texture URLs are. The store already
-        // names its files this way; this re-derives it so a hand-placed file
-        // still gets a stable URL.
-        return com.hexadron.launcher.util.Hashes.digest(file, "SHA-256");
+    /**
+     * The sheet to serve for one file, or null when there is no file.
+     *
+     * <p>Never fails a launch: a picture that cannot be normalised is served as
+     * it is, and the worst that happens is what happened before this existed.
+     */
+    private static byte[] sheet(Path file, boolean cape) {
+        if (file == null || !Files.isRegularFile(file)) {
+            return null;
+        }
+        try {
+            return SkinSheets.forGame(file, cape);
+        } catch (IOException | RuntimeException e) {
+            try {
+                return Files.readAllBytes(file);
+            } catch (IOException ignored) {
+                return null;
+            }
+        }
+    }
+
+    private static String hashOf(byte[] texture) {
+        // Named by content, as Mojang's texture URLs are - and by the content
+        // actually served, which is not always the content of the file.
+        try {
+            java.security.MessageDigest digest =
+                    java.security.MessageDigest.getInstance("SHA-256");
+            StringBuilder hex = new StringBuilder(64);
+            for (byte b : digest.digest(texture)) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is required by the platform", e);
+        }
     }
 
     private static String undashed(UUID uuid) {

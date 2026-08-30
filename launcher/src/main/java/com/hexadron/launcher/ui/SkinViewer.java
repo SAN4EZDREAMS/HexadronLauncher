@@ -63,6 +63,24 @@ public final class SkinViewer extends StackPane {
     private static final double NEAREST = 45;
     private static final double FURTHEST = 190;
 
+    /**
+     * The panel's size, fixed.
+     *
+     * <p>It used to be stretched to whatever height the form beside it happened
+     * to need, and that height changes with what is on the form - a sign-in row
+     * appearing, a note wrapping to one more line. So choosing a different skin
+     * service resized the figure, which is not a thing a skin service should do.
+     */
+    private static final double PANEL_WIDTH = 250;
+
+    /**
+     * Tall enough for the fullest state of the form beside it - a service
+     * selected, signed in, on an offline account - so that the ordinary case
+     * does not scroll. Anything longer than this, in any language, scrolls
+     * rather than resizing the window.
+     */
+    private static final double PANEL_HEIGHT = 600;
+
     private final Group figure = new Group();
     private final Rotate spin = new Rotate(160, Rotate.Y_AXIS);
     private final Rotate pitch = new Rotate(-8, Rotate.X_AXIS);
@@ -91,7 +109,8 @@ public final class SkinViewer extends StackPane {
 
         Group world = new Group(figure, new AmbientLight(Color.WHITE));
 
-        SubScene scene = new SubScene(world, 10, 10, true, SceneAntialiasing.BALANCED);
+        SubScene scene = new SubScene(world, PANEL_WIDTH, PANEL_HEIGHT, true,
+                SceneAntialiasing.BALANCED);
         scene.setFill(Color.TRANSPARENT);
         camera.setNearClip(1);
         camera.setFarClip(1000);
@@ -99,9 +118,49 @@ public final class SkinViewer extends StackPane {
         scene.setCamera(camera);
         applyDistance();
 
-        Pane holder = new Pane(scene);
-        scene.widthProperty().bind(holder.widthProperty());
-        scene.heightProperty().bind(holder.heightProperty());
+        // The size is written in layoutChildren, and the holder asks for no
+        // space of its own.
+        //
+        // Binding the SubScene to the holder instead - which is what this was -
+        // makes a loop: a Pane takes its preferred size from its children, a
+        // SubScene's preferred size is its width and height, and those were
+        // bound back to the Pane. Any size satisfies that, so the layout keeps
+        // whatever it had rather than settling on the right one, and after the
+        // panel changes size the SubScene is still rendering at the old one.
+        // On screen that is a figure drawn small and pushed into a corner,
+        // which is what somebody sees who has just clicked a radio button.
+        Pane holder = new Pane(scene) {
+            @Override
+            protected void layoutChildren() {
+                scene.setWidth(getWidth());
+                scene.setHeight(getHeight());
+            }
+
+            @Override
+            protected double computePrefWidth(double height) {
+                return 0;
+            }
+
+            @Override
+            protected double computePrefHeight(double width) {
+                return 0;
+            }
+
+            @Override
+            protected double computeMinWidth(double height) {
+                return 0;
+            }
+
+            @Override
+            protected double computeMinHeight(double width) {
+                return 0;
+            }
+        };
+        // Asks for nothing and accepts everything: the panel decides the size,
+        // and this fills it. Explicit rather than relying on Region's default
+        // maximum, because the whole point of the overrides above is that this
+        // node's preferred size says nothing about how big it should be.
+        holder.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
 
         empty.getStyleClass().add("muted");
         empty.setText(I18n.t("account.preview.empty"));
@@ -110,8 +169,9 @@ public final class SkinViewer extends StackPane {
         empty.setVisible(false);
 
         getChildren().addAll(holder, empty, buttons());
-        setMinWidth(230);
-        setPrefWidth(250);
+        setMinSize(PANEL_WIDTH, PANEL_HEIGHT);
+        setPrefSize(PANEL_WIDTH, PANEL_HEIGHT);
+        setMaxSize(PANEL_WIDTH, PANEL_HEIGHT);
 
         setOnMouseEntered(event -> hovered = true);
         setOnMouseExited(event -> hovered = false);
