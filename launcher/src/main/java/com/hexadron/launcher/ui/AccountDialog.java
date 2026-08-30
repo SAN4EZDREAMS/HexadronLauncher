@@ -5,6 +5,7 @@ import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.skin.MinecraftSkinApi;
 import com.hexadron.launcher.skin.SkinProfile;
 import com.hexadron.launcher.skin.SkinStore;
+import com.hexadron.launcher.skin.SkinTemplate;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -23,6 +24,8 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.scene.control.Tooltip;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
 import javafx.util.StringConverter;
@@ -147,6 +150,8 @@ public final class AccountDialog {
         HBox.setHgrow(form, Priority.ALWAYS);
         viewer.setPrefHeight(430);
 
+        viewer.onFileDropped(this::dropped);
+
         refresh();
         if (!account.isOffline()) {
             loadPremiumProfile();
@@ -186,7 +191,8 @@ public final class AccountDialog {
             }
         });
 
-        VBox box = new VBox(8, title("account.skin"), new HBox(6, choose, clear), modelBox);
+        VBox box = new VBox(8, title("account.skin"),
+                new HBox(6, choose, clear, template(owner, false)), modelBox);
         if (!account.isOffline()) {
             Button upload = new Button(I18n.t("account.skin.upload"));
             upload.setOnAction(event -> uploadSkin());
@@ -204,7 +210,8 @@ public final class AccountDialog {
                 profile = profile.withCape(null);
                 refresh();
             });
-            return new VBox(8, title("account.cape"), new HBox(6, choose, clear));
+            return new VBox(8, title("account.cape"),
+                    new HBox(6, choose, clear, template(owner, true)));
         }
 
         capeBox.setMaxWidth(Double.MAX_VALUE);
@@ -253,6 +260,65 @@ public final class AccountDialog {
         }
         try {
             String stored = store.store(chosen.toPath(), cape);
+            profile = cape ? profile.withCape(stored) : profile.withSkin(stored);
+            status.setText("");
+            refresh();
+        } catch (IOException e) {
+            status.setText(e.getMessage());
+        }
+    }
+
+    /**
+     * The button that hands somebody a sheet to draw on.
+     *
+     * <p>Asked for a folder rather than a file name, because it writes two: the
+     * canvas and the map of what goes where. Naming them is this window's job -
+     * they are a pair, and a pair the user has to name twice is a pair that ends
+     * up with one of them called "skin2".
+     */
+    private Button template(Window owner, boolean cape) {
+        Button button = new Button(I18n.t("account.template"));
+        Tooltip.install(button, new Tooltip(I18n.t("account.template.note")));
+        button.setOnAction(event -> {
+            DirectoryChooser chooser = new DirectoryChooser();
+            chooser.setTitle(I18n.t("account.template"));
+            java.io.File folder = chooser.showDialog(owner);
+            if (folder == null) {
+                return;
+            }
+            try {
+                List<Path> written = SkinTemplate.write(folder.toPath(), cape,
+                        profile.model() == SkinProfile.Model.SLIM,
+                        (kind, name) -> I18n.t("template." + kind + "." + name));
+                status.setText(I18n.t("account.template.written",
+                        written.stream().map(path -> path.getFileName().toString())
+                                .collect(java.util.stream.Collectors.joining(", "))));
+            } catch (IOException e) {
+                status.setText(e.getMessage());
+            }
+        });
+        return button;
+    }
+
+    /**
+     * A file dropped on the figure.
+     *
+     * <p>Which of the two it is, decided from the picture rather than asked:
+     * only a cape can be 22x17, only a skin can be 64x64, and the one shape both
+     * share - 64x32 - goes to whichever slot is still empty, skin first. Getting
+     * that wrong costs one press of the other Choose button, and stopping to ask
+     * every time would cost more.
+     */
+    private void dropped(Path file) {
+        int[] size = com.hexadron.launcher.skin.PngSize.read(file);
+        if (size == null) {
+            status.setText(I18n.t("account.drop.rejected"));
+            return;
+        }
+        boolean cape = size[0] == 22
+                || (size[0] == 64 && size[1] == 32 && profile.hasSkin() && !profile.hasCape());
+        try {
+            String stored = store.store(file, cape);
             profile = cape ? profile.withCape(stored) : profile.withSkin(stored);
             status.setText("");
             refresh();

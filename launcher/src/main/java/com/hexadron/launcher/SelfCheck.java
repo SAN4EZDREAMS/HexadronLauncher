@@ -42,6 +42,7 @@ import com.hexadron.launcher.skin.SkinLayout;
 import com.hexadron.launcher.skin.SkinProfile;
 import com.hexadron.launcher.skin.SkinSession;
 import com.hexadron.launcher.skin.SkinStore;
+import com.hexadron.launcher.skin.SkinTemplate;
 import com.hexadron.launcher.util.Archives;
 import com.hexadron.launcher.util.Hashes;
 import com.hexadron.launcher.util.Arguments;
@@ -109,6 +110,7 @@ public final class SelfCheck {
         nativesReuse();
         skins();
         skinLayout();
+        skinTemplates();
         translations();
 
         System.out.println();
@@ -1930,7 +1932,29 @@ public final class SelfCheck {
                 "account.source.remote",
                 "account.source.remote.note",
                 "account.busy",
-                "account.preview.empty", "account.preview.left", "account.preview.right", "account.preview.in", "account.preview.out",
+                "account.preview.empty", "account.preview.left", "account.preview.right", "account.preview.in", "account.preview.out", "account.drop.rejected",
+                "template.part.head",
+                "template.part.hat",
+                "template.part.body",
+                "template.part.jacket",
+                "template.part.rightArm",
+                "template.part.rightSleeve",
+                "template.part.leftArm",
+                "template.part.leftSleeve",
+                "template.part.rightLeg",
+                "template.part.rightTrouser",
+                "template.part.leftLeg",
+                "template.part.leftTrouser",
+                "template.part.cape",
+                "template.side.top",
+                "template.side.bottom",
+                "template.side.right",
+                "template.side.front",
+                "template.side.left",
+                "template.side.back",
+                "account.template",
+                "account.template.note",
+                "account.template.written",
                 "editor.icon", "editor.icon.note", "icon.title", "icon.choose",
                 "icon.clear", "icon.filter", "icon.failed", "icon.set",
                 "grid.addColumn", "grid.removeColumn", "grid.addRow", "grid.removeRow",
@@ -3030,7 +3054,9 @@ public final class SelfCheck {
             java.nio.file.Path old = work.resolve("old.png");
             java.nio.file.Files.write(old, png(64, 32));
             java.nio.file.Path wrong = work.resolve("wrong.png");
-            java.nio.file.Files.write(wrong, png(128, 128));
+            java.nio.file.Files.write(wrong, png(100, 100));
+            java.nio.file.Path large = work.resolve("large.png");
+            java.nio.file.Files.write(large, png(128, 128));
             java.nio.file.Path cape = work.resolve("cape.png");
             java.nio.file.Files.write(cape, png(64, 32));
 
@@ -3052,7 +3078,12 @@ public final class SelfCheck {
             } catch (IOException expected) {
                 refused = true;
             }
-            check("a picture of the wrong size is refused", refused);
+            check("a picture whose size is not a skin sheet is refused", refused);
+
+            // The layout is a map, and a sheet at twice the resolution is the
+            // same map drawn finer. Refusing it would be refusing a better
+            // version of an accepted file.
+            check("a high-resolution skin is accepted", store.store(large, false) != null);
 
             refused = false;
             try {
@@ -3279,6 +3310,26 @@ public final class SelfCheck {
                     named(parts, "head").y() < named(parts, "body").y()
                             && named(parts, "body").y() < named(parts, "leftLeg").y());
 
+            // The overlay layers are drawn into the base texture rather than
+            // as a second shell, and the code that does it walks the list
+            // pairing each overlay with the part before it. If that order ever
+            // stops holding, a sleeve gets composited onto a trouser leg.
+            boolean paired = true;
+            for (int i = 0; i < parts.size(); i++) {
+                SkinLayout.Part part = parts.get(i);
+                if (!part.overlay()) {
+                    continue;
+                }
+                SkinLayout.Part under = i == 0 ? null : parts.get(i - 1);
+                paired &= under != null && !under.overlay()
+                        && under.width() == part.width()
+                        && under.height() == part.height()
+                        && under.depth() == part.depth()
+                        && under.x() == part.x() && under.y() == part.y();
+            }
+            check(what + ": every overlay follows the part it covers, at the same size",
+                    paired);
+
             check(what + ": the hat sits on the head",
                     named(parts, "hat").x() == named(parts, "head").x()
                             && named(parts, "hat").y() == named(parts, "head").y());
@@ -3310,6 +3361,75 @@ public final class SelfCheck {
     private static List<SkinLayout.Rect> sides(SkinLayout.Faces faces) {
         return List.of(faces.top(), faces.bottom(), faces.right(),
                 faces.front(), faces.left(), faces.back());
+    }
+
+    /**
+     * The sheets handed out to draw on.
+     *
+     * <p>Both are generated from the same rectangles the model is built from,
+     * so the thing worth checking is not that they are drawn - it is that the
+     * canvas is the size an editor expects, that the areas which have to be
+     * opaque are, and that pressing the button twice does not write over an
+     * evening's work.
+     */
+    private static void skinTemplates() {
+        section("Skin templates");
+
+        java.nio.file.Path work = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-template-check");
+
+            List<java.nio.file.Path> skin = SkinTemplate.write(work, false, false,
+                    (kind, name) -> kind + "." + name);
+            check("a skin gives a canvas and a guide", skin.size() == 2);
+
+            java.awt.image.BufferedImage canvas = javax.imageio.ImageIO.read(skin.get(0).toFile());
+            check("the canvas is a 64 by 64 sheet",
+                    canvas.getWidth() == 64 && canvas.getHeight() == 64);
+
+            // The front of the body has to be opaque: a base layer with holes in
+            // it renders as a see-through torso, and this is the file somebody's
+            // first skin is drawn on top of.
+            SkinLayout.Part body = named(SkinLayout.player(false), "body");
+            SkinLayout.Rect front = body.faces().front();
+            check("its base areas are filled in, and opaque",
+                    (canvas.getRGB(front.u0() + 1, front.v0() + 1) >>> 24) == 0xFF);
+
+            // The second layer is meant to be mostly nothing. Filling it would
+            // put a solid box round the head of every skin drawn from this.
+            SkinLayout.Rect hat = named(SkinLayout.player(false), "hat").faces().front();
+            check("and its overlay areas are left clear",
+                    (canvas.getRGB(hat.u0() + 1, hat.v0() + 1) >>> 24) == 0x00);
+
+            check("nothing outside the layout is filled",
+                    (canvas.getRGB(63, 0) >>> 24) == 0x00);
+
+            java.awt.image.BufferedImage guide = javax.imageio.ImageIO.read(skin.get(1).toFile());
+            check("the guide is the same sheet, enlarged",
+                    guide.getWidth() == guide.getHeight()
+                            && guide.getWidth() > canvas.getWidth() * 4);
+
+            List<java.nio.file.Path> cape = SkinTemplate.write(work, true, false,
+                    (kind, name) -> kind + "." + name);
+            java.awt.image.BufferedImage capeCanvas =
+                    javax.imageio.ImageIO.read(cape.get(0).toFile());
+            check("a cape canvas is twice as wide as it is tall",
+                    capeCanvas.getWidth() == 64 && capeCanvas.getHeight() == 32);
+
+            List<java.nio.file.Path> again = SkinTemplate.write(work, false, false,
+                    (kind, name) -> kind + "." + name);
+            check("writing twice does not write over the first pair",
+                    !again.get(0).equals(skin.get(0)) && !again.get(1).equals(skin.get(1)));
+            check("and the first pair is still there",
+                    java.nio.file.Files.isRegularFile(skin.get(0))
+                            && java.nio.file.Files.isRegularFile(skin.get(1)));
+        } catch (IOException e) {
+            check("the skin template check can run: " + e.getMessage(), false);
+        } finally {
+            if (work != null) {
+                deleteRecursively(work);
+            }
+        }
     }
 
     private static void section(String name) {

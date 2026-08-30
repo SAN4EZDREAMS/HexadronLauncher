@@ -105,8 +105,9 @@ public final class SkinStore {
         }
         if (!accepted(size[0], size[1], cape)) {
             throw new IOException((cape ? "a cape" : "a skin") + " is "
-                    + (cape ? "64x32" : "64x64 or 64x32") + " pixels; this file is "
-                    + size[0] + "x" + size[1]);
+                    + (cape ? "twice as wide as it is tall - 64x32, or a multiple of it"
+                            : "64x64 or 64x32, or a multiple of either")
+                    + "; this file is " + size[0] + "x" + size[1]);
         }
 
         Files.createDirectories(dirs.skins());
@@ -118,13 +119,31 @@ public final class SkinStore {
         return name;
     }
 
+    /**
+     * Whether a picture of this size can be worn.
+     *
+     * <p>Sizes are checked as multiples rather than as exact numbers. The
+     * layout of a skin is a map, and a sheet at twice or four times the
+     * resolution is the same map drawn finer - which is what a high-resolution
+     * skin is, and refusing one because it is not literally 64 pixels wide
+     * would be refusing a better version of an accepted file.
+     *
+     * <p>The two shapes that matter are the square sheet used since 1.8 and the
+     * half-height one from before it, plus the 22 by 17 cape from before 1.6,
+     * which is its own thing and is listed on its own.
+     */
     private static boolean accepted(int width, int height, boolean cape) {
         if (cape) {
-            // 64x32 is the modern cape sheet; 22x17 is the one from before 1.6,
-            // which the game still scales. Both are in the wild.
-            return (width == 64 && height == 32) || (width == 22 && height == 17);
+            if (width == 22 && height == 17) {
+                return true;
+            }
+            return multipleOf64(width) && height * 2 == width;
         }
-        return width == 64 && (height == 64 || height == 32);
+        return multipleOf64(width) && (height == width || height * 2 == width);
+    }
+
+    private static boolean multipleOf64(int width) {
+        return width >= 64 && width % 64 == 0;
     }
 
     public synchronized SkinStore load() throws IOException {

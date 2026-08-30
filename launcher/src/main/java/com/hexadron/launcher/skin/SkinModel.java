@@ -25,24 +25,31 @@ import java.util.List;
 public final class SkinModel {
 
     /**
-     * How far the overlay layers stand off the body, per side.
+     * How much every box is pulled in, per side.
      *
-     * <p>A quarter of a pixel, which is what the game uses. Too little and the
-     * two surfaces fight over the same depth and flicker; too much and the hat
-     * floats.
+     * <p>A hundredth of a pixel, and it exists to stop parts that touch from
+     * fighting. An arm sits at exactly the body's edge, a leg at exactly the
+     * other leg's, the head at exactly the top of the body - so those pairs of
+     * faces land on the same plane, at the same depth, and which one gets drawn
+     * comes down to rounding. That is the streaking down the shoulders and
+     * between the legs. Two hundredths of a unit apart is invisible at any size
+     * this is drawn, and it is the whole of the fix.
      */
-    private static final double OVERLAY = 0.25;
+    private static final double INSET = 0.01;
 
     /**
-     * How much the texture is enlarged before it is used.
+     * How large a texture is enlarged to before it is used.
      *
      * <p>Materials are sampled smoothly and there is no switch for that, so a
      * 64-pixel sheet stretched over a head arrives as a blur. Enlarging it first
-     * with whole-pixel copies means the smoothing has nothing left to blur: every
-     * source pixel is already a solid block. Sixteen is the smallest factor at
-     * which the edges stop looking soft at the sizes this is drawn at.
+     * with whole-pixel copies means the smoothing has nothing left to blur:
+     * every source pixel is already a solid block.
+     *
+     * <p>A target rather than a factor, because skins are not all 64 pixels
+     * wide. Multiplying a 512-pixel one by sixteen would allocate a hundred and
+     * thirty megabytes to solve a problem it does not have.
      */
-    private static final int MAGNIFY = 16;
+    private static final int MAGNIFIED = 1024;
 
     private SkinModel() {
     }
@@ -57,26 +64,49 @@ public final class SkinModel {
     public static Group build(Image skin, Image cape, boolean slim) {
         Group group = new Group();
 
-        Image sheet = skin == null ? null : magnify(widen(skin));
+        Image sheet = skin == null ? null : magnify(flatten(widen(skin), slim));
         PhongMaterial material = material(sheet);
 
+        // The rectangles are written in the units of a 64-wide sheet, and they
+        // stay in those units however many pixels the sheet actually has. A
+        // high-resolution skin is the same map at a finer grain, not a different
+        // map - so the divisor is the map's size, never the image's.
         for (SkinLayout.Part part : SkinLayout.player(slim)) {
-            if (part.overlay() && sheet == null) {
-                // Nothing to be transparent against: an untextured figure wearing
-                // an untextured hat is a figure with a bigger head.
+            if (part.overlay()) {
+                // Already drawn - into the texture, not into the scene. See
+                // flatten.
                 continue;
             }
-            group.getChildren().add(view(part, material, sheet, part.overlay() ? OVERLAY : 0));
+            group.getChildren().add(view(part, material,
+                    SkinLayout.SHEET, SkinLayout.SHEET, -INSET));
         }
 
         if (cape != null) {
-            MeshView view = view(SkinLayout.cape(), material(magnify(cape)), cape, 0);
-            // Hung from the shoulders and tipped away from the back, which is
-            // what stops it reading as a plank stuck to the spine.
-            view.getTransforms().add(new Rotate(-8, 0, -8, 0, Rotate.X_AXIS));
+            double[] map = capeMap(cape);
+            MeshView view = view(SkinLayout.cape(), material(magnify(cape)),
+                    map[0], map[1], -INSET);
+            // Hung from the shoulders and tipped away from the back. Away: a
+            // negative angle here swings the hem forwards, through the legs.
+            view.getTransforms().add(new Rotate(8, 0, -8, 0, Rotate.X_AXIS));
             group.getChildren().add(view);
         }
         return group;
+    }
+
+    /**
+     * The size of the map a cape sheet is drawn on.
+     *
+     * <p>Two shapes exist. The one every cape has used since 1.6 is twice as
+     * wide as it is tall, and its rectangles are written against 64 by 32
+     * whatever its pixel count. The other is the 22 by 17 sheet from before
+     * that, whose rectangles are the same numbers against a much smaller map -
+     * which is why the map cannot simply be assumed.
+     */
+    private static double[] capeMap(Image cape) {
+        if (cape.getWidth() == 22 && cape.getHeight() == 17) {
+            return new double[]{22, 17};
+        }
+        return new double[]{64, 32};
     }
 
     private static PhongMaterial material(Image sheet) {
@@ -93,11 +123,8 @@ public final class SkinModel {
     }
 
     private static MeshView view(SkinLayout.Part part, PhongMaterial material,
-                                 Image sheet, double inflate) {
-        double sheetWidth = sheet == null ? SkinLayout.SHEET : sheet.getWidth() / MAGNIFY;
-        double sheetHeight = sheet == null ? SkinLayout.SHEET : sheet.getHeight() / MAGNIFY;
-
-        MeshView view = new MeshView(mesh(part, sheetWidth, sheetHeight, inflate));
+                                 double mapWidth, double mapHeight, double inflate) {
+        MeshView view = new MeshView(mesh(part, mapWidth, mapHeight, inflate));
         view.setMaterial(material);
         // Both sides of every face. The alternative is one wrong winding
         // somewhere making a limb invisible from one angle only, which is the
@@ -165,6 +192,106 @@ public final class SkinModel {
     }
 
     /**
+     * Draws the overlay layers into the base ones.
+     *
+     * <p>A skin has a second layer - hat, jacket, sleeves, trousers - which the
+     * game draws as a slightly larger shell around each part, with the parts of
+     * it that are transparent left out. That shell is the obvious thing to build
+     * here too, and it is what produced the mess this replaces: a scene graph
+     * writes depth for transparent pixels as readily as for solid ones, so every
+     * see-through part of the hat punched a hole through the head behind it, and
+     * the two surfaces flickered wherever they nearly touched.
+     *
+     * <p>So the two layers are combined before anything is drawn: each overlay
+     * pixel is composited over the base pixel underneath it, once, in the
+     * texture. What reaches the scene is one opaque box per body part - nothing
+     * transparent, nothing overlapping, nothing to sort. The cost is that the
+     * layer no longer stands off the body, which at the size this is drawn is
+     * not visible; what is visible is that it is now right.
+     *
+     * <p>The base is forced opaque afterwards. A base layer is meant to be, some
+     * skins are careless about it, and a see-through torso on a solid box shows
+     * the inside of the far side of the box.
+     */
+    static Image flatten(Image sheet, boolean slim) {
+        PixelReader in = sheet.getPixelReader();
+        if (in == null) {
+            return sheet;
+        }
+        int size = (int) sheet.getWidth();
+        double scale = size / (double) SkinLayout.SHEET;
+
+        WritableImage flat = new WritableImage(size, (int) sheet.getHeight());
+        PixelWriter out = flat.getPixelWriter();
+        for (int y = 0; y < (int) sheet.getHeight(); y++) {
+            for (int x = 0; x < size; x++) {
+                out.setArgb(x, y, in.getArgb(x, y));
+            }
+        }
+
+        SkinLayout.Part base = null;
+        for (SkinLayout.Part part : SkinLayout.player(slim)) {
+            if (!part.overlay()) {
+                base = part;
+                continue;
+            }
+            if (base == null) {
+                continue;
+            }
+            List<SkinLayout.Rect> under = sides(base.faces());
+            List<SkinLayout.Rect> over = sides(part.faces());
+            for (int i = 0; i < under.size(); i++) {
+                blend(flat, out, scale, over.get(i), under.get(i));
+            }
+        }
+        return flat;
+    }
+
+    private static List<SkinLayout.Rect> sides(SkinLayout.Faces faces) {
+        return List.of(faces.top(), faces.bottom(), faces.right(),
+                faces.front(), faces.left(), faces.back());
+    }
+
+    /** One overlay rectangle over the base rectangle it covers. */
+    private static void blend(Image sheet, PixelWriter out, double scale,
+                              SkinLayout.Rect over, SkinLayout.Rect under) {
+        PixelReader in = sheet.getPixelReader();
+        int width = (int) (under.width() * scale);
+        int height = (int) (under.height() * scale);
+        int ox = (int) (over.u0() * scale);
+        int oy = (int) (over.v0() * scale);
+        int ux = (int) (under.u0() * scale);
+        int uy = (int) (under.v0() * scale);
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int top = in.getArgb(ox + x, oy + y);
+                int bottom = in.getArgb(ux + x, uy + y);
+                out.setArgb(ux + x, uy + y, 0xFF000000 | over(top, bottom));
+            }
+        }
+    }
+
+    /** Straight source-over, which is what the game does with the two layers. */
+    private static int over(int top, int bottom) {
+        int alpha = (top >>> 24) & 0xFF;
+        if (alpha == 0) {
+            return bottom;
+        }
+        if (alpha == 0xFF) {
+            return top;
+        }
+        int r = mix((top >> 16) & 0xFF, (bottom >> 16) & 0xFF, alpha);
+        int g = mix((top >> 8) & 0xFF, (bottom >> 8) & 0xFF, alpha);
+        int b = mix(top & 0xFF, bottom & 0xFF, alpha);
+        return (r << 16) | (g << 8) | b;
+    }
+
+    private static int mix(int top, int bottom, int alpha) {
+        return (top * alpha + bottom * (255 - alpha)) / 255;
+    }
+
+    /**
      * Turns a sheet from before 1.8 into a modern one.
      *
      * <p>The old sheet is half as tall and has no left arm or left leg: the game
@@ -219,7 +346,7 @@ public final class SkinModel {
         }
     }
 
-    /** @see #MAGNIFY */
+    /** @see #MAGNIFIED */
     private static Image magnify(Image sheet) {
         PixelReader in = sheet.getPixelReader();
         if (in == null) {
@@ -227,14 +354,18 @@ public final class SkinModel {
         }
         int width = (int) sheet.getWidth();
         int height = (int) sheet.getHeight();
-        WritableImage big = new WritableImage(width * MAGNIFY, height * MAGNIFY);
+        int factor = Math.max(1, MAGNIFIED / Math.max(1, width));
+        if (factor == 1) {
+            return sheet;
+        }
+        WritableImage big = new WritableImage(width * factor, height * factor);
         PixelWriter out = big.getPixelWriter();
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 int argb = in.getArgb(x, y);
-                for (int dy = 0; dy < MAGNIFY; dy++) {
-                    for (int dx = 0; dx < MAGNIFY; dx++) {
-                        out.setArgb(x * MAGNIFY + dx, y * MAGNIFY + dy, argb);
+                for (int dy = 0; dy < factor; dy++) {
+                    for (int dx = 0; dx < factor; dx++) {
+                        out.setArgb(x * factor + dx, y * factor + dy, argb);
                     }
                 }
             }

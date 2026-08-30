@@ -326,6 +326,14 @@
     -fx-border-width: 1;
 }
 
+/* While a file is over it. The whole panel answers, rather than a small target
+   somewhere inside it: the thing being aimed at is the figure. */
+.skin-viewer.drag-over {
+    -fx-border-color: -fx-accent-0;
+    -fx-border-width: 2;
+    -fx-background-color: derive(-fx-base-1, 6%);
+}
+
 /* Small, round and quiet: they sit over the figure, so anything with weight to
    it would compete with the thing it is there to turn. */
 .viewer-button {

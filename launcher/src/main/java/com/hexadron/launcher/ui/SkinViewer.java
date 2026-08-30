@@ -14,6 +14,8 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
+import javafx.scene.input.DragEvent;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Region;
@@ -21,6 +23,8 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 import javafx.scene.transform.Rotate;
 import javafx.scene.AmbientLight;
+
+import java.util.List;
 
 /**
  * The player, turning slowly, in three dimensions.
@@ -73,6 +77,9 @@ public final class SkinViewer extends StackPane {
 
     private final AnimationTimer timer;
 
+    /** Where a dropped file goes. Null until somebody wants them. */
+    private java.util.function.Consumer<java.nio.file.Path> onDropped;
+
     public SkinViewer() {
         getStyleClass().add("skin-viewer");
 
@@ -120,6 +127,10 @@ public final class SkinViewer extends StackPane {
         });
         setOnScroll(event -> zoom(event.getDeltaY() > 0 ? -8 : 8));
 
+        setOnDragOver(this::dragOver);
+        setOnDragDropped(this::dragDropped);
+        setOnDragExited(event -> getStyleClass().remove("drag-over"));
+
         timer = new AnimationTimer() {
             private long previous;
 
@@ -149,6 +160,57 @@ public final class SkinViewer extends StackPane {
     public void show(Image skin, Image cape, boolean slim) {
         figure.getChildren().setAll(SkinModel.build(skin, cape, slim));
         empty.setVisible(skin == null && cape == null);
+    }
+
+    /**
+     * Takes files dropped on the figure.
+     *
+     * <p>Dropping a picture on a picture of the thing it is a picture of is the
+     * shortest route there is between having a skin file and wearing it, and it
+     * is the route somebody who has just downloaded one from a website will
+     * reach for first.
+     */
+    public void onFileDropped(java.util.function.Consumer<java.nio.file.Path> handler) {
+        this.onDropped = handler;
+    }
+
+    private void dragOver(DragEvent event) {
+        if (onDropped != null && dropped(event) != null) {
+            event.acceptTransferModes(TransferMode.COPY);
+            if (!getStyleClass().contains("drag-over")) {
+                getStyleClass().add("drag-over");
+            }
+        }
+        event.consume();
+    }
+
+    private void dragDropped(DragEvent event) {
+        getStyleClass().remove("drag-over");
+        java.io.File file = dropped(event);
+        if (file != null && onDropped != null) {
+            onDropped.accept(file.toPath());
+            event.setDropCompleted(true);
+        }
+        event.consume();
+    }
+
+    /**
+     * The one PNG in a drop, or null.
+     *
+     * <p>Only the first is taken. A drop of six files is somebody's whole
+     * downloads folder, and picking one of them at random to wear is worse than
+     * asking them to drop the one they meant.
+     */
+    private static java.io.File dropped(DragEvent event) {
+        if (!event.getDragboard().hasFiles()) {
+            return null;
+        }
+        List<java.io.File> files = event.getDragboard().getFiles();
+        if (files.size() != 1) {
+            return null;
+        }
+        java.io.File file = files.get(0);
+        return file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".png") ? file : null;
     }
 
     /** Stops the animation. Called when the window that owns this closes. */
