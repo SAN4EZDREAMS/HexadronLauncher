@@ -34,10 +34,17 @@ public final class Http {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
     private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(5);
 
-    private static final HttpClient CLIENT = HttpClient.newBuilder()
-            .connectTimeout(CONNECT_TIMEOUT)
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
+    /**
+     * How the launcher is currently routed. Replaced, never mutated.
+     *
+     * <p>Both clients are rebuilt together when this changes, so a request can
+     * never be sent through a half-applied configuration.
+     */
+    private static volatile ProxyChoice proxy = ProxyChoice.system();
+    private static volatile java.net.Authenticator proxyAuthenticator;
+
+    private static volatile HttpClient client = buildClient(HttpClient.Redirect.NORMAL);
+    private static volatile HttpClient authClient = buildClient(HttpClient.Redirect.NEVER);
 
     /**
      * Headers that belong to a host rather than to a call site.
@@ -76,16 +83,113 @@ public final class Http {
      * proxy's certificate is a developer switching one of those off during
      * debugging and shipping it.
      */
-    private static final HttpClient AUTH_CLIENT = HttpClient.newBuilder()
-            .connectTimeout(CONNECT_TIMEOUT)
-            .followRedirects(HttpClient.Redirect.NEVER)
-            .build();
-
     private Http() {
     }
 
     public static HttpClient client() {
-        return CLIENT;
+        return client;
+    }
+
+    /** How the launcher is currently routed. */
+    public static ProxyChoice proxy() {
+        return proxy;
+    }
+
+    /**
+     * Points every request at a proxy, or at none.
+     *
+     * <h2>What a proxy can and cannot see</h2>
+     *
+     * <p>Everything the launcher fetches is HTTPS, and an HTTP proxy carries
+     * HTTPS by opening a tunnel: it is told a host and a port and then forwards
+     * bytes it cannot read. So the proxy learns which hosts the launcher talks
+     * to and nothing else - not a Microsoft token, not a skin-service password,
+     * not the contents of any download. That is not a claim about the proxy's
+     * good behaviour; it is the shape of the connection. The launcher installs
+     * no custom trust manager and no hostname-verifier override anywhere, so a
+     * proxy that tried to read the tunnel by presenting its own certificate
+     * would fail verification rather than succeed quietly.
+     *
+     * <p>The one thing that does go to the proxy is the proxy's own username
+     * and password, if it needs them - to the party that issued them.
+     *
+     * @param password the proxy password, or null. Held for the life of the
+     *                 process only; it is written to the credential store by the
+     *                 caller, never to a settings file
+     */
+    public static synchronized void useProxy(ProxyChoice choice, String password) {
+        proxy = choice == null ? ProxyChoice.system() : choice;
+
+        if (proxy.wantsAuthentication() && password != null && !password.isEmpty()) {
+            java.net.PasswordAuthentication credentials =
+                    new java.net.PasswordAuthentication(proxy.user(), password.toCharArray());
+            proxyAuthenticator = new java.net.Authenticator() {
+                @Override
+                protected java.net.PasswordAuthentication getPasswordAuthentication() {
+                    // Only ever to the proxy. A server that answers 401 gets
+                    // nothing from here: the launcher's own credentials go in
+                    // headers it sets deliberately, and answering a challenge
+                    // from an arbitrary host with the proxy password would hand
+                    // it to whoever asked.
+                    return getRequestorType() == RequestorType.PROXY
+                            ? credentials : null;
+                }
+            };
+            // Basic over a CONNECT tunnel is refused by default, because it
+            // shows the proxy password to the proxy in near-plain form. Here
+            // that is the intended recipient and the password it already
+            // issued, and without this a proxy that only offers Basic cannot be
+            // used at all. Enabled only when there is a proxy password to send.
+            allowTunnelledBasic();
+        } else {
+            proxyAuthenticator = null;
+        }
+
+        client = buildClient(HttpClient.Redirect.NORMAL);
+        authClient = buildClient(HttpClient.Redirect.NEVER);
+    }
+
+    private static HttpClient buildClient(HttpClient.Redirect redirects) {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(CONNECT_TIMEOUT)
+                .followRedirects(redirects);
+
+        ProxyChoice choice = proxy;
+        switch (choice.mode()) {
+            case DIRECT -> builder.proxy(HttpClient.Builder.NO_PROXY);
+            case MANUAL -> {
+                if (choice.isUsable()) {
+                    builder.proxy(java.net.ProxySelector.of(
+                            new java.net.InetSocketAddress(choice.host(), choice.port())));
+                } else {
+                    // Half-typed settings must not silently become "direct" on
+                    // a network where direct does not work: that reads as the
+                    // proxy being ignored. The system route is the honest
+                    // fallback, and the settings window refuses to save this.
+                    builder.proxy(java.net.ProxySelector.getDefault());
+                }
+            }
+            case SYSTEM -> {
+                // The operating system's own settings, the same ones the
+                // browsers on this machine use, plus the -Dhttp.proxyHost family
+                // when the launcher was started with it.
+                System.setProperty("java.net.useSystemProxies", "true");
+                builder.proxy(java.net.ProxySelector.getDefault());
+            }
+        }
+
+        java.net.Authenticator authenticator = proxyAuthenticator;
+        if (authenticator != null) {
+            builder.authenticator(authenticator);
+        }
+        return builder.build();
+    }
+
+    private static void allowTunnelledBasic() {
+        String disabled = System.getProperty("jdk.http.auth.tunneling.disabledSchemes", "Basic");
+        if (!disabled.isBlank()) {
+            System.setProperty("jdk.http.auth.tunneling.disabledSchemes", "");
+        }
     }
 
     /**
@@ -287,7 +391,7 @@ public final class Http {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             HttpResponse<InputStream> response;
             try {
-                response = CLIENT.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
             } catch (IOException e) {
                 lastFailure = e;
                 if (attempt == MAX_ATTEMPTS || isUnreachable(e)) {
@@ -354,7 +458,7 @@ public final class Http {
         Map<String, String> merged = new LinkedHashMap<>(headers);
         merged.putIfAbsent("Content-Type", "application/x-www-form-urlencoded");
         merged.putIfAbsent("Accept", "application/json");
-        return CLIENT.send(
+        return client.send(
                 requestBuilder(url, merged)
                         .POST(HttpRequest.BodyPublishers.ofString(encodeForm(form), StandardCharsets.UTF_8))
                         .build(),
@@ -378,7 +482,7 @@ public final class Http {
         Map<String, String> merged = new LinkedHashMap<>(headers);
         merged.putIfAbsent("Content-Type", "application/x-www-form-urlencoded");
         merged.putIfAbsent("Accept", "application/json");
-        return AUTH_CLIENT.send(
+        return authClient.send(
                 requestBuilder(url, merged)
                         .POST(HttpRequest.BodyPublishers.ofString(encodeForm(form), StandardCharsets.UTF_8))
                         .build(),
@@ -392,7 +496,7 @@ public final class Http {
         Map<String, String> merged = new LinkedHashMap<>(headers);
         merged.putIfAbsent("Content-Type", "application/json");
         merged.putIfAbsent("Accept", "application/json");
-        HttpResponse<String> response = AUTH_CLIENT.send(
+        HttpResponse<String> response = authClient.send(
                 requestBuilder(url, merged)
                         .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
                         .build(),
@@ -409,7 +513,7 @@ public final class Http {
         requireHttps(url);
         Map<String, String> merged = new LinkedHashMap<>(headers);
         merged.putIfAbsent("Accept", "application/json");
-        HttpResponse<String> response = AUTH_CLIENT.send(
+        HttpResponse<String> response = authClient.send(
                 requestBuilder(url, merged).GET().build(),
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (response.statusCode() / 100 != 2) {
@@ -436,7 +540,7 @@ public final class Http {
         HttpRequest.BodyPublisher publisher = body == null
                 ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofByteArray(body);
-        HttpResponse<String> response = AUTH_CLIENT.send(
+        HttpResponse<String> response = authClient.send(
                 requestBuilder(url, merged).method(method, publisher).build(),
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (response.statusCode() / 100 != 2) {
@@ -482,7 +586,7 @@ public final class Http {
         IOException lastFailure = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                HttpResponse<T> response = CLIENT.send(request, handler);
+                HttpResponse<T> response = client.send(request, handler);
                 int status = response.statusCode();
                 if (status / 100 == 2) {
                     return response;

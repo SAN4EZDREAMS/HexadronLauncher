@@ -91,6 +91,16 @@ public final class LauncherSettings {
     private boolean verifyEveryLaunch = false;
 
     /**
+     * How the launcher reaches the network.
+     *
+     * <p>The proxy password is deliberately not here. This file is plain JSON
+     * that gets synced, backed up and pasted into bug reports; the password goes
+     * to the same credential store the account tokens use.
+     */
+    private com.hexadron.launcher.net.ProxyChoice proxy =
+            com.hexadron.launcher.net.ProxyChoice.system();
+
+    /**
      * Hide the window to the notification area while the game runs.
      *
      * <p>On by default. A launcher left on the taskbar is one more window to
@@ -170,6 +180,13 @@ public final class LauncherSettings {
         useFileCredentialStore = json.get("useFileCredentialStore").asBool(useFileCredentialStore);
         keepOpenWhilePlaying = json.get("keepOpenWhilePlaying").asBool(keepOpenWhilePlaying);
         verifyEveryLaunch = json.get("verifyEveryLaunch").asBool(verifyEveryLaunch);
+        Json proxyJson = json.get("proxy");
+        proxy = new com.hexadron.launcher.net.ProxyChoice(
+                com.hexadron.launcher.net.ProxyChoice.Mode.parse(
+                        proxyJson.get("mode").asString(null)),
+                proxyJson.get("host").asString(""),
+                proxyJson.get("port").asInt(8080),
+                proxyJson.get("user").asString(""));
         minimiseToTrayWhilePlaying = json.get("minimiseToTrayWhilePlaying")
                 .asBool(minimiseToTrayWhilePlaying);
         downloadConcurrency = json.get("downloadConcurrency").asInt(downloadConcurrency);
@@ -194,6 +211,11 @@ public final class LauncherSettings {
                 .put("useFileCredentialStore", useFileCredentialStore)
                 .put("keepOpenWhilePlaying", keepOpenWhilePlaying)
                 .put("verifyEveryLaunch", verifyEveryLaunch)
+                .put("proxy", Json.object()
+                        .put("mode", proxy.mode().stored())
+                        .put("host", proxy.host())
+                        .put("port", proxy.port())
+                        .put("user", proxy.user()))
                 .put("minimiseToTrayWhilePlaying", minimiseToTrayWhilePlaying)
                 .put("downloadConcurrency", downloadConcurrency)
                 .put("showAllVersions", showAllVersions)
@@ -302,6 +324,16 @@ public final class LauncherSettings {
 
     public boolean keepOpenWhilePlaying() {
         return keepOpenWhilePlaying;
+    }
+
+    /** How the launcher reaches the network. Never carries the password. */
+    public com.hexadron.launcher.net.ProxyChoice proxy() {
+        return proxy;
+    }
+
+    public LauncherSettings proxy(com.hexadron.launcher.net.ProxyChoice value) {
+        this.proxy = value == null ? com.hexadron.launcher.net.ProxyChoice.system() : value;
+        return this;
     }
 
     /** @see #verifyEveryLaunch */

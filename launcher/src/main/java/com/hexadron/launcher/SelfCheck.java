@@ -34,6 +34,7 @@ import com.hexadron.launcher.mods.ModLibrary;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.net.Http;
+import com.hexadron.launcher.net.ProxyChoice;
 import com.hexadron.launcher.profile.Profile;
 import com.hexadron.launcher.profile.ProfileLayout;
 import com.hexadron.launcher.skin.LocalSkinService;
@@ -110,6 +111,7 @@ public final class SelfCheck {
         profileIconValues();
         offlineRelaunch();
         unreachableHosts();
+        proxyRouting();
         verificationLedger();
         nativesReuse();
         skins();
@@ -2005,6 +2007,12 @@ public final class SelfCheck {
                 "settings.java", "settings.java.ask", "settings.java.always",
                 "settings.java.never", "settings.java.note", "settings.concurrency",
                 "settings.concurrency.note", "settings.curseforge",
+                "settings.proxy", "settings.proxy.system", "settings.proxy.direct",
+                "settings.proxy.manual", "settings.proxy.note", "settings.proxy.host",
+                "settings.proxy.port", "settings.proxy.user", "settings.proxy.password",
+                "settings.proxy.optional", "settings.proxy.privacy", "settings.proxy.test",
+                "settings.proxy.testing", "settings.proxy.ok", "settings.proxy.failed",
+                "settings.proxy.incomplete", "settings.proxy.notsaved",
                 "settings.curseforge.prompt", "settings.signIn", "settings.signIn.browser",
                 "settings.signIn.deviceCode", "settings.signIn.note",
                 "settings.handshake", "settings.handshake.note", "settings.fileStore",
@@ -2814,6 +2822,83 @@ public final class SelfCheck {
         check("and is still read as far as it goes",
                 Http.isUnreachable(new IOException("outer",
                         new IOException("middle", new java.net.ConnectException("refused")))));
+    }
+
+    /**
+     * The route the launcher takes, and what it refuses to become.
+     *
+     * <p>A proxy is the answer to a blocked network that keeps Mojang as the
+     * source of the files. A mirror is not: Mojang's usage guidelines forbid
+     * redistributing game files, and a mirror that also served the version
+     * manifest would be supplying both the downloads and the hashes they are
+     * checked against. What is asserted here is the small part that can be:
+     * the settings survive a save, an unusable one is recognised as unusable,
+     * and nothing about the route can put a password in the settings file.
+     */
+    private static void proxyRouting() {
+        section("Proxy routing");
+
+        check("the default route is whatever this computer is set up for",
+                ProxyChoice.system().mode() == ProxyChoice.Mode.SYSTEM);
+        check("an unknown stored value falls back to that",
+                ProxyChoice.Mode.parse("nonsense") == ProxyChoice.Mode.SYSTEM);
+        check("and a missing one does too", ProxyChoice.Mode.parse(null) == ProxyChoice.Mode.SYSTEM);
+        check("direct survives a save and a load",
+                ProxyChoice.Mode.parse(ProxyChoice.Mode.DIRECT.stored()) == ProxyChoice.Mode.DIRECT);
+        check("so does manual",
+                ProxyChoice.Mode.parse(ProxyChoice.Mode.MANUAL.stored()) == ProxyChoice.Mode.MANUAL);
+
+        ProxyChoice manual = ProxyChoice.system()
+                .withMode(ProxyChoice.Mode.MANUAL)
+                .withHost("127.0.0.1")
+                .withPort(8080);
+        check("a manual proxy with an address is usable", manual.isUsable());
+        check("without an address it is not", !manual.withHost("  ").isUsable());
+        check("nor with a port outside the range", !manual.withPort(70000).isUsable());
+        check("the other modes need no address",
+                ProxyChoice.system().isUsable()
+                        && ProxyChoice.system().withMode(ProxyChoice.Mode.DIRECT).isUsable());
+
+        check("no user means nothing to authenticate with", !manual.wantsAuthentication());
+        check("a user means there is", manual.withUser("someone").wantsAuthentication());
+        // Only for a proxy this launcher was told to use. A system route is
+        // whatever the machine already does, and answering a challenge from it
+        // with a password typed here would send it somewhere unasked.
+        check("a system route never authenticates",
+                !ProxyChoice.system().withUser("someone").wantsAuthentication());
+
+        java.nio.file.Path work = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-proxy-check");
+            GameDirs dirs = new GameDirs(work);
+            dirs.createBaseDirectories();
+
+            com.hexadron.launcher.core.LauncherSettings settings =
+                    new com.hexadron.launcher.core.LauncherSettings(dirs);
+            settings.proxy(manual.withUser("someone"));
+            settings.save();
+
+            String written = java.nio.file.Files.readString(dirs.settingsFile());
+            check("the route is written to the settings file", written.contains("\"proxy\""));
+            // The one thing that must never be in this file. It is synced,
+            // backed up and pasted into bug reports.
+            check("and the password is not, because it is never held there",
+                    !written.toLowerCase(java.util.Locale.ROOT).contains("password"));
+
+            com.hexadron.launcher.core.LauncherSettings reread =
+                    new com.hexadron.launcher.core.LauncherSettings(dirs).load();
+            check("and it reads back as it was written",
+                    reread.proxy().mode() == ProxyChoice.Mode.MANUAL
+                            && reread.proxy().host().equals("127.0.0.1")
+                            && reread.proxy().port() == 8080
+                            && reread.proxy().user().equals("someone"));
+        } catch (IOException e) {
+            check("the route is written to the settings file", false);
+        } finally {
+            if (work != null) {
+                deleteRecursively(work);
+            }
+        }
     }
 
     private static void offlineRelaunch() {

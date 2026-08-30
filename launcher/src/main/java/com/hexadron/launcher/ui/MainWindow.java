@@ -574,9 +574,14 @@ public final class MainWindow implements ProfileHost {
      * the spinner.
      */
     private void openSettingsWindow() {
-        SettingsDialog dialog = new SettingsDialog(service.settings(), layout(), service.dirs());
+        SettingsDialog dialog = new SettingsDialog(service.settings(), layout(), service.dirs(),
+                service.secretStore());
         dialog.show(stage).ifPresent(result -> {
             saveSettingsQuietly();
+            // Applied here rather than only at the next start: the settings
+            // window is where somebody fixes a route that is not working, and
+            // "restart the launcher" is not an answer to that.
+            service.applyProxy();
             if (result.gridChanged()) {
                 saveProfilesQuietly();
             }

@@ -5,11 +5,14 @@ import com.hexadron.launcher.core.LauncherSettings;
 import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.i18n.Language;
 import com.hexadron.launcher.launch.JavaRuntimes;
+import com.hexadron.launcher.net.Http;
+import com.hexadron.launcher.net.ProxyChoice;
 import com.hexadron.launcher.profile.ProfileLayout;
 
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
@@ -29,6 +32,7 @@ import javafx.scene.layout.Priority;
 import javafx.stage.Window;
 import javafx.util.StringConverter;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -94,6 +98,23 @@ public final class SettingsDialog {
 
     // Network and mods
     private final Spinner<Integer> concurrencySpinner = new Spinner<>();
+
+    private final ComboBox<ProxyChoice.Mode> proxyModeBox = new ComboBox<>();
+    private final TextField proxyHost = new TextField();
+    private final Spinner<Integer> proxyPort = new Spinner<>();
+    private final TextField proxyUser = new TextField();
+    private final PasswordField proxyPassword = new PasswordField();
+    private final Label proxyResult = new Label();
+
+    /**
+     * True once the password field has been typed in.
+     *
+     * <p>The saved password is never read back into the field - a window that
+     * displays a stored secret is a window that leaks it to whoever walks past.
+     * So an untouched field means "leave what is stored alone", and only a
+     * deliberate edit replaces it.
+     */
+    private boolean proxyPasswordEdited;
     private final PasswordField curseForgeKey = new PasswordField();
 
     // Accounts
@@ -136,10 +157,14 @@ public final class SettingsDialog {
         }
     }
 
-    public SettingsDialog(LauncherSettings settings, ProfileLayout layout, GameDirs dirs) {
+    private final com.hexadron.launcher.auth.secret.SecretStore secrets;
+
+    public SettingsDialog(LauncherSettings settings, ProfileLayout layout, GameDirs dirs,
+                          com.hexadron.launcher.auth.secret.SecretStore secrets) {
         this.settings = settings;
         this.layout = layout;
         this.dirs = dirs;
+        this.secrets = secrets;
     }
 
     /**
@@ -167,7 +192,13 @@ public final class SettingsDialog {
 
         prefill();
 
+        // The Test button applies what is on screen so it can try it. Cancel has
+        // to undo that, or a route the user rejected is the one the launcher
+        // keeps using until it is restarted.
+        ProxyChoice before = Http.proxy();
+
         if (dialog.showAndWait().filter(button -> button == save).isEmpty()) {
+            Http.useProxy(before, before.wantsAuthentication() ? storedProxyPassword() : null);
             return Optional.empty();
         }
         return Optional.of(apply());
@@ -264,13 +295,127 @@ public final class SettingsDialog {
         spinner(concurrencySpinner, 1, 32, settings.downloadConcurrency());
         curseForgeKey.setPromptText(I18n.t("settings.curseforge.prompt"));
 
+        proxyModeBox.setItems(FXCollections.observableArrayList(ProxyChoice.Mode.values()));
+        proxyModeBox.setMaxWidth(Double.MAX_VALUE);
+        proxyModeBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(ProxyChoice.Mode mode) {
+                if (mode == null) {
+                    return "";
+                }
+                return I18n.t(switch (mode) {
+                    case SYSTEM -> "settings.proxy.system";
+                    case DIRECT -> "settings.proxy.direct";
+                    case MANUAL -> "settings.proxy.manual";
+                });
+            }
+
+            @Override
+            public ProxyChoice.Mode fromString(String text) {
+                return null;
+            }
+        });
+        proxyModeBox.valueProperty().addListener((observable, previous, value) -> refreshProxy());
+
+        proxyHost.setPromptText("127.0.0.1");
+        spinner(proxyPort, 1, 65535, settings.proxy().port());
+        proxyUser.setPromptText(I18n.t("settings.proxy.optional"));
+        proxyPassword.setPromptText(I18n.t("settings.proxy.optional"));
+        proxyPassword.textProperty().addListener(
+                (observable, previous, value) -> proxyPasswordEdited = true);
+
+        proxyResult.getStyleClass().add("muted");
+        proxyResult.setWrapText(true);
+        proxyResult.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
+
+        Button test = new Button(I18n.t("settings.proxy.test"));
+        test.setOnAction(event -> testConnection(test));
+
         GridPane grid = form();
         int row = 0;
         grid.addRow(row++, label("settings.concurrency"), concurrencySpinner);
         grid.addRow(row++, new Label(), note("settings.concurrency.note"));
         grid.addRow(row++, label("settings.curseforge"), curseForgeKey);
-        grid.addRow(row, new Label(), note("mods.curseforge.key.body"));
+        grid.addRow(row++, new Label(), note("mods.curseforge.key.body"));
+        grid.addRow(row++, new Label(), new javafx.scene.control.Separator());
+        grid.addRow(row++, label("settings.proxy"), proxyModeBox);
+        grid.addRow(row++, new Label(), note("settings.proxy.note"));
+        grid.addRow(row++, label("settings.proxy.host"), proxyHost);
+        grid.addRow(row++, label("settings.proxy.port"), proxyPort);
+        grid.addRow(row++, label("settings.proxy.user"), proxyUser);
+        grid.addRow(row++, label("settings.proxy.password"), proxyPassword);
+        grid.addRow(row++, new Label(), note("settings.proxy.privacy"));
+        grid.addRow(row++, new Label(), test);
+        grid.addRow(row, new Label(), proxyResult);
         return grid;
+    }
+
+    private void refreshProxy() {
+        boolean manual = proxyModeBox.getValue() == ProxyChoice.Mode.MANUAL;
+        proxyHost.setDisable(!manual);
+        proxyPort.setDisable(!manual);
+        proxyUser.setDisable(!manual);
+        proxyPassword.setDisable(!manual);
+    }
+
+    /**
+     * Tries the route that is on screen, not the one that is saved.
+     *
+     * <p>The point of the button is to find out whether what was just typed
+     * works, before it is saved and before the next install fails on it. So the
+     * proxy is applied first, the manifest host is fetched, and the previous
+     * route is put back if the window is then cancelled.
+     */
+    private void testConnection(Button button) {
+        ProxyChoice choice = proxyFromFields();
+        if (!choice.isUsable()) {
+            proxyResult.setText(I18n.t("settings.proxy.incomplete"));
+            return;
+        }
+
+        button.setDisable(true);
+        proxyResult.setText(I18n.t("settings.proxy.testing"));
+        String password = proxyPasswordEdited ? proxyPassword.getText() : storedProxyPassword();
+
+        Thread worker = new Thread(() -> {
+            String message;
+            try {
+                Http.useProxy(choice, password);
+                Http.getString(com.hexadron.launcher.meta.VersionManifest.MANIFEST_URL);
+                message = I18n.t("settings.proxy.ok");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                message = e.toString();
+            } catch (Exception e) {
+                message = I18n.t("settings.proxy.failed",
+                        e.getMessage() == null ? e.toString() : e.getMessage());
+            }
+            String shown = message;
+            javafx.application.Platform.runLater(() -> {
+                button.setDisable(false);
+                proxyResult.setText(shown);
+            });
+        }, "proxy-test");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private ProxyChoice proxyFromFields() {
+        ProxyChoice.Mode mode = proxyModeBox.getValue();
+        return new ProxyChoice(mode == null ? ProxyChoice.Mode.SYSTEM : mode,
+                proxyHost.getText(), value(proxyPort), proxyUser.getText());
+    }
+
+    private String storedProxyPassword() {
+        if (secrets == null) {
+            return null;
+        }
+        try {
+            return secrets.load(com.hexadron.launcher.core.LauncherService.PROXY_PASSWORD_KEY)
+                    .orElse(null);
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private GridPane accountsTab() {
@@ -403,6 +548,13 @@ public final class SettingsDialog {
         signInMethodBox.setValue(settings.usesBrowserSignIn() ? "browser" : "deviceCode");
         secureHandshake.setSelected(settings.secureLaunchHandshake());
         fileCredentialStore.setSelected(settings.useFileCredentialStore());
+
+        proxyModeBox.setValue(settings.proxy().mode());
+        proxyHost.setText(settings.proxy().host());
+        proxyUser.setText(settings.proxy().user());
+        // Never the password: see proxyPasswordEdited.
+        proxyPasswordEdited = false;
+        refreshProxy();
     }
 
     private Result apply() {
@@ -426,6 +578,31 @@ public final class SettingsDialog {
         settings.secureLaunchHandshake(secureHandshake.isSelected());
         settings.useFileCredentialStore(fileCredentialStore.isSelected());
         settings.splashMinimumMillis(value(splashSpinner) * 1000);
+
+        ProxyChoice choice = proxyFromFields();
+        if (choice.isUsable()) {
+            settings.proxy(choice);
+            if (proxyPasswordEdited && secrets != null) {
+                try {
+                    if (proxyPassword.getText() == null || proxyPassword.getText().isEmpty()) {
+                        secrets.delete(
+                                com.hexadron.launcher.core.LauncherService.PROXY_PASSWORD_KEY);
+                    } else {
+                        secrets.store(
+                                com.hexadron.launcher.core.LauncherService.PROXY_PASSWORD_KEY,
+                                proxyPassword.getText());
+                    }
+                } catch (IOException e) {
+                    refused.add(I18n.t("settings.proxy.notsaved"));
+                }
+            }
+        } else {
+            // Refused rather than half-applied: a proxy mode with no address is
+            // a setting that cannot do anything, and silently reverting to
+            // direct on a network where direct fails looks like the proxy being
+            // ignored.
+            refused.add(I18n.t("settings.proxy.incomplete"));
+        }
 
         // The grid last, and reported rather than forced. Narrowing has to find
         // free cells for the profiles it displaces, and when it cannot, the

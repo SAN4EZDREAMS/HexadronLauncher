@@ -114,6 +114,10 @@ public final class LauncherService {
         this.accounts = new AccountStore(this.dirs, secretStore).load();
         this.skinStore = new SkinStore(this.dirs).load();
         this.skinCredentials = new SkinCredentials(secretStore);
+
+        // Before anything is fetched. On a network that needs a proxy, a single
+        // request sent direct is a twenty-second wait for a failure.
+        applyProxy();
         this.javaLocator = new JavaLocator(dirs);
         // One resolver, shared by launching and by the loader installers, so a
         // profile can never install against one Java and start on another.
@@ -545,6 +549,29 @@ public final class LauncherService {
     /** Saved sign-ins at third-party skin services, one per account. */
     public SkinCredentials skinCredentials() {
         return skinCredentials;
+    }
+
+    /** Where the proxy password lives, if there is one. */
+    public static final String PROXY_PASSWORD_KEY = "proxy:password";
+
+    /**
+     * Routes the network layer according to the settings.
+     *
+     * <p>Called at startup and again whenever the settings window is saved, so
+     * a proxy typed in takes effect without a restart.
+     */
+    public void applyProxy() {
+        String password = null;
+        if (settings.proxy().wantsAuthentication()) {
+            try {
+                password = secretStore.load(PROXY_PASSWORD_KEY).orElse(null);
+            } catch (IOException e) {
+                // A locked keyring costs the proxy password, not the launch.
+                // The proxy will answer 407 and that is a readable failure.
+                password = null;
+            }
+        }
+        com.hexadron.launcher.net.Http.useProxy(settings.proxy(), password);
     }
 
     /** Refreshes a Microsoft account's token if it is close to expiry. */
