@@ -342,6 +342,73 @@
     -fx-fill: -fx-text-1;
 }
 
+/* ------------------------------------------------------------- about window */
+
+/* The mark, on the panel colour rather than floating on the window, so it reads
+   as a badge rather than as an image somebody pasted in. */
+.about-logo {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 16;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 16;
+    -fx-border-width: 1;
+    -fx-padding: 8;
+}
+
+.about-title {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.about-author {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-accent-1;
+}
+
+/* Group headings inside the list: quieter than a section title, because the
+   list is long and a row of loud headings turns it into a table of contents. */
+.about-group {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-1;
+    -fx-padding: 8 0 0 0;
+}
+
+/* A rule down the left of each credit, so the name and the line under it read
+   as one item without a box around every one of them. */
+.about-entry {
+    -fx-border-color: transparent transparent transparent -fx-base-3;
+    -fx-border-width: 0 0 0 2;
+    -fx-padding: 0 0 0 10;
+}
+
+.about-licence {
+    -fx-font-size: 11px;
+}
+
+.about-footer {
+    -fx-padding: 6 0 0 0;
+}
+
+/* Links look like links and nothing else: no focus ring box, no underline until
+   the pointer is on one. An underline on every name turns the list into noise. */
+.about-link {
+    -fx-text-fill: -fx-accent-1;
+    -fx-padding: 0;
+    -fx-border-color: transparent;
+    -fx-underline: false;
+}
+
+.about-link:hover {
+    -fx-underline: true;
+}
+
+.about-link:visited {
+    -fx-text-fill: -fx-accent-1;
+}
+
 /* ------------------------------------------------------------- scrollbars */
 
 /*

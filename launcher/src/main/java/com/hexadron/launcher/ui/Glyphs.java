@@ -48,6 +48,36 @@ final class Glyphs {
     }
 
     /**
+     * A question mark in a ring.
+     *
+     * <p>Chosen over an {@code i} because the two mean different things in a
+     * toolbar and this is the one that means "what is this". Drawn as a ring
+     * rather than a filled disc so it sits at the same visual weight as the cog
+     * beside it - a solid circle next to an outlined shape reads as the louder
+     * of the two, and neither of these is the important button on that bar.
+     */
+    static Group about() {
+        SVGPath mark = new SVGPath();
+        mark.setFillRule(FillRule.EVEN_ODD);
+        mark.setContent(
+                // The ring: an outer circle and an inner one, wound so the
+                // even-odd rule leaves the band between them.
+                "M12 1.6a10.4 10.4 0 1 1 0 20.8 10.4 10.4 0 0 1 0-20.8z"
+                        + "M12 3.6a8.4 8.4 0 1 0 0 16.8 8.4 8.4 0 0 0 0-16.8z"
+                        // The hook, written as explicit segments rather than the
+                        // shorthand a shorter path would use: a mark this small
+                        // shows every join, and one that does not close cleanly
+                        // reads as a rendering fault rather than as a glyph.
+                        + "M12 6.0 c -2.15 0 -3.85 1.6 -3.95 3.75 h 2.05 "
+                        + "c 0.1 -1.05 0.9 -1.85 1.9 -1.85 c 1.0 0 1.8 0.75 1.8 1.7 "
+                        + "c 0 0.7 -0.4 1.2 -1.2 1.8 c -1.05 0.8 -1.5 1.55 -1.45 2.75 "
+                        + "v 0.45 h 2.0 v -0.4 c 0 -0.7 0.3 -1.1 1.1 -1.7 "
+                        + "c 1.15 -0.85 1.65 -1.65 1.65 -2.85 c 0 -2.05 -1.65 -3.65 -3.9 -3.65 z"
+                        + "M12 15.2 a 1.3 1.3 0 1 0 0 2.6 a 1.3 1.3 0 0 0 0 -2.6 z");
+        return sized(mark, 16);
+    }
+
+    /**
      * Scales a path to a height in pixels and wraps it so layout can measure it.
      *
      * <p>Wrapped in a Group because a scaled node still reports its unscaled

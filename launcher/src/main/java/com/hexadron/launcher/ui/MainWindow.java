@@ -174,6 +174,8 @@ public final class MainWindow implements ProfileHost {
 
     private final Button settingsButton = new Button();
     private final Button gridSettingsButton = new Button();
+    private final Button aboutButton = new Button();
+    private final Button gridAboutButton = new Button();
     private final Button modeButton = new Button();
     private final Button gridModeButton = new Button();
     private final Button newGroupButton = new Button();
@@ -359,14 +361,16 @@ public final class MainWindow implements ProfileHost {
 
         modeButton.setOnAction(event -> toggleMode());
         settingsButton.setOnAction(event -> openSettings());
-        asIcon(settingsButton);
+        asIcon(settingsButton, Glyphs.settings(), "settings.open");
+        aboutButton.setOnAction(event -> openAbout());
+        asIcon(aboutButton, Glyphs.about(), "about.open");
 
         // No language box here. The setting lives in the settings window, and a
         // setting with two homes is a setting that disagrees with itself; the
         // two buttons left are the two that are pressed often enough to earn the
         // far end of the bar.
         HBox header = new HBox(10, mark, brandLabel, searchField, spacer(),
-                modeButton, settingsButton);
+                modeButton, aboutButton, settingsButton);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         keepLabels(header);
@@ -439,13 +443,15 @@ public final class MainWindow implements ProfileHost {
         gridSortButton.setOnAction(event -> sortAlphabetically());
         gridModeButton.setOnAction(event -> toggleMode());
         gridSettingsButton.setOnAction(event -> openSettings());
-        asIcon(gridSettingsButton);
+        asIcon(gridSettingsButton, Glyphs.settings(), "settings.open");
+        gridAboutButton.setOnAction(event -> openAbout());
+        asIcon(gridAboutButton, Glyphs.about(), "about.open");
 
         gridHint.getStyleClass().add("muted");
 
         HBox bar = new HBox(10, mark, gridTitle, gridSearchField, gridNewButton,
                 gridNewGroupButton, gridSortButton, spacer(), gridHint,
-                gridModeButton, gridSettingsButton);
+                gridModeButton, gridAboutButton, gridSettingsButton);
         bar.getStyleClass().addAll("header", "inventory-bar");
         bar.setAlignment(Pos.CENTER_LEFT);
         keepLabels(bar);
@@ -807,6 +813,10 @@ public final class MainWindow implements ProfileHost {
         });
     }
 
+    private void openAbout() {
+        new AboutDialog().show(stage);
+    }
+
     private void openModBrowser() {
         Profile profile = selectedProfile;
         if (profile == null) {
@@ -956,11 +966,16 @@ public final class MainWindow implements ProfileHost {
         gridNewButton.setText(I18n.t("profiles.new"));
         gridNewGroupButton.setText(I18n.t("groups.new"));
         gridSortButton.setText(I18n.t("profiles.sort"));
-        // Text, not label: the button is a cog, and the word lives in the
-        // tooltip - which still has to follow a language change.
-        for (javafx.scene.control.Button button
-                : new javafx.scene.control.Button[]{settingsButton, gridSettingsButton}) {
-            String name = I18n.t("settings.open");
+        // No text on these: they are shapes, and the word lives in the tooltip -
+        // which still has to follow a language change. Each remembers its own
+        // key, so this loop does not have to know what any of them is.
+        for (javafx.scene.control.Button button : new javafx.scene.control.Button[]{
+                settingsButton, gridSettingsButton, aboutButton, gridAboutButton}) {
+            Object key = button.getProperties().get("hexadron.name");
+            if (key == null) {
+                continue;
+            }
+            String name = I18n.t(key.toString());
             if (button.getTooltip() != null) {
                 button.getTooltip().setText(name);
             }
@@ -1001,11 +1016,13 @@ public final class MainWindow implements ProfileHost {
      * screen reader is given. An icon nobody can name is worse than a word
      * nobody looks at.
      */
-    private static void asIcon(javafx.scene.control.Button button) {
+    private static void asIcon(javafx.scene.control.Button button,
+                               javafx.scene.Node glyph, String key) {
         button.setText(null);
-        button.setGraphic(Glyphs.settings());
+        button.setGraphic(glyph);
         button.getStyleClass().add("icon-button");
-        String name = I18n.t("settings.open");
+        button.getProperties().put("hexadron.name", key);
+        String name = I18n.t(key);
         button.setTooltip(new javafx.scene.control.Tooltip(name));
         button.setAccessibleText(name);
     }

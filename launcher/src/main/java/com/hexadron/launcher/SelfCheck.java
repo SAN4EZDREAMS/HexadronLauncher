@@ -1,5 +1,6 @@
 package com.hexadron.launcher;
 
+import com.hexadron.launcher.about.Credits;
 import com.hexadron.launcher.auth.Account;
 import com.hexadron.launcher.core.GameDirs;
 import com.hexadron.launcher.core.LauncherLog;
@@ -119,6 +120,7 @@ public final class SelfCheck {
         modCompatibility();
         stylesheet();
         launcherLog();
+        about();
         verificationLedger();
         nativesReuse();
         skins();
@@ -2026,6 +2028,9 @@ public final class SelfCheck {
                 "settings.signIn.deviceCode", "settings.signIn.note",
                 "settings.handshake", "settings.handshake.note", "settings.fileStore",
                 "settings.fileStore.note", "settings.dataFolder", "settings.logs", "settings.logs.note", "log.gameLog",
+                "dialog.close", "about.open", "about.title", "about.version",
+                "about.what", "about.repository", "about.author", "about.builtOn",
+                "about.licence",
                 "settings.dataFolder.note", "groups.addRow", "groups.removeRow",
                 "groups.folded", "grid.lastGroupRow", "grid.noEmptyRow",
                 "grid.noRoomInGroup", "toast.dismiss", "groups.plate.hint",
@@ -3166,6 +3171,102 @@ public final class SelfCheck {
         } finally {
             LauncherLog.close();
             deleteRecursively(work);
+        }
+    }
+
+    /**
+     * The about window's list of what this launcher stands on.
+     *
+     * <p>Two things are checked and they are different in kind. That the list
+     * is complete and internally consistent, because attribution that is wrong
+     * is worse than none. And that nothing in it can be turned into a way to
+     * run something: the file is a resource on a disk the user can write to,
+     * every entry becomes a link the browser is handed at a click, and a
+     * {@code file:} entry in a credits screen would be a very quiet way in.
+     */
+    private static void about() {
+        section("About window");
+
+        Credits credits;
+        try {
+            credits = Credits.load();
+        } catch (IOException e) {
+            check("the credits list ships with the launcher", false);
+            return;
+        }
+        check("the credits list ships with the launcher", true);
+
+        check("it names the author", credits.author().name().equals("SAN4EZDREAMS"));
+        check("with somewhere to find them", credits.author().links().size() >= 3);
+        check("and it points at the project's own repository",
+                credits.repository() != null
+                        && credits.repository().contains("github.com")
+                        && credits.repository().endsWith("HexadronLauncher"));
+
+        List<Credits.Entry> entries = credits.allEntries();
+        check("there is something to credit", entries.size() >= 15);
+        check("in groups", credits.groups().size() >= 4);
+
+        // The one that must be there. Its jar is downloaded and run inside the
+        // game, which is a dependency in the strongest sense there is, and its
+        // licence is the reason the exception it grants matters.
+        Credits.Entry agent = entries.stream()
+                .filter(entry -> entry.name().equals("authlib-injector"))
+                .findFirst().orElse(null);
+        check("authlib-injector is credited, because its jar is run inside the game",
+                agent != null);
+        check("and the terms it is used under are named",
+                agent != null && agent.licence() != null
+                        && agent.licence().contains("AGPL"));
+
+        java.util.Set<String> names = new java.util.HashSet<>();
+        java.util.Set<String> urls = new java.util.HashSet<>();
+        boolean uniqueNames = true;
+        boolean uniqueUrls = true;
+        boolean allHttps = true;
+        boolean allNamed = true;
+        for (Credits.Entry entry : entries) {
+            uniqueNames &= names.add(entry.name());
+            uniqueUrls &= urls.add(entry.url());
+            allHttps &= entry.url().startsWith("https://");
+            allNamed &= !entry.name().isBlank();
+        }
+        check("nothing is credited twice", uniqueNames && uniqueUrls);
+        check("every entry has a name", allNamed);
+        check("and every link is https", allHttps);
+
+        for (Credits.Link link : credits.author().links()) {
+            allHttps &= link.url().startsWith("https://");
+        }
+        check("including the author's own", allHttps);
+
+        // The gate, not the call site. Anything that is not https is dropped
+        // when the file is read, so nothing downstream can hold one.
+        check("a file: link is refused", Credits.safe("file:///etc/passwd") == null);
+        check("a javascript: link is refused",
+                Credits.safe("javascript:alert(1)") == null);
+        check("plain http is refused", Credits.safe("http://example.org") == null);
+        check("an https link is kept",
+                "https://example.org".equals(Credits.safe(" https://example.org ")));
+
+        Credits planted = Credits.parse(com.hexadron.launcher.json.Json.parse("""
+                {"author":{"name":"x","links":[{"name":"bad","url":"file:///x"}]},
+                 "repository":"http://example.org",
+                 "groups":[{"heading":"h","entries":[
+                   {"name":"bad","url":"javascript:alert(1)"},
+                   {"name":"good","url":"https://example.org"}]}]}
+                """));
+        check("an unsafe entry does not survive being read",
+                planted.allEntries().size() == 1
+                        && planted.allEntries().get(0).name().equals("good"));
+        check("nor an unsafe author link", planted.author().links().isEmpty());
+        check("nor an unsafe repository", planted.repository() == null);
+
+        // Every heading is an i18n key, so a missing one shows as !about.x! in
+        // the window rather than as nothing at all.
+        for (Credits.Group group : credits.groups()) {
+            check(group.heading() + " is a translated heading",
+                    !I18n.t(group.heading()).startsWith("!"));
         }
     }
 
