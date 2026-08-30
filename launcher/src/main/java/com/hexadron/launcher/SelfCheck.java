@@ -109,6 +109,7 @@ public final class SelfCheck {
         profileArrangement();
         profileIconValues();
         offlineRelaunch();
+        unreachableHosts();
         verificationLedger();
         nativesReuse();
         skins();
@@ -2767,6 +2768,54 @@ public final class SelfCheck {
      * asked meta.fabricmc.net which loader builds exist - a question already
      * answered, in {@code profiles.json}, when the instance was installed.
      */
+    /**
+     * Telling "the host never answered" apart from "the request went wrong".
+     *
+     * <p>This is the distinction the whole offline path turns on, and it was
+     * wrong for the commonest case on a filtered network. A firewall that drops
+     * packets produces a connect timeout, not a refusal - so the launcher
+     * retried it four times, waited eighty seconds, and then reported "HTTP
+     * connect timed out": no host, no cause, nothing to act on.
+     */
+    private static void unreachableHosts() {
+        section("Unreachable hosts");
+
+        check("a name that does not resolve is unreachable",
+                Http.isUnreachable(new java.net.UnknownHostException("piston-meta.mojang.com")));
+        check("a refused connection is unreachable",
+                Http.isUnreachable(new java.net.ConnectException("Connection refused")));
+        check("no route is unreachable",
+                Http.isUnreachable(new java.net.NoRouteToHostException()));
+
+        // The one that was missing. A dropped connection - a firewall, a
+        // filtering antivirus, a blocked host - looks like this and nothing else.
+        check("a connection that timed out is unreachable",
+                Http.isUnreachable(new java.net.http.HttpConnectTimeoutException("HTTP connect timed out")));
+        check("and it stays unreachable when it is wrapped",
+                Http.isUnreachable(new IOException("wrapped",
+                        new java.net.http.HttpConnectTimeoutException("HTTP connect timed out"))));
+
+        // Deliberately not: the host answered and then stalled. That is
+        // transient, and giving up on it would turn a slow mirror into a failed
+        // install.
+        check("a response that timed out is not unreachable",
+                !Http.isUnreachable(new java.net.http.HttpTimeoutException("request timed out")));
+        check("a checksum mismatch is not unreachable",
+                !Http.isUnreachable(new IOException("checksum mismatch")));
+        check("an HTTP status is not unreachable",
+                !Http.isUnreachable(new Http.HttpStatusException(503, "https://example.org", "")));
+
+        // A circular cause chain must not spin. Java forbids an exception being
+        // its own cause, but not two of them pointing at each other.
+        IOException first = new IOException("first");
+        IOException second = new IOException("second", first);
+        first.initCause(second);
+        check("a circular cause chain terminates", !Http.isUnreachable(first));
+        check("and is still read as far as it goes",
+                Http.isUnreachable(new IOException("outer",
+                        new IOException("middle", new java.net.ConnectException("refused")))));
+    }
+
     private static void offlineRelaunch() {
         section("Offline relaunch");
 

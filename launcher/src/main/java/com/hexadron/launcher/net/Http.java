@@ -159,13 +159,44 @@ public final class Http {
         private final String host;
 
         OfflineException(String host, Throwable cause) {
-            super("the launcher cannot reach " + host + " - there is no internet connection", cause);
+            super(describe(host, cause), cause);
             this.host = host;
         }
 
         /** The host that could not be reached. */
         public String host() {
             return host;
+        }
+
+        /**
+         * Why it could not be reached, in words that point somewhere.
+         *
+         * <p>"There is no internet connection" was one sentence for three very
+         * different situations, and it is wrong for the commonest of them. A
+         * connection that is dropped rather than refused - a firewall, an
+         * antivirus that filters TLS, a provider blocking a host - looks exactly
+         * like a timeout, and telling somebody with a working connection that
+         * they have none sends them to check the wrong thing.
+         */
+        private static String describe(String host, Throwable cause) {
+            if (isCausedBy(cause, java.net.http.HttpConnectTimeoutException.class)) {
+                return "the launcher cannot reach " + host + " - it did not answer within "
+                        + CONNECT_TIMEOUT.toSeconds() + " seconds. Either this computer is offline,"
+                        + " or something between it and that host is blocking the connection:"
+                        + " a firewall, an antivirus, a VPN, or the internet provider";
+            }
+            // Both, because the two look nothing alike from here and mean the
+            // same thing: the JDK's HTTP client reports a name it could not
+            // resolve as a ConnectException wrapping UnresolvedAddressException,
+            // and only the plain socket path throws UnknownHostException. Test
+            // for one and every DNS failure is reported as a refused connection.
+            if (isCausedBy(cause, java.net.UnknownHostException.class)
+                    || isCausedBy(cause, java.nio.channels.UnresolvedAddressException.class)) {
+                return "the launcher cannot reach " + host + " - that name could not be looked up."
+                        + " The computer is offline, or its DNS server is not answering";
+            }
+            return "the launcher cannot reach " + host
+                    + " - the connection was refused, or there is no route to it";
         }
     }
 
@@ -233,16 +264,56 @@ public final class Http {
     /**
      * Streams a response body. The caller owns the stream and must close it.
      * Used by the downloader so large jars never sit in the heap.
+     *
+     * <h2>This is the path the bytes take</h2>
+     *
+     * <p>Every jar, every asset object, every version manifest comes through
+     * here - thousands of requests in one install, against the whole of the
+     * traffic this class handles. It used to be the only path with no retry and
+     * no offline classification at all: one {@code send}, and whatever came back
+     * was the answer. So a single dropped connection failed a file, and a
+     * blocked host produced a raw {@code "HTTP connect timed out"} instead of a
+     * sentence naming the host.
+     *
+     * <p>Now it follows the same policy as everything else. What retry cannot
+     * cover is a transfer that dies after the stream is handed over - the caller
+     * owns it by then - so the downloader keeps its own loop around this for
+     * that case.
      */
     public static InputStream openStream(String url) throws IOException, InterruptedException {
-        HttpResponse<InputStream> response = CLIENT.send(
-                requestBuilder(url, Map.of()).GET().build(),
-                HttpResponse.BodyHandlers.ofInputStream());
-        if (response.statusCode() / 100 != 2) {
+        HttpRequest request = requestBuilder(url, Map.of()).GET().build();
+        IOException lastFailure = null;
+
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            HttpResponse<InputStream> response;
+            try {
+                response = CLIENT.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            } catch (IOException e) {
+                lastFailure = e;
+                if (attempt == MAX_ATTEMPTS || isUnreachable(e)) {
+                    break;
+                }
+                sleepBackoff(attempt, null);
+                continue;
+            }
+
+            int status = response.statusCode();
+            if (status / 100 == 2) {
+                return response.body();
+            }
             response.body().close();
-            throw new HttpStatusException(response.statusCode(), url, "");
+            if (isRetryableStatus(status) && attempt < MAX_ATTEMPTS) {
+                sleepBackoff(attempt, response);
+                continue;
+            }
+            throw new HttpStatusException(status, url, "");
         }
-        return response.body();
+
+        if (isUnreachable(lastFailure)) {
+            throw new OfflineException(URI.create(url).getHost(), lastFailure);
+        }
+        throw new IOException("request to " + url + " failed after " + MAX_ATTEMPTS + " attempts",
+                lastFailure);
     }
 
     // ---------------------------------------------------------------- POST
@@ -446,25 +517,69 @@ public final class Http {
     /**
      * Whether a failure means the host was never reached at all.
      *
-     * <p>These three are the shape of "no network": no DNS answer, a refused or
-     * unanswered connection, no route. None of them is transient in the way a
-     * 503 is, so retrying them three more times only makes the user wait longer
-     * for the same answer. A read that dies mid-transfer is a different thing
-     * and is still retried.
+     * <p>These four are the shape of "no network": no DNS answer, a refused or
+     * unanswered connection, no route, and a connection attempt that ran out of
+     * time. None of them is transient in the way a 503 is, so retrying them
+     * three more times only makes the user wait longer for the same answer. A
+     * read that dies mid-transfer is a different thing and is still retried.
+     *
+     * <p>The timeout is the one that was missing, and it is the one that matters
+     * most in practice. A network that refuses a connection sends something
+     * back; a network that <em>drops</em> it sends nothing, and the client waits
+     * out the clock - which is what a firewall, a filtering antivirus and a
+     * blocked host all look like from here. Without it those failures were
+     * retried four times, taking four times as long to arrive, and then
+     * reported as "HTTP connect timed out" - a sentence with no host in it and
+     * no idea what to do about it.
+     *
+     * <p>Deliberately narrow: {@link java.net.http.HttpConnectTimeoutException}
+     * only, not its parent. The parent also covers a request that ran past the
+     * response timeout, which means a host that answered and then stalled -
+     * transient, and worth retrying.
      */
-    private static boolean isUnreachable(IOException failure) {
-        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+    public static boolean isUnreachable(IOException failure) {
+        for (Throwable cause : chain(failure)) {
             if (cause instanceof java.net.UnknownHostException
                     || cause instanceof java.net.ConnectException
-                    || cause instanceof java.net.NoRouteToHostException) {
+                    || cause instanceof java.net.NoRouteToHostException
+                    || cause instanceof java.net.http.HttpConnectTimeoutException
+                    || cause instanceof java.nio.channels.UnresolvedAddressException) {
                 return true;
-            }
-            if (cause.getCause() == cause) {
-                break;
             }
         }
         return false;
     }
+
+    private static boolean isCausedBy(Throwable failure, Class<? extends Throwable> type) {
+        for (Throwable cause : chain(failure)) {
+            if (type.isInstance(cause)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A cause chain, walked safely.
+     *
+     * <p>Bounded rather than guarded against self-reference. A chain can be
+     * circular without any link pointing at itself - two exceptions each given
+     * the other as a cause is enough, and a wrapper that does that turns a
+     * question about a failure into a hang. Real chains are a handful deep, so a
+     * cap costs nothing and cannot be got wrong.
+     */
+    private static List<Throwable> chain(Throwable failure) {
+        List<Throwable> causes = new java.util.ArrayList<>(CAUSE_DEPTH);
+        Throwable cause = failure;
+        while (cause != null && causes.size() < CAUSE_DEPTH) {
+            causes.add(cause);
+            cause = cause.getCause();
+        }
+        return causes;
+    }
+
+    /** Deeper than any real cause chain, shallower than any loop can hide in. */
+    private static final int CAUSE_DEPTH = 16;
 
     private static boolean isRetryableStatus(int status) {
         return status == 408 || status == 429 || status == 500 || status == 502 || status == 503 || status == 504;

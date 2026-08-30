@@ -307,8 +307,10 @@ public final class LauncherService {
             // launcher rather than as "you are offline, and this instance is not
             // finished installing".
             throw new IOException("'" + profile.name() + "' is not fully installed yet, and "
-                    + e.getMessage() + ". Connect to the internet once to finish installing it;"
-                    + " after that it starts without a connection.", e);
+                    + e.getMessage() + ".\n\nIt needs that host once, to finish installing;"
+                    + " after that it starts without a connection. If other sites work on this"
+                    + " computer, try opening https://" + e.host() + " in a browser - if that"
+                    + " also fails, the block is on the network rather than in the launcher.", e);
         } finally {
             // Written even when the install failed: the files that were checked
             // before it failed were still checked, and the next attempt should

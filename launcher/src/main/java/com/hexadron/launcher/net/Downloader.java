@@ -40,6 +40,16 @@ public final class Downloader {
     /** Concurrency cap. Mojang's CDN is happy here; going much higher mostly adds timeouts. */
     private static final int DEFAULT_CONCURRENCY = 12;
 
+    /**
+     * Attempts per mirror before moving to the next one.
+     *
+     * <p>{@link Http#openStream} already retries the connection and the status.
+     * This covers what it cannot: a transfer that breaks partway, which on a
+     * shaky connection is the ordinary failure and used to fail the whole
+     * install on the first occurrence.
+     */
+    private static final int ATTEMPTS_PER_URL = 3;
+
     private final int concurrency;
 
     /**
@@ -133,9 +143,21 @@ public final class Downloader {
      */
     public void run(List<DownloadTask> tasks, Progress progress) throws IOException, InterruptedException {
         List<Failure> failures = runCollecting(tasks, progress);
-        if (!failures.isEmpty()) {
-            throw new DownloadFailedException(failures);
+        if (failures.isEmpty()) {
+            return;
         }
+        for (Failure failure : failures) {
+            if (failure.cause() instanceof Http.OfflineException offline) {
+                // Thrown as itself rather than folded into a list of file
+                // failures. There is one fault here and it is not the files:
+                // callers that can carry on without the network - a launch of
+                // something already installed - recognise this type, and the
+                // user gets a sentence about their connection rather than a
+                // catalogue of jars.
+                throw offline;
+            }
+        }
+        throw new DownloadFailedException(failures);
     }
 
     /** Runs every task and returns the failures instead of throwing. */
@@ -150,6 +172,14 @@ public final class Downloader {
         AtomicInteger doneItems = new AtomicInteger();
         List<Failure> failures = Collections.synchronizedList(new ArrayList<>());
 
+        // Set by the first task to find the host unreachable. Everything still
+        // queued gives up immediately rather than waiting out its own timeout:
+        // on a blocked network an asset index is eight thousand tasks, and
+        // eight thousand twenty-second waits is forty minutes of a progress bar
+        // that was never going to finish.
+        java.util.concurrent.atomic.AtomicReference<Http.OfflineException> offline =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
         progress.items(0, tasks.size());
         progress.bytes(0, totalBytes);
 
@@ -161,13 +191,16 @@ public final class Downloader {
             List<Future<?>> futures = new ArrayList<>(tasks.size());
             for (DownloadTask task : tasks) {
                 futures.add(pool.submit(() -> {
-                    if (progress.isCancelled()) {
+                    if (progress.isCancelled() || offline.get() != null) {
                         return;
                     }
                     try {
                         fetch(task);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
+                        failures.add(new Failure(task, e));
+                    } catch (Http.OfflineException e) {
+                        offline.compareAndSet(null, e);
                         failures.add(new Failure(task, e));
                     } catch (Exception e) {
                         failures.add(new Failure(task, e));
@@ -211,36 +244,55 @@ public final class Downloader {
         IOException lastFailure = null;
         for (String url : task.urls()) {
             Path temp = destination.resolveSibling(destination.getFileName() + ".part");
-            try {
-                try (InputStream in = Http.openStream(url);
-                     OutputStream out = Files.newOutputStream(temp)) {
-                    in.transferTo(out);
-                }
 
-                if (task.sha1() != null) {
-                    String actual = Hashes.sha1(temp);
-                    if (!actual.equalsIgnoreCase(task.sha1())) {
-                        Files.deleteIfExists(temp);
-                        lastFailure = new IOException("checksum mismatch for " + task.description()
-                                + " from " + url + ": expected " + task.sha1() + ", got " + actual);
-                        continue;
-                    }
-                }
-
-                moveIntoPlace(temp, destination);
-                if (task.executable()) {
-                    makeExecutable(destination);
-                }
-                // Just written and just verified, so the next launch has no
-                // reason to read it again.
-                verified.record(destination, task.sha1(), VerifiedFiles.attributesOf(destination));
-                return;
-            } catch (IOException e) {
-                lastFailure = e;
+            // A transfer that dies after the stream was handed over cannot be
+            // retried inside Http - the stream belongs to this method by then -
+            // so the second half of the retry policy lives here. A half-written
+            // .part is deleted before each new attempt, so a resumed attempt
+            // never appends to the last one's leftovers.
+            for (int attempt = 1; attempt <= ATTEMPTS_PER_URL; attempt++) {
                 try {
-                    Files.deleteIfExists(temp);
-                } catch (IOException ignored) {
-                    // best effort cleanup
+                    try (InputStream in = Http.openStream(url);
+                         OutputStream out = Files.newOutputStream(temp)) {
+                        in.transferTo(out);
+                    }
+
+                    if (task.sha1() != null) {
+                        String actual = Hashes.sha1(temp);
+                        if (!actual.equalsIgnoreCase(task.sha1())) {
+                            Files.deleteIfExists(temp);
+                            // Not retried: a mirror serving the wrong bytes will
+                            // serve them again. The next URL might not.
+                            lastFailure = new IOException("checksum mismatch for "
+                                    + task.description() + " from " + url
+                                    + ": expected " + task.sha1() + ", got " + actual);
+                            break;
+                        }
+                    }
+
+                    moveIntoPlace(temp, destination);
+                    if (task.executable()) {
+                        makeExecutable(destination);
+                    }
+                    // Just written and just verified, so the next launch has no
+                    // reason to read it again.
+                    verified.record(destination, task.sha1(),
+                            VerifiedFiles.attributesOf(destination));
+                    return;
+
+                } catch (Http.OfflineException e) {
+                    // The host was never reached. Neither another attempt nor
+                    // another mirror on the same dead network will change that,
+                    // and eight thousand assets each waiting out a timeout is
+                    // how a launcher appears to hang instead of reporting.
+                    discard(temp);
+                    throw e;
+                } catch (IOException e) {
+                    lastFailure = e;
+                    discard(temp);
+                    if (attempt < ATTEMPTS_PER_URL) {
+                        Thread.sleep(400L * (1L << (attempt - 1)));
+                    }
                 }
             }
         }
@@ -261,6 +313,14 @@ public final class Downloader {
      * recorded once it matches - so the first launch after this change is as
      * slow as every launch was, and the second is not.
      */
+    private static void discard(Path temp) {
+        try {
+            Files.deleteIfExists(temp);
+        } catch (IOException ignored) {
+            // Best effort: the next attempt truncates it anyway.
+        }
+    }
+
     private boolean isAlreadyValid(DownloadTask task) {
         Path destination = task.destination();
         BasicFileAttributes attributes = VerifiedFiles.attributesOf(destination);
