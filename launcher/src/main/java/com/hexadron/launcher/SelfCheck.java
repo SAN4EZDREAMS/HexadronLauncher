@@ -39,6 +39,7 @@ import com.hexadron.launcher.profile.ProfileLayout;
 import com.hexadron.launcher.skin.LocalSkinService;
 import com.hexadron.launcher.skin.PngSize;
 import com.hexadron.launcher.skin.SkinLayout;
+import com.hexadron.launcher.skin.DefaultSkin;
 import com.hexadron.launcher.skin.SkinCredentials;
 import com.hexadron.launcher.skin.SkinProfile;
 import com.hexadron.launcher.skin.SkinSession;
@@ -1962,6 +1963,7 @@ public final class SelfCheck {
                 "account.service.signin", "account.service.signin.again",
                 "account.service.signout", "account.service.signedin",
                 "account.service.signedout", "account.service.elsewhere",
+                "account.service.noskin", "account.service.fileunused",
                 "signin.title", "signin.service", "signin.user", "signin.user.hint",
                 "signin.password", "signin.button", "signin.busy", "signin.incomplete",
                 "signin.failed", "signin.address.bad", "signin.nostore", "signin.notsaved",
@@ -3508,6 +3510,48 @@ public final class SelfCheck {
                 remote.needsService());
         check("an empty local profile does not",
                 !SkinProfile.empty().needsService());
+
+        // --- one sign-in per service ---------------------------------------
+        // Pointing the address at another service is switching to a different
+        // account somewhere else, not signing out of the first.
+        String littleskin = SkinCredentials.key("offline:x", "https://littleskin.cn/api/yggdrasil");
+        String elyby = SkinCredentials.key("offline:x", "https://ely.by/api/authlib-injector");
+        check("two services are two separate sign-ins", !littleskin.equals(elyby));
+        check("and the same service is the same one, slash or no slash",
+                littleskin.equals(
+                        SkinCredentials.key("offline:x", "https://littleskin.cn/api/yggdrasil/")));
+        check("two accounts at one service are separate too",
+                !littleskin.equals(
+                        SkinCredentials.key("offline:y", "https://littleskin.cn/api/yggdrasil")));
+
+        // --- the stand-in figure -------------------------------------------
+        try {
+            byte[] bytes = DefaultSkin.png();
+            int[] shape = PngSize.read(bytes);
+            check("the stand-in skin is a 64 by 64 sheet",
+                    shape != null && shape[0] == 64 && shape[1] == 64);
+
+            java.awt.image.BufferedImage sheet = javax.imageio.ImageIO.read(
+                    new java.io.ByteArrayInputStream(bytes));
+
+            // A hole in a base layer renders as a see-through limb, which looks
+            // like a broken texture rather than a plain figure.
+            SkinLayout.Rect chest = named(SkinLayout.player(false), "body").faces().front();
+            boolean opaque = true;
+            for (int x = chest.u0(); x < chest.u1(); x++) {
+                for (int y = chest.v0(); y < chest.v1(); y++) {
+                    opaque &= (sheet.getRGB(x, y) >>> 24) == 0xFF;
+                }
+            }
+            check("and every base area on it is opaque", opaque);
+
+            SkinLayout.Rect face = named(SkinLayout.player(false), "head").faces().front();
+            check("the head has a front that is not one flat colour",
+                    sheet.getRGB(face.u0() + 2, face.v0() + 4)
+                            != sheet.getRGB(face.u0() + 2, face.v0() + 7));
+        } catch (IOException e) {
+            check("the stand-in skin is a 64 by 64 sheet", false);
+        }
     }
 
     private static void skinTemplates() {

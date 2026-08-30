@@ -187,6 +187,76 @@ public final class YggdrasilAuth {
                 name);
     }
 
+    /**
+     * What a profile is wearing, as the service reports it.
+     *
+     * @param slim true when the service says the arms are 3 pixels wide
+     */
+    public record Textures(String skinUrl, String capeUrl, boolean slim) {
+
+        public static final Textures NONE = new Textures(null, null, false);
+
+        /** True when the service knows the profile but has nothing on it. */
+        public boolean isEmpty() {
+            return skinUrl == null && capeUrl == null;
+        }
+    }
+
+    /**
+     * Reads what a profile wears, from the same endpoint the game will use.
+     *
+     * <h2>Why ask the service rather than draw the files on this PC</h2>
+     *
+     * <p>In remote mode the pictures on this machine are not what appears in
+     * game - the service's are. A preview built from local files would show one
+     * thing and the game another, and the first place that difference turns up
+     * is a player wondering why their skin did not change.
+     *
+     * <p>An answer with no textures is a real answer, not a failure: it means
+     * an account that exists at the service and has not uploaded anything.
+     * That is the case the game draws its own default for, and so does the
+     * window here.
+     */
+    public static Textures textures(String root, UUID uuid)
+            throws IOException, InterruptedException {
+
+        String undashed = uuid.toString().replace("-", "");
+        String body = Http.getString(normalise(root)
+                + "/sessionserver/session/minecraft/profile/" + undashed);
+        if (body == null || body.isBlank()) {
+            // 204: the service has never heard of this profile.
+            return Textures.NONE;
+        }
+
+        Json profile = Json.parse(body);
+        String encoded = null;
+        for (Json property : profile.get("properties").elements()) {
+            if ("textures".equals(property.get("name").asString(null))) {
+                encoded = property.get("value").asString(null);
+                break;
+            }
+        }
+        if (encoded == null) {
+            return Textures.NONE;
+        }
+
+        // The signature beside this value is what a *server* checks. Here it is
+        // deliberately not checked: this is a picture for a preview window, the
+        // connection it arrived over is the service's own, and a launcher that
+        // refused to draw a preview over a signature question would be
+        // theatre - the game does its own checking, with the service's key.
+        Json textures = Json.parse(new String(
+                java.util.Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8))
+                .get("textures");
+
+        Json skin = textures.get("SKIN");
+        return new Textures(
+                skin.get("url").asString(null),
+                textures.get("CAPE").get("url").asString(null),
+                "slim".equalsIgnoreCase(
+                        skin.get("metadata").get("model").asString("")));
+    }
+
     /** Yggdrasil writes UUIDs without dashes; the game wants them with. */
     public static UUID undash(String id) throws IOException {
         try {

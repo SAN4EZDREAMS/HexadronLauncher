@@ -94,8 +94,22 @@ public final class AccountDialog {
     private final Button signIn = new Button();
     private final Button signOut = new Button();
 
-    /** The saved sign-in for this account, as this window last knew it. */
+    /** The saved sign-in for the service in the address field, if there is one. */
     private YggdrasilAuth.Session session;
+
+    /**
+     * What the service says this profile wears, and the figure built from it.
+     *
+     * <p>Kept apart from the local files because in remote mode these are what
+     * the game will actually show, and the local ones are not.
+     */
+    private Image serviceSkin;
+    private Image serviceCape;
+    private boolean serviceSlim;
+    private boolean serviceEmpty;
+
+    /** Which service {@link #serviceSkin} was fetched from, so it is not reused. */
+    private String servicedFrom = "";
 
     /** The skin held at Mojang, for a premium account. Drawn, never stored. */
     private Image remoteSkin;
@@ -106,7 +120,7 @@ public final class AccountDialog {
         this.credentials = credentials;
         this.profile = store.of(account.id());
         this.session = credentials == null
-                ? null : credentials.load(account.id()).orElse(null);
+                ? null : credentials.load(account.id(), profile.service()).orElse(null);
     }
 
     public Optional<Result> show(Window owner) {
@@ -169,6 +183,7 @@ public final class AccountDialog {
         if (!account.isOffline()) {
             loadPremiumProfile();
         }
+        loadServiceTextures();
         return root;
     }
 
@@ -247,11 +262,29 @@ public final class AccountDialog {
         remoteSource.setToggleGroup(group);
         localSource.setText(I18n.t("account.source.local"));
         remoteSource.setText(I18n.t("account.source.remote"));
-        group.selectedToggleProperty().addListener((observable, previous, value) -> refreshSource());
+        group.selectedToggleProperty().addListener((observable, previous, value) -> {
+            // Written back rather than only read at Save: refresh() sets the
+            // radio from the profile, so a profile that does not know what the
+            // user just chose quietly undoes the choice on the next file pick.
+            profile = profile.withSource(remoteSource.isSelected()
+                    ? SkinProfile.Source.REMOTE : SkinProfile.Source.LOCAL);
+            refreshSource();
+            drawFigure();
+        });
 
         serviceField.setPromptText("https://littleskin.cn/api/yggdrasil");
         serviceField.setMaxWidth(Double.MAX_VALUE);
+        // Two listeners, on purpose. Every keystroke updates what the line under
+        // the buttons says, which is cheap. Looking a saved sign-in up is not -
+        // on Windows it is a process - so that waits until the address is
+        // finished with: Enter, or the focus moving on.
         serviceField.textProperty().addListener((observable, previous, value) -> refreshSource());
+        serviceField.setOnAction(event -> reloadSession());
+        serviceField.focusedProperty().addListener((observable, had, has) -> {
+            if (!has) {
+                reloadSession();
+            }
+        });
 
         sourceNote.getStyleClass().add("muted");
         sourceNote.setWrapText(true);
@@ -309,16 +342,100 @@ public final class AccountDialog {
                         status.setText(I18n.t("signin.notsaved", e.getMessage()));
                     }
                     refreshSource();
+                    loadServiceTextures();
                 });
     }
 
     private void signOut() {
         if (credentials != null) {
-            credentials.forget(account.id());
+            credentials.forget(account.id(), serviceField.getText());
         }
         session = null;
+        forgetServiceTextures();
         status.setText("");
         refreshSource();
+        drawFigure();
+    }
+
+    /**
+     * Picks up the sign-in belonging to the address now in the field.
+     *
+     * <p>Sign-ins are kept per service, so pointing the field at another one is
+     * not signing out - it is switching to a different account somewhere else,
+     * which may well already be signed in.
+     */
+    private void reloadSession() {
+        profile = profile.withService(serviceField.getText());
+        YggdrasilAuth.Session found = credentials == null ? null
+                : credentials.load(account.id(), serviceField.getText()).orElse(null);
+        if (found == session) {
+            return;
+        }
+        session = found;
+        forgetServiceTextures();
+        refreshSource();
+        drawFigure();
+        loadServiceTextures();
+    }
+
+    /**
+     * Fetches what the service says this profile wears.
+     *
+     * <p>Run when the window opens and after every sign-in, because that is
+     * when the answer can have changed. Not run on every keystroke in the
+     * address field: a sign-in is what makes an address meaningful here, and
+     * there is one for every address that has been signed in to.
+     */
+    private void loadServiceTextures() {
+        if (session == null || !remoteSource.isSelected()
+                || !session.isFor(serviceField.getText())) {
+            return;
+        }
+        YggdrasilAuth.Session asked = session;
+        if (asked.root().equals(servicedFrom)) {
+            return;
+        }
+
+        run(() -> {
+            YggdrasilAuth.Textures textures =
+                    YggdrasilAuth.textures(asked.root(), asked.uuid());
+            Image skin = textures.skinUrl() == null ? null : download(textures.skinUrl());
+            Image cape = textures.capeUrl() == null ? null : download(textures.capeUrl());
+
+            javafx.application.Platform.runLater(() -> {
+                if (session != asked) {
+                    // Signed in somewhere else while this was in flight.
+                    return;
+                }
+                servicedFrom = asked.root();
+                serviceSkin = skin;
+                serviceCape = cape;
+                serviceSlim = textures.slim();
+                serviceEmpty = textures.isEmpty();
+                refresh();
+            });
+            return "";
+        });
+    }
+
+    private void forgetServiceTextures() {
+        servicedFrom = "";
+        serviceSkin = null;
+        serviceCape = null;
+        serviceEmpty = false;
+    }
+
+    /**
+     * Fetched here rather than handed to the scene as a URL.
+     *
+     * <p>A lazily loading Image has no pixels yet when the figure is built from
+     * it, and nothing rebuilds the figure when they arrive - which shows up as
+     * a skin that appears only after the next click.
+     */
+    private static Image download(String url) throws IOException, InterruptedException {
+        Image image = new Image(new java.io.ByteArrayInputStream(
+                com.hexadron.launcher.net.Http.getBytes(url)));
+        return image.isError() || image.getWidth() <= 0 ? null : image;
     }
 
     // ------------------------------------------------------------------ actions
@@ -335,7 +452,7 @@ public final class AccountDialog {
         try {
             String stored = store.store(chosen.toPath(), cape);
             profile = cape ? profile.withCape(stored) : profile.withSkin(stored);
-            status.setText("");
+            status.setText(usingService() ? I18n.t("account.service.fileunused") : "");
             refresh();
         } catch (IOException e) {
             status.setText(e.getMessage());
@@ -394,7 +511,7 @@ public final class AccountDialog {
         try {
             String stored = store.store(file, cape);
             profile = cape ? profile.withCape(stored) : profile.withSkin(stored);
-            status.setText("");
+            status.setText(usingService() ? I18n.t("account.service.fileunused") : "");
             refresh();
         } catch (IOException e) {
             status.setText(e.getMessage());
@@ -502,8 +619,38 @@ public final class AccountDialog {
         }
         refreshSource();
 
-        // Deliberately independent of which service was chosen: this is a
-        // picture of the files in front of the user.
+        drawFigure();
+    }
+
+    /**
+     * Builds the figure out of whatever will actually be worn in game.
+     *
+     * <h2>The order, and why it is this one</h2>
+     *
+     * <p>Signed in to a service: the service's textures, because those are the
+     * ones the game fetches - and its default when the account there wears
+     * nothing, because an empty box in that case reads as a failed sign-in.
+     *
+     * <p>Otherwise: the files chosen here, because those are what the launcher
+     * itself will serve. A Microsoft account with no local file falls back to
+     * the sheet held at Mojang, which is the same rule.
+     *
+     * <p>What is deliberately not done is showing a local file while a service
+     * is signed in. It was, at first, on the reasoning that somebody choosing
+     * between two PNGs wants to see them - but it means the window shows one
+     * thing and the game another, and the first place that turns up is a player
+     * asking why their skin did not change.
+     */
+    private void drawFigure() {
+        if (usingService()) {
+            if (serviceEmpty) {
+                viewer.show(defaultSkin(), null, profile.model() == SkinProfile.Model.SLIM);
+            } else {
+                viewer.show(serviceSkin, serviceCape, serviceSlim);
+            }
+            return;
+        }
+
         Image skin = load(store.file(profile.skin()));
         if (skin == null) {
             skin = remoteSkin;
@@ -511,6 +658,24 @@ public final class AccountDialog {
         viewer.show(skin, load(store.file(profile.cape())),
                 profile.model() == SkinProfile.Model.SLIM);
     }
+
+    /** True when the figure is showing a service's answer rather than a file. */
+    private boolean usingService() {
+        return session != null && remoteSource.isSelected()
+                && session.root().equals(servicedFrom)
+                && session.isFor(serviceField.getText());
+    }
+
+    /** The launcher's own stand-in. Not Mojang's default, and the note says so. */
+    private static Image defaultSkin() {
+        if (fallback == null) {
+            fallback = new Image(new java.io.ByteArrayInputStream(
+                    com.hexadron.launcher.skin.DefaultSkin.png()));
+        }
+        return fallback;
+    }
+
+    private static Image fallback;
 
     private void refreshSource() {
         boolean remote = remoteSource.isSelected();
@@ -533,6 +698,12 @@ public final class AccountDialog {
             signedIn.setText(I18n.t("account.service.signedout"));
         } else if (!session.isFor(serviceField.getText())) {
             signedIn.setText(I18n.t("account.service.elsewhere", session.root()));
+        } else if (serviceEmpty && session.root().equals(servicedFrom)) {
+            // The sign-in worked and the account there is bare. Worth separating
+            // from a failure, because on screen the two look the same: a figure
+            // that is not the one the user picked.
+            signedIn.setText(I18n.t("account.service.signedin", session.name())
+                    + " " + I18n.t("account.service.noskin"));
         } else {
             signedIn.setText(I18n.t("account.service.signedin", session.name()));
         }

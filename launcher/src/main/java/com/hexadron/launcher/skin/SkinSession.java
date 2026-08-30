@@ -91,8 +91,9 @@ public final class SkinSession implements AutoCloseable {
             return account;
         }
 
-        YggdrasilAuth.Session saved = credentials.load(account.id()).orElse(null);
-        if (saved == null || !saved.isFor(profile.service())) {
+        YggdrasilAuth.Session saved =
+                credentials.load(account.id(), profile.service()).orElse(null);
+        if (saved == null) {
             // Worth saying plainly. The alternative is a launch that looks
             // successful and a skin that never appears, with nothing in the log
             // pointing at the reason.
