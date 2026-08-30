@@ -359,6 +359,7 @@ public final class MainWindow implements ProfileHost {
 
         modeButton.setOnAction(event -> toggleMode());
         settingsButton.setOnAction(event -> openSettings());
+        asIcon(settingsButton);
 
         // No language box here. The setting lives in the settings window, and a
         // setting with two homes is a setting that disagrees with itself; the
@@ -438,6 +439,7 @@ public final class MainWindow implements ProfileHost {
         gridSortButton.setOnAction(event -> sortAlphabetically());
         gridModeButton.setOnAction(event -> toggleMode());
         gridSettingsButton.setOnAction(event -> openSettings());
+        asIcon(gridSettingsButton);
 
         gridHint.getStyleClass().add("muted");
 
@@ -954,8 +956,16 @@ public final class MainWindow implements ProfileHost {
         gridNewButton.setText(I18n.t("profiles.new"));
         gridNewGroupButton.setText(I18n.t("groups.new"));
         gridSortButton.setText(I18n.t("profiles.sort"));
-        settingsButton.setText(I18n.t("settings.open"));
-        gridSettingsButton.setText(I18n.t("settings.open"));
+        // Text, not label: the button is a cog, and the word lives in the
+        // tooltip - which still has to follow a language change.
+        for (javafx.scene.control.Button button
+                : new javafx.scene.control.Button[]{settingsButton, gridSettingsButton}) {
+            String name = I18n.t("settings.open");
+            if (button.getTooltip() != null) {
+                button.getTooltip().setText(name);
+            }
+            button.setAccessibleText(name);
+        }
         gridTitle.setText(I18n.t("ui.mode.grid"));
         gridHint.setText(I18n.t("inventory.hint"));
         gridSearchField.setPromptText(I18n.t("search.prompt"));
@@ -977,6 +987,29 @@ public final class MainWindow implements ProfileHost {
      * already in - and a button that has to be tried to find out what it does is
      * a button that gets tried once and then avoided.
      */
+    /**
+     * Turns a settings button into a cog.
+     *
+     * <p>The word was the wrong shape for the place it sits: a bar of two
+     * buttons at the far right, next to a search field, where every other
+     * launcher and every browser puts a cog. A word there is wider than it
+     * needs to be, it grows in translation - German and Ukrainian both run
+     * longer - and it competes with the one control on the bar that has
+     * something to say.
+     *
+     * <p>The name is not lost, only moved: it is the tooltip, and it is what a
+     * screen reader is given. An icon nobody can name is worse than a word
+     * nobody looks at.
+     */
+    private static void asIcon(javafx.scene.control.Button button) {
+        button.setText(null);
+        button.setGraphic(Glyphs.settings());
+        button.getStyleClass().add("icon-button");
+        String name = I18n.t("settings.open");
+        button.setTooltip(new javafx.scene.control.Tooltip(name));
+        button.setAccessibleText(name);
+    }
+
     private void applyModeTexts() {
         modeButton.setText(I18n.t("ui.mode.toGrid"));
         gridModeButton.setText(I18n.t("ui.mode.toList"));
@@ -1130,6 +1163,10 @@ public final class MainWindow implements ProfileHost {
         }
         runInBackground(I18n.t("task.play"), () -> {
             Profile profile = requireSelected();
+            // Where the game writes its own log. That file answered the last
+            // three questions about this launcher, and nothing pointed at it.
+            progress.log(I18n.t("log.gameLog",
+                    service.profiles().gameDirectory(profile).resolve("logs")));
             session = service.launch(profile, account, progress,
                     progress::log,
                     exitCode -> {
@@ -1593,10 +1630,14 @@ public final class MainWindow implements ProfileHost {
     }
 
     private void showWarning(String header, String message) {
+        com.hexadron.launcher.core.LauncherLog.warn("%s: %s", header, message);
         alert(Alert.AlertType.WARNING, header, message, 520);
     }
 
     private void showError(String header, Throwable error) {
+        // Written down before it is shown. The dialog carries one sentence; the
+        // file carries the cause chain, which is the half that says where.
+        com.hexadron.launcher.core.LauncherLog.error(header, error);
         alert(Alert.AlertType.ERROR, header,
                 error.getMessage() == null ? error.toString() : error.getMessage(), 600);
     }

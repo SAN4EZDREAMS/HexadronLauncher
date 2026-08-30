@@ -57,6 +57,19 @@ public final class Launcher extends Application {
         // follows the operating system.
         I18n.use(Language.resolve(""));
 
+        // Before anything that can fail. A startup failure is exactly the case
+        // where there is no window to report it in, and until this existed the
+        // only record of one was whatever the user managed to screenshot.
+        try {
+            com.hexadron.launcher.core.GameDirs dirs =
+                    com.hexadron.launcher.core.GameDirs.defaultDirs();
+            com.hexadron.launcher.core.LauncherLog.open(dirs);
+            com.hexadron.launcher.core.LauncherLog.header(BuildConfig.version(), dirs);
+        } catch (Throwable ignored) {
+            // No log, then. Not a reason to refuse to start.
+        }
+        com.hexadron.launcher.core.LauncherLog.catchUncaught();
+
         // While the splash is the only window on screen, an implicit exit would
         // end the application in the gap between closing it and showing the
         // main window. Switched back on once the window is up.
@@ -77,6 +90,7 @@ public final class Launcher extends Application {
                 // is the only window, so an Error escaping here would leave a
                 // spinning splash and no way out of it - which is a worse
                 // failure than the one that caused it.
+                com.hexadron.launcher.core.LauncherLog.error("Startup failed", e);
                 Platform.runLater(() -> failed(e));
                 return;
             }
@@ -87,6 +101,7 @@ public final class Launcher extends Application {
     }
 
     private void reportStep(String step) {
+        com.hexadron.launcher.core.LauncherLog.info("Startup: " + step);
         if (splash != null) {
             splash.step(step);
         }
@@ -167,5 +182,7 @@ public final class Launcher extends Application {
         if (window != null) {
             window.shutdown();
         }
+        com.hexadron.launcher.core.LauncherLog.info("Launcher closed");
+        com.hexadron.launcher.core.LauncherLog.close();
     }
 }

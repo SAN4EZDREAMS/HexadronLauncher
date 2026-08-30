@@ -2,6 +2,7 @@ package com.hexadron.launcher;
 
 import com.hexadron.launcher.auth.Account;
 import com.hexadron.launcher.core.GameDirs;
+import com.hexadron.launcher.core.LauncherLog;
 import com.hexadron.launcher.core.Progress;
 import com.hexadron.launcher.core.VerifiedFiles;
 import com.hexadron.launcher.i18n.I18n;
@@ -117,6 +118,7 @@ public final class SelfCheck {
         proxyRouting();
         modCompatibility();
         stylesheet();
+        launcherLog();
         verificationLedger();
         nativesReuse();
         skins();
@@ -2023,7 +2025,7 @@ public final class SelfCheck {
                 "settings.curseforge.prompt", "settings.signIn", "settings.signIn.browser",
                 "settings.signIn.deviceCode", "settings.signIn.note",
                 "settings.handshake", "settings.handshake.note", "settings.fileStore",
-                "settings.fileStore.note", "settings.dataFolder",
+                "settings.fileStore.note", "settings.dataFolder", "settings.logs", "settings.logs.note", "log.gameLog",
                 "settings.dataFolder.note", "groups.addRow", "groups.removeRow",
                 "groups.folded", "grid.lastGroupRow", "grid.noEmptyRow",
                 "grid.noRoomInGroup", "toast.dismiss", "groups.plate.hint",
@@ -3059,6 +3061,112 @@ public final class SelfCheck {
                 css.contains(".scroll-bar > .thumb"));
         check("and the viewport behind them is transparent",
                 css.contains(".scroll-pane > .viewport"));
+    }
+
+    /**
+     * The launcher's own log.
+     *
+     * <p>Written for one purpose: to be attached to a bug report. That makes
+     * two things load-bearing - that credentials never reach it, and that the
+     * last line before a crash is on disk rather than in a buffer. Both are
+     * checked here against a real file.
+     */
+    private static void launcherLog() {
+        section("Launcher log");
+
+        java.nio.file.Path work = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-log-check");
+            GameDirs dirs = new GameDirs(work);
+
+            java.nio.file.Path file = LauncherLog.open(dirs);
+            check("a log is opened in the logs folder",
+                    file != null && file.startsWith(dirs.logs()));
+
+            LauncherLog.info("hello");
+            // Flushed per line, because the line worth reading is the one
+            // written just before the process stopped existing.
+            check("a line is on disk before anything is closed",
+                    java.nio.file.Files.readString(file).contains("hello"));
+
+            // The reason this file can be handed to somebody. Redactor is what
+            // does it; this asserts that the log actually goes through it.
+            String jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27u";
+            LauncherLog.info("Command: --accessToken " + jwt + " --uuid 1234");
+            String written = java.nio.file.Files.readString(file);
+            check("a session token does not reach the file", !written.contains(jwt));
+
+            // The shape patterns describe what Microsoft and Xbox issue. A
+            // third-party skin service issues a plain random string, which no
+            // shape recognises - so the word in front of it has to be enough.
+            String opaque = "b7f3a19c4e6d48a2b0c15d7e9f3a2b4c";
+            LauncherLog.info("Command: --accessToken " + opaque + " --uuid 1234");
+            LauncherLog.info("saved {\"accessToken\":\"" + opaque + "\",\"name\":\"Player\"}");
+            written = java.nio.file.Files.readString(file);
+            check("and neither does an opaque one, named on a command line or in JSON",
+                    !written.contains(opaque));
+            check("while what is around it survives",
+                    written.contains("--uuid 1234") && written.contains("Player"));
+
+            LauncherLog.error("boom", new IllegalStateException("the cause"));
+            written = java.nio.file.Files.readString(file);
+            check("an error carries its cause, not just its headline",
+                    written.contains("IllegalStateException") && written.contains("the cause"));
+            check("and the stack trace with it",
+                    written.contains("com.hexadron.launcher.SelfCheck"));
+
+            // Everything the panel is told goes to the file, so the two cannot
+            // disagree about what happened.
+            java.util.List<String> seen = new java.util.ArrayList<>();
+            Progress tee = LauncherLog.tee(new Progress() {
+                @Override
+                public void stage(String name) {
+                    seen.add("stage:" + name);
+                }
+
+                @Override
+                public void bytes(long completed, long total) {
+                }
+
+                @Override
+                public void items(int completed, int total) {
+                }
+
+                @Override
+                public void log(String message) {
+                    seen.add("log:" + message);
+                }
+            });
+            tee.stage("Installing");
+            tee.log("a line");
+            written = java.nio.file.Files.readString(file);
+            check("a teed progress still reaches whatever it wrapped",
+                    seen.equals(java.util.List.of("stage:Installing", "log:a line")));
+            check("and is written down as well",
+                    written.contains("== Installing") && written.contains("a line"));
+
+            LauncherLog.close();
+
+            // The run before the one that went wrong is often the one that
+            // explains it, so it is kept rather than overwritten.
+            LauncherLog.open(dirs);
+            LauncherLog.info("second run");
+            LauncherLog.close();
+            check("the previous run is kept beside the current one",
+                    java.nio.file.Files.readString(dirs.logs().resolve("launcher-1.log"))
+                            .contains("hello"));
+            check("and the current one is the current one",
+                    java.nio.file.Files.readString(dirs.logs().resolve("launcher.log"))
+                            .contains("second run")
+                            && !java.nio.file.Files.readString(dirs.logs().resolve("launcher.log"))
+                            .contains("hello"));
+
+        } catch (IOException e) {
+            check("a log is opened in the logs folder", false);
+        } finally {
+            LauncherLog.close();
+            deleteRecursively(work);
+        }
     }
 
     private static void offlineRelaunch() {

@@ -64,6 +64,16 @@ public final class Redactor {
                     + "[^&\\s\"']{8,}"),
             Pattern.compile("(?<=\")(refresh_token|access_token|id_token|device_code|Token)"
                     + "(?=\"\\s*:\\s*\")[^\"]*\"[^\"]{20,}\""),
+
+            // An opaque token behind a name that says what it is. The shapes
+            // above all describe what Microsoft and Xbox issue; a third-party
+            // Yggdrasil service issues a plain random string, which looks like
+            // nothing in particular and would go into a log untouched. What
+            // gives it away is not the value but the word in front of it.
+            Pattern.compile("(?<=--accessToken )\\S{16,}"),
+            Pattern.compile("(?<=--session )\\S{16,}"),
+            Pattern.compile("(?<=\"accessToken\"\\s{0,3}:\\s{0,3}\")[^\"]{16,}"),
+            Pattern.compile("(?<=\"clientToken\"\\s{0,3}:\\s{0,3}\")[^\"]{16,}"),
     };
 
     private Redactor() {

@@ -110,7 +110,10 @@ public final class SkinCredentials {
         try {
             return store.load(key)
                     .map(text -> YggdrasilAuth.Session.fromJson(Json.parse(text)))
-                    .filter(session -> session != null);
+                    .filter(session -> session != null)
+                    // A token read off disk is as much a secret as one just
+                    // issued, and this is the moment it enters the process.
+                    .map(YggdrasilAuth::register);
         } catch (IOException | RuntimeException e) {
             return Optional.empty();
         }

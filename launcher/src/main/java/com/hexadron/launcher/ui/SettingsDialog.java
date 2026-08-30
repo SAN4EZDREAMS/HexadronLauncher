@@ -460,9 +460,21 @@ public final class SettingsDialog {
         HBox line = new HBox(8, path, open);
         line.setAlignment(Pos.CENTER_LEFT);
 
+        TextField logPath = new TextField(dirs.logs().toString());
+        logPath.setEditable(false);
+        HBox.setHgrow(logPath, Priority.ALWAYS);
+
+        Button openLogs = new Button(I18n.t("action.openFolder"));
+        openLogs.setOnAction(event -> openFolder(dirs.logs(), logPath));
+
+        HBox logLine = new HBox(8, logPath, openLogs);
+        logLine.setAlignment(Pos.CENTER_LEFT);
+
         GridPane grid = form();
         grid.addRow(0, label("settings.dataFolder"), line);
         grid.addRow(1, new Label(), note("settings.dataFolder.note"));
+        grid.addRow(2, label("settings.logs"), logLine);
+        grid.addRow(3, new Label(), note("settings.logs.note"));
         return grid;
     }
 
@@ -474,14 +486,22 @@ public final class SettingsDialog {
      * beside the button in any case.
      */
     private void openDataFolder() {
+        openFolder(dirs.root(), null);
+    }
+
+    /** The same, for any folder the tab shows. */
+    private void openFolder(java.nio.file.Path folder, TextField shownIn) {
         try {
-            java.nio.file.Files.createDirectories(dirs.root());
+            java.nio.file.Files.createDirectories(folder);
             if (java.awt.Desktop.isDesktopSupported()
                     && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
-                java.awt.Desktop.getDesktop().open(dirs.root().toFile());
+                java.awt.Desktop.getDesktop().open(folder.toFile());
             }
         } catch (Exception ignored) {
             // The path stays visible; nothing else to do from here.
+            if (shownIn != null) {
+                shownIn.selectAll();
+            }
         }
     }
 

@@ -97,6 +97,17 @@ public final class UiProgress implements Progress {
     }
 
     /**
+     * Everything the panel is told is also written to the launcher's log file.
+     *
+     * <p>Here rather than around this class, so that the file and the panel say
+     * exactly the same thing. A log that is a subset of what was on screen is a
+     * log somebody has to be told to disbelieve.
+     */
+    private static void record(String message) {
+        com.hexadron.launcher.core.LauncherLog.info(message);
+    }
+
+    /**
      * Appends a line to the log pane, with credentials removed.
      *
      * <p>The scrub happens at this sink and not only at the call sites, because
@@ -108,6 +119,7 @@ public final class UiProgress implements Progress {
     @Override
     public void log(String message) {
         String safe = com.hexadron.launcher.util.Redactor.scrub(message);
+        record(safe);
         Platform.runLater(() -> {
             if (logArea.getLength() > MAX_LOG_CHARACTERS) {
                 logArea.deleteText(0, MAX_LOG_CHARACTERS / 2);

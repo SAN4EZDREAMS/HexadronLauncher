@@ -316,6 +316,32 @@
     -fx-opacity: 0.72;
 }
 
+/* ------------------------------------------------------------ icon buttons */
+
+/*
+ * A button that is a shape rather than a word: square, quiet, and the same size
+ * whatever language the launcher is in.
+ */
+.icon-button {
+    -fx-padding: 6 8 6 8;
+    -fx-min-width: 34;
+    -fx-background-radius: 8;
+}
+
+/* The path takes its colour from here, so one rule covers the icon and its
+   states rather than the shape carrying a colour of its own. */
+.glyph {
+    -fx-fill: -fx-text-0;
+}
+
+.icon-button:hover .glyph {
+    -fx-fill: -fx-accent-1;
+}
+
+.icon-button:disabled .glyph {
+    -fx-fill: -fx-text-1;
+}
+
 /* ------------------------------------------------------------- scrollbars */
 
 /*

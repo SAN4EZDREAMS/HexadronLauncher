@@ -180,11 +180,12 @@ public final class YggdrasilAuth {
             throw new IOException("the service signed in but returned no character to play as");
         }
 
-        return new Session(root,
+        Session session = new Session(root,
                 response.get("clientToken").asString(fallbackClientToken),
                 response.get("accessToken").asString(""),
                 undash(id),
                 name);
+        return register(session);
     }
 
     /**
@@ -255,6 +256,23 @@ public final class YggdrasilAuth {
                 textures.get("CAPE").get("url").asString(null),
                 "slim".equalsIgnoreCase(
                         skin.get("metadata").get("model").asString("")));
+    }
+
+    /**
+     * Tells the redactor these are secrets, so they never reach a log.
+     *
+     * <p>The redactor's shape patterns describe what Microsoft and Xbox issue -
+     * JWTs, {@code M.C5_...}, {@code XBL3.0 x=...}. A third-party service hands
+     * out a plain random string, which no shape can recognise, so it has to be
+     * registered by the code that receives it. Called wherever a session
+     * enters the process: signing in, renewing, and reading one back off disk.
+     */
+    public static Session register(Session session) {
+        if (session != null) {
+            com.hexadron.launcher.util.Redactor.register(session.accessToken());
+            com.hexadron.launcher.util.Redactor.register(session.clientToken());
+        }
+        return session;
     }
 
     /** Yggdrasil writes UUIDs without dashes; the game wants them with. */
