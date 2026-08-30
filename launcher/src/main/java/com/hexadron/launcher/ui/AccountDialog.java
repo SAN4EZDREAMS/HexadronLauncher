@@ -15,16 +15,13 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.RadioButton;
+import javafx.scene.control.Separator;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.image.Image;
-import javafx.scene.image.ImageView;
-import javafx.scene.layout.ColumnConstraints;
-import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
-import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
@@ -36,26 +33,37 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The account editor: what this player looks like.
+ * The skin and cape editor.
  *
- * <h2>Two accounts, two different dialogs behind one</h2>
+ * <h2>The figure is the point</h2>
  *
- * <p>An offline account owns its skin here - the file is copied into the
- * launcher and served to the game by the launcher, and the dialog is the only
- * place it exists. A Microsoft account owns nothing here: its skin lives at
- * Mojang, this window uploads to it and reads back from it, and closing the
- * window without pressing anything changes nothing anywhere.
+ * <p>The left half is the player, turning. Everything on the right changes it
+ * as it is pressed, so the answer to "what will this look like" is on screen
+ * before anything is saved - which is the whole reason to have this window
+ * rather than a file picker.
  *
- * <p>So the same window shows different things, and says which is which. The
- * one line that matters to a user is the one about who else can see the skin,
- * and it is on screen rather than in a manual: for Microsoft accounts,
- * everybody; for offline accounts, you, and other players only on a server that
- * uses the same skin service.
+ * <p>The figure shows the files chosen here whichever service is selected. When
+ * the skins come from a service on the network the file here is a preview
+ * rather than the thing the game will fetch, and that is still worth drawing:
+ * somebody choosing between two PNGs is choosing between two pictures, and the
+ * question of who serves them is a different one, answered a few lines below.
+ *
+ * <h2>Labels sit above what they label</h2>
+ *
+ * <p>They used to be in a column down the left, level with the middle of each
+ * row - which for a row two controls tall put the word "Skin" beside the gap
+ * between them. A heading over its own group has one reading and needs no
+ * alignment to work.
+ *
+ * <h2>Two accounts, one window</h2>
+ *
+ * <p>An offline account owns its skin here: the file is copied into the
+ * launcher and served to the game by the launcher. A Microsoft account owns
+ * nothing here - its skin lives at Mojang, and the buttons that touch it write
+ * there immediately rather than on Save, because Cancel could not undo a
+ * network write and pretending otherwise would be worse than not offering it.
  */
 public final class AccountDialog {
-
-    /** Edge length of the head preview, in pixels. */
-    private static final double HEAD = 72;
 
     /** What the dialog came back with, or empty when it was cancelled. */
     public record Result(SkinProfile skin) {
@@ -66,16 +74,18 @@ public final class AccountDialog {
 
     private SkinProfile profile;
 
-    private final StackPane skinPreview = new StackPane();
-    private final StackPane capePreview = new StackPane();
-    private final Label sourceNote = new Label();
+    private final SkinViewer viewer = new SkinViewer();
     private final TextField serviceField = new TextField();
     private final ComboBox<SkinProfile.Model> modelBox = new ComboBox<>();
     private final ComboBox<MinecraftSkinApi.Cape> capeBox = new ComboBox<>();
+    private final Label sourceNote = new Label();
     private final Label status = new Label();
 
     private final RadioButton localSource = new RadioButton();
     private final RadioButton remoteSource = new RadioButton();
+
+    /** The skin held at Mojang, for a premium account. Drawn, never stored. */
+    private Image remoteSkin;
 
     public AccountDialog(Account account, SkinStore store) {
         this.account = account;
@@ -95,55 +105,68 @@ public final class AccountDialog {
                 ButtonBar.ButtonData.CANCEL_CLOSE);
         dialog.getDialogPane().getButtonTypes().addAll(save, cancel);
         dialog.getDialogPane().setContent(build(owner));
-        dialog.getDialogPane().setPrefWidth(560);
         Theme.apply(dialog.getDialogPane());
 
-        if (dialog.showAndWait().filter(button -> button == save).isEmpty()) {
-            return Optional.empty();
+        try {
+            if (dialog.showAndWait().filter(button -> button == save).isEmpty()) {
+                return Optional.empty();
+            }
+        } finally {
+            // The figure turns on a frame timer, which would otherwise keep
+            // running for the life of the launcher once this window has gone.
+            viewer.stop();
         }
         return Optional.of(new Result(collect()));
     }
 
-    private GridPane build(Window owner) {
-        GridPane grid = new GridPane();
-        grid.getStyleClass().add("form");
-        grid.setHgap(12);
-        grid.setVgap(12);
-        grid.setPadding(new Insets(18, 18, 8, 18));
-
-        ColumnConstraints labels = new ColumnConstraints();
-        labels.setMinWidth(120);
-        ColumnConstraints fields = new ColumnConstraints();
-        fields.setHgrow(Priority.ALWAYS);
-        fields.setFillWidth(true);
-        grid.getColumnConstraints().addAll(labels, fields);
-
-        int row = 0;
+    private HBox build(Window owner) {
+        VBox form = new VBox(14);
+        form.setPadding(new Insets(18, 18, 8, 18));
+        form.setMinWidth(330);
+        form.setPrefWidth(340);
 
         Label name = new Label(account.username());
         name.getStyleClass().add("detail-title");
         Label kind = new Label(I18n.t(account.isOffline()
                 ? "account.kind.offline" : "account.kind.microsoft"));
         kind.getStyleClass().add("muted");
-        grid.addRow(row++, formLabel(I18n.t("label.account")), new VBox(2, name, kind));
+        form.getChildren().add(new VBox(2, name, kind));
 
-        // ------------------------------------------------------------ skin
-        for (StackPane preview : List.of(skinPreview, capePreview)) {
-            preview.getStyleClass().add("detail-icon");
-            preview.setMinSize(HEAD, HEAD);
-            preview.setPrefSize(HEAD, HEAD);
-            preview.setMaxSize(HEAD, HEAD);
+        form.getChildren().addAll(new Separator(), skinSection(owner));
+        form.getChildren().addAll(new Separator(), capeSection(owner));
+        form.getChildren().addAll(new Separator(), sourceSection());
+
+        status.getStyleClass().add("muted");
+        status.setWrapText(true);
+        status.setMinHeight(Region.USE_PREF_SIZE);
+        form.getChildren().add(status);
+
+        HBox root = new HBox(form);
+        root.getChildren().add(0, viewer);
+        VBox.setVgrow(viewer, Priority.ALWAYS);
+        HBox.setHgrow(form, Priority.ALWAYS);
+        viewer.setPrefHeight(430);
+
+        refresh();
+        if (!account.isOffline()) {
+            loadPremiumProfile();
         }
+        return root;
+    }
 
-        Button chooseSkin = new Button(I18n.t("account.skin.choose"));
-        chooseSkin.setOnAction(event -> pick(owner, false));
-        Button clearSkin = new Button(I18n.t("account.skin.clear"));
-        clearSkin.setOnAction(event -> {
+    // ------------------------------------------------------------------ sections
+
+    private VBox skinSection(Window owner) {
+        Button choose = new Button(I18n.t("account.skin.choose"));
+        choose.setOnAction(event -> pick(owner, false));
+        Button clear = new Button(I18n.t("account.skin.clear"));
+        clear.setOnAction(event -> {
             profile = profile.withSkin(null);
             refresh();
         });
 
         modelBox.getItems().setAll(SkinProfile.Model.values());
+        modelBox.setMaxWidth(Double.MAX_VALUE);
         modelBox.setConverter(new StringConverter<>() {
             @Override
             public String toString(SkinProfile.Model model) {
@@ -157,77 +180,64 @@ public final class AccountDialog {
             }
         });
         modelBox.valueProperty().addListener((observable, previous, value) -> {
-            if (value != null) {
+            if (value != null && value != profile.model()) {
                 profile = profile.withModel(value);
+                refresh();
             }
         });
 
-        HBox skinRow = new HBox(10, skinPreview,
-                new VBox(6, new HBox(6, chooseSkin, clearSkin), modelBox));
-        skinRow.setAlignment(Pos.CENTER_LEFT);
-        grid.addRow(row++, formLabel(I18n.t("account.skin")), skinRow);
+        VBox box = new VBox(8, title("account.skin"), new HBox(6, choose, clear), modelBox);
+        if (!account.isOffline()) {
+            Button upload = new Button(I18n.t("account.skin.upload"));
+            upload.setOnAction(event -> uploadSkin());
+            box.getChildren().addAll(upload, note("account.skin.premium.note"));
+        }
+        return box;
+    }
 
-        // ------------------------------------------------------------ cape
+    private VBox capeSection(Window owner) {
         if (account.isOffline()) {
-            Button chooseCape = new Button(I18n.t("account.skin.choose"));
-            chooseCape.setOnAction(event -> pick(owner, true));
-            Button clearCape = new Button(I18n.t("account.skin.clear"));
-            clearCape.setOnAction(event -> {
+            Button choose = new Button(I18n.t("account.skin.choose"));
+            choose.setOnAction(event -> pick(owner, true));
+            Button clear = new Button(I18n.t("account.skin.clear"));
+            clear.setOnAction(event -> {
                 profile = profile.withCape(null);
                 refresh();
             });
-            HBox capeRow = new HBox(10, capePreview, new HBox(6, chooseCape, clearCape));
-            capeRow.setAlignment(Pos.CENTER_LEFT);
-            grid.addRow(row++, formLabel(I18n.t("account.cape")), capeRow);
-        } else {
-            capeBox.setMaxWidth(Double.MAX_VALUE);
-            Button apply = new Button(I18n.t("account.cape.apply"));
-            apply.setOnAction(event -> applyCape());
-            HBox capeRow = new HBox(6, capeBox, apply);
-            HBox.setHgrow(capeBox, Priority.ALWAYS);
-            capeRow.setAlignment(Pos.CENTER_LEFT);
-            grid.addRow(row++, formLabel(I18n.t("account.cape")), capeRow);
-            grid.addRow(row++, new Label(), note("account.cape.note"));
+            return new VBox(8, title("account.cape"), new HBox(6, choose, clear));
         }
 
-        // ------------------------------------------------------------ source
-        if (account.isOffline()) {
-            ToggleGroup group = new ToggleGroup();
-            localSource.setToggleGroup(group);
-            remoteSource.setToggleGroup(group);
-            localSource.setText(I18n.t("account.source.local"));
-            remoteSource.setText(I18n.t("account.source.remote"));
-            group.selectedToggleProperty().addListener((observable, previous, value) -> refreshSource());
+        capeBox.setMaxWidth(Double.MAX_VALUE);
+        Button apply = new Button(I18n.t("account.cape.apply"));
+        apply.setOnAction(event -> applyCape());
+        HBox row = new HBox(6, capeBox, apply);
+        HBox.setHgrow(capeBox, Priority.ALWAYS);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return new VBox(8, title("account.cape"), row, note("account.cape.note"));
+    }
 
-            serviceField.setPromptText("https://littleskin.cn/api/yggdrasil");
-            serviceField.setMaxWidth(Double.MAX_VALUE);
-
-            sourceNote.getStyleClass().add("muted");
-            sourceNote.setWrapText(true);
-            sourceNote.setMaxWidth(380);
-            sourceNote.setMinHeight(Region.USE_PREF_SIZE);
-
-            VBox sourceBox = new VBox(8, localSource, remoteSource, serviceField, sourceNote);
-            grid.addRow(row++, formLabel(I18n.t("account.source")), sourceBox);
-        } else {
-            grid.addRow(row++, new Label(), note("account.skin.premium.note"));
-
-            Button upload = new Button(I18n.t("account.skin.upload"));
-            upload.setOnAction(event -> uploadSkin());
-            grid.addRow(row++, new Label(), upload);
-        }
-
-        status.getStyleClass().add("muted");
-        status.setWrapText(true);
-        status.setMaxWidth(380);
-        status.setMinHeight(Region.USE_PREF_SIZE);
-        grid.addRow(row, new Label(), status);
-
-        refresh();
+    private VBox sourceSection() {
         if (!account.isOffline()) {
-            loadPremiumProfile();
+            // A licensed account has one source and no choice about it, so there
+            // is nothing here to ask.
+            return new VBox();
         }
-        return grid;
+        ToggleGroup group = new ToggleGroup();
+        localSource.setToggleGroup(group);
+        remoteSource.setToggleGroup(group);
+        localSource.setText(I18n.t("account.source.local"));
+        remoteSource.setText(I18n.t("account.source.remote"));
+        group.selectedToggleProperty().addListener((observable, previous, value) -> refreshSource());
+
+        serviceField.setPromptText("https://littleskin.cn/api/yggdrasil");
+        serviceField.setMaxWidth(Double.MAX_VALUE);
+
+        sourceNote.getStyleClass().add("muted");
+        sourceNote.setWrapText(true);
+        sourceNote.setMinHeight(Region.USE_PREF_SIZE);
+
+        return new VBox(8, title("account.source"), localSource, remoteSource,
+                serviceField, sourceNote);
     }
 
     // ------------------------------------------------------------------ actions
@@ -251,14 +261,6 @@ public final class AccountDialog {
         }
     }
 
-    /**
-     * Uploads to Mojang, immediately, rather than on Save.
-     *
-     * <p>Because it is not this dialog's state being edited: it is an account
-     * at Mojang. A button that silently deferred a network write until Save
-     * would leave the user unsure whether it had happened, and Cancel unable to
-     * undo it either way.
-     */
     private void uploadSkin() {
         Path file = store.file(profile.skin());
         if (file == null) {
@@ -285,21 +287,35 @@ public final class AccountDialog {
         });
     }
 
+    /**
+     * Reads what Mojang holds, and draws it.
+     *
+     * <p>The sheet is fetched on the worker thread rather than handed to the
+     * scene as a lazily loading image: a half-loaded sheet has no pixels to read
+     * yet, and the figure would be built out of an empty texture and never
+     * rebuilt.
+     */
     private void loadPremiumProfile() {
         run(() -> {
             MinecraftSkinApi.Profile fetched = MinecraftSkinApi.read(account);
+            Image sheet = fetched.skinUrl() == null ? null : new Image(fetched.skinUrl());
             javafx.application.Platform.runLater(() -> {
                 capeBox.getItems().setAll(fetched.capes());
-                capeBox.getItems().add(0, new MinecraftSkinApi.Cape("", I18n.t("account.cape.none"), false));
+                capeBox.getItems().add(0,
+                        new MinecraftSkinApi.Cape("", I18n.t("account.cape.none"), false));
                 fetched.capes().stream().filter(MinecraftSkinApi.Cape::active).findFirst()
-                        .ifPresentOrElse(capeBox::setValue, () -> capeBox.getSelectionModel().selectFirst());
-                modelBox.setValue(fetched.model());
+                        .ifPresentOrElse(capeBox::setValue,
+                                () -> capeBox.getSelectionModel().selectFirst());
+                profile = profile.withModel(fetched.model());
+                if (sheet != null && !sheet.isError()) {
+                    remoteSkin = sheet;
+                }
+                refresh();
             });
             return "";
         });
     }
 
-    /** Anything that talks to Mojang, off the interface thread. */
     private void run(NetworkTask task) {
         Thread worker = new Thread(() -> {
             String message;
@@ -341,54 +357,39 @@ public final class AccountDialog {
         modelBox.setValue(profile.model());
         localSource.setSelected(profile.source() == SkinProfile.Source.LOCAL);
         remoteSource.setSelected(profile.source() == SkinProfile.Source.REMOTE);
-        serviceField.setText(profile.service());
-        show(skinPreview, store.file(profile.skin()), true);
-        show(capePreview, store.file(profile.cape()), false);
+        if (serviceField.getText() == null || serviceField.getText().isBlank()) {
+            serviceField.setText(profile.service());
+        }
         refreshSource();
+
+        // Deliberately independent of which service was chosen: this is a
+        // picture of the files in front of the user.
+        Image skin = load(store.file(profile.skin()));
+        if (skin == null) {
+            skin = remoteSkin;
+        }
+        viewer.show(skin, load(store.file(profile.cape())),
+                profile.model() == SkinProfile.Model.SLIM);
     }
 
     private void refreshSource() {
         boolean remote = remoteSource.isSelected();
         serviceField.setDisable(!remote);
-        sourceNote.setText(I18n.t(remote ? "account.source.remote.note" : "account.source.local.note"));
+        sourceNote.setText(I18n.t(remote
+                ? "account.source.remote.note" : "account.source.local.note"));
     }
 
-    /**
-     * The preview.
-     *
-     * <p>For a skin it is the head: the 8x8 face at (8,8) with the hat layer
-     * over it, scaled up with no smoothing. That is the part of a skin somebody
-     * recognises, and showing the whole sheet - which is mostly blank and
-     * upside-down limbs - identifies nothing.
-     */
-    private static void show(StackPane target, Path file, boolean head) {
-        target.getChildren().clear();
+    private static Image load(Path file) {
         if (file == null) {
-            return;
+            return null;
         }
         Image image = new Image(file.toUri().toString(), false);
-        if (image.isError() || image.getWidth() <= 0) {
-            return;
-        }
-        ImageView view = new ImageView(image);
-        view.setSmooth(false);
-        if (head && image.getWidth() >= 64) {
-            double scale = image.getWidth() / 64.0;
-            view.setViewport(new javafx.geometry.Rectangle2D(
-                    8 * scale, 8 * scale, 8 * scale, 8 * scale));
-            view.setFitWidth(HEAD - 12);
-            view.setFitHeight(HEAD - 12);
-        } else {
-            view.setFitWidth(HEAD - 12);
-            view.setFitHeight(HEAD - 12);
-            view.setPreserveRatio(true);
-        }
-        target.getChildren().add(view);
+        return image.isError() || image.getWidth() <= 0 ? null : image;
     }
 
-    private static Label formLabel(String text) {
-        Label label = new Label(text);
-        label.getStyleClass().add("form-label");
+    private static Label title(String key) {
+        Label label = new Label(I18n.t(key));
+        label.getStyleClass().add("section-title");
         return label;
     }
 
@@ -396,7 +397,6 @@ public final class AccountDialog {
         Label label = new Label(I18n.t(key));
         label.getStyleClass().add("muted");
         label.setWrapText(true);
-        label.setMaxWidth(380);
         label.setMinHeight(Region.USE_PREF_SIZE);
         return label;
     }

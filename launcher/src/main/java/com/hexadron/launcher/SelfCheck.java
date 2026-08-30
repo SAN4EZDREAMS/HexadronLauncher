@@ -38,6 +38,7 @@ import com.hexadron.launcher.profile.Profile;
 import com.hexadron.launcher.profile.ProfileLayout;
 import com.hexadron.launcher.skin.LocalSkinService;
 import com.hexadron.launcher.skin.PngSize;
+import com.hexadron.launcher.skin.SkinLayout;
 import com.hexadron.launcher.skin.SkinProfile;
 import com.hexadron.launcher.skin.SkinSession;
 import com.hexadron.launcher.skin.SkinStore;
@@ -107,6 +108,7 @@ public final class SelfCheck {
         verificationLedger();
         nativesReuse();
         skins();
+        skinLayout();
         translations();
 
         System.out.println();
@@ -1928,6 +1930,7 @@ public final class SelfCheck {
                 "account.source.remote",
                 "account.source.remote.note",
                 "account.busy",
+                "account.preview.empty", "account.preview.left", "account.preview.right", "account.preview.in", "account.preview.out",
                 "editor.icon", "editor.icon.note", "icon.title", "icon.choose",
                 "icon.clear", "icon.filter", "icon.failed", "icon.set",
                 "grid.addColumn", "grid.removeColumn", "grid.addRow", "grid.removeRow",
@@ -3196,6 +3199,117 @@ public final class SelfCheck {
         } finally {
             connection.disconnect();
         }
+    }
+
+    /**
+     * Where every rectangle of a skin sheet goes on the figure.
+     *
+     * <p>This is the part of the 3D preview that cannot be reviewed by looking
+     * at it. A wrong rectangle does not crash and does not look broken - it puts
+     * a hand on a shin, or the back of a head on the front, and in a model that
+     * is slowly turning nobody catches it. As numbers it is trivial: no two
+     * parts may claim the same pixel, and every side must be the size of the
+     * face it covers.
+     */
+    private static void skinLayout() {
+        section("Skin layout");
+
+        for (boolean slim : new boolean[]{false, true}) {
+            String what = slim ? "slim" : "classic";
+            List<SkinLayout.Part> parts = SkinLayout.player(slim);
+
+            check(what + ": the figure is head, body, two arms, two legs, and their overlays",
+                    parts.size() == 12);
+
+            // Every part claims its own pixels. One shifted block and two parts
+            // wear the same rectangle - which is the whole failure mode.
+            boolean[][] claimed = new boolean[SkinLayout.SHEET][SkinLayout.SHEET];
+            boolean overlap = false;
+            boolean outside = false;
+            boolean wrongSize = false;
+
+            for (SkinLayout.Part part : parts) {
+                for (SkinLayout.Rect rect : sides(part.faces())) {
+                    if (rect.u0() < 0 || rect.v0() < 0
+                            || rect.u1() > SkinLayout.SHEET || rect.v1() > SkinLayout.SHEET) {
+                        outside = true;
+                        continue;
+                    }
+                    for (int v = rect.v0(); v < rect.v1(); v++) {
+                        for (int u = rect.u0(); u < rect.u1(); u++) {
+                            if (claimed[v][u]) {
+                                overlap = true;
+                            }
+                            claimed[v][u] = true;
+                        }
+                    }
+                }
+
+                int w = (int) part.width();
+                int h = (int) part.height();
+                int d = (int) part.depth();
+                SkinLayout.Faces faces = part.faces();
+                wrongSize |= faces.front().width() != w || faces.front().height() != h;
+                wrongSize |= faces.back().width() != w || faces.back().height() != h;
+                wrongSize |= faces.left().width() != d || faces.left().height() != h;
+                wrongSize |= faces.right().width() != d || faces.right().height() != h;
+                wrongSize |= faces.top().width() != w || faces.top().height() != d;
+                wrongSize |= faces.bottom().width() != w || faces.bottom().height() != d;
+            }
+
+            check(what + ": every rectangle is on the sheet", !outside);
+            check(what + ": no two parts claim the same pixel", !overlap);
+            check(what + ": every side is the size of the face it covers", !wrongSize);
+
+            SkinLayout.Part rightArm = named(parts, "rightArm");
+            SkinLayout.Part leftArm = named(parts, "leftArm");
+            check(what + ": the arms are " + (slim ? 3 : 4) + " pixels wide",
+                    rightArm.width() == (slim ? 3 : 4) && leftArm.width() == rightArm.width());
+            check(what + ": and they are different rectangles",
+                    !rightArm.faces().front().equals(leftArm.faces().front()));
+
+            // Facing the camera, a right hand is on the viewer's left.
+            check(what + ": the right arm is on the viewer's left",
+                    rightArm.x() < 0 && leftArm.x() > 0);
+            check(what + ": and the legs are the same way round",
+                    named(parts, "rightLeg").x() < 0 && named(parts, "leftLeg").x() > 0);
+
+            // Y runs down, so a smaller number is higher up.
+            check(what + ": the head is above the body, and the body above the legs",
+                    named(parts, "head").y() < named(parts, "body").y()
+                            && named(parts, "body").y() < named(parts, "leftLeg").y());
+
+            check(what + ": the hat sits on the head",
+                    named(parts, "hat").x() == named(parts, "head").x()
+                            && named(parts, "hat").y() == named(parts, "head").y());
+            check(what + ": and comes from the other half of the sheet",
+                    named(parts, "hat").faces().front().u0()
+                            - named(parts, "head").faces().front().u0() == 32);
+        }
+
+        SkinLayout.Part cape = SkinLayout.cape();
+        check("the cape is ten by sixteen, one thick",
+                cape.width() == 10 && cape.height() == 16 && cape.depth() == 1);
+        check("and hangs off the back",
+                cape.z() > 0);
+        // The side a bystander sees is the one pointing away from the player.
+        check("its outward side carries the outer rectangle",
+                cape.faces().back().u0() == 1 && cape.faces().front().u0() == 12);
+
+        boolean capeOnSheet = true;
+        for (SkinLayout.Rect rect : sides(cape.faces())) {
+            capeOnSheet &= rect.u1() <= 22 && rect.v1() <= 17;
+        }
+        check("and every rectangle fits the smallest cape sheet there is", capeOnSheet);
+    }
+
+    private static SkinLayout.Part named(List<SkinLayout.Part> parts, String name) {
+        return parts.stream().filter(part -> part.name().equals(name)).findFirst().orElseThrow();
+    }
+
+    private static List<SkinLayout.Rect> sides(SkinLayout.Faces faces) {
+        return List.of(faces.top(), faces.bottom(), faces.right(),
+                faces.front(), faces.left(), faces.back());
     }
 
     private static void section(String name) {

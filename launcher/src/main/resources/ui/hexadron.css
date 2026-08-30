@@ -316,6 +316,32 @@
     -fx-opacity: 0.72;
 }
 
+/* --------------------------------------------------------------- skin viewer */
+
+.skin-viewer {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+}
+
+/* Small, round and quiet: they sit over the figure, so anything with weight to
+   it would compete with the thing it is there to turn. */
+.viewer-button {
+    -fx-background-color: rgba(20, 22, 26, 0.72);
+    -fx-background-radius: 14;
+    -fx-text-fill: -fx-text-0;
+    -fx-font-size: 13px;
+    -fx-min-width: 28;
+    -fx-min-height: 28;
+    -fx-padding: 0;
+}
+
+.viewer-button:hover {
+    -fx-background-color: -fx-base-3;
+}
+
 /* ------------------------------------------------------------------ footer */
 
 .footer {
