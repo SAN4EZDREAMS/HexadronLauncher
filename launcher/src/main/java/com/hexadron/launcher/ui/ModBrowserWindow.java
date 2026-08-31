@@ -3,7 +3,7 @@ package com.hexadron.launcher.ui;
 import com.hexadron.launcher.core.LauncherService;
 import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.install.loader.LoaderType;
-import com.hexadron.launcher.mods.InstalledMod;
+import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.ModInstaller;
 import com.hexadron.launcher.mods.ModLibrary;
 import com.hexadron.launcher.mods.ModOrigin;
@@ -19,6 +19,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
@@ -91,8 +92,19 @@ public final class ModBrowserWindow {
     private final Label browseEmpty = new Label();
     private final Button moreButton = new Button();
 
-    private final ListView<InstalledMod> installedList = new ListView<>();
+    private final ListView<ModEntry> installedList = new ListView<>();
     private final Label installedEmpty = new Label();
+
+    /**
+     * Asks Modrinth what the jars the launcher did not install actually are.
+     *
+     * <p>A button rather than something the window does when it opens. The
+     * question is asked by sending a digest of every unrecognised file in the
+     * player's mods folder to a third party, and a launcher does not do that
+     * because a window was opened.
+     */
+    private final Button identifyButton = new Button();
+    private final Label identifyNote = new Label();
 
     private final Tab browseTab = new Tab();
     private final Tab installedTab = new Tab();
@@ -354,10 +366,24 @@ public final class ModBrowserWindow {
         installedList.setCellFactory(view -> new InstalledCell());
         installedList.setPlaceholder(installedEmpty);
         VBox.setVgrow(installedList, Priority.ALWAYS);
-        VBox pane = new VBox(10, installedList);
+
+        identifyNote.getStyleClass().add("muted");
+        identifyNote.setWrapText(true);
+        HBox.setHgrow(identifyNote, Priority.ALWAYS);
+        identifyButton.setOnAction(event -> identifyExternal());
+        HBox identifyRow = new HBox(8, identifyNote, identifyButton);
+        identifyRow.setAlignment(Pos.CENTER_LEFT);
+        identifyRow.setVisible(false);
+        identifyRow.setManaged(false);
+        this.identifyRow = identifyRow;
+
+        VBox pane = new VBox(10, identifyRow, installedList);
         pane.getStyleClass().add("browse-pane");
         return pane;
     }
+
+    /** Holds the identify button, so it can be hidden when there is nothing to ask about. */
+    private HBox identifyRow;
 
     private VBox buildFooter() {
         progressBar.setMaxWidth(Double.MAX_VALUE);
@@ -377,12 +403,13 @@ public final class ModBrowserWindow {
 
     /** A search hit: name, author and downloads, description, and one action. */
     private final class ResultCell extends ListCell<ModProvider.SearchResult> {
+        private final ModIcons.Tile icon = new ModIcons.Tile(40);
         private final Label name = new Label();
         private final Label meta = new Label();
         private final Label description = new Label();
         private final Button action = new Button();
         private final VBox text = new VBox(2, name, meta, description);
-        private final HBox box = new HBox(12, text, spacer(), action);
+        private final HBox box = new HBox(12, icon, text, spacer(), action);
 
         ResultCell() {
             name.getStyleClass().add("instance-name");
@@ -402,6 +429,7 @@ public final class ModBrowserWindow {
                 setText(null);
                 return;
             }
+            icon.show(hit.iconUrl(), hit.title());
             name.setText(hit.title());
             meta.setText(hit.source().displayName()
                     + (hit.author() == null || hit.author().isBlank() ? "" : "  ·  " + hit.author())
@@ -420,50 +448,87 @@ public final class ModBrowserWindow {
         }
     }
 
-    /** An installed mod: what it is, where it came from, and whether it may go. */
-    private final class InstalledCell extends ListCell<InstalledMod> {
+    /**
+     * One mod in the folder: what it is, where it came from, and what may be
+     * done to it.
+     *
+     * <p>The row is the same shape whether the launcher downloaded the mod or
+     * the player dropped it in, because to the person reading it they are the
+     * same thing - a mod that is installed. What differs is the badge, and which
+     * of the three buttons are available.
+     */
+    private final class InstalledCell extends ListCell<ModEntry> {
+        private final ModIcons.Tile icon = new ModIcons.Tile(40);
         private final Label name = new Label();
         private final Label meta = new Label();
+        private final Label description = new Label();
         private final Label badge = new Label();
+        private final Hyperlink page = new Hyperlink();
+        private final Button toggle = new Button();
         private final Button remove = new Button();
-        private final VBox text = new VBox(2, name, meta);
-        private final HBox box = new HBox(12, text, spacer(), badge, remove);
+        private final VBox text = new VBox(2, name, meta, description);
+        private final HBox buttons = new HBox(6, page, toggle, remove);
+        private final HBox box = new HBox(12, icon, text, spacer(), badge, buttons);
 
         InstalledCell() {
             name.getStyleClass().add("instance-name");
             meta.getStyleClass().add("instance-subtitle");
+            description.getStyleClass().add("instance-subtitle");
+            description.setWrapText(true);
+            description.setMaxWidth(460);
             badge.getStyleClass().add("badge");
             box.setAlignment(Pos.CENTER_LEFT);
+            buttons.setAlignment(Pos.CENTER_RIGHT);
             HBox.setHgrow(text, Priority.ALWAYS);
         }
 
         @Override
-        protected void updateItem(InstalledMod mod, boolean empty) {
+        protected void updateItem(ModEntry mod, boolean empty) {
             super.updateItem(mod, empty);
             if (empty || mod == null) {
                 setGraphic(null);
                 setText(null);
                 return;
             }
-            name.setText(mod.title());
-            meta.setText(mod.file().fileName());
+            icon.show(mod);
+            name.setText(mod.title() + (mod.version() == null ? "" : "  " + mod.version()));
 
-            badge.setText(switch (mod.origin()) {
-                case PACK -> I18n.t("mods.origin.pack");
-                case DEPENDENCY -> I18n.t("mods.origin.dependency");
-                case MANUAL -> I18n.t("mods.origin.manual");
-            });
-            badge.getStyleClass().removeAll("badge-pack");
-            if (mod.origin() == ModOrigin.PACK) {
+            // The file name is on the line either way. For a mod the launcher
+            // installed it is the answer to "which of these jars is that"; for
+            // one the player dropped in it is often all there is to go on, and
+            // it is what they will look for in the folder.
+            String author = mod.authorLine();
+            meta.setText(author == null ? mod.fileName() : author + "  ·  " + mod.fileName());
+            description.setText(mod.description() == null ? "" : mod.description());
+            description.setVisible(mod.description() != null);
+            description.setManaged(mod.description() != null);
+
+            badge.setText(MainWindow.badgeFor(mod));
+            badge.getStyleClass().removeAll("badge-pack", "badge-off");
+            if (!mod.enabled()) {
+                badge.getStyleClass().add("badge-off");
+            } else if (mod.origin() == ModOrigin.PACK) {
                 badge.getStyleClass().add("badge-pack");
             }
+
+            // Hidden rather than disabled: a mod that published no page has
+            // nothing behind this button, and a permanently dead one in every
+            // row reads as a launcher that is broken.
+            page.setText(I18n.t("mods.details"));
+            page.setVisible(mod.hasPage());
+            page.setManaged(mod.hasPage());
+            page.setOnAction(event -> openPage(mod));
+
+            toggle.setText(I18n.t(mod.enabled() ? "mods.disable" : "mods.enable"));
+            toggle.setDisable(busy);
+            toggle.setOnAction(event -> toggleMod(mod));
 
             remove.setText(I18n.t("mods.remove"));
             remove.getStyleClass().removeAll("danger");
             remove.getStyleClass().add("danger");
             // A pack goes out whole, through its own button in the header.
-            remove.setDisable(!mod.origin().isRemovableAlone() || busy);
-            remove.setTooltip(mod.origin().isRemovableAlone()
+            remove.setDisable(!mod.isRemovable() || busy);
+            remove.setTooltip(mod.isRemovable()
                     ? null
                     : new javafx.scene.control.Tooltip(I18n.t("mods.remove.packLocked")));
             remove.setOnAction(event -> removeMod(mod));
@@ -542,8 +607,7 @@ public final class ModBrowserWindow {
 
     private void installMod(ModProvider.SearchResult hit) {
         mutate(I18n.t("mods.task.install", hit.title()), () -> {
-            ModInstaller.Result result = service.installMod(
-                    profile, hit.source(), hit.projectId(), hit.title(), progress);
+            ModInstaller.Result result = service.installMod(profile, hit.card(), progress);
             Platform.runLater(() -> {
                 refreshInstalled();
                 progress.done(I18n.t("mods.installedCount", result.installed().size()));
@@ -556,19 +620,81 @@ public final class ModBrowserWindow {
         });
     }
 
-    private void removeMod(InstalledMod mod) {
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, I18n.t("mods.remove.body", mod.title()));
+    /**
+     * Removes one mod.
+     *
+     * <p>Two different things behind one button, and the dialog says which. A
+     * mod the launcher downloaded is deleted and can be installed again from the
+     * record it keeps. A file the player put there is sent to the recycle bin,
+     * because the launcher has no idea what it was or where it came from and
+     * therefore no way to get it back.
+     */
+    private void removeMod(ModEntry mod) {
+        String body = mod.isManaged()
+                ? I18n.t("mods.remove.body", mod.title())
+                : I18n.t("mods.remove.body.external", mod.title(), mod.fileName());
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, body);
         confirm.initOwner(stage);
         Theme.apply(confirm.getDialogPane());
         confirm.setHeaderText(I18n.t("mods.remove.header"));
+        confirm.getDialogPane().setPrefWidth(520);
         if (confirm.showAndWait().filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {
             return;
         }
         mutate(I18n.t("mods.task.remove", mod.title()), () -> {
-            service.removeMod(profile, mod.key(), progress);
+            if (mod.isManaged()) {
+                service.removeMod(profile, mod.key(), progress);
+            } else {
+                service.discardExternalMod(profile, mod, progress);
+            }
             Platform.runLater(() -> {
                 refreshInstalled();
-                progress.done(I18n.t("mods.removed", mod.title()));
+                progress.done(I18n.t(mod.isManaged() ? "mods.removed" : "mods.discarded", mod.title()));
+            });
+        });
+    }
+
+    /**
+     * Switches a mod on or off.
+     *
+     * <p>By renaming the file, which is what the loader looks at, so the answer
+     * is the same one the game will give. Kept rather than removed: a mod
+     * switched off to test a crash is meant to come back.
+     */
+    private void toggleMod(ModEntry mod) {
+        boolean enable = !mod.enabled();
+        mutate(I18n.t(enable ? "mods.task.enable" : "mods.task.disable", mod.title()), () -> {
+            service.setModEnabled(profile, mod, enable);
+            Platform.runLater(() -> {
+                refreshInstalled();
+                progress.done(I18n.t(enable ? "mods.enabled" : "mods.disabled", mod.title()));
+            });
+        });
+    }
+
+    /** Opens the mod's page in the user's own browser. */
+    private void openPage(ModEntry mod) {
+        if (!SystemBrowser.open(mod.pageUrl())) {
+            // The address is shown rather than swallowed: on a session with no
+            // desktop integration, copying it is the whole of the workaround.
+            warn(I18n.t("mods.details"), I18n.t("mods.details.failed", mod.pageUrl()));
+        }
+    }
+
+    /**
+     * Asks Modrinth to put names and logos to the jars the player added.
+     *
+     * <p>Nothing in the folder is changed by this and nothing becomes
+     * launcher-managed: the answers are written to a separate index beside the
+     * lock file, and a mod that is recognised is still the player's to keep or
+     * remove.
+     */
+    private void identifyExternal() {
+        mutate(I18n.t("mods.task.identify"), () -> {
+            int recognised = service.identifyExternalMods(profile, progress);
+            Platform.runLater(() -> {
+                refreshInstalled();
+                progress.done(I18n.t("mods.identified", recognised));
             });
         });
     }
@@ -606,10 +732,17 @@ public final class ModBrowserWindow {
     // ---------------------------------------------------------------- state
 
     private void refreshInstalled() {
+        // Two reads, and they answer different questions. The library says which
+        // projects are installed, which is what greys out an Install button in
+        // the browse tab; the scan says what is actually in the folder, which is
+        // what the installed tab lists - and the two differ by exactly the mods
+        // the launcher did not put there.
         library = service.installedMods(profile);
-        installedList.setItems(FXCollections.observableArrayList(library.all()));
+        java.util.List<ModEntry> mods = service.modsIn(profile);
+        installedList.setItems(FXCollections.observableArrayList(mods));
         installedEmpty.setText(I18n.t("mods.installed.empty"));
-        installedTab.setText(I18n.t("mods.tab.installed", library.size()));
+        installedTab.setText(I18n.t("mods.tab.installed", mods.size()));
+        updateIdentifyRow(mods);
         browseTab.setText(I18n.t("mods.tab.browse"));
         searchButton.setText(I18n.t("mods.search"));
         updatePackButton();
@@ -727,9 +860,20 @@ public final class ModBrowserWindow {
         thread.start();
     }
 
+    /** Offers the lookup only while there is something in the folder to look up. */
+    private void updateIdentifyRow(java.util.List<ModEntry> mods) {
+        int pending = service.unidentifiedModCount(profile, mods);
+        identifyButton.setText(I18n.t("mods.identify"));
+        identifyButton.setDisable(busy);
+        identifyNote.setText(I18n.t("mods.identify.note", pending));
+        identifyRow.setVisible(pending > 0);
+        identifyRow.setManaged(pending > 0);
+    }
+
     private void setBusy(boolean value) {
         busy = value;
         packButton.setDisable(value || pack == null);
+        identifyButton.setDisable(value);
         resultList.refresh();
         installedList.refresh();
     }

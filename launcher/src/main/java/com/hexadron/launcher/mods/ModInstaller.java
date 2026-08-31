@@ -107,7 +107,7 @@ public final class ModInstaller {
         Files.createDirectories(modsDir);
 
         Map<String, ModFile> resolved = new LinkedHashMap<>();
-        Map<String, String> titles = new LinkedHashMap<>();
+        Map<String, ModProvider.ProjectCard> cards = new LinkedHashMap<>();
         List<String> skipped = new ArrayList<>();
         List<String> manual = new ArrayList<>();
         Set<String> visited = new LinkedHashSet<>();
@@ -186,9 +186,10 @@ public final class ModInstaller {
                         provider.source().displayName());
             }
 
-            String label = nameFor(provider, pending, modFile);
+            ModProvider.ProjectCard card = cardFor(provider, pending, modFile);
+            String label = card.title();
             resolved.put(key, modFile);
-            titles.put(key, label);
+            cards.put(key, card);
             progress.log("Resolved %s -> %s", label, modFile.fileName());
             if (pending.requiredBy() != null) {
                 progress.log("  %s is required by %s", label, pending.requiredBy());
@@ -243,7 +244,7 @@ public final class ModInstaller {
             if (library.get(key).map(mod -> mod.origin() == ModOrigin.MANUAL).orElse(false)) {
                 return;
             }
-            library.put(new InstalledMod(titles.getOrDefault(key, modFile.fileName()),
+            library.put(InstalledMod.of(cardOrFileName(cards, key, modFile),
                     modFile, ModOrigin.PACK, pack.id()));
         });
         library.write();
@@ -312,10 +313,11 @@ public final class ModInstaller {
      * is recorded as a dependency, so the installed list can explain why a mod
      * nobody asked for is present.
      */
-    public Result installMod(ModProvider.Source source, String projectId, String title,
+    public Result installMod(ModProvider.ProjectCard chosen,
                              String minecraftVersion, LoaderType loader,
                              Path modsDir, Progress progress) throws IOException, InterruptedException {
 
+        ModProvider.Source source = chosen.source();
         ModProvider provider = providers.get(source);
         if (provider == null || !provider.isAvailable()) {
             throw new IOException(source.displayName() + " is not configured");
@@ -325,13 +327,18 @@ public final class ModInstaller {
 
         Map<String, ModFile> resolved = new LinkedHashMap<>();
         Map<String, ModOrigin> origins = new LinkedHashMap<>();
-        Map<String, String> titles = new LinkedHashMap<>();
+        Map<String, ModProvider.ProjectCard> cards = new LinkedHashMap<>();
         List<String> skipped = new ArrayList<>();
         List<String> manual = new ArrayList<>();
         Set<String> visited = new LinkedHashSet<>();
 
+        // The mod the user clicked is already described by the search result they
+        // clicked it in. Asking the platform to describe it again would be a
+        // request for something the caller has in its hand.
+        cards.put(InstalledMod.keyOf(source, chosen.projectId()), chosen);
+
         Deque<Pending> queue = new ArrayDeque<>();
-        queue.add(new Pending(source, projectId, null, title, false, 0));
+        queue.add(new Pending(source, chosen.projectId(), null, chosen.title(), false, 0));
 
         while (!queue.isEmpty()) {
             Pending pending = queue.poll();
@@ -374,12 +381,15 @@ public final class ModInstaller {
                         source.displayName());
             }
 
-            String label = nameFor(provider, pending, modFile);
+            ModProvider.ProjectCard card = cards.get(key);
+            if (card == null) {
+                card = cardFor(provider, pending, modFile);
+                cards.put(key, card);
+            }
             resolved.put(key, modFile);
             origins.put(key, pending.depth == 0 ? ModOrigin.MANUAL : ModOrigin.DEPENDENCY);
-            titles.put(key, label);
             if (pending.requiredBy() != null) {
-                progress.log("%s is required by %s", label, pending.requiredBy());
+                progress.log("%s is required by %s", card.title(), pending.requiredBy());
             }
 
             for (String dependency : modFile.dependencies()) {
@@ -396,8 +406,8 @@ public final class ModInstaller {
         progress.stage("Downloading " + tasks.size() + " mod(s)");
         downloader.run(tasks, progress);
 
-        resolved.forEach((key, modFile) -> library.put(new InstalledMod(
-                titles.getOrDefault(key, modFile.fileName()),
+        resolved.forEach((key, modFile) -> library.put(InstalledMod.of(
+                cardOrFileName(cards, key, modFile),
                 modFile,
                 origins.getOrDefault(key, ModOrigin.MANUAL),
                 null)));
@@ -425,7 +435,11 @@ public final class ModInstaller {
             throw new IOException(mod.title() + " belongs to the " + mod.packId()
                     + " pack and is removed with it, not on its own");
         }
-        if (Files.deleteIfExists(modsDir.resolve(mod.file().fileName()))) {
+        // Both names, because the user may have switched the mod off since it
+        // was installed, and a rename is all that is.
+        if (Files.deleteIfExists(modsDir.resolve(mod.file().fileName()))
+                || Files.deleteIfExists(modsDir.resolve(
+                        mod.file().fileName() + ModScan.DISABLED_SUFFIX))) {
             progress.log("Removed %s", mod.file().fileName());
         }
         library.forget(key);
@@ -516,31 +530,56 @@ public final class ModInstaller {
     }
 
     /**
-     * What to call this mod in the interface.
+     * What to record about this mod, so the installed list can show it.
      *
      * <p>A mod the user chose already has the name they clicked. A dependency
      * arrives with nothing but a project id, and an installed list reading
      * "eXts2L7r" is indistinguishable from something that has no business being
-     * there - which is exactly how it was reported. So the platform is asked for
-     * the real name, and if it will not say, the file name is used: "Placeholder
-     * Api" from placeholder-api-3.1.0-beta.1+26.2.jar is not perfect, and it is
-     * still an answer.
+     * there - which is exactly how it was reported. So the platform is asked,
+     * and if it will not answer, the file name is used: "Placeholder Api" from
+     * placeholder-api-3.1.0-beta.1+26.2.jar is not perfect, and it is still an
+     * answer.
+     *
+     * <p>The same request now also returns the project's logo and page, which is
+     * why it is made for pack entries too - those already had a name and needed
+     * nothing else. One small request per mod, once, at install time, is what
+     * buys a list that can be recognised at a glance and read about afterwards
+     * without a connection.
      */
-    private String nameFor(ModProvider provider, Pending pending, ModFile file)
+    private ModProvider.ProjectCard cardFor(ModProvider provider, Pending pending, ModFile file)
             throws InterruptedException {
 
-        if (!pending.projectId().equals(pending.label())) {
-            return pending.label();
-        }
+        ModProvider.ProjectCard published = null;
         try {
-            Optional<String> published = provider.projectName(pending.projectId());
-            if (published.isPresent()) {
-                return published.get();
-            }
-        } catch (IOException e) {
-            // One unnamed mod is not worth failing an install over.
+            published = provider.project(pending.projectId()).orElse(null);
+        } catch (IOException | RuntimeException e) {
+            // One undescribed mod is not worth failing an install over. The row
+            // then shows a readable name and no logo, which is what every row
+            // looked like before there were logos.
         }
-        return readableNameFrom(file.fileName());
+        // A name the caller supplied wins over the platform's. For a pack entry
+        // that is the label the pack author chose, and for a mod the user picked
+        // it is the name they read before clicking; the platform's own title is
+        // for the case where all this arrived as a bare project id.
+        String title = pending.projectId().equals(pending.label())
+                ? (published != null ? published.title() : readableNameFrom(file.fileName()))
+                : pending.label();
+        if (published == null) {
+            return new ModProvider.ProjectCard(provider.source(), pending.projectId(),
+                    null, title, null, null);
+        }
+        return new ModProvider.ProjectCard(published.source(), published.projectId(),
+                published.slug(), title, published.iconUrl(), published.pageUrl());
+    }
+
+    /** The card for a key, or a bare one built from the file name. */
+    private static ModProvider.ProjectCard cardOrFileName(
+            Map<String, ModProvider.ProjectCard> cards, String key, ModFile file) {
+
+        ModProvider.ProjectCard card = cards.get(key);
+        return card != null ? card : new ModProvider.ProjectCard(
+                file.source(), file.projectId(), file.projectSlug(),
+                readableNameFrom(file.fileName()), null, null);
     }
 
     /**

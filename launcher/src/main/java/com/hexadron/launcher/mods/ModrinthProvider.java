@@ -58,14 +58,16 @@ public final class ModrinthProvider implements ModProvider {
         Json response = Http.getJson(url);
         List<SearchResult> results = new ArrayList<>();
         for (Json hit : response.get("hits").elements()) {
+            String slug = hit.get("slug").asString("");
             results.add(new SearchResult(
                     hit.get("project_id").asString(""),
-                    hit.get("slug").asString(""),
+                    slug,
                     hit.get("title").asString(""),
                     hit.get("description").asString(""),
                     hit.get("author").asString(""),
                     hit.get("downloads").asLong(0),
                     hit.get("icon_url").asString(null),
+                    pageUrl(slug),
                     Source.MODRINTH));
         }
         // total_hits counts every match for these facets, not just this page.
@@ -118,17 +120,39 @@ public final class ModrinthProvider implements ModProvider {
     }
 
     @Override
-    public Optional<String> projectName(String projectId) throws IOException, InterruptedException {
+    public Optional<ProjectCard> project(String projectId) throws IOException, InterruptedException {
         try {
             Json project = Http.getJson(API + "/project/" + encode(projectId));
             String title = project.get("title").asString(null);
-            return title == null || title.isBlank() ? Optional.empty() : Optional.of(title);
+            if (title == null || title.isBlank()) {
+                return Optional.empty();
+            }
+            // The slug is what the website is addressed by. The id works too and
+            // is what a dependency arrives as, so it is the fallback rather than
+            // a reason to have no link.
+            String slug = project.get("slug").asString(projectId);
+            return Optional.of(new ProjectCard(Source.MODRINTH,
+                    project.get("id").asString(projectId), slug, title,
+                    project.get("icon_url").asString(null), pageUrl(slug)));
         } catch (Http.HttpStatusException e) {
             if (e.statusCode() == 404) {
                 return Optional.empty();
             }
             throw e;
         }
+    }
+
+    /**
+     * The page a user reads about this mod on.
+     *
+     * <p>Built rather than fetched. Modrinth's search returns no link, the shape
+     * {@code modrinth.com/mod/<slug>} is what the site itself publishes, and one
+     * extra request per row to be told that is not a trade worth making.
+     */
+    public static String pageUrl(String slug) {
+        return slug == null || slug.isBlank()
+                ? null
+                : "https://modrinth.com/mod/" + encode(slug);
     }
 
     /** Resolves one exact version id, used when a pack pins a build. */
@@ -179,6 +203,70 @@ public final class ModrinthProvider implements ModProvider {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Which Modrinth project each of these files belongs to, in one request.
+     *
+     * <p>Used to work out what the jars a player copied into the folder by hand
+     * actually are. One request rather than one per file: a mods folder is
+     * routinely eighty jars, and eighty round trips is a button that appears to
+     * have hung.
+     *
+     * @param sha1s digests of the files to ask about
+     * @return digest to project id, containing only the ones Modrinth knows
+     */
+    public java.util.Map<String, String> projectsByHash(java.util.Collection<String> sha1s)
+            throws IOException, InterruptedException {
+
+        java.util.Map<String, String> found = new java.util.LinkedHashMap<>();
+        if (sha1s.isEmpty()) {
+            return found;
+        }
+        Json hashes = Json.array();
+        sha1s.forEach(hash -> hashes.add(hash.toLowerCase(Locale.ROOT)));
+        Json body = Json.object().put("hashes", hashes).put("algorithm", "sha1");
+
+        Json response = Http.postJson(API + "/version_files", body,
+                java.util.Map.of("Accept", "application/json"));
+        response.fields().forEach((hash, version) -> {
+            String projectId = version.get("project_id").asString(null);
+            if (projectId != null && !projectId.isBlank()) {
+                found.put(hash.toLowerCase(Locale.ROOT), projectId);
+            }
+        });
+        return found;
+    }
+
+    /** Several projects in one request, for the same reason as {@link #projectsByHash}. */
+    public List<ProjectCard> projects(java.util.Collection<String> projectIds)
+            throws IOException, InterruptedException {
+
+        List<ProjectCard> cards = new ArrayList<>();
+        if (projectIds.isEmpty()) {
+            return cards;
+        }
+        StringBuilder ids = new StringBuilder("[");
+        for (String id : projectIds) {
+            if (ids.length() > 1) {
+                ids.append(',');
+            }
+            ids.append('"').append(id).append('"');
+        }
+        ids.append(']');
+
+        Json response = Http.getJson(API + "/projects?ids=" + encode(ids.toString()));
+        for (Json project : response.elements()) {
+            String id = project.get("id").asString(null);
+            if (id == null) {
+                continue;
+            }
+            String slug = project.get("slug").asString(id);
+            cards.add(new ProjectCard(Source.MODRINTH, id, slug,
+                    project.get("title").asString(slug),
+                    project.get("icon_url").asString(null), pageUrl(slug)));
+        }
+        return cards;
     }
 
     private ModFile toModFile(String projectId, Json version) {

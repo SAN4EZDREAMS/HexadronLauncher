@@ -229,7 +229,11 @@ The launcher keeps all data in one folder:
 - Linux: `~/.local/share/hexadronlauncher`
 
 Libraries, assets and client jars are shared between profiles. Each profile has
-its own folder under `instances/`, so mods and worlds stay separate. Pictures
+its own folder under `instances/`, so mods and worlds stay separate. Inside a
+profile's `mods/` folder the launcher keeps two files of its own:
+`.hexadron-mods.json`, the record of what it downloaded, and
+`.hexadron-external.json`, what Modrinth said about the jars it did not. Mod
+logos are cached under `cache/mod-icons`, keyed by the digest of their address. Pictures
 chosen as instance icons are copied into `icons/`, named after their own
 content.
 
@@ -824,8 +828,8 @@ hold the launcher hostage for as long as it took.
 +--------------------------------------------------------------+
 | [ Browse ] [ Installed (5) ]                                  |
 |  [ search .......... ] [ Most popular v ] [ All sources v ]   |
-|  Sodium                    Modrinth · 40.1M downloads         |
-|  A modern rendering engine ...                    [ Install ] |
+| []  Sodium                 Modrinth · 40.1M downloads         |
+|     A modern rendering engine ...                 [ Install ] |
 |  ...                                                          |
 +--------------------------------------------------------------+
 | Searching...                                                  |
@@ -844,10 +848,74 @@ window asked for 40 results and showed 40 for every Minecraft version and every
 loader, which read as "there are 40 mods" and made a version with four thousand
 mods look identical to one with fifty.
 
-The **Installed** tab lists what the launcher put in the folder, with a badge
-saying where each file came from. The instance summary in the main window shows
-the same list, so the answer to "what does this profile actually run" is visible
-without opening anything.
+### The Installed tab
+
+The **Installed** tab lists the mods folder, not the lock file - which is a
+different list, and the difference is every jar the player dragged in
+themselves. Those used to be invisible from inside the launcher: the game loaded
+them and sometimes crashed on them, and the launcher showed nothing, because the
+only thing it read was its own record of what it had downloaded.
+
+```
++--------------------------------------------------------------+
+| [ Browse ] [ Installed (7) ]                                  |
+|  3 file(s) here were not installed by the launcher [Identify] |
+|                                                               |
+| []  Sodium  0.6.13                    Hexadron Optimise       |
+|     jellysquid3 · sodium-fabric-0.6.13.jar                    |
+|     A modern rendering engine.  [More about this mod][Off][X] |
+|                                                               |
+| []  Distant Horizons  2.3.2          user's own mod           |
+|     James Seibel · DistantHorizons-2.3.2.jar                  |
+|     Level of detail rendering.  [More about this mod][Off][X] |
++--------------------------------------------------------------+
+```
+
+Every row is the same shape whichever way the mod arrived, because to the person
+reading it they are the same thing - a mod that is installed. What differs is
+the badge and which buttons are live.
+
+- **The picture.** For a mod the launcher installed it is the project's logo
+  from Modrinth or CurseForge, recorded at install time and cached in the data
+  folder, so the list draws itself offline. For a jar the player added it is the
+  icon inside the jar - every Fabric mod and most others ship one precisely so a
+  launcher can show it. Failing both, a tile with the mod's first letter,
+  coloured from its name: not a picture of the mod, but a mark that can be told
+  apart from the one above it.
+- **Name, version, author, description.** Read out of the jar's own descriptor -
+  `fabric.mod.json`, `quilt.mod.json`, `META-INF/mods.toml`,
+  `META-INF/neoforge.mods.toml`, `mcmod.info`, or the manifest as a last resort.
+  This is the same file the loader reads to load the mod, so it is available for
+  every mod, offline, with no lookup.
+- **More about this mod** opens the project page in the user's own browser. For
+  an installed mod that is the recorded Modrinth or CurseForge page; otherwise
+  it is the homepage the jar itself publishes. The button is hidden rather than
+  disabled when there is no page, and only `http` and `https` links are ever
+  opened - the string comes out of an archive the launcher did not write.
+- **Switch off** renames the jar to `.disabled`, which is what every launcher
+  and every guide on the subject means by it and what the loader looks at. The
+  mod stays in the folder and stays in the list, marked switched off, because a
+  mod turned off to test a crash is meant to come back.
+- **Remove** deletes a mod the launcher installed, and sends a jar the player
+  added to the recycle bin instead. That difference is the point: the launcher
+  can fetch its own downloads again from the record it kept, and it has no idea
+  what the other file was or where it came from. The one irreversible deletion
+  in the program should not be the one performed on the files it knows least
+  about. Where the desktop has no recycle bin, the file goes to `mods/.removed`.
+
+**Identify** appears only while there are unrecognised jars. It sends a digest
+of each of them to Modrinth and asks which project has that exact file, which is
+how a jar the player dragged in gets its real name, its logo and its link. It is
+a button and not something the window does on opening, because reporting the
+contents of somebody's mods folder to a third party is a reasonable thing to do
+when they ask for it and an unreasonable thing to do because a window was
+opened. Answers are kept in `mods/.hexadron-external.json` - including "asked,
+and Modrinth does not have it" - so nothing is asked twice and a launcher
+started offline shows what it showed before.
+
+The instance summary in the main window shows the same list, without the
+buttons: a Remove button beside a single-click list on the front page is a mod
+deleted by accident, and the browser is one button away.
 
 ### Hexadron Optimise
 
@@ -867,7 +935,8 @@ Mods installed by hand are never touched by any of this. `mods/.hexadron-mods.js
 records who installed what - `PACK`, `MANUAL` or `DEPENDENCY` - so reinstalling
 the pack cannot delete a mod the user chose, and removing the pack cannot take
 one with it. Jars the user copied into the folder themselves are not in that
-file at all, and are never deleted, moved or reported as managed.
+file at all: they are listed, and they are removed only when the button on their
+own row is pressed. Nothing else in the launcher moves or deletes them.
 
 ## While the game runs
 

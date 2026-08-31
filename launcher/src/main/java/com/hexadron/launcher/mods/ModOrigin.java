@@ -18,7 +18,22 @@ public enum ModOrigin {
     MANUAL,
 
     /** Pulled in because something else required it. Removable, with a warning. */
-    DEPENDENCY;
+    DEPENDENCY,
+
+    /**
+     * Put there by the user, outside the launcher.
+     *
+     * <p>Never written to the lock file - the lock file is the record of what
+     * the launcher downloaded, and the whole point of this value is that nothing
+     * downloaded it. It exists so that a jar found in the folder can be shown in
+     * the same list as the rest instead of being invisible, which is what a
+     * player who copies a mod in and then cannot see it in the launcher
+     * reasonably reads as the launcher not having noticed.
+     *
+     * <p>Removable, and the only origin whose removal cannot be undone by
+     * installing it again: the launcher has no record of where it came from.
+     */
+    EXTERNAL;
 
     /** True when this entry may be removed by itself. */
     public boolean isRemovableAlone() {

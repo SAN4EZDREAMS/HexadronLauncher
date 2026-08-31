@@ -243,14 +243,16 @@ public final class CurseForgeProvider implements ModProvider {
         Json response = Http.getJson(url.toString(), headers());
         List<SearchResult> results = new ArrayList<>();
         for (Json mod : response.get("data").elements()) {
+            String slug = mod.get("slug").asString("");
             results.add(new SearchResult(
                     String.valueOf(mod.get("id").asLong(0)),
-                    mod.get("slug").asString(""),
+                    slug,
                     mod.get("name").asString(""),
                     mod.get("summary").asString(""),
                     mod.get("authors").get(0).get("name").asString(""),
                     mod.get("downloadCount").asLong(0),
                     mod.get("logo").get("thumbnailUrl").asString(null),
+                    pageUrl(mod, slug),
                     Source.CURSEFORGE));
         }
         return new SearchPage(results,
@@ -259,17 +261,43 @@ public final class CurseForgeProvider implements ModProvider {
     }
 
     @Override
-    public Optional<String> projectName(String projectId) throws IOException, InterruptedException {
+    public Optional<ProjectCard> project(String projectId) throws IOException, InterruptedException {
         try {
-            Json response = Http.getJson(API + "/mods/" + encode(projectId), headers());
-            String name = response.get("data").get("name").asString(null);
-            return name == null || name.isBlank() ? Optional.empty() : Optional.of(name);
+            Json mod = Http.getJson(API + "/mods/" + encode(projectId), headers()).get("data");
+            String name = mod.get("name").asString(null);
+            if (name == null || name.isBlank()) {
+                return Optional.empty();
+            }
+            String slug = mod.get("slug").asString("");
+            return Optional.of(new ProjectCard(Source.CURSEFORGE,
+                    String.valueOf(mod.get("id").asLong(0)), slug, name,
+                    mod.get("logo").get("thumbnailUrl").asString(null),
+                    pageUrl(mod, slug)));
         } catch (Http.HttpStatusException e) {
             if (e.statusCode() == 404) {
                 return Optional.empty();
             }
             throw e;
         }
+    }
+
+    /**
+     * The project's page on curseforge.com.
+     *
+     * <p>Taken from {@code links.websiteUrl} where the platform supplies it,
+     * because a CurseForge project is not always under {@code /mc-mods}: the
+     * same API returns modpacks, worlds and resource packs, each under its own
+     * path. The built URL is the fallback for the case where that field is
+     * absent, and it is right for the class this provider asks for.
+     */
+    private static String pageUrl(Json mod, String slug) {
+        String published = mod.get("links").get("websiteUrl").asString(null);
+        if (published != null && !published.isBlank()) {
+            return published.trim();
+        }
+        return slug == null || slug.isBlank()
+                ? null
+                : "https://www.curseforge.com/minecraft/mc-mods/" + encode(slug);
     }
 
     @Override

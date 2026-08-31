@@ -584,6 +584,40 @@
     -fx-text-fill: white;
 }
 
+/* A switched-off mod is present but not loaded, which is neither "installed"
+   nor "gone". The badge is drawn hollow so the row reads as inactive at a
+   glance rather than needing the word to be read. */
+.badge-off {
+    -fx-background-color: transparent;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-text-fill: -fx-text-1;
+}
+
+/* ------------------------------------------------------------- mod icons */
+
+/*
+ * The tile beside a mod. It is a square with the mod's first letter on it,
+ * coloured from the name, and the logo is laid over it once one has been
+ * fetched or read out of the jar. Drawing the letter first rather than leaving
+ * a gap is what stops a list from flickering into place as pictures arrive.
+ */
+.mod-icon {
+    -fx-background-radius: 8;
+    -fx-min-width: 24;
+    -fx-min-height: 24;
+}
+
+.mod-icon .image-view {
+    -fx-background-radius: 8;
+}
+
+.mod-icon-letter {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
 /* ------------------------------------------------------------------ splash */
 
 /*

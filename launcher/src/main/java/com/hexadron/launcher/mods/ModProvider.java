@@ -26,7 +26,30 @@ public interface ModProvider {
 
     /** A search result, before a specific file has been chosen. */
     record SearchResult(String projectId, String slug, String title, String description,
-                        String author, long downloads, String iconUrl, Source source) {
+                        String author, long downloads, String iconUrl, String pageUrl,
+                        Source source) {
+
+        /** What is worth keeping about this project once it has been installed. */
+        public ProjectCard card() {
+            return new ProjectCard(source, projectId, slug, title, iconUrl, pageUrl);
+        }
+    }
+
+    /**
+     * A project's identity, kept so an installed mod can still be recognised.
+     *
+     * <p>The installed list used to hold a name and a file name, because that
+     * was all installing needed. Both of the things a user does with a row -
+     * recognise the mod by its logo, and go and read about it - need what the
+     * platform already returned in the search result and the launcher then threw
+     * away. Asking again later is not a substitute: it makes an offline launcher
+     * show a list of grey squares.
+     *
+     * @param iconUrl the project's own logo, or null when it publishes none
+     * @param pageUrl the project's page on the platform it came from
+     */
+    record ProjectCard(Source source, String projectId, String slug, String title,
+                       String iconUrl, String pageUrl) {
     }
 
     Source source();
@@ -114,6 +137,21 @@ public interface ModProvider {
      *         the caller falls back to the file name
      */
     default Optional<String> projectName(String projectId) throws IOException, InterruptedException {
+        return project(projectId).map(ProjectCard::title);
+    }
+
+    /**
+     * Everything worth keeping about a project, in one request.
+     *
+     * <p>The name alone is not enough any more: a dependency arrives as an id,
+     * and a row for it needs the same logo and the same link as a mod the user
+     * picked themselves. One request answers all three, so this replaces the
+     * name lookup rather than joining it.
+     *
+     * @return empty when the platform does not answer or has no such project,
+     *         which is not an error - the caller falls back to the file name
+     */
+    default Optional<ProjectCard> project(String projectId) throws IOException, InterruptedException {
         return Optional.empty();
     }
 }

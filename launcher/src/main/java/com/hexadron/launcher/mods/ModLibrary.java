@@ -29,7 +29,12 @@ import java.util.Optional;
 public final class ModLibrary {
 
     public static final String LOCK_FILE = ".hexadron-mods.json";
-    private static final int FORMAT_VERSION = 2;
+    /**
+     * Version 3 adds the project's logo and page to each entry. It is readable
+     * by an older build - the two fields are simply ignored - so the number
+     * exists to record when they appeared, not to gate anything.
+     */
+    private static final int FORMAT_VERSION = 3;
 
     /** The pack that wrote every version-1 lock file. */
     private static final String LEGACY_PACK_ID = "hexadron-optimise";

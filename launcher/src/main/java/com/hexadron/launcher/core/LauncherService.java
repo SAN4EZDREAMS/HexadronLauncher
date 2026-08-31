@@ -435,14 +435,68 @@ public final class LauncherService {
     }
 
     /** Installs one mod, with its required dependencies, into a profile. */
-    public ModInstaller.Result installMod(Profile profile,
-                                          com.hexadron.launcher.mods.ModProvider.Source source,
-                                          String projectId, String title, Progress progress)
+    public ModInstaller.Result installMod(Profile profile, ModProvider.ProjectCard chosen,
+                                          Progress progress)
             throws IOException, InterruptedException {
 
         requireModdedLoader(profile);
-        return modInstaller.installMod(source, projectId, title, profile.minecraftVersion(),
+        return modInstaller.installMod(chosen, profile.minecraftVersion(),
                 profile.loader(), profiles.modsDirectory(profile), progress);
+    }
+
+    /**
+     * Everything in a profile's mods folder, whether the launcher put it there
+     * or the player did.
+     */
+    public java.util.List<com.hexadron.launcher.mods.ModEntry> modsIn(Profile profile) {
+        return com.hexadron.launcher.mods.ModScan.scan(profiles.modsDirectory(profile));
+    }
+
+    /**
+     * Turns one file in the mods folder on or off by renaming it.
+     *
+     * @return where the file ended up
+     */
+    public Path setModEnabled(Profile profile, com.hexadron.launcher.mods.ModEntry entry,
+                              boolean enabled) throws IOException {
+        return com.hexadron.launcher.mods.ModScan.setEnabled(
+                profiles.modsDirectory(profile), entry, enabled);
+    }
+
+    /** Sends a file the launcher did not install to the recycle bin. */
+    public void discardExternalMod(Profile profile, com.hexadron.launcher.mods.ModEntry entry,
+                                   Progress progress) throws IOException {
+        com.hexadron.launcher.mods.ModScan.discard(
+                profiles.modsDirectory(profile), entry, progress);
+    }
+
+    /**
+     * How many jars in this profile's folder the launcher still has no name for.
+     *
+     * <p>What the "identify" button is offered on the strength of. Cheap: it
+     * reads one small index file and compares names and sizes against a list the
+     * caller already has.
+     */
+    public int unidentifiedModCount(Profile profile,
+                                    java.util.List<com.hexadron.launcher.mods.ModEntry> mods) {
+        return com.hexadron.launcher.mods.ExternalModIndex.unidentified(mods,
+                com.hexadron.launcher.mods.ExternalModIndex.read(
+                        profiles.modsDirectory(profile))).size();
+    }
+
+    /**
+     * Asks Modrinth what the unrecognised jars in a profile actually are.
+     *
+     * <p>By hash, and only when the user presses the button: the launcher does
+     * not report the contents of a player's mods folder to anybody on its own.
+     *
+     * @return how many were recognised
+     */
+    public int identifyExternalMods(Profile profile, Progress progress)
+            throws IOException, InterruptedException {
+
+        return com.hexadron.launcher.mods.ExternalModIndex.identify(
+                profiles.modsDirectory(profile), modrinth, progress);
     }
 
     /** Removes one mod the user installed. Pack-owned mods are refused here. */

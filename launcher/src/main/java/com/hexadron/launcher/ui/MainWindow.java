@@ -9,8 +9,7 @@ import com.hexadron.launcher.launch.GameLauncher;
 import com.hexadron.launcher.launch.JavaProvisioner;
 import com.hexadron.launcher.launch.JavaRuntimes;
 import com.hexadron.launcher.meta.VersionManifest;
-import com.hexadron.launcher.mods.InstalledMod;
-import com.hexadron.launcher.mods.ModLibrary;
+import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.profile.Profile;
 import com.hexadron.launcher.profile.ProfileLayout;
@@ -150,7 +149,7 @@ public final class MainWindow implements ProfileHost {
 
     /** What this profile actually loads. Read-only; the browser is where it changes. */
     private final Label modsTitle = new Label();
-    private final ListView<InstalledMod> modsList = new ListView<>();
+    private final ListView<ModEntry> modsList = new ListView<>();
     private final Label modsEmpty = new Label();
 
     private final Label stageLabel = new Label();
@@ -224,6 +223,9 @@ public final class MainWindow implements ProfileHost {
         this.service = service;
         this.stage = stage;
         this.tray = new TrayIntegration(stage);
+        // Mod logos are fetched once and kept in the data folder, so the second
+        // start of the launcher draws the list without a connection.
+        ModIcons.cacheDirectory(service.dirs().cache().resolve("mod-icons"));
         this.progress = new UiProgress(stageLabel, progressBar, logArea);
         // After the fields above: both views are handed this window as their
         // host and read everything through it, so nothing they read may still be
@@ -733,38 +735,61 @@ public final class MainWindow implements ProfileHost {
         return detailEdit;
     }
 
-    /** One line per mod: what it is, and whether the pack owns it. */
-    private static final class ModCell extends ListCell<InstalledMod> {
+    /**
+     * One line per mod: its logo, what it is, and where it came from.
+     *
+     * <p>Read-only, unlike the same row in the mod browser. This list is part of
+     * the panel that describes an instance, and a Remove button next to a
+     * single-click list on the launcher's front page is a mod deleted by
+     * accident. The browser is one button away and is where mods are changed.
+     */
+    private static final class ModCell extends ListCell<ModEntry> {
+        private final ModIcons.Tile icon = new ModIcons.Tile(24);
         private final Label name = new Label();
+        private final Label version = new Label();
         private final Label badge = new Label();
-        private final HBox box = new HBox(10, name, badge);
+        private final HBox box = new HBox(10, icon, name, version, badge);
 
         ModCell() {
             name.getStyleClass().add("summary-value");
+            version.getStyleClass().add("instance-subtitle");
             badge.getStyleClass().add("badge");
             box.setAlignment(Pos.CENTER_LEFT);
         }
 
         @Override
-        protected void updateItem(InstalledMod mod, boolean empty) {
+        protected void updateItem(ModEntry mod, boolean empty) {
             super.updateItem(mod, empty);
             if (empty || mod == null) {
                 setGraphic(null);
                 setText(null);
                 return;
             }
+            icon.show(mod);
             name.setText(mod.title());
-            badge.setText(switch (mod.origin()) {
-                case PACK -> I18n.t("mods.origin.pack");
-                case DEPENDENCY -> I18n.t("mods.origin.dependency");
-                case MANUAL -> I18n.t("mods.origin.manual");
-            });
-            badge.getStyleClass().removeAll("badge-pack");
-            if (mod.origin() == ModOrigin.PACK) {
+            version.setText(mod.version() == null ? "" : mod.version());
+            badge.setText(badgeFor(mod));
+            badge.getStyleClass().removeAll("badge-pack", "badge-off");
+            if (!mod.enabled()) {
+                badge.getStyleClass().add("badge-off");
+            } else if (mod.origin() == ModOrigin.PACK) {
                 badge.getStyleClass().add("badge-pack");
             }
             setGraphic(box);
         }
+    }
+
+    /** What a row says about itself. A switched-off mod says that first. */
+    static String badgeFor(ModEntry mod) {
+        if (!mod.enabled()) {
+            return I18n.t("mods.origin.disabled");
+        }
+        return switch (mod.origin()) {
+            case PACK -> I18n.t("mods.origin.pack");
+            case DEPENDENCY -> I18n.t("mods.origin.dependency");
+            case MANUAL -> I18n.t("mods.origin.manual");
+            case EXTERNAL -> I18n.t("mods.origin.external");
+        };
     }
 
     /**
@@ -831,15 +856,22 @@ public final class MainWindow implements ProfileHost {
                 .show();
     }
 
-    /** Re-reads the lock file for the summary list. Cheap: one small JSON file. */
+    /**
+     * Re-reads the mods folder for the summary list.
+     *
+     * <p>More than the lock file, now that the list includes what the player put
+     * there themselves: the folder is listed and each jar's descriptor is read.
+     * {@code ModScan} keeps those descriptors, keyed by size and modification
+     * time, so redrawing the list after an install re-reads only what changed.
+     */
     private void refreshModsList(Profile profile) {
         if (profile == null) {
             modsList.setItems(FXCollections.observableArrayList());
             modsTitle.setText(I18n.t("instance.mods", 0));
             return;
         }
-        ModLibrary installed = service.installedMods(profile);
-        modsList.setItems(FXCollections.observableArrayList(installed.all()));
+        java.util.List<ModEntry> installed = service.modsIn(profile);
+        modsList.setItems(FXCollections.observableArrayList(installed));
         modsTitle.setText(I18n.t("instance.mods", installed.size()));
         modsEmpty.setText(I18n.t("instance.mods.empty"));
     }

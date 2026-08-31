@@ -36,7 +36,11 @@ import com.hexadron.launcher.mods.ModLibrary;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModPack;
 import com.hexadron.launcher.mods.ModVersions;
+import com.hexadron.launcher.mods.LocalModInfo;
+import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.ModProvider;
+import com.hexadron.launcher.mods.ModScan;
+import com.hexadron.launcher.mods.ModrinthProvider;
 import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.net.ProxyChoice;
 import com.hexadron.launcher.profile.Profile;
@@ -107,6 +111,8 @@ public final class SelfCheck {
         versionManifestParsing();
         playerNamesAndArguments();
         modOwnership();
+        jarDescriptors();
+        modsFolderScan();
         loaderCompatibility();
         forgeInstallerProfiles();
         forgeTokenLanguage();
@@ -2600,9 +2606,287 @@ public final class SelfCheck {
                 !ModInstaller.readableNameFrom("").isBlank());
     }
 
+    // ---------------------------------------------------------------- jar descriptors
+
+    /** A progress sink for the checks: they assert on results, not on narration. */
+    private static final Progress QUIET = new Progress() {
+        @Override
+        public void stage(String name) {
+        }
+
+        @Override
+        public void bytes(long completed, long total) {
+        }
+
+        @Override
+        public void items(int completed, int total) {
+        }
+
+        @Override
+        public void log(String message) {
+        }
+    };
+
+    /**
+     * Reading a mod jar's own description of itself.
+     *
+     * <p>This is what turns a jar a player dropped into the folder into a row
+     * they can read. Every loader's descriptor format is covered, because "the
+     * launcher shows my Forge mods but not my Fabric ones" is the shape this
+     * fails in.
+     */
+    private static void jarDescriptors() {
+        section("Jar descriptors");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-jars-check");
+
+            Path fabric = dir.resolve("some-mod-1.2.3.jar");
+            writeJar(fabric, Map.of("fabric.mod.json", """
+                    {"schemaVersion":1,"id":"sodium","version":"0.6.13",
+                     "name":"Sodium","description":"A  modern\\n rendering engine.",
+                     "authors":["jellysquid3",{"name":"IMS"}],
+                     "contact":{"issues":"https://example.invalid/issues",
+                                "homepage":"https://modrinth.com/mod/sodium"},
+                     "icon":{"32":"assets/small.png","256":"assets/big.png"}}""",
+                    "assets/big.png", "not really a png"));
+
+            LocalModInfo info = LocalModInfo.read(fabric).orElseThrow();
+            check("a Fabric name is read", "Sodium".equals(info.name()));
+            check("a Fabric version is read", "0.6.13".equals(info.version()));
+            check("a description is collapsed to one line",
+                    "A modern rendering engine.".equals(info.description()));
+            check("both author shapes are read",
+                    info.authors().equals(List.of("jellysquid3", "IMS")));
+            check("the homepage wins over the issue tracker",
+                    "https://modrinth.com/mod/sodium".equals(info.homepage()));
+            check("the largest icon is chosen", "assets/big.png".equals(info.iconPath()));
+            check("the icon is readable", LocalModInfo.readIcon(fabric, info.iconPath())
+                    .map(bytes -> bytes.length > 0).orElse(false));
+            check("a missing icon path is not an error",
+                    LocalModInfo.readIcon(fabric, "assets/nothing.png").isEmpty());
+
+            // The one link that must never be opened. A descriptor is a file the
+            // launcher did not write, and this string ends up behind a button
+            // that hands it to the operating system.
+            Path hostile = dir.resolve("hostile-1.0.jar");
+            writeJar(hostile, Map.of("fabric.mod.json", """
+                    {"id":"hostile","version":"1","name":"Hostile",
+                     "contact":{"homepage":"file:///etc/passwd"}}"""));
+            check("a non-web link is refused",
+                    LocalModInfo.read(hostile).orElseThrow().homepage() == null);
+
+            Path forge = dir.resolve("forge-mod-2.0.jar");
+            writeJar(forge, Map.of("META-INF/mods.toml", String.join("\n",
+                    "modLoader=\"javafml\" # a comment",
+                    "loaderVersion=\"[47,)\"",
+                    "issueTrackerURL=\"https://example.invalid/bugs\"",
+                    "[[mods]]",
+                    "modId=\"jei\"",
+                    "version=\"${file.jarVersion}\"",
+                    "displayName=\"Just Enough Items\"",
+                    "authors=\"mezz\"",
+                    "logoFile=\"jei_logo.png\"",
+                    "description='''",
+                    "JEI shows recipes.",
+                    "'''",
+                    "[[dependencies.jei]]",
+                    "modId=\"forge\""),
+                    "META-INF/MANIFEST.MF",
+                    "Manifest-Version: 1.0\nImplementation-Version: 15.2.0.27\n\n"));
+
+            LocalModInfo forgeInfo = LocalModInfo.read(forge).orElseThrow();
+            check("a Forge name is read", "Just Enough Items".equals(forgeInfo.name()));
+            check("a jarVersion placeholder is filled from the manifest",
+                    "15.2.0.27".equals(forgeInfo.version()));
+            check("a block description is read",
+                    "JEI shows recipes.".equals(forgeInfo.description()));
+            check("a Forge author list is split", forgeInfo.authors().equals(List.of("mezz")));
+            check("the issue tracker is used when there is no site",
+                    "https://example.invalid/bugs".equals(forgeInfo.homepage()));
+            check("the logo inside the jar is found",
+                    "jei_logo.png".equals(forgeInfo.iconPath()));
+            check("a dependency table is not read as the mod",
+                    "jei".equals(forgeInfo.modId()));
+
+            Path quilt = dir.resolve("quilted-3.jar");
+            writeJar(quilt, Map.of("quilt.mod.json", """
+                    {"quilt_loader":{"id":"qsl","version":"7.0.0","metadata":{
+                       "name":"Quilt Standard Libraries","description":"Libraries.",
+                       "contributors":{"Quilt Team":"Owner"},
+                       "contact":{"homepage":"https://quiltmc.org"}}}}"""));
+            LocalModInfo quiltInfo = LocalModInfo.read(quilt).orElseThrow();
+            check("a Quilt name is read",
+                    "Quilt Standard Libraries".equals(quiltInfo.name()));
+            check("a Quilt version is read from the loader block",
+                    "7.0.0".equals(quiltInfo.version()));
+            check("Quilt contributors are read from an object",
+                    quiltInfo.authors().equals(List.of("Quilt Team")));
+
+            Path legacy = dir.resolve("oldmod-1.7.10.jar");
+            writeJar(legacy, Map.of("mcmod.info", """
+                    [{"modid":"oldmod","name":"Old Mod","version":"1.4",
+                      "description":"From before.","authorList":["Somebody"],
+                      "url":"https://example.invalid/old"}]"""));
+            LocalModInfo legacyInfo = LocalModInfo.read(legacy).orElseThrow();
+            check("an mcmod.info name is read", "Old Mod".equals(legacyInfo.name()));
+            check("an mcmod.info author list is read",
+                    legacyInfo.authors().equals(List.of("Somebody")));
+
+            Path bare = dir.resolve("library-1.0.jar");
+            writeJar(bare, Map.of("META-INF/MANIFEST.MF",
+                    "Manifest-Version: 1.0\nImplementation-Title: Some Library\n"
+                            + "Implementation-Version: 4.5\n\nName: other/\n"
+                            + "Implementation-Title: Not This\n"));
+            LocalModInfo bareInfo = LocalModInfo.read(bare).orElseThrow();
+            check("a manifest is the last resort", "Some Library".equals(bareInfo.name()));
+            check("only the manifest's main section is read",
+                    !"Not This".equals(bareInfo.name()));
+
+            Path junk = dir.resolve("not-a-jar.jar");
+            java.nio.file.Files.writeString(junk, "this is not a zip");
+            check("a file that is not an archive is not an error",
+                    LocalModInfo.read(junk).isEmpty());
+
+            check("a name falls back to the file name",
+                    "Some Mod".equals(new LocalModInfo(null, null, null, null,
+                            List.of(), null, null, null).displayName("some-mod-1.2.3.jar")));
+
+        } catch (IOException e) {
+            check("jar descriptors could be read: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
+    // ---------------------------------------------------------------- folder scan
+
+    /**
+     * The mods folder as the user sees it: what the launcher installed and what
+     * the player put there, in one list.
+     *
+     * <p>The rule that must not break runs in both directions - a file the
+     * launcher recorded is never listed as the player's, and a file the launcher
+     * did not record is never treated as the launcher's to delete.
+     */
+    private static void modsFolderScan() {
+        section("Mods folder scan");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-scan-check");
+
+            writeJar(dir.resolve("sodium.jar"), Map.of("fabric.mod.json",
+                    "{\"id\":\"sodium\",\"version\":\"0.6.13\",\"name\":\"Sodium\"}"));
+            writeJar(dir.resolve("mine-1.0.jar"), Map.of("fabric.mod.json",
+                    "{\"id\":\"mine\",\"version\":\"1.0\",\"name\":\"My Own Mod\"}"));
+            writeJar(dir.resolve("switched-2.0.jar.disabled"), Map.of("fabric.mod.json",
+                    "{\"id\":\"switched\",\"version\":\"2.0\",\"name\":\"Switched Off\"}"));
+            java.nio.file.Files.writeString(dir.resolve("notes.txt"), "not a mod");
+
+            ModLibrary library = ModLibrary.read(dir);
+            library.put(new InstalledMod("Sodium",
+                    new ModFile("AANobbMI", "sodium", "v1", "0.6.13", "sodium.jar",
+                            "https://example.invalid/sodium.jar", null, 1, List.of(),
+                            ModProvider.Source.MODRINTH),
+                    ModOrigin.PACK, "hexadron-optimise",
+                    "https://example.invalid/icon.png", "https://modrinth.com/mod/sodium"));
+            library.write();
+
+            check("the logo and page survive a save",
+                    ModLibrary.read(dir).get("MODRINTH:AANobbMI").orElseThrow()
+                            .pageUrl() != null);
+
+            List<ModEntry> mods = ModScan.scan(dir);
+            check("every jar is listed", mods.size() == 3);
+            check("a text file is not a mod",
+                    mods.stream().noneMatch(mod -> mod.fileName().endsWith(".txt")));
+            check("the lock file is not a mod",
+                    mods.stream().noneMatch(mod -> mod.fileName().startsWith(".")));
+
+            ModEntry sodium = byTitle(mods, "Sodium");
+            check("a recorded mod keeps its origin", sodium.origin() == ModOrigin.PACK);
+            check("a recorded mod is managed", sodium.isManaged());
+            check("a pack mod is still not removable alone", !sodium.isRemovable());
+            check("the stored logo reaches the row", sodium.iconUrl() != null);
+            check("the stored page reaches the row", sodium.hasPage());
+            check("the jar is read for a managed mod too", "0.6.13".equals(sodium.version()));
+
+            ModEntry mine = byTitle(mods, "My Own Mod");
+            check("a jar nobody recorded is the user's", mine.origin() == ModOrigin.EXTERNAL);
+            check("the user's own mod is not managed", !mine.isManaged());
+            check("the user's own mod can be removed", mine.isRemovable());
+            check("the user's own mod is described by its jar", "1.0".equals(mine.version()));
+            check("a file key cannot collide with a lock key",
+                    mine.key().startsWith(ModEntry.FILE_KEY_PREFIX));
+
+            ModEntry off = byTitle(mods, "Switched Off");
+            check("a .disabled jar is listed", off != null);
+            check("a .disabled jar is not enabled", off != null && !off.enabled());
+            check("switched-off mods sort last", mods.get(mods.size() - 1).equals(off));
+            check("the jar name drops the suffix", "switched-2.0.jar".equals(off.jarName()));
+
+            // Switching a managed mod off must not turn it into a stranger, or
+            // the next pack removal would leave the jar behind for ever.
+            ModScan.setEnabled(dir, sodium, false);
+            List<ModEntry> afterDisable = ModScan.scan(dir);
+            ModEntry disabledSodium = byTitle(afterDisable, "Sodium");
+            check("a switched-off managed mod is still managed", disabledSodium.isManaged());
+            check("a switched-off managed mod is still pack-owned",
+                    disabledSodium.origin() == ModOrigin.PACK);
+            check("a switched-off managed mod is not counted as loaded",
+                    !disabledSodium.enabled());
+            check("the folder still holds three jars", afterDisable.size() == 3);
+
+            ModScan.setEnabled(dir, disabledSodium, true);
+            check("switching back on restores the name",
+                    java.nio.file.Files.isRegularFile(dir.resolve("sodium.jar")));
+
+            ModEntry stranger = byTitle(ModScan.scan(dir), "My Own Mod");
+            ModScan.discard(dir, stranger, QUIET);
+            check("a discarded file leaves the mods folder",
+                    !java.nio.file.Files.isRegularFile(dir.resolve("mine-1.0.jar")));
+            check("the row goes with it", ModScan.scan(dir).size() == 2);
+
+            check("a missing folder scans to nothing",
+                    ModScan.scan(dir.resolve("nowhere")).isEmpty());
+            check("a disabled name round-trips",
+                    "a.jar".equals(ModScan.enabledName("a.jar" + ModScan.DISABLED_SUFFIX)));
+            check("a jar is recognised through the suffix",
+                    ModScan.isJar("a.jar" + ModScan.DISABLED_SUFFIX));
+            check("a text file is not a jar", !ModScan.isJar("notes.txt"));
+
+            check("a Modrinth page is built from the slug",
+                    "https://modrinth.com/mod/sodium".equals(ModrinthProvider.pageUrl("sodium")));
+            check("no slug means no page", ModrinthProvider.pageUrl("") == null);
+
+        } catch (IOException e) {
+            check("the mods folder could be scanned: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
+    private static ModEntry byTitle(List<ModEntry> mods, String title) {
+        return mods.stream().filter(mod -> title.equals(mod.title())).findFirst().orElse(null);
+    }
+
+    /** Builds a jar with the given entries, so the readers can be checked offline. */
+    private static void writeJar(Path path, Map<String, String> entries) throws IOException {
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(
+                java.nio.file.Files.newOutputStream(path))) {
+            for (Map.Entry<String, String> entry : entries.entrySet()) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(entry.getKey()));
+                zip.write(entry.getValue().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        }
+    }
+
     private static ModProvider.SearchResult hit(String id) {
         return new ModProvider.SearchResult(id, id, id, "", "", 0, null,
-                ModProvider.Source.MODRINTH);
+                ModrinthProvider.pageUrl(id), ModProvider.Source.MODRINTH);
     }
 
     // ---------------------------------------------------------------- names and arguments
