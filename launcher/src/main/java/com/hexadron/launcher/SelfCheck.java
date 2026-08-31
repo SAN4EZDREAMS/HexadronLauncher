@@ -62,6 +62,7 @@ import com.hexadron.launcher.util.Arguments;
 import com.hexadron.launcher.util.MavenCoordinate;
 import com.hexadron.launcher.util.Platform;
 import com.hexadron.launcher.util.Redactor;
+import com.hexadron.launcher.util.Webp;
 
 import java.io.IOException;
 import java.net.URI;
@@ -112,6 +113,7 @@ public final class SelfCheck {
         playerNamesAndArguments();
         modOwnership();
         jarDescriptors();
+        webpDecoding();
         modsFolderScan();
         loaderCompatibility();
         forgeInstallerProfiles();
@@ -2604,6 +2606,104 @@ public final class SelfCheck {
                 "Log4j Fix".equals(ModInstaller.readableNameFrom("log4j-fix-1.0.jar")));
         check("a blank name does not produce a blank label",
                 !ModInstaller.readableNameFrom("").isBlank());
+    }
+
+    // ---------------------------------------------------------------- webp
+
+    /**
+     * The lossless WebP decoder.
+     *
+     * <p>The pictures below are real WebP files, kept as text so the check needs
+     * no network and no test resources. Each one was produced by libwebp and its
+     * expected pixels read back with libwebp, so a pass here means this decoder
+     * agrees with the reference implementation exactly rather than merely
+     * producing something that looks like a picture. Between them they cover
+     * every transform the format has, all fourteen predictors, the colour cache
+     * and the back-references.
+     *
+     * <p>The last one is lossy, and the check on it is that nothing is returned:
+     * that half of the format is a video codec and is deliberately absent, so it
+     * has to fail in the way the caller can handle rather than in some other
+     * way.
+     */
+    private static void webpDecoding() {
+        section("WebP");
+
+        // 16x16, four colours - the colour indexing transform, two bits a pixel.
+        byte[] palette = java.util.Base64.getDecoder().decode(
+                "UklGRkgAAABXRUJQVlA4TDsAAAAvD8ADEB8gECBY8f9oQyBAkOA/lkAgCWp/tQUkhOeyXIwdeJUg"
+                + "zDZ6HefUxnkAY4jofwn2KvWrWPcqAgA=");
+        // 24x12 - subtract green, spatial prediction and the cross colour
+        // transform, on an image whose channels all move independently.
+        byte[] gradient = java.util.Base64.getDecoder().decode(
+                "UklGRkIAAABXRUJQVlA4TDYAAAAvF8ACEAGBbLLn751CRP8zv4uI/odBcSQZ0CIF+cd7e9tREAsm"
+                + "8ydLqW/4JwBijXYjOcRH3wk=");
+        // One pixel: the smallest picture the format can express, and the case
+        // where a row has no pixel to its left and none above it.
+        byte[] single = java.util.Base64.getDecoder().decode(
+                "UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAEAdQ5Db0oGOBiOh/AAA=");
+        // The lossy kind, which this decoder does not read.
+        byte[] lossy = java.util.Base64.getDecoder().decode(
+                "UklGRi4AAABXRUJQVlA4ICIAAABwAQCdASoIAAgAAUAmJZQCdAFAAAD+/DeBV/fU6D4r4AAA");
+
+        check("a WebP file is recognised", Webp.isWebp(palette));
+        check("a PNG is not a WebP", !Webp.isWebp(new byte[]{
+                (byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 0, 0, 0, 13, 'I', 'H', 'D', 'R'}));
+        check("a short file is not a WebP", !Webp.isWebp(new byte[]{'R', 'I', 'F', 'F'}));
+        check("null is not a WebP", !Webp.isWebp(null));
+
+        Webp.Bitmap indexed = Webp.decode(palette).orElseThrow();
+        check("a palette image has the right size",
+                indexed.width() == 16 && indexed.height() == 16);
+        check("a palette image decodes exactly as libwebp does",
+                java.util.Arrays.hashCode(indexed.argb()) == 1508739073);
+        check("the first palette pixel is right", indexed.argb()[0] == 0xffff0000);
+        check("the end of the first row is right", indexed.argb()[15] == 0xff112233);
+        check("the start of the last row is right", indexed.argb()[240] == 0xff00ff00);
+        check("partial transparency survives a palette",
+                java.util.Arrays.stream(indexed.argb()).anyMatch(p -> (p >>> 24) == 0x80));
+
+        Webp.Bitmap predicted = Webp.decode(gradient).orElseThrow();
+        check("a predicted image has the right size",
+                predicted.width() == 24 && predicted.height() == 12);
+        check("a predicted image decodes exactly as libwebp does",
+                java.util.Arrays.hashCode(predicted.argb()) == -1181448447);
+        check("the first predicted pixel is right", predicted.argb()[0] == 0xff0000c8);
+        check("the last predicted pixel is right",
+                predicted.argb()[predicted.argb().length - 1] == 0xa3e6217b);
+
+        Webp.Bitmap one = Webp.decode(single).orElseThrow();
+        check("a one pixel image has the right size", one.width() == 1 && one.height() == 1);
+        check("a one pixel image decodes exactly as libwebp does",
+                one.argb()[0] == 0x630dc807);
+
+        check("a lossy WebP is refused rather than guessed at", Webp.decode(lossy).isEmpty());
+        check("empty bytes decode to nothing", Webp.decode(new byte[0]).isEmpty());
+        check("a truncated WebP decodes to nothing",
+                Webp.decode(java.util.Arrays.copyOf(palette, 40)).isEmpty());
+
+        // The header carries the size, so a file claiming to be enormous is a
+        // file asking the decoder to allocate on its say-so.
+        byte[] huge = palette.clone();
+        java.util.Arrays.fill(huge, 21, 25, (byte) 0xff);
+        check("an impossible size is refused rather than allocated",
+                Webp.decode(huge).isEmpty());
+
+        // Every byte of a real file, one at a time. Nothing here may throw at
+        // the caller: these bytes come off the internet, and the one thing a
+        // list being drawn cannot survive is an exception out of a logo.
+        int survived = 0;
+        for (int i = 0; i < gradient.length; i++) {
+            byte[] damaged = gradient.clone();
+            damaged[i] = (byte) ~damaged[i];
+            try {
+                Webp.decode(damaged);
+                survived++;
+            } catch (RuntimeException e) {
+                // Counted by not counting.
+            }
+        }
+        check("no damaged file throws", survived == gradient.length);
     }
 
     // ---------------------------------------------------------------- jar descriptors

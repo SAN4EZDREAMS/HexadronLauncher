@@ -882,6 +882,29 @@ the badge and which buttons are live.
   launcher can show it. Failing both, a tile with the mod's first letter,
   coloured from its name: not a picture of the mod, but a mark that can be told
   apart from the one above it.
+
+  Those logos are mostly WebP, and JavaFX cannot read WebP. Neither can
+  `javax.imageio`: the JDK ships PNG, JPEG, GIF, BMP and TIFF and nothing else.
+  Modrinth's own API gives an address ending in `_96.webp` for most projects, and
+  there is no other format to ask for - the file at that address is a WebP. So
+  the catalogue drew a column of letters with the occasional logo, and the ones
+  that worked were the projects old enough to still have a PNG.
+
+  `com.hexadron.launcher.util.Webp` reads it. Only the lossless half: WebP is two
+  formats behind one extension, and the lossy one is a VP8 key frame - an entropy
+  coder, an inverse DCT, sixteen intra prediction modes and a loop filter, which
+  is a video codec and not something this project should carry for a 96-pixel
+  logo. Every icon Modrinth publishes is the lossless one; of the 68 logos this
+  launcher had cached when the decoder was written, 15 were PNG and 53 were WebP,
+  and all 53 were `VP8L`. A lossy file is refused and the lettered tile stands,
+  which is what every WebP logo did before the decoder existed.
+
+  The self-check decodes real files and compares them against libwebp's own
+  output, pixel for pixel, rather than checking that something picture-shaped
+  came out. Several details in that format - which pixel the top-right predictor
+  reads at the end of a row, the byte-wise delta coding of a colour map - are
+  ones a reader of the prose gets subtly wrong and only discovers on an image
+  that comes out looking almost right.
 - **Name, version, author, description.** Read out of the jar's own descriptor -
   `fabric.mod.json`, `quilt.mod.json`, `META-INF/mods.toml`,
   `META-INF/neoforge.mods.toml`, `mcmod.info`, or the manifest as a last resort.

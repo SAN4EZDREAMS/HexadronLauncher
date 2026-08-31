@@ -4,11 +4,14 @@ import com.hexadron.launcher.mods.LocalModInfo;
 import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.util.Hashes;
+import com.hexadron.launcher.util.Webp;
 
 import javafx.application.Platform;
 import javafx.scene.control.Label;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.image.PixelFormat;
+import javafx.scene.image.WritableImage;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 
@@ -66,6 +69,9 @@ public final class ModIcons {
 
     /** How large a cached picture is decoded, in pixels. Twice the drawn size, for scaled displays. */
     private static final int DECODE_SIZE = 96;
+
+    /** Largest logo accepted, in bytes. Modrinth's own are under thirty kilobytes. */
+    private static final int MAX_BYTES = 4 * 1024 * 1024;
 
     /**
      * Four threads.
@@ -293,6 +299,11 @@ public final class ModIcons {
         byte[] bytes;
         try {
             bytes = Http.getBytes(Http.requireHttps(url));
+            if (bytes.length > MAX_BYTES) {
+                // A logo is a few kilobytes. Anything past this is either not a
+                // logo or is not one worth decoding on a list that is scrolling.
+                return Optional.empty();
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return Optional.empty();
@@ -305,14 +316,37 @@ public final class ModIcons {
         return decode(bytes);
     }
 
+    /**
+     * Turns fetched bytes into a picture.
+     *
+     * <p>WebP is handled separately because JavaFX cannot read it and Modrinth
+     * publishes most of its logos in it - the address in Modrinth's own API ends
+     * in {@code _96.webp}. Without this the catalogue was a column of lettered
+     * tiles with the occasional logo, and the ones that worked were the projects
+     * old enough to still have a PNG.
+     *
+     * <p>Built on the loader thread rather than handed to the interface thread
+     * as pixels: a JavaFX image may be constructed off the interface thread, and
+     * the one that arrives is finished and never touched again.
+     */
     private static Optional<Image> decode(byte[] bytes) {
         try {
+            if (Webp.isWebp(bytes)) {
+                return Webp.decode(bytes).map(ModIcons::toImage);
+            }
             Image image = new Image(new ByteArrayInputStream(bytes),
                     DECODE_SIZE, DECODE_SIZE, true, true);
             return image.isError() || image.getWidth() <= 0 ? Optional.empty() : Optional.of(image);
         } catch (RuntimeException e) {
             return Optional.empty();
         }
+    }
+
+    private static Image toImage(Webp.Bitmap bitmap) {
+        WritableImage image = new WritableImage(bitmap.width(), bitmap.height());
+        image.getPixelWriter().setPixels(0, 0, bitmap.width(), bitmap.height(),
+                PixelFormat.getIntArgbInstance(), bitmap.argb(), 0, bitmap.width());
+        return image;
     }
 
     private static void store(Path file, byte[] bytes) {
