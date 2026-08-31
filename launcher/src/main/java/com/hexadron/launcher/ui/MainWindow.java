@@ -755,6 +755,17 @@ public final class MainWindow implements ProfileHost {
             version.getStyleClass().add("instance-subtitle");
             badge.getStyleClass().add("badge");
             box.setAlignment(Pos.CENTER_LEFT);
+
+            // The name is the only part allowed to grow, and the only part
+            // allowed to shrink: a mod called "Adventure Craft: Reforged
+            // Edition" must lose its own tail rather than push the badge out of
+            // a cell that clips.
+            name.setMaxWidth(Double.MAX_VALUE);
+            name.setMinWidth(0);
+            HBox.setHgrow(name, Priority.ALWAYS);
+            version.setMinWidth(Region.USE_PREF_SIZE);
+            badge.setMinWidth(Region.USE_PREF_SIZE);
+            setPrefWidth(0);
         }
 
         @Override
@@ -768,7 +779,7 @@ public final class MainWindow implements ProfileHost {
             icon.show(mod);
             name.setText(mod.title());
             version.setText(mod.version() == null ? "" : mod.version());
-            badge.setText(badgeFor(mod));
+            badge.setText(ModLabels.badge(mod));
             badge.getStyleClass().removeAll("badge-pack", "badge-off");
             if (!mod.enabled()) {
                 badge.getStyleClass().add("badge-off");
@@ -777,19 +788,6 @@ public final class MainWindow implements ProfileHost {
             }
             setGraphic(box);
         }
-    }
-
-    /** What a row says about itself. A switched-off mod says that first. */
-    static String badgeFor(ModEntry mod) {
-        if (!mod.enabled()) {
-            return I18n.t("mods.origin.disabled");
-        }
-        return switch (mod.origin()) {
-            case PACK -> I18n.t("mods.origin.pack");
-            case DEPENDENCY -> I18n.t("mods.origin.dependency");
-            case MANUAL -> I18n.t("mods.origin.manual");
-            case EXTERNAL -> I18n.t("mods.origin.external");
-        };
     }
 
     /**

@@ -618,6 +618,34 @@
     -fx-font-weight: bold;
 }
 
+/*
+ * The link to a mod's page.
+ *
+ * It sits under the description, in the text column, and it is deliberately the
+ * quietest thing in the row. It is the one control that leaves the launcher
+ * entirely, and it shares a row with Remove - so it is small, muted, and
+ * underlined only under the pointer, which reads as a link without becoming a
+ * target on the way to something else. No padding and no focus ring, or a
+ * JavaFX Hyperlink adds a box of its own that looks like a button.
+ */
+.mod-link {
+    -fx-padding: 1 0 0 0;
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-1;
+    -fx-underline: false;
+    -fx-border-color: transparent;
+    -fx-background-color: transparent;
+}
+
+.mod-link:hover {
+    -fx-text-fill: -fx-accent-0;
+    -fx-underline: true;
+}
+
+.mod-link:focused {
+    -fx-border-color: transparent;
+}
+
 /* ------------------------------------------------------------------ splash */
 
 /*

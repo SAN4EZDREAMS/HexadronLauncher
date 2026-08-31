@@ -401,40 +401,157 @@ public final class ModBrowserWindow {
 
     // ---------------------------------------------------------------- cells
 
-    /** A search hit: name, author and downloads, description, and one action. */
-    private final class ResultCell extends ListCell<ModProvider.SearchResult> {
-        private final ModIcons.Tile icon = new ModIcons.Tile(40);
-        private final Label name = new Label();
-        private final Label meta = new Label();
-        private final Label description = new Label();
-        private final Button action = new Button();
-        private final VBox text = new VBox(2, name, meta, description);
-        private final HBox box = new HBox(12, icon, text, spacer(), action);
+    /**
+     * The parts every mod row is built from, and the sizing rules that keep it
+     * in one piece.
+     *
+     * <h2>Why this is shared</h2>
+     *
+     * <p>A search hit and an installed mod are the same object to the person
+     * reading the list - a mod, with a logo, a name, a line about it and
+     * something to press - so they are laid out by the same code. When they were
+     * two hand-built rows they drifted: only one of them had the link to the
+     * mod's page, and only one of them survived a long name.
+     *
+     * <h2>The sizing rules, which are the whole point</h2>
+     *
+     * <p>A row is a horizontal box in a list cell, and a list cell clips. So
+     * every part of it has to say explicitly whether it may grow, whether it may
+     * shrink, and what it does when the text is longer than the space:
+     *
+     * <ul>
+     *   <li>the text column is the only part that grows, and it is allowed to
+     *       shrink to nothing ({@code setMinWidth(0)}). Without that, a long
+     *       description sets a minimum width for the whole row, the buttons are
+     *       pushed past the right edge of the cell, and they are simply not
+     *       there any more - which is exactly what a mod with a long name or a
+     *       long summary did;</li>
+     *   <li>every line of that column is a single line that ends in an ellipsis
+     *       rather than wrapping. A wrapped label's height depends on its width,
+     *       which in a cell that is itself being measured is a layout that
+     *       argues with itself;</li>
+     *   <li>the badge and the buttons never shrink
+     *       ({@code USE_PREF_SIZE} as a minimum). They are the part of the row
+     *       that has to be reachable, so they are the part that keeps its size
+     *       and the text gives way instead;</li>
+     *   <li>the cell asks for no width of its own, so the list never grows a
+     *       horizontal scroll bar to fit its longest row.</li>
+     * </ul>
+     */
+    private abstract class ModRow<T> extends ListCell<T> {
 
-        ResultCell() {
+        protected final ModIcons.Tile icon = new ModIcons.Tile(40);
+        protected final Label name = new Label();
+        protected final Label meta = new Label();
+        protected final Label description = new Label();
+
+        /**
+         * The link to the mod's page.
+         *
+         * <p>Under the text and set small, rather than out beside the buttons.
+         * It opens something outside the launcher, so it is the one thing in the
+         * row that must not be hit by accident on the way to Remove - and a
+         * quiet line of small text under a description is read as a link and
+         * not as a target.
+         */
+        protected final Hyperlink page = new Hyperlink();
+
+        private final VBox text = new VBox(1, name, meta, description, page);
+        private final HBox row;
+
+        /** Everything to the right of the text: set by the subclass, never shrunk. */
+        protected final HBox actions = new HBox(6);
+
+        ModRow() {
             name.getStyleClass().add("instance-name");
             meta.getStyleClass().add("instance-subtitle");
             description.getStyleClass().add("instance-subtitle");
-            description.setWrapText(true);
-            description.setMaxWidth(560);
-            box.setAlignment(Pos.CENTER_LEFT);
+            page.getStyleClass().add("mod-link");
+
+            // Filling the column is what makes the ellipsis appear: a label only
+            // shortens its text when something has told it how wide it is.
+            for (Label label : new Label[]{name, meta, description}) {
+                label.setWrapText(false);
+                label.setMaxWidth(Double.MAX_VALUE);
+                label.setMinWidth(0);
+            }
+            // The link is the exception, and deliberately so. Stretched to the
+            // column it would be a full-width click target sitting directly
+            // above Remove; left at its own width it is only clickable where the
+            // words are.
+            page.setMaxWidth(Region.USE_PREF_SIZE);
+            page.setAlignment(Pos.CENTER_LEFT);
+
+            text.setFillWidth(true);
+            text.setMinWidth(0);
+            text.setAlignment(Pos.CENTER_LEFT);
             HBox.setHgrow(text, Priority.ALWAYS);
+
+            actions.setAlignment(Pos.CENTER_RIGHT);
+            actions.setMinWidth(Region.USE_PREF_SIZE);
+
+            row = new HBox(12, icon, text, actions);
+            row.setAlignment(Pos.CENTER_LEFT);
+
+            // No preferred width of its own: the cell is as wide as the list,
+            // and anything longer is the text column's problem to ellipsise.
+            setPrefWidth(0);
+        }
+
+        /** Shows or hides a line, so an absent one takes no height. */
+        protected static void line(Label label, String value) {
+            boolean present = value != null && !value.isBlank();
+            label.setText(present ? value : "");
+            label.setVisible(present);
+            label.setManaged(present);
+        }
+
+        /** Points the link at a page, or takes it out of the row entirely. */
+        protected void link(String url, Runnable action) {
+            boolean present = SystemBrowser.isWebPage(url);
+            page.setText(present ? I18n.t("mods.details") : "");
+            page.setVisible(present);
+            page.setManaged(present);
+            page.setOnAction(event -> action.run());
+        }
+
+        /** Puts the assembled row on screen. Called at the end of every update. */
+        protected void showRow() {
+            setGraphic(row);
+        }
+
+        protected void clearRow() {
+            setGraphic(null);
+            setText(null);
+        }
+    }
+
+    /** A search hit: name, author and downloads, description, page, and one action. */
+    private final class ResultCell extends ModRow<ModProvider.SearchResult> {
+
+        private final Button action = new Button();
+
+        ResultCell() {
+            actions.getChildren().add(action);
         }
 
         @Override
         protected void updateItem(ModProvider.SearchResult hit, boolean empty) {
             super.updateItem(hit, empty);
             if (empty || hit == null) {
-                setGraphic(null);
-                setText(null);
+                clearRow();
                 return;
             }
             icon.show(hit.iconUrl(), hit.title());
-            name.setText(hit.title());
-            meta.setText(hit.source().displayName()
+            line(name, hit.title());
+            line(meta, hit.source().displayName()
                     + (hit.author() == null || hit.author().isBlank() ? "" : "  ·  " + hit.author())
                     + "  ·  " + I18n.t("mods.downloads", formatCount(hit.downloads())));
-            description.setText(hit.description());
+            line(description, hit.description());
+            // The catalogue needs the link at least as much as the installed
+            // list does: this is where the user is deciding whether they want
+            // the mod at all, and that decision is made on the mod's own page.
+            link(hit.pageUrl(), () -> openPage(hit.title(), hit.pageUrl()));
 
             boolean installed = library != null && library.contains(hit.source(), hit.projectId());
             action.setText(I18n.t(installed ? "mods.installed" : "mods.install"));
@@ -444,7 +561,7 @@ public final class ModBrowserWindow {
                 action.getStyleClass().add("primary");
             }
             action.setOnAction(event -> installMod(hit));
-            setGraphic(box);
+            showRow();
         }
     }
 
@@ -455,69 +572,46 @@ public final class ModBrowserWindow {
      * <p>The row is the same shape whether the launcher downloaded the mod or
      * the player dropped it in, because to the person reading it they are the
      * same thing - a mod that is installed. What differs is the badge, and which
-     * of the three buttons are available.
+     * of the buttons are live.
      */
-    private final class InstalledCell extends ListCell<ModEntry> {
-        private final ModIcons.Tile icon = new ModIcons.Tile(40);
-        private final Label name = new Label();
-        private final Label meta = new Label();
-        private final Label description = new Label();
+    private final class InstalledCell extends ModRow<ModEntry> {
+
         private final Label badge = new Label();
-        private final Hyperlink page = new Hyperlink();
         private final Button toggle = new Button();
         private final Button remove = new Button();
-        private final VBox text = new VBox(2, name, meta, description);
-        private final HBox buttons = new HBox(6, page, toggle, remove);
-        private final HBox box = new HBox(12, icon, text, spacer(), badge, buttons);
 
         InstalledCell() {
-            name.getStyleClass().add("instance-name");
-            meta.getStyleClass().add("instance-subtitle");
-            description.getStyleClass().add("instance-subtitle");
-            description.setWrapText(true);
-            description.setMaxWidth(460);
             badge.getStyleClass().add("badge");
-            box.setAlignment(Pos.CENTER_LEFT);
-            buttons.setAlignment(Pos.CENTER_RIGHT);
-            HBox.setHgrow(text, Priority.ALWAYS);
+            badge.setMinWidth(Region.USE_PREF_SIZE);
+            actions.getChildren().addAll(badge, toggle, remove);
         }
 
         @Override
         protected void updateItem(ModEntry mod, boolean empty) {
             super.updateItem(mod, empty);
             if (empty || mod == null) {
-                setGraphic(null);
-                setText(null);
+                clearRow();
                 return;
             }
             icon.show(mod);
-            name.setText(mod.title() + (mod.version() == null ? "" : "  " + mod.version()));
+            line(name, mod.version() == null ? mod.title() : mod.title() + "  " + mod.version());
 
             // The file name is on the line either way. For a mod the launcher
-            // installed it is the answer to "which of these jars is that"; for
-            // one the player dropped in it is often all there is to go on, and
-            // it is what they will look for in the folder.
+            // installed it answers "which of these jars is that"; for one the
+            // player dropped in it is often all there is to go on, and it is
+            // what they will look for in the folder.
             String author = mod.authorLine();
-            meta.setText(author == null ? mod.fileName() : author + "  ·  " + mod.fileName());
-            description.setText(mod.description() == null ? "" : mod.description());
-            description.setVisible(mod.description() != null);
-            description.setManaged(mod.description() != null);
+            line(meta, author == null ? mod.fileName() : author + "  ·  " + mod.fileName());
+            line(description, mod.description());
+            link(mod.pageUrl(), () -> openPage(mod.title(), mod.pageUrl()));
 
-            badge.setText(MainWindow.badgeFor(mod));
+            badge.setText(ModLabels.badge(mod));
             badge.getStyleClass().removeAll("badge-pack", "badge-off");
             if (!mod.enabled()) {
                 badge.getStyleClass().add("badge-off");
             } else if (mod.origin() == ModOrigin.PACK) {
                 badge.getStyleClass().add("badge-pack");
             }
-
-            // Hidden rather than disabled: a mod that published no page has
-            // nothing behind this button, and a permanently dead one in every
-            // row reads as a launcher that is broken.
-            page.setText(I18n.t("mods.details"));
-            page.setVisible(mod.hasPage());
-            page.setManaged(mod.hasPage());
-            page.setOnAction(event -> openPage(mod));
 
             toggle.setText(I18n.t(mod.enabled() ? "mods.disable" : "mods.enable"));
             toggle.setDisable(busy);
@@ -532,9 +626,10 @@ public final class ModBrowserWindow {
                     ? null
                     : new javafx.scene.control.Tooltip(I18n.t("mods.remove.packLocked")));
             remove.setOnAction(event -> removeMod(mod));
-            setGraphic(box);
+            showRow();
         }
     }
+
 
     // ---------------------------------------------------------------- actions
 
@@ -672,13 +767,15 @@ public final class ModBrowserWindow {
         });
     }
 
-    /** Opens the mod's page in the user's own browser. */
-    private void openPage(ModEntry mod) {
-        if (!SystemBrowser.open(mod.pageUrl())) {
-            // The address is shown rather than swallowed: on a session with no
-            // desktop integration, copying it is the whole of the workaround.
-            warn(I18n.t("mods.details"), I18n.t("mods.details.failed", mod.pageUrl()));
+    /** Opens a mod's page in the user's own browser. */
+    private void openPage(String title, String url) {
+        if (SystemBrowser.open(url)) {
+            progress.done(I18n.t("mods.details.opened", title));
+            return;
         }
+        // The address is shown rather than swallowed: on a session with no
+        // desktop integration, copying it is the whole of the workaround.
+        warn(I18n.t("mods.details"), I18n.t("mods.details.failed", url));
     }
 
     /**

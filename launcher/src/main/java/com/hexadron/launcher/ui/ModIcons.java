@@ -20,6 +20,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -67,14 +68,18 @@ public final class ModIcons {
     private static final int DECODE_SIZE = 96;
 
     /**
-     * Two threads.
+     * Four threads.
      *
-     * <p>Enough that a screenful of rows fills quickly, few enough that scrolling
-     * a folder of two hundred mods cannot open two hundred connections. The
-     * queue is unbounded and the work is small, so the visible rows are served
-     * within a moment either way.
+     * <p>Enough that a screenful of search results fills at once, few enough
+     * that scrolling a folder of two hundred mods cannot open two hundred
+     * connections. Two was not enough and it showed: a page of forty results
+     * queued forty fetches behind two workers, the queue is served oldest
+     * first, and by the time a row's turn came the user had scrolled and the
+     * result was thrown away - so the list filled in slowly and unevenly, which
+     * reads as "some logos are missing". The other half of that fix is that a
+     * task now checks it is still wanted before it opens a connection.
      */
-    private static final ExecutorService LOADER = Executors.newFixedThreadPool(2, runnable -> {
+    private static final ExecutorService LOADER = Executors.newFixedThreadPool(4, runnable -> {
         Thread thread = new Thread(runnable, "hexadron-mod-icons");
         thread.setDaemon(true);
         return thread;
@@ -83,6 +88,16 @@ public final class ModIcons {
     /** Decoded pictures, by source. Bounded, because a mods folder is not. */
     private static final Map<String, Image> CACHE = new ConcurrentHashMap<>();
     private static final int CACHE_LIMIT = 512;
+
+    /**
+     * Addresses that did not yield a picture.
+     *
+     * <p>Remembered so that a project whose logo has been deleted, or a host
+     * that is refusing, is asked once rather than on every scroll for the rest
+     * of the session. It costs one row its logo; the alternative costs the
+     * launcher a connection attempt every time that row is drawn.
+     */
+    private static final Set<String> FAILED = ConcurrentHashMap.newKeySet();
 
     /** Where fetched pictures are kept between runs. Null until the launcher says. */
     private static volatile Path cacheDir;
@@ -114,8 +129,14 @@ public final class ModIcons {
         private final Label letter = new Label();
         private final ImageView image = new ImageView();
 
-        /** The mod this tile is currently for. A load for anything else is stale. */
-        private String token;
+        /**
+         * The mod this tile is currently for. A load for anything else is stale.
+         *
+         * <p>Read by the loader threads and written by the interface thread, so
+         * it is volatile: a worker that reads a stale value does needless work
+         * at best and paints the wrong logo at worst.
+         */
+        private volatile String token;
 
         public Tile(double size) {
             this.size = size;
@@ -139,39 +160,59 @@ public final class ModIcons {
         /** Shows the logo for a mod already in the folder. */
         public void show(ModEntry entry) {
             if (entry == null) {
-                showLetter("?");
+                reset("?", null);
                 return;
             }
-            showLetter(entry.title());
-            String key = entry.key();
-            token = key;
+            if (!reset(entry.title(), entry.key())) {
+                return;
+            }
             if (entry.iconUrl() != null && !entry.iconUrl().isBlank()) {
-                loadRemote(entry.iconUrl(), key);
+                loadRemote(entry.iconUrl(), entry.key());
                 return;
             }
             if (entry.iconJarPath() != null) {
-                loadFromJar(entry.path(), entry.iconJarPath(), key);
+                loadFromJar(entry.path(), entry.iconJarPath(), entry.key());
             }
         }
 
         /** Shows the logo for a search result, which has a URL and nothing else. */
         public void show(String iconUrl, String title) {
-            showLetter(title);
-            String key = iconUrl == null ? title : iconUrl;
-            token = key;
+            String key = iconUrl == null || iconUrl.isBlank() ? "title:" + title : iconUrl;
+            if (!reset(title, key)) {
+                return;
+            }
             if (iconUrl != null && !iconUrl.isBlank()) {
                 loadRemote(iconUrl, key);
             }
         }
 
-        private void showLetter(String title) {
+        /**
+         * Points the tile at a mod, and says whether anything needs loading.
+         *
+         * <p>The guard is the important half. A list cell is told to update far
+         * more often than its contents change - on selection, on a repaint, and
+         * on every {@code refresh()} the window makes after an install - and the
+         * first version cleared the picture and queued another fetch each time.
+         * A single install therefore blanked every logo in the catalogue and
+         * re-fetched the lot, which is what "the pictures disappear" was.
+         *
+         * @return false when this tile is already showing that mod, and the
+         *         caller should leave it alone
+         */
+        private boolean reset(String title, String key) {
+            if (key != null && key.equals(token)) {
+                return false;
+            }
+            token = key;
             image.setVisible(false);
             image.setImage(null);
             String text = title == null || title.isBlank()
                     ? "?"
                     : title.strip().substring(0, 1).toUpperCase(Locale.ROOT);
             letter.setText(text);
+            letter.setVisible(true);
             setStyle("-fx-background-color: " + colourFor(title) + ";");
+            return true;
         }
 
         private void loadRemote(String url, String key) {
@@ -180,12 +221,24 @@ public final class ModIcons {
                 apply(cached, key);
                 return;
             }
+            if (FAILED.contains(url)) {
+                return;
+            }
             LOADER.execute(() -> {
+                // Checked here rather than only at the end: by the time a worker
+                // reaches a queued row the user may have scrolled past it, and
+                // opening a connection for a row nobody is looking at is what
+                // keeps the visible ones waiting.
+                if (!key.equals(token)) {
+                    return;
+                }
                 Optional<Image> loaded = fetch(url);
-                loaded.ifPresent(picture -> {
-                    remember(url, picture);
-                    Platform.runLater(() -> apply(picture, key));
-                });
+                if (loaded.isEmpty()) {
+                    FAILED.add(url);
+                    return;
+                }
+                remember(url, loaded.get());
+                Platform.runLater(() -> apply(loaded.get(), key));
             });
         }
 
@@ -196,12 +249,17 @@ public final class ModIcons {
                 apply(cached, key);
                 return;
             }
-            LOADER.execute(() -> LocalModInfo.readIcon(jar, iconPath)
-                    .flatMap(ModIcons::decode)
-                    .ifPresent(picture -> {
-                        remember(cacheKey, picture);
-                        Platform.runLater(() -> apply(picture, key));
-                    }));
+            LOADER.execute(() -> {
+                if (!key.equals(token)) {
+                    return;
+                }
+                LocalModInfo.readIcon(jar, iconPath)
+                        .flatMap(ModIcons::decode)
+                        .ifPresent(picture -> {
+                            remember(cacheKey, picture);
+                            Platform.runLater(() -> apply(picture, key));
+                        });
+            });
         }
 
         /** Puts a picture in place, unless this cell has moved on to another mod. */
@@ -211,6 +269,9 @@ public final class ModIcons {
             }
             image.setImage(picture);
             image.setVisible(true);
+            // Out of the way rather than merely behind: a transparent logo would
+            // otherwise be read on top of a letter.
+            letter.setVisible(false);
         }
     }
 
