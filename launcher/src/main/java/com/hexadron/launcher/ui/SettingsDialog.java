@@ -102,6 +102,9 @@ public final class SettingsDialog {
      */
     private final CheckBox warnAboutDependents = new CheckBox();
 
+    /** How much of the data folder the kept mod logos may fill, in megabytes. */
+    private final Spinner<Integer> modIconCache = new Spinner<>();
+
     // Java
     private final ComboBox<JavaRuntimes.DownloadPolicy> javaPolicyBox = new ComboBox<>();
 
@@ -341,6 +344,8 @@ public final class SettingsDialog {
         test.setOnAction(event -> testConnection(test));
 
         warnAboutDependents.setText(I18n.t("settings.modWarnings"));
+        spinner(modIconCache, LauncherSettings.MOD_ICON_CACHE_MIN,
+                LauncherSettings.MOD_ICON_CACHE_MAX, settings.modIconCacheMegabytes());
 
         GridPane grid = form();
         int row = 0;
@@ -348,6 +353,8 @@ public final class SettingsDialog {
         grid.addRow(row++, new Label(), note("settings.concurrency.note"));
         grid.addRow(row++, new Label(), warnAboutDependents);
         grid.addRow(row++, new Label(), note("settings.modWarnings.note"));
+        grid.addRow(row++, label("settings.modIconCache"), modIconCache);
+        grid.addRow(row++, new Label(), note("settings.modIconCache.note"));
         grid.addRow(row++, label("settings.curseforge"), curseForgeKey);
         grid.addRow(row++, new Label(), note("mods.curseforge.key.body"));
         grid.addRow(row++, new Label(), new javafx.scene.control.Separator());
@@ -577,6 +584,7 @@ public final class SettingsDialog {
         showAllVersions.setSelected(settings.showAllVersions());
         verifyEveryLaunch.setSelected(settings.verifyEveryLaunch());
         warnAboutDependents.setSelected(settings.warnAboutDependents());
+        modIconCache.getValueFactory().setValue(settings.modIconCacheMegabytes());
         javaPolicyBox.setValue(settings.javaDownloadPolicy());
         curseForgeKey.setText(settings.curseForgeApiKey());
         signInMethodBox.setValue(settings.usesBrowserSignIn() ? "browser" : "deviceCode");
@@ -606,6 +614,7 @@ public final class SettingsDialog {
         settings.showAllVersions(showAllVersions.isSelected());
         settings.verifyEveryLaunch(verifyEveryLaunch.isSelected());
         settings.warnAboutDependents(warnAboutDependents.isSelected());
+        settings.modIconCacheMegabytes(value(modIconCache));
         settings.javaDownloadPolicy(javaPolicyBox.getValue());
         settings.downloadConcurrency(value(concurrencySpinner));
         settings.curseForgeApiKey(curseForgeKey.getText());

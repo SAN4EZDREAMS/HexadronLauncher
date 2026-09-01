@@ -1899,6 +1899,9 @@ public final class SelfCheck {
 
         check("a mod nothing needs any more can say so",
                 reference.containsKey("mods.dependents.none"));
+        check("the logo cache setting is named and explained",
+                reference.containsKey("settings.modIconCache")
+                        && reference.containsKey("settings.modIconCache.note"));
 
         for (Language language : Language.all()) {
             Map<String, String> bundle = I18n.bundle(language);
@@ -2780,6 +2783,30 @@ public final class SelfCheck {
             com.hexadron.launcher.core.LauncherSettings settings =
                     new com.hexadron.launcher.core.LauncherSettings(dirs);
             check("the warning is on to begin with", settings.warnAboutDependents());
+
+            // The logo cache size. Bounded on both sides, and the bounds are
+            // applied to what a hand-edited file says as well as to what the
+            // settings window sends: a nought in that file would otherwise mean
+            // fetching every picture again on every scroll.
+            check("the logo cache starts at thirty-two megabytes",
+                    settings.modIconCacheMegabytes() == 32);
+            check("and that is what it is in bytes",
+                    settings.modIconCacheBytes() == 32L * 1024 * 1024);
+            settings.modIconCacheMegabytes(256);
+            settings.save();
+            check("a chosen size survives a restart",
+                    new com.hexadron.launcher.core.LauncherSettings(dirs)
+                            .load().modIconCacheMegabytes() == 256);
+            settings.modIconCacheMegabytes(0);
+            check("nought is lifted to the smallest cache worth keeping",
+                    settings.modIconCacheMegabytes()
+                            == com.hexadron.launcher.core.LauncherSettings.MOD_ICON_CACHE_MIN);
+            settings.modIconCacheMegabytes(1_000_000);
+            check("and a typo is held to the ceiling",
+                    settings.modIconCacheMegabytes()
+                            == com.hexadron.launcher.core.LauncherSettings.MOD_ICON_CACHE_MAX);
+            settings.modIconCacheMegabytes(32);
+            settings.save();
             settings.warnAboutDependents(false);
             settings.save();
             check("and 'do not show this again' survives a restart",

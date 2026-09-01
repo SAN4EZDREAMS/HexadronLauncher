@@ -77,24 +77,36 @@ public final class ModIcons {
     /**
      * How much of the data folder the kept logos may occupy.
      *
-     * <p>Thirty-two megabytes is around two thousand of them, which is more mods
-     * than anyone browses in a year, and it is a number a user would never
-     * notice. The cache had no bound at all before this: every logo ever
-     * scrolled past was kept for ever, and a browser scrolled through a few
-     * thousand results turns into gigabytes of pictures of leaves in a folder
-     * nobody looks in.
+     * <p>Thirty-two megabytes until the launcher says otherwise, which is around
+     * two thousand of them. The cache had no bound at all before this: every
+     * logo ever scrolled past was kept for ever, and a browser scrolled through
+     * a few thousand results turns into gigabytes of pictures of leaves in a
+     * folder nobody looks in.
+     *
+     * <p>Now the number comes from the settings, so it is a field rather than a
+     * constant - and volatile, because it is written on the interface thread and
+     * read by the sweep on a loader thread.
      */
-    private static final long CACHE_BUDGET = 32L * 1024 * 1024;
+    private static volatile long cacheBudget = 32L * 1024 * 1024;
 
     /**
-     * How many logos may be kept, whatever they weigh.
+     * What one kept logo weighs, near enough.
      *
-     * <p>A second bound because the first one does not catch the shape this
-     * actually takes: tens of thousands of tiny files, well under the size
-     * budget, each costing an inode and a directory entry and all of them
-     * slowing down every sweep after.
+     * <p>Measured from real ones: Modrinth's are a few kilobytes of PNG or WebP
+     * and CurseForge's are larger. It is used for one thing - turning a size
+     * budget into a file count - and it only has to be the right order of
+     * magnitude.
      */
-    private static final int CACHE_FILES = 2500;
+    private static final long AVERAGE_LOGO = 13 * 1024;
+
+    /**
+     * The fewest logos a cache is allowed to hold, whatever its size budget.
+     *
+     * <p>So that the smallest setting still keeps a screenful rather than
+     * thrashing: a list of forty rows that evicts its own logos as it scrolls
+     * would fetch each of them again on the way back up.
+     */
+    private static final int MIN_FILES = 256;
 
     /** Writes since the last sweep. Sweeping on every write would be silly. */
     private static final java.util.concurrent.atomic.AtomicInteger SINCE_SWEEP =
@@ -158,6 +170,41 @@ public final class ModIcons {
      * they are simply fetched again next time - which is the right behaviour for
      * a launcher that has not worked out where its data folder is yet.
      */
+    /**
+     * How large the kept-logo folder may get, in bytes.
+     *
+     * <p>Applied at once rather than at the next start: somebody who has just
+     * turned this down has done so because they want the disk space back now,
+     * so the sweep runs on the way out of the settings window.
+     */
+    public static void cacheBudget(long bytes) {
+        if (bytes <= 0) {
+            return;
+        }
+        boolean smaller = bytes < cacheBudget;
+        cacheBudget = bytes;
+        if (smaller) {
+            Path directory = cacheDir;
+            if (directory != null) {
+                LOADER.execute(() -> sweep(directory));
+            }
+        }
+    }
+
+    /**
+     * How many logos may be kept, whatever they weigh.
+     *
+     * <p>A second bound because the first one does not catch the shape this
+     * actually takes: tens of thousands of tiny files, well under the size
+     * budget, each costing an inode and a directory entry and all of them
+     * slowing down every sweep after. It follows the size budget rather than
+     * being a number of its own, because the two are the same question asked
+     * about pictures of two different sizes.
+     */
+    private static int cacheFiles() {
+        return (int) Math.max(MIN_FILES, cacheBudget / AVERAGE_LOGO);
+    }
+
     public static void cacheDirectory(Path directory) {
         cacheDir = directory;
         // Once at start-up, off the interface thread: a folder that grew before
@@ -487,13 +534,15 @@ public final class ModIcons {
         } catch (IOException | RuntimeException ignored) {
             return;
         }
-        if (total <= CACHE_BUDGET && kept.size() <= CACHE_FILES) {
+        long budget = cacheBudget;
+        int allowed = cacheFiles();
+        if (total <= budget && kept.size() <= allowed) {
             return;
         }
         kept.sort(java.util.Comparator.comparingLong(Kept::modified));
         int count = kept.size();
         for (Kept victim : kept) {
-            if (total <= CACHE_BUDGET && count <= CACHE_FILES) {
+            if (total <= budget && count <= allowed) {
                 break;
             }
             try {

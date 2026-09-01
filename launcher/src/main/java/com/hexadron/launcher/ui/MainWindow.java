@@ -224,7 +224,10 @@ public final class MainWindow implements ProfileHost {
         this.stage = stage;
         this.tray = new TrayIntegration(stage);
         // Mod logos are fetched once and kept in the data folder, so the second
-        // start of the launcher draws the list without a connection.
+        // start of the launcher draws the list without a connection. How much of
+        // it they may fill is the user's to decide; the folder is swept to that
+        // size as soon as it is known.
+        ModIcons.cacheBudget(service.settings().modIconCacheBytes());
         ModIcons.cacheDirectory(service.dirs().cache().resolve("mod-icons"));
         this.progress = new UiProgress(stageLabel, progressBar, logArea);
         // After the fields above: both views are handed this window as their
@@ -592,6 +595,9 @@ public final class MainWindow implements ProfileHost {
             // window is where somebody fixes a route that is not working, and
             // "restart the launcher" is not an answer to that.
             service.applyProxy();
+            // Same reasoning: somebody who has just made the logo cache smaller
+            // wants that disk space back now, not at the next start.
+            ModIcons.cacheBudget(service.settings().modIconCacheBytes());
             if (result.gridChanged()) {
                 saveProfilesQuietly();
             }

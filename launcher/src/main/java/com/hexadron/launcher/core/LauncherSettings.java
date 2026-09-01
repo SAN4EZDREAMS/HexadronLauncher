@@ -139,6 +139,29 @@ public final class LauncherSettings {
     private boolean showAllVersions = false;
 
     /**
+     * How much of the data folder the kept mod logos may fill, in megabytes.
+     *
+     * <p>Thirty-two by default, which is roughly two thousand logos - more mods
+     * than most people browse in a year, and small enough that nobody notices
+     * it. It is a setting because the two ends of the range are both real: a
+     * machine short of disk wants it small, and somebody who browses the whole
+     * catalogue on a slow connection would rather spend a few hundred megabytes
+     * than fetch the same pictures again.
+     *
+     * <p>Bounded on both sides. Zero would mean fetching every logo on every
+     * scroll, which is worse for the user and worse for the platform being
+     * asked; the ceiling is there because this is a cache of thumbnails, and a
+     * number past it is a typo rather than a decision.
+     */
+    private int modIconCacheMegabytes = 32;
+
+    /** The smallest cache worth keeping, in megabytes. */
+    public static final int MOD_ICON_CACHE_MIN = 8;
+
+    /** The largest cache this offers, in megabytes. */
+    public static final int MOD_ICON_CACHE_MAX = 1024;
+
+    /**
      * Ask before switching off or deleting a mod that other mods need.
      *
      * <p>On by default, and the one dialog in this launcher with a "do not show
@@ -205,6 +228,7 @@ public final class LauncherSettings {
         downloadConcurrency = json.get("downloadConcurrency").asInt(downloadConcurrency);
         showAllVersions = json.get("showAllVersions").asBool(showAllVersions);
         warnAboutDependents = json.get("warnAboutDependents").asBool(warnAboutDependents);
+        modIconCacheMegabytes(json.get("modIconCacheMegabytes").asInt(modIconCacheMegabytes));
         splashMinimumMillis = json.get("splashMinimumMillis").asInt(splashMinimumMillis);
         javaDownloadPolicy = JavaRuntimes.DownloadPolicy
                 .parse(json.get("javaDownloadPolicy").asString(javaDownloadPolicy)).stored();
@@ -234,6 +258,7 @@ public final class LauncherSettings {
                 .put("downloadConcurrency", downloadConcurrency)
                 .put("showAllVersions", showAllVersions)
                 .put("warnAboutDependents", warnAboutDependents)
+                .put("modIconCacheMegabytes", modIconCacheMegabytes)
                 .put("splashMinimumMillis", splashMinimumMillis)
                 .put("javaDownloadPolicy", javaDownloadPolicy)
                 .put("language", language)
@@ -395,6 +420,30 @@ public final class LauncherSettings {
     }
 
     /** Clamped: a negative value is no floor, and no window should hold for a minute. */
+    /** How much the mod logo cache may fill, in megabytes. */
+    public int modIconCacheMegabytes() {
+        return modIconCacheMegabytes;
+    }
+
+    /**
+     * Sets it, within the bounds.
+     *
+     * <p>Clamped rather than refused, and clamped here rather than in the
+     * window that offers it: this value also arrives from a file somebody may
+     * have edited by hand, and a nought in it would otherwise switch the cache
+     * off in a way no part of the interface can explain.
+     */
+    public LauncherSettings modIconCacheMegabytes(int value) {
+        this.modIconCacheMegabytes =
+                Math.max(MOD_ICON_CACHE_MIN, Math.min(MOD_ICON_CACHE_MAX, value));
+        return this;
+    }
+
+    /** The same, in bytes, which is what a cache is measured in. */
+    public long modIconCacheBytes() {
+        return (long) modIconCacheMegabytes * 1024 * 1024;
+    }
+
     /** True while the launcher still asks before breaking a dependency. */
     public boolean warnAboutDependents() {
         return warnAboutDependents;
