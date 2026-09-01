@@ -606,12 +606,19 @@ public final class ModBrowserWindow {
             link(mod.pageUrl(), () -> openPage(mod.title(), mod.pageUrl()));
 
             badge.setText(ModLabels.badge(mod));
-            badge.getStyleClass().removeAll("badge-pack", "badge-off");
+            badge.getStyleClass().removeAll("badge-pack", "badge-off", "badge-wrong");
             if (!mod.enabled()) {
                 badge.getStyleClass().add("badge-off");
+            } else if (mod.isWrongVersion()) {
+                badge.getStyleClass().add("badge-wrong");
             } else if (mod.origin() == ModOrigin.PACK) {
                 badge.getStyleClass().add("badge-pack");
             }
+            badge.setTooltip(mod.isWrongVersion() && mod.requires() != null
+                    ? new javafx.scene.control.Tooltip(
+                            I18n.t("mods.wrongVersion.tooltip", mod.requires(),
+                                    profile.minecraftVersion()))
+                    : null);
 
             toggle.setText(I18n.t(mod.enabled() ? "mods.disable" : "mods.enable"));
             toggle.setDisable(busy);

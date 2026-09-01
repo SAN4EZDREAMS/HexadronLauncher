@@ -780,9 +780,11 @@ public final class MainWindow implements ProfileHost {
             name.setText(mod.title());
             version.setText(mod.version() == null ? "" : mod.version());
             badge.setText(ModLabels.badge(mod));
-            badge.getStyleClass().removeAll("badge-pack", "badge-off");
+            badge.getStyleClass().removeAll("badge-pack", "badge-off", "badge-wrong");
             if (!mod.enabled()) {
                 badge.getStyleClass().add("badge-off");
+            } else if (mod.isWrongVersion()) {
+                badge.getStyleClass().add("badge-wrong");
             } else if (mod.origin() == ModOrigin.PACK) {
                 badge.getStyleClass().add("badge-pack");
             }
@@ -1110,6 +1112,11 @@ public final class MainWindow implements ProfileHost {
         if (profile == null) {
             return;
         }
+        // Read before the dialog, because the dialog edits the profile in place
+        // and there is nothing to compare against afterwards.
+        String wasVersion = profile.minecraftVersion();
+        LoaderType wasLoader = profile.loader();
+
         ProfileDialog dialog = newDialog();
         dialog.show(stage, profile).ifPresent(edited -> {
             // The browser is built around one version and one loader, and it
@@ -1121,6 +1128,7 @@ public final class MainWindow implements ProfileHost {
             rememberVersionPreference(dialog);
             refreshProfiles();
             select(edited);
+            reportModsLeftBehind(edited, wasVersion, wasLoader);
         });
     }
 
@@ -1206,6 +1214,9 @@ public final class MainWindow implements ProfileHost {
         if (account.isOffline() && !Account.isValidUsername(account.username())) {
             showWarning(I18n.t("account.invalid.header"),
                     I18n.t("account.invalid.body", account.username()));
+            return;
+        }
+        if (!confirmWrongVersionMods()) {
             return;
         }
         runInBackground(I18n.t("task.play"), () -> {
@@ -1394,6 +1405,115 @@ public final class MainWindow implements ProfileHost {
         signingIn = false;
         signInButton.setText(I18n.t("action.signIn"));
     }
+
+    /**
+     * Says so when changing the version has stranded the mods already installed.
+     *
+     * <p>This is where the mistake is actually made, and it is a reasonable
+     * thing to do: an instance is set up, mods are installed, and then the
+     * Minecraft version is changed - to try an older modpack, or because the
+     * version was wrong to begin with. Nothing moves the jars, because they are
+     * in the player's own folder and the launcher does not delete what it was
+     * not asked to. So the folder quietly stops matching the instance, and until
+     * this existed the first anyone heard of it was the loader refusing to start
+     * and printing a page about it.
+     *
+     * <p>It reports rather than offers to fix. Which mods should go is not
+     * obvious - some of them the player will want to replace with builds for the
+     * new version, and a launcher that deleted them would have thrown away the
+     * list of what to replace.
+     */
+    private void reportModsLeftBehind(Profile profile, String wasVersion, LoaderType wasLoader) {
+        if (profile.minecraftVersion().equals(wasVersion) && profile.loader() == wasLoader) {
+            return;
+        }
+        java.util.List<ModEntry> wrong;
+        try {
+            wrong = service.wrongVersionMods(profile);
+        } catch (RuntimeException e) {
+            return;
+        }
+        if (wrong.isEmpty()) {
+            return;
+        }
+        showWarning(I18n.t("mods.leftBehind.header"),
+                I18n.t("mods.leftBehind.body", wrong.size(), wasVersion,
+                        profile.minecraftVersion()));
+    }
+
+    /**
+     * Stops a launch that is already known to fail, and says why.
+     *
+     * <p>The one case this exists for: a profile's Minecraft version is changed
+     * after its mods were installed. Nothing removes the old jars - they are in
+     * the player's own folder and the launcher does not delete what it was not
+     * asked to - so the folder now holds mods built for a version this profile
+     * is no longer on. The loader refuses to start and prints forty lines about
+     * it, which is the first the player hears of it.
+     *
+     * <p>Every one of those forty lines was knowable beforehand, out of files
+     * already on disk: each jar names the Minecraft versions it needs, because
+     * the loader has to read that to load it. So the launcher reads the same
+     * thing and asks first.
+     *
+     * <p>It asks rather than refuses. A version range can be wrong in the mod's
+     * own metadata, and a player who knows their pack works is not to be argued
+     * with by a launcher.
+     *
+     * @return true when the launch should go ahead
+     */
+    private boolean confirmWrongVersionMods() {
+        Profile profile = selectedProfile;
+        if (profile == null) {
+            return true;
+        }
+        java.util.List<ModEntry> wrong;
+        try {
+            wrong = service.wrongVersionMods(profile);
+        } catch (RuntimeException e) {
+            // A folder that cannot be read is not a reason to block a launch.
+            return true;
+        }
+        if (wrong.isEmpty()) {
+            return true;
+        }
+
+        StringBuilder detail = new StringBuilder();
+        int listed = Math.min(wrong.size(), WRONG_VERSION_LISTED);
+        for (int i = 0; i < listed; i++) {
+            ModEntry mod = wrong.get(i);
+            detail.append("\n  · ").append(mod.title());
+            if (mod.requires() != null) {
+                detail.append(I18n.t("mods.wrongVersion.needs", mod.requires()));
+            }
+        }
+        if (wrong.size() > listed) {
+            detail.append("\n  ").append(I18n.t("mods.wrongVersion.more", wrong.size() - listed));
+        }
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                I18n.t("mods.wrongVersion.body", wrong.size(),
+                        profile.minecraftVersion(), detail.toString()));
+        alert.initOwner(stage);
+        Theme.apply(alert.getDialogPane());
+        alert.setTitle(I18n.t("mods.wrongVersion.header"));
+        alert.setHeaderText(I18n.t("mods.wrongVersion.header"));
+        alert.getDialogPane().setPrefWidth(620);
+        // The default is to stop. The player pressed Play expecting a game, and
+        // the likely answer to "some of your mods are for another version" is
+        // "then do not start".
+        javafx.scene.control.ButtonType launch =
+                new javafx.scene.control.ButtonType(I18n.t("mods.wrongVersion.launch"),
+                        javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+        javafx.scene.control.ButtonType cancel =
+                new javafx.scene.control.ButtonType(I18n.t("action.cancel"),
+                        javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(cancel, launch);
+        return alert.showAndWait().filter(launch::equals).isPresent();
+    }
+
+    /** How many offending mods the warning names before it starts counting. */
+    private static final int WRONG_VERSION_LISTED = 8;
 
     /**
      * Opens the Microsoft sign-in page in the user's own browser.

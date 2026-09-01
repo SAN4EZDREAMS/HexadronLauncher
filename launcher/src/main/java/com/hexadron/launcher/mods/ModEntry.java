@@ -41,12 +41,17 @@ import java.util.List;
  * @param enabled     false for a jar renamed to {@code .disabled}, which the
  *                    loader ignores and the launcher therefore must not present
  *                    as installed
+ * @param requires    the Minecraft versions the jar itself says it needs, as one
+ *                    line, or null when it names none
+ * @param verdict     whether that admits the version this profile is set to.
+ *                    {@link VersionRanges.Verdict#UNKNOWN} whenever there is any
+ *                    doubt, and the interface then says nothing
  */
 public record ModEntry(String key, String title, String version, String description,
                        List<String> authors, String fileName, Path path,
                        ModOrigin origin, String packId,
                        String iconUrl, String pageUrl, String iconJarPath,
-                       boolean enabled) {
+                       boolean enabled, String requires, VersionRanges.Verdict verdict) {
 
     /** The prefix that keeps a file-based key from ever colliding with a lock key. */
     public static final String FILE_KEY_PREFIX = "file:";
@@ -63,6 +68,17 @@ public record ModEntry(String key, String title, String version, String descript
     /** True when this row's Remove button should work. */
     public boolean isRemovable() {
         return origin.isRemovableAlone();
+    }
+
+    /**
+     * True when this mod will not load, and the launcher knows it in advance.
+     *
+     * <p>Only for a mod that is switched on: a jar renamed to {@code .disabled}
+     * is not going to be loaded either way, and reporting it as a problem would
+     * be reporting the fix.
+     */
+    public boolean isWrongVersion() {
+        return enabled && verdict == VersionRanges.Verdict.DOES_NOT_MATCH;
     }
 
     /** True when there is a page worth offering to open. */

@@ -40,6 +40,7 @@ import com.hexadron.launcher.mods.LocalModInfo;
 import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.mods.ModScan;
+import com.hexadron.launcher.mods.VersionRanges;
 import com.hexadron.launcher.mods.ModrinthProvider;
 import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.net.ProxyChoice;
@@ -115,6 +116,8 @@ public final class SelfCheck {
         jarDescriptors();
         webpDecoding();
         modsFolderScan();
+        modVersionRanges();
+        modVersionMismatch();
         loaderCompatibility();
         forgeInstallerProfiles();
         forgeTokenLanguage();
@@ -2608,6 +2611,195 @@ public final class SelfCheck {
                 !ModInstaller.readableNameFrom("").isBlank());
     }
 
+    // ---------------------------------------------------------------- version ranges
+
+    /**
+     * Whether a mod's declared Minecraft requirement admits a version.
+     *
+     * <p>The strings below are not invented. Every one of them was taken from a
+     * real crash report: a profile whose Minecraft version was changed from 26.2
+     * to 1.20.1 after its mods were installed, which started the game, was
+     * refused by the loader, and produced forty lines naming each mod and the
+     * version it actually wanted. All of that was readable from the jars before
+     * anything started, and this is the check that reads it.
+     *
+     * <p>The second half matters as much as the first. A false "this mod is for
+     * another version" on a pack that works teaches the player to click past the
+     * warning, and then the true one goes past too - so anything that cannot be
+     * read with confidence has to come back UNKNOWN rather than guessed at.
+     */
+    private static void modVersionRanges() {
+        section("Mod version ranges");
+
+        // --- what the loader refused, checked against the version it refused it on
+        String on = "1.20.1";
+        check("~26.2 excludes 1.20.1", refuses("~26.2", on));
+        check("~26.2- excludes 1.20.1", refuses("~26.2-", on));
+        check(">=26.1 <27 excludes 1.20.1", refuses(">=26.1 <27", on));
+        check(">=26.2 excludes 1.20.1", refuses(">=26.2", on));
+        check(">=26.2- excludes 1.20.1", refuses(">=26.2-", on));
+        check(">=26.2 <26.3-alpha.3 excludes 1.20.1", refuses(">=26.2 <26.3-alpha.3", on));
+        check(">=26.2 <26.3 excludes 1.20.1", refuses(">=26.2 <26.3", on));
+        check(">=26.1-rc.2 excludes 1.20.1", refuses(">=26.1-rc.2", on));
+        check(">=1.20.5-beta.1 excludes 1.20.1", refuses(">=1.20.5-beta.1", on));
+
+        // --- what a real 1.20.1 pack declares, which must never be flagged
+        check("an exact version admits itself", admits("1.20.1", on));
+        check("~1.20.1 admits 1.20.1", admits("~1.20.1", on));
+        check("~1.20 admits 1.20.1", admits("~1.20", on));
+        check("a two-sided range admits what is inside it", admits(">=1.20.1 <1.21", on));
+        check("1.20.x admits 1.20.1", admits("1.20.x", on));
+        check("1.20.* admits 1.20.1", admits("1.20.*", on));
+        check("^1.20 admits 1.20.1", admits("^1.20", on));
+        check("a star admits anything", admits("*", on));
+        // The distinction a reader of fabric.mod.json gets backwards: a list of
+        // ranges is satisfied by ANY of them, while ranges written inside one
+        // string all have to hold. ">=1.20.1 <1.21" is a window; the array
+        // [">=1.20.1", "<1.21"] is every version there has ever been.
+        check("a list of ranges is satisfied by any one of them",
+                VersionRanges.fabric(List.of(">=1.21", "1.20.1"), on)
+                        == VersionRanges.Verdict.MATCHES);
+        check("ranges inside one string all have to hold",
+                refuses(">=1.20.1 <1.21", "1.21"));
+        check("a list of the same two admits what neither window would",
+                VersionRanges.fabric(List.of(">=1.20.1", "<1.21"), "26.2")
+                        == VersionRanges.Verdict.MATCHES);
+
+        // --- the boundaries themselves
+        check("~1.20.1 stops before 1.21", refuses("~1.20.1", "1.21"));
+        check("~1.20.1 does not reach back", refuses("~1.20.1", "1.20"));
+        check("^1.20 reaches 1.21", admits("^1.20", "1.21"));
+        check("^1.20 stops before 2", refuses("^1.20", "2.0"));
+        check("1.20.x stops before 1.21", refuses("1.20.x", "1.21"));
+        check("a missing component counts as zero", admits(">=1.20", "1.20"));
+
+        // --- pre-releases, which are older than the release they lead to
+        check("a release candidate is below its release", refuses(">=26.2", "26.2-rc.1"));
+        check("a bare dash admits the pre-releases", admits(">=26.2-", "26.2-rc.1"));
+        check("a release is above its own candidates", admits(">=26.2-rc.2", "26.2"));
+        check("build metadata does not change the order", admits("=1.20.1", "1.20.1+build.7"));
+
+        // --- silence unless certain
+        check("a snapshot version is not judged",
+                VersionRanges.fabric(List.of("~1.20"), "23w31a")
+                        == VersionRanges.Verdict.UNKNOWN);
+        check("an unreadable range is not judged",
+                VersionRanges.fabric(List.of("somewhere around 1.20"), on)
+                        == VersionRanges.Verdict.UNKNOWN);
+        check("one unreadable alternative makes the whole answer unsafe",
+                VersionRanges.fabric(List.of(">=26.2", "whatever"), on)
+                        == VersionRanges.Verdict.UNKNOWN);
+        check("no declaration is not a refusal",
+                VersionRanges.fabric(List.of(), on) == VersionRanges.Verdict.UNKNOWN);
+        check("no version is not a refusal",
+                VersionRanges.fabric(List.of("~1.20"), null) == VersionRanges.Verdict.UNKNOWN);
+
+        // --- Maven ranges, which is how Forge and NeoForge write the same thing
+        check("a Maven range admits its lower bound",
+                VersionRanges.maven("[1.20.1,1.21)", on) == VersionRanges.Verdict.MATCHES);
+        check("a Maven range excludes its open upper bound",
+                VersionRanges.maven("[1.20.1,1.21)", "1.21") == VersionRanges.Verdict.DOES_NOT_MATCH);
+        check("a Maven range includes a closed upper bound",
+                VersionRanges.maven("[1.20,1.20.1]", on) == VersionRanges.Verdict.MATCHES);
+        check("a Maven range excludes an open lower bound",
+                VersionRanges.maven("(1.20.1,1.21)", on) == VersionRanges.Verdict.DOES_NOT_MATCH);
+        check("an unbounded Maven range admits everything above it",
+                VersionRanges.maven("[1.20,)", "1.21") == VersionRanges.Verdict.MATCHES);
+        check("a bare Maven version means that or newer",
+                VersionRanges.maven("1.20.1", "1.19.2") == VersionRanges.Verdict.DOES_NOT_MATCH);
+        check("an unreadable Maven range is not judged",
+                VersionRanges.maven("[not,a,range]", on) == VersionRanges.Verdict.UNKNOWN);
+    }
+
+    private static boolean refuses(String range, String version) {
+        return VersionRanges.fabric(List.of(range), version) == VersionRanges.Verdict.DOES_NOT_MATCH;
+    }
+
+    private static boolean admits(String range, String version) {
+        return VersionRanges.fabric(List.of(range), version) == VersionRanges.Verdict.MATCHES;
+    }
+
+    // ---------------------------------------------------------------- version mismatch
+
+    /**
+     * The whole path, from a jar in a folder to a launch that is stopped.
+     *
+     * <p>The case this exists for: an instance is set up on one Minecraft
+     * version, mods are installed into it, and the version is then changed. The
+     * jars stay - they are in the player's folder, and nothing in the launcher
+     * deletes what it was not asked to - so the folder now holds mods for a
+     * version this instance is no longer on. This is the check that the launcher
+     * notices before the loader does.
+     */
+    private static void modVersionMismatch() {
+        section("Mods against the instance version");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-mismatch-check");
+
+            writeJar(dir.resolve("sodium-fabric-0.9.1+mc26.2.jar"), Map.of("fabric.mod.json", """
+                    {"id":"sodium","version":"0.9.1+mc26.2","name":"Sodium",
+                     "depends":{"minecraft":"~26.2","fabricloader":">=0.15"}}"""));
+            writeJar(dir.resolve("create-fabric-6.0.8.jar"), Map.of("fabric.mod.json", """
+                    {"id":"create","version":"6.0.8","name":"Create",
+                     "depends":{"minecraft":">=1.20.1 <1.21"}}"""));
+            writeJar(dir.resolve("mysterymod-1.0.jar"), Map.of("fabric.mod.json",
+                    "{\"id\":\"mystery\",\"version\":\"1.0\",\"name\":\"Mystery\"}"));
+            writeJar(dir.resolve("switched-off-2.0.jar.disabled"), Map.of("fabric.mod.json", """
+                    {"id":"switched","version":"2.0","name":"Switched Off",
+                     "depends":{"minecraft":"~26.2"}}"""));
+            writeJar(dir.resolve("forgey-1.0.jar"), Map.of("META-INF/mods.toml", String.join("\n",
+                    "modLoader=\"javafml\"",
+                    "[[mods]]",
+                    "modId=\"forgey\"",
+                    "version=\"1.0\"",
+                    "displayName=\"Forgey\"",
+                    "[[dependencies.forgey]]",
+                    "modId=\"forge\"",
+                    "versionRange=\"[47,)\"",
+                    "[[dependencies.forgey]]",
+                    "modId=\"minecraft\"",
+                    "versionRange=\"[1.20.1,1.21)\"")));
+
+            List<ModEntry> onOldVersion = ModScan.scan(dir, "1.20.1");
+            check("a mod for another version is spotted",
+                    byTitle(onOldVersion, "Sodium").isWrongVersion());
+            check("its requirement is kept for the message",
+                    "~26.2".equals(byTitle(onOldVersion, "Sodium").requires()));
+            check("a mod for this version is left alone",
+                    !byTitle(onOldVersion, "Create").isWrongVersion());
+            check("a mod that declares nothing is not accused",
+                    !byTitle(onOldVersion, "Mystery").isWrongVersion());
+            check("a Forge range is read too",
+                    !byTitle(onOldVersion, "Forgey").isWrongVersion());
+            // A switched-off mod is not going to be loaded either way, so
+            // reporting it as a problem would be reporting the fix.
+            check("a switched-off mod is not a problem",
+                    !byTitle(onOldVersion, "Switched Off").isWrongVersion());
+            check("only the offending mod is listed",
+                    ModScan.wrongVersion(onOldVersion).size() == 1);
+
+            List<ModEntry> onItsOwnVersion = ModScan.scan(dir, "26.2");
+            check("on its own version the same mod is fine",
+                    !byTitle(onItsOwnVersion, "Sodium").isWrongVersion());
+            check("and the ones for the old version are now the problem",
+                    byTitle(onItsOwnVersion, "Create").isWrongVersion());
+            check("a Forge range is judged on both sides",
+                    byTitle(onItsOwnVersion, "Forgey").isWrongVersion());
+
+            check("without a version nothing is judged at all",
+                    ModScan.wrongVersion(ModScan.scan(dir)).isEmpty());
+            check("nor on a version that cannot be ordered",
+                    ModScan.wrongVersion(ModScan.scan(dir, "23w31a")).isEmpty());
+
+        } catch (IOException e) {
+            check("the mods folder could be judged: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
     // ---------------------------------------------------------------- webp
 
     /**
@@ -2851,7 +3043,8 @@ public final class SelfCheck {
 
             check("a name falls back to the file name",
                     "Some Mod".equals(new LocalModInfo(null, null, null, null,
-                            List.of(), null, null, null).displayName("some-mod-1.2.3.jar")));
+                            List.of(), null, null, null, List.of())
+                            .displayName("some-mod-1.2.3.jar")));
 
         } catch (IOException e) {
             check("jar descriptors could be read: " + e, false);

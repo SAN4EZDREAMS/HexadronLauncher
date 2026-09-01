@@ -449,7 +449,22 @@ public final class LauncherService {
      * or the player did.
      */
     public java.util.List<com.hexadron.launcher.mods.ModEntry> modsIn(Profile profile) {
-        return com.hexadron.launcher.mods.ModScan.scan(profiles.modsDirectory(profile));
+        // Judged against this profile's Minecraft version, so a jar left behind
+        // by a change of version is a row that says so rather than a crash.
+        return com.hexadron.launcher.mods.ModScan.scan(
+                profiles.modsDirectory(profile), profile.minecraftVersion());
+    }
+
+    /**
+     * The mods in a profile that will not load, because they say so themselves.
+     *
+     * <p>Asked before a launch. Everything here comes from files already on
+     * disk, so it costs nothing and works with no connection - and it is the
+     * same question the loader is about to ask, which is why the answer can be
+     * trusted enough to stop a launch on.
+     */
+    public java.util.List<com.hexadron.launcher.mods.ModEntry> wrongVersionMods(Profile profile) {
+        return com.hexadron.launcher.mods.ModScan.wrongVersion(modsIn(profile));
     }
 
     /**

@@ -71,10 +71,15 @@ import java.util.zip.ZipFile;
  * @param iconPath    path inside the jar to the mod's own icon, or null
  * @param loader      which loader's descriptor this came from, or
  *                    {@link LoaderType#VANILLA} when only the manifest answered
+ * @param minecraft   the Minecraft versions this mod says it needs, exactly as
+ *                    written - the alternatives are the mod's own, and it is
+ *                    satisfied by any one of them. Empty when it declares none,
+ *                    which is not the same as "any": it means nothing can be
+ *                    said, and nothing will be
  */
 public record LocalModInfo(String modId, String name, String version, String description,
                            List<String> authors, String homepage, String iconPath,
-                           LoaderType loader) {
+                           LoaderType loader, List<String> minecraft) {
 
     /**
      * Largest descriptor this will read, in bytes.
@@ -94,6 +99,29 @@ public record LocalModInfo(String modId, String name, String version, String des
 
     public LocalModInfo {
         authors = List.copyOf(authors);
+        minecraft = List.copyOf(minecraft);
+    }
+
+    /**
+     * Whether this mod says it works with a Minecraft version.
+     *
+     * <p>Answered in the dialect the descriptor was written in, because the two
+     * families spell a range differently and reading one as the other produces
+     * confident nonsense.
+     */
+    public VersionRanges.Verdict worksWith(String minecraftVersion) {
+        if (minecraft.isEmpty() || minecraftVersion == null || minecraftVersion.isBlank()) {
+            return VersionRanges.Verdict.UNKNOWN;
+        }
+        if (loader == LoaderType.FORGE || loader == LoaderType.NEOFORGE) {
+            return VersionRanges.maven(minecraft.get(0), minecraftVersion);
+        }
+        return VersionRanges.fabric(minecraft, minecraftVersion);
+    }
+
+    /** The requirement as one line, for a message the user reads. */
+    public String minecraftLine() {
+        return String.join(" or ", minecraft);
     }
 
     /** True when nothing but the file name would be shown for this mod. */
@@ -215,7 +243,11 @@ public record LocalModInfo(String modId, String name, String version, String des
                         contact.get("sources").asString(null),
                         contact.get("issues").asString(null)),
                 iconPathOf(root.get("icon")),
-                LoaderType.FABRIC));
+                LoaderType.FABRIC,
+                // "depends" is the only one that stops a mod loading. A
+                // "recommends" or a "breaks" is a different conversation and is
+                // not what a version mismatch looks like.
+                versionsOf(root.get("depends").get("minecraft"))));
     }
 
     /**
@@ -245,7 +277,8 @@ public record LocalModInfo(String modId, String name, String version, String des
                         contact.get("sources").asString(null),
                         contact.get("issues").asString(null)),
                 iconPathOf(metadata.get("icon")),
-                LoaderType.QUILT));
+                LoaderType.QUILT,
+                quiltMinecraft(loaderNode.get("depends"))));
     }
 
     // ---------------------------------------------------------------- forge
@@ -299,7 +332,8 @@ public record LocalModInfo(String modId, String name, String version, String des
                 firstUrl(mod.get("displayURL"), toml.root().get("displayURL"),
                         toml.root().get("issueTrackerURL")),
                 mod.get("logoFile") == null ? toml.root().get("logoFile") : mod.get("logoFile"),
-                loader));
+                loader,
+                tomlMinecraft(toml)));
     }
 
     /** {@code mcmod.info} - a JSON array of mods, for Forge 1.12 and older. */
@@ -323,7 +357,9 @@ public record LocalModInfo(String modId, String name, String version, String des
                 namesOf(first.get("authorList"), first.get("authors")),
                 firstUrl(first.get("url").asString(null), first.get("updateUrl").asString(null)),
                 first.get("logoFile").asString(null),
-                LoaderType.FORGE));
+                LoaderType.FORGE,
+                // mcmod.info names one version and means exactly it.
+                versionsOf(first.get("mcversion"))));
     }
 
     /**
@@ -349,7 +385,7 @@ public record LocalModInfo(String modId, String name, String version, String des
             authors.add(vendor);
         }
         return Optional.of(new LocalModInfo(null, name, version, null, authors,
-                null, null, LoaderType.VANILLA));
+                null, null, LoaderType.VANILLA, List.of()));
     }
 
     /** The manifest's main section, keys lower-cased. */
@@ -399,6 +435,62 @@ public record LocalModInfo(String modId, String name, String version, String des
         } catch (IOException | RuntimeException e) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * A dependency's versions, from either shape the descriptors allow.
+     *
+     * <p>A string is one requirement; an array is a list of alternatives, any
+     * one of which satisfies the mod. {@code "*"} is kept rather than dropped:
+     * it is a mod saying "any version", which is an answer.
+     */
+    private static List<String> versionsOf(Json node) {
+        if (node.isString()) {
+            String value = node.asString(null);
+            return blank(value) ? List.of() : List.of(value.trim());
+        }
+        List<String> versions = new ArrayList<>();
+        for (Json entry : node.elements()) {
+            String value = entry.asString(null);
+            if (!blank(value)) {
+                versions.add(value.trim());
+            }
+        }
+        return List.copyOf(versions);
+    }
+
+    /**
+     * Quilt writes its dependencies as a list of entries rather than a map, so
+     * the one about Minecraft has to be found rather than looked up.
+     */
+    private static List<String> quiltMinecraft(Json depends) {
+        for (Json entry : depends.elements()) {
+            if ("minecraft".equals(entry.get("id").asString(null))) {
+                List<String> versions = versionsOf(entry.get("versions"));
+                if (!versions.isEmpty()) {
+                    return versions;
+                }
+                return versionsOf(entry.get("version"));
+            }
+        }
+        return List.of();
+    }
+
+    /**
+     * The Minecraft entry of a {@code mods.toml} dependency list.
+     *
+     * <p>Forge writes one table array per mod - {@code [[dependencies.jei]]} -
+     * so every one of them has to be looked through, not just the first, and the
+     * one that matters is the entry whose {@code modId} is {@code minecraft}.
+     */
+    private static List<String> tomlMinecraft(Toml toml) {
+        for (Map<String, String> dependency : toml.allUnder("dependencies")) {
+            if ("minecraft".equals(dependency.get("modId"))) {
+                String range = dependency.get("versionRange");
+                return blank(range) ? List.of() : List.of(range.trim());
+            }
+        }
+        return List.of();
     }
 
     /**
@@ -531,6 +623,17 @@ public record LocalModInfo(String modId, String name, String version, String des
         Map<String, String> firstOf(String name) {
             List<Map<String, String>> tables = tableArrays.get(name);
             return tables == null || tables.isEmpty() ? Map.of() : tables.get(0);
+        }
+
+        /** Every table of every array whose name starts with this, in file order. */
+        List<Map<String, String>> allUnder(String prefix) {
+            List<Map<String, String>> tables = new ArrayList<>();
+            tableArrays.forEach((name, entries) -> {
+                if (name.equals(prefix) || name.startsWith(prefix + ".")) {
+                    tables.addAll(entries);
+                }
+            });
+            return tables;
         }
 
         static Toml parse(String text) {

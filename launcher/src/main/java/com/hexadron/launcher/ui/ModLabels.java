@@ -19,13 +19,19 @@ public final class ModLabels {
     /**
      * What a row says about where its mod came from.
      *
-     * <p>Switched off comes first and replaces the origin. Where a mod came from
-     * is a detail; whether the game is loading it is the thing the user is
-     * looking at the list to find out.
+     * <p>Switched off comes first and replaces the origin, and a mod for another
+     * Minecraft version comes next. Where a mod came from is a detail; whether
+     * the game is going to load it is the thing the user is looking at the list
+     * to find out.
      */
     public static String badge(ModEntry mod) {
         if (!mod.enabled()) {
             return I18n.t("mods.origin.disabled");
+        }
+        // Ahead of where it came from: a mod the game is going to refuse is not
+        // usefully described by who installed it.
+        if (mod.isWrongVersion()) {
+            return I18n.t("mods.origin.wrongVersion");
         }
         return switch (mod.origin()) {
             case PACK -> I18n.t("mods.origin.pack");

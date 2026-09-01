@@ -595,6 +595,15 @@
     -fx-text-fill: -fx-text-1;
 }
 
+/* A mod the game is going to refuse. Red, because unlike every other badge in
+   this list it is not a description of the mod - it is something that has to be
+   dealt with before the instance will start at all. */
+.badge-wrong {
+    -fx-background-color: -fx-danger-0;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
 /* ------------------------------------------------------------- mod icons */
 
 /*

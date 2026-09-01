@@ -63,7 +63,7 @@ public final class ModScan {
 
     /** A file that has no descriptor at all, so the miss is cached as well. */
     private static final LocalModInfo NONE =
-            new LocalModInfo(null, null, null, null, List.of(), null, null, null);
+            new LocalModInfo(null, null, null, null, List.of(), null, null, null, List.of());
 
     private ModScan() {
     }
@@ -75,6 +75,24 @@ public final class ModScan {
      * cannot be read is an empty list plus a game that will say so.
      */
     public static List<ModEntry> scan(Path modsDir) {
+        return scan(modsDir, null);
+    }
+
+    /**
+     * Reads the folder and judges it against a Minecraft version.
+     *
+     * <p>The version is what turns a list into a warning. A mods folder is
+     * carried through a change of Minecraft version untouched - that is the
+     * point of it being the player's folder - so a profile that was 26.2 last
+     * week and is 1.20.1 today still holds every jar it did, and the only party
+     * that used to notice was the game, forty lines into a crash. Each jar
+     * declares which versions it needs, so the launcher can say the same thing
+     * before anything starts.
+     *
+     * @param minecraftVersion the profile's version, or null to skip the
+     *                         judgement entirely
+     */
+    public static List<ModEntry> scan(Path modsDir, String minecraftVersion) {
         if (modsDir == null || !Files.isDirectory(modsDir)) {
             return List.of();
         }
@@ -108,10 +126,10 @@ public final class ModScan {
             if (file == null) {
                 continue;
             }
-            entries.add(entryFor(mod, file));
+            entries.add(entryFor(mod, file, minecraftVersion));
         }
         for (Path file : files.values()) {
-            entries.add(externalEntry(file, index));
+            entries.add(externalEntry(file, index, minecraftVersion));
         }
 
         entries.sort(Comparator
@@ -123,7 +141,7 @@ public final class ModScan {
     }
 
     /** A row for a mod the launcher downloaded and has a record of. */
-    private static ModEntry entryFor(InstalledMod mod, Path file) {
+    private static ModEntry entryFor(InstalledMod mod, Path file, String minecraftVersion) {
         String name = file.getFileName().toString();
         LocalModInfo info = descriptorOf(file);
         return new ModEntry(
@@ -141,11 +159,14 @@ public final class ModScan {
                 // the fallback for entries written before the page was recorded.
                 mod.pageUrl() != null ? mod.pageUrl() : info.homepage(),
                 info.iconPath(),
-                isEnabled(name));
+                isEnabled(name),
+                info.minecraft().isEmpty() ? null : info.minecraftLine(),
+                info.worksWith(minecraftVersion));
     }
 
     /** A row for a jar the launcher did not put there. */
-    private static ModEntry externalEntry(Path file, ExternalModIndex index) {
+    private static ModEntry externalEntry(Path file, ExternalModIndex index,
+                                          String minecraftVersion) {
         String name = file.getFileName().toString();
         LocalModInfo info = descriptorOf(file);
         Optional<ModProvider.ProjectCard> known = index.get(name, sizeOf(file));
@@ -162,7 +183,14 @@ public final class ModScan {
                 known.map(ModProvider.ProjectCard::iconUrl).orElse(null),
                 known.map(ModProvider.ProjectCard::pageUrl).orElse(info.homepage()),
                 info.iconPath(),
-                isEnabled(name));
+                isEnabled(name),
+                info.minecraft().isEmpty() ? null : info.minecraftLine(),
+                info.worksWith(minecraftVersion));
+    }
+
+    /** The mods that will not load, in the order they are listed. */
+    public static List<ModEntry> wrongVersion(List<ModEntry> mods) {
+        return mods.stream().filter(ModEntry::isWrongVersion).toList();
     }
 
     // ---------------------------------------------------------------- actions

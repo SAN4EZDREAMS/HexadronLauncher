@@ -940,6 +940,45 @@ The instance summary in the main window shows the same list, without the
 buttons: a Remove button beside a single-click list on the front page is a mod
 deleted by accident, and the browser is one button away.
 
+### Mods left behind by a change of version
+
+An instance's Minecraft version can be changed after its mods are installed, and
+there are good reasons to do it - an older modpack, or a version that was wrong
+to begin with. Nothing moves the jars when it happens: they are in the player's
+own folder, and the launcher does not delete what it was not asked to. So the
+folder quietly stops matching the instance.
+
+Until this existed, the first anyone heard of that was Fabric refusing to start
+and printing a page of it - forty lines of "requires any version between 26.2
+(inclusive) and 26.3- (exclusive) of 'Minecraft', but only the wrong version is
+present: 1.20.1", one per mod, after the game had already been launched.
+
+Every one of those lines was readable beforehand. A mod has to declare which
+Minecraft versions it works with, because the loader reads that declaration to
+decide whether to load it, so `com.hexadron.launcher.mods.VersionRanges` reads
+the same thing off the same files and answers the same question with nothing
+running. Fabric and Quilt write npm-style ranges (`~26.2`, `>=1.20.1 <1.21`,
+`1.20.x`); Forge and NeoForge write Maven ranges (`[1.20.1,1.21)`). Both are
+read, because a launcher that warned about Fabric mods and stayed quiet about
+Forge ones would be worse than one that never warned.
+
+Three things follow from it:
+
+- a mod that will not load is badged **for another version** in red, in both mod
+  lists, with what it actually wants in its tooltip;
+- changing an instance's version says how many mods have just been stranded;
+- **Play** stops and names them, with the choice of launching anyway. It asks
+  rather than refuses: a range can be wrong in a mod's own metadata, and a player
+  who knows their pack works is not to be argued with by a launcher.
+
+The rule underneath all of it is **silence unless certain**. A false "this mod is
+for another version" on a pack that works teaches the player to click past the
+warning, and then the true one goes past too. So a range that cannot be parsed, a
+Minecraft snapshot like `23w31a`, a mod that declares nothing, a jar that is
+switched off - all of them produce no opinion at all. The self-check holds this
+from both sides: the ranges from a real crash report are all refused, and the
+ranges a working 1.20.1 pack declares are all admitted.
+
 ### Hexadron Optimise
 
 The pack button lives in this window, not in the main one, and it appears only
