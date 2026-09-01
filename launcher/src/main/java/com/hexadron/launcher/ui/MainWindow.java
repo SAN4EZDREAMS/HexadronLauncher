@@ -780,14 +780,15 @@ public final class MainWindow implements ProfileHost {
             name.setText(mod.title());
             version.setText(mod.version() == null ? "" : mod.version());
             badge.setText(ModLabels.badge(mod));
-            badge.getStyleClass().removeAll("badge-pack", "badge-off", "badge-wrong");
-            if (!mod.enabled()) {
-                badge.getStyleClass().add("badge-off");
-            } else if (mod.isWrongVersion()) {
-                badge.getStyleClass().add("badge-wrong");
-            } else if (mod.origin() == ModOrigin.PACK) {
-                badge.getStyleClass().add("badge-pack");
-            }
+            // Only when it actually differs. A style class changed from inside a
+            // list cell's update is resolved a frame late - the cell is updated
+            // during the list's layout, after CSS has run - so touching one for
+            // no reason is a badge that is drawn at the wrong width for a frame
+            // and corrected afterwards.
+            setBadgeClass(badge, "badge-off", !mod.enabled());
+            setBadgeClass(badge, "badge-wrong", mod.enabled() && mod.isWrongVersion());
+            setBadgeClass(badge, "badge-pack", mod.enabled() && !mod.isWrongVersion()
+                    && mod.origin() == ModOrigin.PACK);
             setGraphic(box);
         }
     }
@@ -854,6 +855,18 @@ public final class MainWindow implements ProfileHost {
         browsers.computeIfAbsent(profile.id(),
                         id -> new ModBrowserWindow(service, stage, profile, () -> refreshModsList(profile)))
                 .show();
+    }
+
+    /** Adds or removes a style class, and only when it is not already right. */
+    private static void setBadgeClass(Label badge, String name, boolean wanted) {
+        if (badge.getStyleClass().contains(name) == wanted) {
+            return;
+        }
+        if (wanted) {
+            badge.getStyleClass().add(name);
+        } else {
+            badge.getStyleClass().remove(name);
+        }
     }
 
     /**

@@ -615,6 +615,58 @@ public final class ModBrowserWindow {
             page.setOnAction(event -> action.run());
         }
 
+        /**
+         * Adds or removes a style class, and only when it is not already right.
+         *
+         * <p>The unconditional {@code removeAll} then {@code add} that used to be
+         * here is what made the badge and the buttons jump for one frame every
+         * time the selection moved. {@link javafx.scene.control.ListCell#updateItem}
+         * is called from the list's own layout pass - after CSS has been applied
+         * for that frame - so a style class changed there is not resolved until
+         * the next one. The row is therefore measured once with the old padding,
+         * border and weight, drawn in the wrong place, and corrected a frame
+         * later. {@code .badge-off} adds a one-pixel border and
+         * {@code .badge-wrong} makes the text bold, so "the old values" really
+         * are a different width.
+         *
+         * <p>Checking first makes the common case - scrolling or clicking
+         * through rows whose badges are the same kind - touch nothing at all,
+         * and there is nothing to resolve late.
+         */
+        protected static void styleClass(javafx.scene.Node node, String name, boolean wanted) {
+            if (node.getStyleClass().contains(name) == wanted) {
+                return;
+            }
+            if (wanted) {
+                node.getStyleClass().add(name);
+            } else {
+                node.getStyleClass().remove(name);
+            }
+        }
+
+        /**
+         * Points a control at its tooltip, or takes it away.
+         *
+         * <p>One tooltip per cell, reused. A fresh one on every update is a node
+         * and a listener allocated for every row the eye passes over, thrown
+         * away unread.
+         */
+        protected static void tooltip(javafx.scene.control.Control control,
+                                      javafx.scene.control.Tooltip tip, String text) {
+            if (text == null) {
+                if (control.getTooltip() != null) {
+                    control.setTooltip(null);
+                }
+                return;
+            }
+            if (!text.equals(tip.getText())) {
+                tip.setText(text);
+            }
+            if (control.getTooltip() != tip) {
+                control.setTooltip(tip);
+            }
+        }
+
         /** Puts the assembled row on screen. Called at the end of every update. */
         protected void showRow() {
             setGraphic(row);
@@ -656,10 +708,9 @@ public final class ModBrowserWindow {
             boolean installed = library != null && library.contains(hit.source(), hit.projectId());
             action.setText(I18n.t(installed ? "mods.installed" : "mods.install"));
             action.setDisable(installed || busy);
-            action.getStyleClass().removeAll("primary");
-            if (!installed) {
-                action.getStyleClass().add("primary");
-            }
+            // ".primary" carries a font size and a padding, so churning it on
+            // every row is a button that changes width a frame late.
+            styleClass(action, "primary", !installed);
             action.setOnAction(event -> installMod(hit));
             showRow();
         }
@@ -680,9 +731,17 @@ public final class ModBrowserWindow {
         private final Button toggle = new Button();
         private final Button remove = new Button();
 
+        /** One each, reused, rather than a new node per row the eye passes over. */
+        private final javafx.scene.control.Tooltip badgeTip = new javafx.scene.control.Tooltip();
+        private final javafx.scene.control.Tooltip removeTip = new javafx.scene.control.Tooltip();
+
         InstalledCell() {
             badge.getStyleClass().add("badge");
             badge.setMinWidth(Region.USE_PREF_SIZE);
+            // Set once. Remove is the destructive button in every row this cell
+            // will ever show, so saying so again on each of them is churn with
+            // no answer that can change.
+            remove.getStyleClass().add("danger");
             actions.getChildren().addAll(badge, toggle, remove);
         }
 
@@ -706,18 +765,13 @@ public final class ModBrowserWindow {
             link(mod.pageUrl(), () -> openPage(mod.title(), mod.pageUrl()));
 
             badge.setText(ModLabels.badge(mod));
-            badge.getStyleClass().removeAll("badge-pack", "badge-off", "badge-wrong");
-            if (!mod.enabled()) {
-                badge.getStyleClass().add("badge-off");
-            } else if (mod.isWrongVersion()) {
-                badge.getStyleClass().add("badge-wrong");
-            } else if (mod.origin() == ModOrigin.PACK) {
-                badge.getStyleClass().add("badge-pack");
-            }
-            badge.setTooltip(mod.isWrongVersion() && mod.requires() != null
-                    ? new javafx.scene.control.Tooltip(
-                            I18n.t("mods.wrongVersion.tooltip", mod.requires(),
-                                    profile.minecraftVersion()))
+            styleClass(badge, "badge-off", !mod.enabled());
+            styleClass(badge, "badge-wrong", mod.enabled() && mod.isWrongVersion());
+            styleClass(badge, "badge-pack",
+                    mod.enabled() && !mod.isWrongVersion() && mod.origin() == ModOrigin.PACK);
+            tooltip(badge, badgeTip, mod.isWrongVersion() && mod.requires() != null
+                    ? I18n.t("mods.wrongVersion.tooltip", mod.requires(),
+                            profile.minecraftVersion())
                     : null);
 
             toggle.setText(I18n.t(mod.enabled() ? "mods.disable" : "mods.enable"));
@@ -725,13 +779,10 @@ public final class ModBrowserWindow {
             toggle.setOnAction(event -> toggleMod(mod));
 
             remove.setText(I18n.t("mods.remove"));
-            remove.getStyleClass().removeAll("danger");
-            remove.getStyleClass().add("danger");
             // A pack goes out whole, through its own button in the header.
             remove.setDisable(!mod.isRemovable() || busy);
-            remove.setTooltip(mod.isRemovable()
-                    ? null
-                    : new javafx.scene.control.Tooltip(I18n.t("mods.remove.packLocked")));
+            tooltip(remove, removeTip,
+                    mod.isRemovable() ? null : I18n.t("mods.remove.packLocked"));
             remove.setOnAction(event -> removeMod(mod));
             showRow();
         }

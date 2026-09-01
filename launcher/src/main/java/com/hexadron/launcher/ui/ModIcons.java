@@ -269,7 +269,14 @@ public final class ModIcons {
             letter.setText(text);
             letter.setVisible(true);
             letter.setManaged(true);
-            setStyle("-fx-background-color: " + colourFor(title) + ";");
+            // Written only when it differs. An inline style is a CSS change, and
+            // this runs from inside a list cell's update - which happens during
+            // the list's layout, after CSS has been applied for the frame - so
+            // setting one that changes nothing still costs a re-resolve.
+            String colour = "-fx-background-color: " + colourFor(title) + ";";
+            if (!colour.equals(getStyle())) {
+                setStyle(colour);
+            }
             return true;
         }
 
