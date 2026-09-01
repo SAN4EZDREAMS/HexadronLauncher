@@ -202,14 +202,63 @@ public final class ModScan {
      * What came of an import.
      *
      * @param imported file names now in the folder
-     * @param skipped  one line each, already readable, saying which file and why
+     * @param skipped  one entry each, saying which file and why
      */
-    public record Imported(List<String> imported, List<String> skipped) {
+    public record Imported(List<String> imported, List<Skip> skipped) {
 
         public Imported {
             imported = List.copyOf(imported);
             skipped = List.copyOf(skipped);
         }
+    }
+
+    /**
+     * One file that did not come in, and why.
+     *
+     * <p>A reason rather than a sentence. The sentence belongs to whoever is
+     * showing it, in the language that window is in - this class has no
+     * business knowing either, and the English strings it used to build were
+     * shown untranslated in the middle of a translated dialog.
+     *
+     * @param file   the name of the file that was refused
+     * @param detail whatever the file system said, for {@link Reason#FAILED}
+     */
+    public record Skip(String file, Reason reason, String detail) {
+
+        Skip(String file, Reason reason) {
+            this(file, reason, null);
+        }
+    }
+
+    /** Why a file was not imported. */
+    public enum Reason {
+
+        /** A folder, a link, or something that vanished between the two moments. */
+        NOT_A_FILE,
+
+        /** Not a jar by name: a readme, a zip of a pack, a screenshot. */
+        NOT_A_JAR,
+
+        /**
+         * The folder already holds a file by that name.
+         *
+         * <p>Refused rather than overwritten. What is already installed may
+         * have a config folder and a world behind it, and "import" is not a
+         * word anybody reads as "replace".
+         */
+        ALREADY_THERE,
+
+        /**
+         * Named like a jar, and not an archive at all.
+         *
+         * <p>A half-finished download, a renamed file, an error page saved with
+         * the name of the file it failed to deliver. This is the one thing that
+         * is worth refusing: the loader would not read it either.
+         */
+        NOT_AN_ARCHIVE,
+
+        /** The copy itself failed: no room, no permission, a disk that went away. */
+        FAILED
     }
 
     /**
@@ -235,7 +284,7 @@ public final class ModScan {
 
         Files.createDirectories(modsDir);
         List<String> imported = new ArrayList<>();
-        List<String> skipped = new ArrayList<>();
+        List<Skip> skipped = new ArrayList<>();
         int done = 0;
 
         for (Path source : files) {
@@ -243,23 +292,31 @@ public final class ModScan {
             progress.items(done++, files.size());
 
             if (!Files.isRegularFile(source)) {
-                skipped.add(name + " - not a file");
+                skipped.add(new Skip(name, Reason.NOT_A_FILE));
                 continue;
             }
             if (!isJar(name)) {
-                skipped.add(name + " - not a jar");
+                skipped.add(new Skip(name, Reason.NOT_A_JAR));
                 continue;
             }
             Path target = modsDir.resolve(enabledName(name));
             if (Files.exists(target)) {
-                skipped.add(name + " - already in this instance");
+                skipped.add(new Skip(name, Reason.ALREADY_THERE));
                 continue;
             }
-            // Read before copying: a renamed zip, a half-finished download or a
-            // jar with no mod in it is better named here than found by the
-            // loader.
-            if (LocalModInfo.read(source).isEmpty()) {
-                skipped.add(name + " - the launcher could not read a mod in it");
+            // An archive, and that is the whole test.
+            //
+            // It used to be "a jar this launcher can read a descriptor out of",
+            // which refused real mods. A descriptor can be written in a dialect
+            // this reader does not parse, or left out of a jar that is still a
+            // mod, and the same file dragged into the folder by hand is listed
+            // without complaint - so the button and the file manager disagreed
+            // about the same file, and the button was the one that was wrong.
+            // What is worth catching is a file that is not an archive: a
+            // half-finished download, or something renamed to .jar. The loader
+            // will not read that one either.
+            if (!isArchive(source)) {
+                skipped.add(new Skip(name, Reason.NOT_AN_ARCHIVE));
                 continue;
             }
             try {
@@ -267,7 +324,8 @@ public final class ModScan {
                 imported.add(target.getFileName().toString());
                 progress.log("Imported %s", target.getFileName());
             } catch (IOException e) {
-                skipped.add(name + " - " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+                skipped.add(new Skip(name, Reason.FAILED,
+                        e.getMessage() == null ? e.toString() : e.getMessage()));
             }
         }
         progress.items(files.size(), files.size());
@@ -392,6 +450,21 @@ public final class ModScan {
             return NONE;
         }
         return DESCRIPTORS.computeIfAbsent(key, ignored -> LocalModInfo.read(file).orElse(NONE));
+    }
+
+    /**
+     * Whether the file opens as a zip archive at all.
+     *
+     * <p>Opened and closed without reading anything out of it: the question is
+     * whether there is a central directory at the end of it, which is what
+     * separates a jar from a truncated download.
+     */
+    private static boolean isArchive(Path file) {
+        try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(file.toFile())) {
+            return zip.size() >= 0;
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
     }
 
     private static long sizeOf(Path file) {

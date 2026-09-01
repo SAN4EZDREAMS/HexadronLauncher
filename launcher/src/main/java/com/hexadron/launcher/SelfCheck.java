@@ -1871,6 +1871,35 @@ public final class SelfCheck {
         Map<String, String> reference = I18n.bundle(Language.DEFAULT);
         check("the reference bundle is not empty", !reference.isEmpty());
 
+        // The buttons on a dialog are written by JavaFX from its own bundle, so
+        // a dialog whose every sentence was translated still said OK and Cancel
+        // in English. They are overwritten from these keys, and a missing one
+        // would put the English back without anything failing.
+        for (String key : new String[]{"dialog.ok", "dialog.cancel", "dialog.yes",
+                "dialog.no", "dialog.close", "dialog.apply", "dialog.finish",
+                "dialog.next", "dialog.previous"}) {
+            check("the standard dialog buttons are the launcher's own words: " + key,
+                    reference.containsKey(key));
+        }
+
+        // A file refused by the importer carries a reason, not a sentence, so
+        // that the sentence can be in the language the window is in. Every
+        // reason therefore needs one.
+        Map<ModScan.Reason, String> refusals = Map.of(
+                ModScan.Reason.NOT_A_FILE, "mods.import.skipped.notFile",
+                ModScan.Reason.NOT_A_JAR, "mods.import.skipped.notJar",
+                ModScan.Reason.ALREADY_THERE, "mods.import.skipped.already",
+                ModScan.Reason.NOT_AN_ARCHIVE, "mods.import.skipped.notArchive",
+                ModScan.Reason.FAILED, "mods.import.skipped.failed");
+        for (ModScan.Reason reason : ModScan.Reason.values()) {
+            check("a refused import can be explained: " + reason,
+                    refusals.containsKey(reason)
+                            && reference.containsKey(refusals.get(reason)));
+        }
+
+        check("a mod nothing needs any more can say so",
+                reference.containsKey("mods.dependents.none"));
+
         for (Language language : Language.all()) {
             Map<String, String> bundle = I18n.bundle(language);
             String code = language.code();
@@ -3026,19 +3055,29 @@ public final class SelfCheck {
             List<Path> all = List.of(good, second, notAJar, notAZip, noMod);
             ModScan.Imported first = ModScan.importJars(target, all, QUIET);
 
-            check("the readable mods are imported", first.imported().size() == 2);
+            check("the readable mods are imported", first.imported().size() == 3);
             check("both land in the folder",
                     java.nio.file.Files.isRegularFile(target.resolve("goodmod-1.0.jar"))
                             && java.nio.file.Files.isRegularFile(target.resolve("another-2.0.jar")));
-            check("three files are refused", first.skipped().size() == 3);
+            check("two files are refused", first.skipped().size() == 2);
             check("a refusal names the file",
-                    first.skipped().stream().anyMatch(line -> line.startsWith("readme.txt")));
+                    first.skipped().stream().anyMatch(skip -> skip.file().equals("readme.txt")));
             check("something that is not a jar says so",
-                    first.skipped().stream().anyMatch(line -> line.contains("not a jar")));
+                    first.skipped().stream().anyMatch(skip ->
+                            skip.reason() == ModScan.Reason.NOT_A_JAR));
             check("a jar that is not an archive is refused",
-                    first.skipped().stream().anyMatch(line -> line.startsWith("broken.jar")));
-            check("a jar with no mod in it is refused",
-                    first.skipped().stream().anyMatch(line -> line.startsWith("library.jar")));
+                    first.skipped().stream().anyMatch(skip ->
+                            skip.file().equals("broken.jar")
+                                    && skip.reason() == ModScan.Reason.NOT_AN_ARCHIVE));
+
+            // A jar whose descriptor this launcher cannot read is still a jar,
+            // and the same file dragged into the folder by hand is listed
+            // without complaint. Refusing it here made the button disagree with
+            // the file manager about the same file.
+            check("a jar with no descriptor is still imported",
+                    java.nio.file.Files.isRegularFile(target.resolve("library.jar")));
+            check("and a refusal carries a reason rather than an English sentence",
+                    first.skipped().stream().allMatch(skip -> skip.reason() != null));
 
             // Copied, not moved. The files are the player's, sitting where they
             // downloaded them, and emptying that folder is not the launcher's
@@ -3053,8 +3092,9 @@ public final class SelfCheck {
             ModScan.Imported again = ModScan.importJars(target, all, QUIET);
             check("a second import adds nothing", again.imported().isEmpty());
             check("a file already there is refused by name",
-                    again.skipped().stream().anyMatch(line ->
-                            line.startsWith("goodmod-1.0.jar") && line.contains("already")));
+                    again.skipped().stream().anyMatch(skip ->
+                            skip.file().equals("goodmod-1.0.jar")
+                                    && skip.reason() == ModScan.Reason.ALREADY_THERE));
             check("and is not overwritten",
                     java.nio.file.Files.size(target.resolve("goodmod-1.0.jar")) == before);
 

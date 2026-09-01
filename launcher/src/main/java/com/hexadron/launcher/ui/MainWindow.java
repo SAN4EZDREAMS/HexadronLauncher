@@ -1177,6 +1177,7 @@ public final class MainWindow implements ProfileHost {
         confirm.initOwner(stage);
         Theme.apply(confirm.getDialogPane());
         confirm.setHeaderText(I18n.t("profiles.remove.header"));
+        confirm.setTitle(I18n.t("profiles.remove.header"));
         confirm.getDialogPane().setPrefWidth(640);
 
         var answer = confirm.showAndWait();
@@ -1344,6 +1345,7 @@ public final class MainWindow implements ProfileHost {
         confirm.initOwner(stage);
         Theme.apply(confirm.getDialogPane());
         confirm.setHeaderText(I18n.t("account.remove.header"));
+        confirm.setTitle(I18n.t("account.remove.header"));
         if (confirm.showAndWait().filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {
             return;
         }
@@ -2077,6 +2079,7 @@ public final class MainWindow implements ProfileHost {
                 ask.initOwner(stage);
                 Theme.apply(ask.getDialogPane());
                 ask.setHeaderText(I18n.t("grid.newGroupHere.occupants.header"));
+                ask.setTitle(I18n.t("grid.newGroupHere.occupants.header"));
                 ask.getDialogPane().setPrefWidth(620);
                 var answer = ask.showAndWait();
                 if (answer.isEmpty() || answer.get() == cancel) {
@@ -2125,6 +2128,7 @@ public final class MainWindow implements ProfileHost {
         confirm.initOwner(stage);
         Theme.apply(confirm.getDialogPane());
         confirm.setHeaderText(I18n.t("groups.remove.header"));
+        confirm.setTitle(I18n.t("groups.remove.header"));
         confirm.getDialogPane().setPrefWidth(560);
         if (confirm.showAndWait()
                 .filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {

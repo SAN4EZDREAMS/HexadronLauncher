@@ -147,7 +147,11 @@ public final class ProfileDialog {
                         event.consume();
                         Alert alert = new Alert(Alert.AlertType.WARNING, problem);
                         alert.initOwner(dialog.getDialogPane().getScene().getWindow());
+                        // Styled and titled like the rest: this one was drawn by
+                        // the platform, in the platform's own words.
+                        Theme.apply(alert.getDialogPane());
                         alert.setHeaderText(null);
+                        alert.setTitle(I18n.t("app.title"));
                         alert.showAndWait();
                     }
                 });
@@ -317,6 +321,7 @@ public final class ProfileDialog {
             Alert alert = new Alert(Alert.AlertType.WARNING,
                     e.getMessage() == null ? e.toString() : e.getMessage());
             alert.setHeaderText(I18n.t("icon.failed"));
+            alert.setTitle(I18n.t("icon.failed"));
             if (iconPreview.getScene() != null) {
                 alert.initOwner(iconPreview.getScene().getWindow());
             }

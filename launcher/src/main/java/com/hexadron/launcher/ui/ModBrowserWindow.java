@@ -912,6 +912,7 @@ public final class ModBrowserWindow {
         /** The names of the mods that need this one, shown while the badge is hovered. */
         private final HoverPanel needed = new HoverPanel();
         private java.util.List<ModEntry> neededShows = java.util.List.of();
+        private boolean neededExplains;
 
         InstalledCell() {
             badge.getStyleClass().add("badge");
@@ -957,10 +958,16 @@ public final class ModBrowserWindow {
             // What would break if this one went away. Rebuilt only when the
             // answer differs from the row this cell drew last.
             java.util.List<ModEntry> needs = dependents.of(mod);
-            styleClass(badge, "badge-linked", !needs.isEmpty());
-            if (!needs.equals(neededShows)) {
+            // A mod the launcher installed because something else asked for it
+            // is worth hovering even when the answer is "nothing, any more":
+            // that is the difference between a badge that says nothing and a
+            // badge that says this one can go.
+            boolean explains = !needs.isEmpty() || mod.origin() == ModOrigin.DEPENDENCY;
+            styleClass(badge, "badge-linked", explains);
+            if (!needs.equals(neededShows) || explains != neededExplains) {
                 neededShows = needs;
-                fillNeeded(needs);
+                neededExplains = explains;
+                fillNeeded(needs, explains);
             }
 
             // One thing at a time under the pointer: a row whose badge already
@@ -992,10 +999,22 @@ public final class ModBrowserWindow {
          * useful next step is the mod that put it there - so each name takes
          * them to that row, the way an anchor on a page does.
          */
-        private void fillNeeded(java.util.List<ModEntry> needs) {
+        private void fillNeeded(java.util.List<ModEntry> needs, boolean explains) {
             needed.content().clear();
-            if (needs.isEmpty()) {
+            if (!explains) {
                 needed.hide();
+                return;
+            }
+            if (needs.isEmpty()) {
+                // Installed as somebody else's requirement, and nothing that is
+                // in the folder now asks for it. Said plainly, because the badge
+                // on its own reads as "something needs this" and the hover
+                // showing nothing reads as a launcher that failed to answer.
+                Label alone = new Label(I18n.t("mods.dependents.none"));
+                alone.setWrapText(true);
+                alone.setMaxWidth(280);
+                alone.getStyleClass().add("muted");
+                needed.content().add(alone);
                 return;
             }
             Label title = new Label(I18n.t("mods.dependents.title"));
@@ -1227,6 +1246,7 @@ public final class ModBrowserWindow {
         confirm.initOwner(stage);
         Theme.apply(confirm.getDialogPane());
         confirm.setHeaderText(header);
+        confirm.setTitle(header);
         confirm.getDialogPane().setContent(content);
         confirm.getDialogPane().setPrefWidth(560);
 
@@ -1608,10 +1628,29 @@ public final class ModBrowserWindow {
                 // be worked out with a file manager.
                 if (!result.skipped().isEmpty()) {
                     warn(I18n.t("mods.import.skipped.header"),
-                            String.join("\n", result.skipped()));
+                            result.skipped().stream().map(ModBrowserWindow::reasonFor)
+                                    .collect(java.util.stream.Collectors.joining("\n")));
                 }
             });
         });
+    }
+
+    /**
+     * One refused file, as a line somebody can act on.
+     *
+     * <p>Written here rather than where the refusal happened, because this is
+     * where the language of the window is known. The folder reader has no
+     * business holding sentences in five languages.
+     */
+    private static String reasonFor(com.hexadron.launcher.mods.ModScan.Skip skip) {
+        return switch (skip.reason()) {
+            case NOT_A_FILE -> I18n.t("mods.import.skipped.notFile", skip.file());
+            case NOT_A_JAR -> I18n.t("mods.import.skipped.notJar", skip.file());
+            case ALREADY_THERE -> I18n.t("mods.import.skipped.already", skip.file());
+            case NOT_AN_ARCHIVE -> I18n.t("mods.import.skipped.notArchive", skip.file());
+            case FAILED -> I18n.t("mods.import.skipped.failed", skip.file(),
+                    skip.detail() == null ? "" : skip.detail());
+        };
     }
 
     /** Offers the lookup only while there is something in the folder to look up. */
