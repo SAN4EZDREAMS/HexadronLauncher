@@ -478,6 +478,21 @@ public final class LauncherService {
                 profiles.modsDirectory(profile), entry, enabled);
     }
 
+    /**
+     * Copies jars the player chose into a profile's mods folder.
+     *
+     * <p>Not routed through the mod installer: nothing here is resolved, no
+     * version is checked against a platform and no lock entry is written,
+     * because none of that is known about a file that arrived from a browser.
+     * They land as what they are - the player's own mods.
+     */
+    public com.hexadron.launcher.mods.ModScan.Imported importMods(
+            Profile profile, java.util.List<Path> files, Progress progress) throws IOException {
+
+        return com.hexadron.launcher.mods.ModScan.importJars(
+                profiles.modsDirectory(profile), files, progress);
+    }
+
     /** Sends a file the launcher did not install to the recycle bin. */
     public void discardExternalMod(Profile profile, com.hexadron.launcher.mods.ModEntry entry,
                                    Progress progress) throws IOException {

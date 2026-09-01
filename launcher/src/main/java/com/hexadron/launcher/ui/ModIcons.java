@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -74,6 +75,45 @@ public final class ModIcons {
     private static final int MAX_BYTES = 4 * 1024 * 1024;
 
     /**
+     * How much of the data folder the kept logos may occupy.
+     *
+     * <p>Thirty-two megabytes is around two thousand of them, which is more mods
+     * than anyone browses in a year, and it is a number a user would never
+     * notice. The cache had no bound at all before this: every logo ever
+     * scrolled past was kept for ever, and a browser scrolled through a few
+     * thousand results turns into gigabytes of pictures of leaves in a folder
+     * nobody looks in.
+     */
+    private static final long CACHE_BUDGET = 32L * 1024 * 1024;
+
+    /**
+     * How many logos may be kept, whatever they weigh.
+     *
+     * <p>A second bound because the first one does not catch the shape this
+     * actually takes: tens of thousands of tiny files, well under the size
+     * budget, each costing an inode and a directory entry and all of them
+     * slowing down every sweep after.
+     */
+    private static final int CACHE_FILES = 2500;
+
+    /** Writes since the last sweep. Sweeping on every write would be silly. */
+    private static final java.util.concurrent.atomic.AtomicInteger SINCE_SWEEP =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /** How many new logos may arrive before the folder is looked at again. */
+    private static final int SWEEP_EVERY = 64;
+
+    /**
+     * How stale a kept logo's timestamp may get before a use refreshes it.
+     *
+     * <p>The sweep throws away the least recently used, which means the times
+     * have to mean something - but touching a file on every draw would be a
+     * write per row of a scrolling list. A day is fine: the question the sweep
+     * asks is "which of these has not been wanted in months".
+     */
+    private static final long TOUCH_AFTER = java.time.Duration.ofDays(1).toMillis();
+
+    /**
      * Four threads.
      *
      * <p>Enough that a screenful of search results fills at once, few enough
@@ -120,6 +160,10 @@ public final class ModIcons {
      */
     public static void cacheDirectory(Path directory) {
         cacheDir = directory;
+        // Once at start-up, off the interface thread: a folder that grew before
+        // there was a limit is brought under it without waiting for the user to
+        // fetch another logo.
+        LOADER.execute(() -> sweep(directory));
     }
 
     /**
@@ -150,6 +194,13 @@ public final class ModIcons {
             setPrefSize(size, size);
             setMaxSize(size, size);
             getStyleClass().add("mod-icon");
+            // A logo is whatever shape its author drew. Clipped to the tile, so
+            // a wide one cannot paint outside its square and a tall one cannot
+            // push the row it is in taller than its neighbours.
+            javafx.scene.shape.Rectangle clip = new javafx.scene.shape.Rectangle(size, size);
+            clip.setArcWidth(14);
+            clip.setArcHeight(14);
+            setClip(clip);
 
             letter.getStyleClass().add("mod-icon-letter");
             letter.setStyle("-fx-font-size: " + Math.round(size * 0.45) + "px;");
@@ -217,6 +268,7 @@ public final class ModIcons {
                     : title.strip().substring(0, 1).toUpperCase(Locale.ROOT);
             letter.setText(text);
             letter.setVisible(true);
+            letter.setManaged(true);
             setStyle("-fx-background-color: " + colourFor(title) + ";");
             return true;
         }
@@ -278,6 +330,7 @@ public final class ModIcons {
             // Out of the way rather than merely behind: a transparent logo would
             // otherwise be read on top of a letter.
             letter.setVisible(false);
+            letter.setManaged(false);
         }
     }
 
@@ -290,6 +343,7 @@ public final class ModIcons {
             try {
                 Optional<Image> cached = decode(Files.readAllBytes(file));
                 if (cached.isPresent()) {
+                    touch(file);
                     return cached;
                 }
             } catch (IOException ignored) {
@@ -363,6 +417,85 @@ public final class ModIcons {
             Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException | RuntimeException ignored) {
             // The picture is already in hand; failing to keep it is not a failure.
+            return;
+        }
+        if (SINCE_SWEEP.incrementAndGet() >= SWEEP_EVERY) {
+            SINCE_SWEEP.set(0);
+            sweep(file.getParent());
+        }
+    }
+
+    /**
+     * Marks a kept logo as still wanted.
+     *
+     * <p>Only when its timestamp has gone stale, because this is called from
+     * every row of a scrolling list and a write per row is not a cache, it is a
+     * disk benchmark.
+     */
+    private static void touch(Path file) {
+        try {
+            long age = System.currentTimeMillis() - Files.getLastModifiedTime(file).toMillis();
+            if (age > TOUCH_AFTER) {
+                Files.setLastModifiedTime(file, java.nio.file.attribute.FileTime.fromMillis(
+                        System.currentTimeMillis()));
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // A timestamp that will not update costs this file its place in the
+            // queue, and nothing else.
+        }
+    }
+
+    /**
+     * Brings the folder back under its bounds, oldest first.
+     *
+     * <p>Least recently used, by the timestamps {@link #touch} keeps: a logo
+     * nobody has looked at since spring goes before one from this morning. It
+     * throws away nothing that cannot be fetched again, which is what makes a
+     * cache a cache and lets this be as blunt as it is.
+     *
+     * <p>Runs on the loader threads. It is a directory listing and a few
+     * deletes, and it is never on the way to drawing anything.
+     */
+    private static void sweep(Path directory) {
+        if (directory == null) {
+            return;
+        }
+        record Kept(Path path, long modified, long size) {
+        }
+        List<Kept> kept = new java.util.ArrayList<>();
+        long total = 0;
+        try (java.util.stream.Stream<Path> files = Files.list(directory)) {
+            for (Path file : files.toList()) {
+                if (!Files.isRegularFile(file)) {
+                    continue;
+                }
+                try {
+                    long size = Files.size(file);
+                    kept.add(new Kept(file, Files.getLastModifiedTime(file).toMillis(), size));
+                    total += size;
+                } catch (IOException ignored) {
+                    // Gone between the listing and the question. Not our problem.
+                }
+            }
+        } catch (IOException | RuntimeException ignored) {
+            return;
+        }
+        if (total <= CACHE_BUDGET && kept.size() <= CACHE_FILES) {
+            return;
+        }
+        kept.sort(java.util.Comparator.comparingLong(Kept::modified));
+        int count = kept.size();
+        for (Kept victim : kept) {
+            if (total <= CACHE_BUDGET && count <= CACHE_FILES) {
+                break;
+            }
+            try {
+                Files.deleteIfExists(victim.path());
+                total -= victim.size();
+                count--;
+            } catch (IOException | RuntimeException ignored) {
+                // A file that will not go is one file over budget.
+            }
         }
     }
 

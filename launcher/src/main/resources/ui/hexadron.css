@@ -612,13 +612,15 @@
  * fetched or read out of the jar. Drawing the letter first rather than leaving
  * a gap is what stops a list from flickering into place as pictures arrive.
  */
+/*
+ * The tile is sized in code, to whatever the list it is in asks for, and its
+ * size is deliberately not set here. It used to be: -fx-min-width and
+ * -fx-min-height were pinned to 24 in this file, and a stylesheet wins over a
+ * setter, so a 40-pixel tile was allowed to shrink to 24 whenever the layout
+ * felt like it. A rule that overrides the code that asks for a size is a rule
+ * that makes rows different heights for no reason the reader can see.
+ */
 .mod-icon {
-    -fx-background-radius: 8;
-    -fx-min-width: 24;
-    -fx-min-height: 24;
-}
-
-.mod-icon .image-view {
     -fx-background-radius: 8;
 }
 

@@ -233,9 +233,14 @@ its own folder under `instances/`, so mods and worlds stay separate. Inside a
 profile's `mods/` folder the launcher keeps two files of its own:
 `.hexadron-mods.json`, the record of what it downloaded, and
 `.hexadron-external.json`, what Modrinth said about the jars it did not. Mod
-logos are cached under `cache/mod-icons`, keyed by the digest of their address. Pictures
-chosen as instance icons are copied into `icons/`, named after their own
-content.
+logos are cached under `cache/mod-icons`, keyed by the digest of their address,
+and that folder is bounded: thirty-two megabytes or twenty-five hundred files,
+whichever is reached first, least recently used thrown away. It had no bound at
+all to begin with, which is a browser scrolled through a few thousand results
+turning into gigabytes of pictures of leaves in a folder nobody ever opens.
+Nothing kept there cannot be fetched again, which is what lets the sweep be as
+blunt as it is. Pictures chosen as instance icons are copied into `icons/`, named
+after their own content.
 
 `profiles.json` holds the profiles and, next to them, how they are arranged: the
 size of the grid, the cell each profile is in, the groups and which rows belong to
@@ -861,6 +866,8 @@ only thing it read was its own record of what it had downloaded.
 | [ Browse ] [ Installed (7) ]                                  |
 |  3 file(s) here were not installed by the launcher [Identify] |
 |                                                               |
+|  [ search ............ ] [ All mods v ]        [ Import... ]  |
+|                                                               |
 | []  Sodium  0.6.13                    Hexadron Optimise       |
 |     jellysquid3 · sodium-fabric-0.6.13.jar                    |
 |     A modern rendering engine.  [More about this mod][Off][X] |
@@ -925,6 +932,25 @@ the badge and which buttons are live.
   what the other file was or where it came from. The one irreversible deletion
   in the program should not be the one performed on the files it knows least
   about. Where the desktop has no recycle bin, the file goes to `mods/.removed`.
+
+**Import…** copies jars the player already has into the instance, several at a
+time, and a drop onto the list does the same - which is how they arrive: someone
+who has just been through a mod site has a folder of them, not one. Copied, not
+moved: the files are theirs, sitting where they downloaded them, and emptying
+that folder is not the launcher's decision to take. Nothing already in the
+instance is ever overwritten, because behind an existing jar there is a version
+and a config folder, and a silent replacement is how a working instance becomes a
+broken one with nothing to point at. Everything refused - not a jar, not an
+archive, an archive with no mod in it, a name already taken - is refused by name,
+since a silent skip in a batch of twenty is a mod somebody spends an evening
+looking for.
+
+**Search and filter** narrow the list. The search matches the name, the file name
+and the authors, because those are the three things a player knows a mod by and
+they are rarely the same word - "sodium", "sodium-fabric-0.5.13.jar" and
+"jellysquid3" are one mod, and any of them is a reasonable thing to type. The
+filter is all mods, the launcher's own, the player's own, switched off, or for
+another version.
 
 **Identify** appears only while there are unrecognised jars. It sends a digest
 of each of them to Modrinth and asks which project has that exact file, which is

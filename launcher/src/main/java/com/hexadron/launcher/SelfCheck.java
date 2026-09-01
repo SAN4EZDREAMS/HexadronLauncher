@@ -118,6 +118,7 @@ public final class SelfCheck {
         modsFolderScan();
         modVersionRanges();
         modVersionMismatch();
+        modImport();
         loaderCompatibility();
         forgeInstallerProfiles();
         forgeTokenLanguage();
@@ -2609,6 +2610,94 @@ public final class SelfCheck {
                 "Log4j Fix".equals(ModInstaller.readableNameFrom("log4j-fix-1.0.jar")));
         check("a blank name does not produce a blank label",
                 !ModInstaller.readableNameFrom("").isBlank());
+    }
+
+    // ---------------------------------------------------------------- importing
+
+    /**
+     * Bringing a folder of downloaded jars into an instance.
+     *
+     * <p>What has to hold: the originals stay where they were, nothing already
+     * in the instance is overwritten, and everything refused is refused by name.
+     * A silent skip in a batch of twenty is a mod the player will spend an
+     * evening looking for.
+     */
+    private static void modImport() {
+        section("Importing mods");
+
+        Path source = null;
+        Path target = null;
+        try {
+            source = java.nio.file.Files.createTempDirectory("hexadron-import-source");
+            target = java.nio.file.Files.createTempDirectory("hexadron-import-target");
+
+            Path good = source.resolve("goodmod-1.0.jar");
+            writeJar(good, Map.of("fabric.mod.json",
+                    "{\"id\":\"good\",\"version\":\"1.0\",\"name\":\"Good Mod\"}"));
+            Path second = source.resolve("another-2.0.jar");
+            writeJar(second, Map.of("fabric.mod.json",
+                    "{\"id\":\"another\",\"version\":\"2.0\",\"name\":\"Another Mod\"}"));
+            Path notAJar = source.resolve("readme.txt");
+            java.nio.file.Files.writeString(notAJar, "not a mod");
+            Path notAZip = source.resolve("broken.jar");
+            java.nio.file.Files.writeString(notAZip, "this is not an archive");
+            Path noMod = source.resolve("library.jar");
+            writeJar(noMod, Map.of("some/class/File.txt", "no descriptor here"));
+
+            List<Path> all = List.of(good, second, notAJar, notAZip, noMod);
+            ModScan.Imported first = ModScan.importJars(target, all, QUIET);
+
+            check("the readable mods are imported", first.imported().size() == 2);
+            check("both land in the folder",
+                    java.nio.file.Files.isRegularFile(target.resolve("goodmod-1.0.jar"))
+                            && java.nio.file.Files.isRegularFile(target.resolve("another-2.0.jar")));
+            check("three files are refused", first.skipped().size() == 3);
+            check("a refusal names the file",
+                    first.skipped().stream().anyMatch(line -> line.startsWith("readme.txt")));
+            check("something that is not a jar says so",
+                    first.skipped().stream().anyMatch(line -> line.contains("not a jar")));
+            check("a jar that is not an archive is refused",
+                    first.skipped().stream().anyMatch(line -> line.startsWith("broken.jar")));
+            check("a jar with no mod in it is refused",
+                    first.skipped().stream().anyMatch(line -> line.startsWith("library.jar")));
+
+            // Copied, not moved. The files are the player's, sitting where they
+            // downloaded them, and emptying that folder is not the launcher's
+            // decision to take.
+            check("the originals are left alone", java.nio.file.Files.isRegularFile(good)
+                    && java.nio.file.Files.isRegularFile(second));
+
+            // Importing the same batch again must not quietly replace what is
+            // already installed: a version and a config folder can be behind it.
+            java.nio.file.Files.writeString(target.resolve("goodmod-1.0.jar.marker"), "x");
+            long before = java.nio.file.Files.size(target.resolve("goodmod-1.0.jar"));
+            ModScan.Imported again = ModScan.importJars(target, all, QUIET);
+            check("a second import adds nothing", again.imported().isEmpty());
+            check("a file already there is refused by name",
+                    again.skipped().stream().anyMatch(line ->
+                            line.startsWith("goodmod-1.0.jar") && line.contains("already")));
+            check("and is not overwritten",
+                    java.nio.file.Files.size(target.resolve("goodmod-1.0.jar")) == before);
+
+            // An imported jar is the player's own, and is listed as such: the
+            // launcher did not download it and has no record of where it came
+            // from, so nothing may treat it as its own to replace.
+            List<ModEntry> mods = ModScan.scan(target);
+            ModEntry imported = byTitle(mods, "Good Mod");
+            check("an imported mod is listed", imported != null);
+            check("an imported mod is the user's own",
+                    imported.origin() == ModOrigin.EXTERNAL);
+            check("an imported mod is removable", imported.isRemovable());
+
+            check("importing nothing is not an error",
+                    ModScan.importJars(target, List.of(), QUIET).imported().isEmpty());
+
+        } catch (IOException e) {
+            check("mods could be imported: " + e, false);
+        } finally {
+            deleteRecursively(source);
+            deleteRecursively(target);
+        }
     }
 
     // ---------------------------------------------------------------- version ranges

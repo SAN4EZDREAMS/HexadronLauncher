@@ -193,6 +193,84 @@ public final class ModScan {
         return mods.stream().filter(ModEntry::isWrongVersion).toList();
     }
 
+    // ---------------------------------------------------------------- importing
+
+    /**
+     * What came of an import.
+     *
+     * @param imported file names now in the folder
+     * @param skipped  one line each, already readable, saying which file and why
+     */
+    public record Imported(List<String> imported, List<String> skipped) {
+
+        public Imported {
+            imported = List.copyOf(imported);
+            skipped = List.copyOf(skipped);
+        }
+    }
+
+    /**
+     * Copies jars the player chose into the mods folder.
+     *
+     * <p>Copies rather than moves. The files are the player's, sitting wherever
+     * they downloaded them, and a launcher that emptied the Downloads folder as
+     * a side effect of an import would be taking a decision that was not offered
+     * to it.
+     *
+     * <p>Nothing is recorded in the lock file, and that is the point: these are
+     * not the launcher's downloads and it has no idea where they came from, so
+     * they are listed as the player's own and are removed only when the button
+     * on their row is pressed.
+     *
+     * <p>An existing file is never overwritten. Replacing a jar the player
+     * already has is a decision with a version and a config folder behind it,
+     * and a silent overwrite is how a working instance turns into a broken one
+     * with nothing to point at. The name is reported as skipped instead.
+     */
+    public static Imported importJars(Path modsDir, List<Path> files, Progress progress)
+            throws IOException {
+
+        Files.createDirectories(modsDir);
+        List<String> imported = new ArrayList<>();
+        List<String> skipped = new ArrayList<>();
+        int done = 0;
+
+        for (Path source : files) {
+            String name = source.getFileName().toString();
+            progress.items(done++, files.size());
+
+            if (!Files.isRegularFile(source)) {
+                skipped.add(name + " - not a file");
+                continue;
+            }
+            if (!isJar(name)) {
+                skipped.add(name + " - not a jar");
+                continue;
+            }
+            Path target = modsDir.resolve(enabledName(name));
+            if (Files.exists(target)) {
+                skipped.add(name + " - already in this instance");
+                continue;
+            }
+            // Read before copying: a renamed zip, a half-finished download or a
+            // jar with no mod in it is better named here than found by the
+            // loader.
+            if (LocalModInfo.read(source).isEmpty()) {
+                skipped.add(name + " - the launcher could not read a mod in it");
+                continue;
+            }
+            try {
+                Files.copy(source, target);
+                imported.add(target.getFileName().toString());
+                progress.log("Imported %s", target.getFileName());
+            } catch (IOException e) {
+                skipped.add(name + " - " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+            }
+        }
+        progress.items(files.size(), files.size());
+        return new Imported(imported, skipped);
+    }
+
     // ---------------------------------------------------------------- actions
 
     /**

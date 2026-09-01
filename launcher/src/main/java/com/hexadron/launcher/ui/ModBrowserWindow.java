@@ -32,6 +32,10 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.scene.input.DragEvent;
+import javafx.scene.input.Dragboard;
+import javafx.scene.input.TransferMode;
+import javafx.stage.FileChooser;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 
@@ -105,6 +109,26 @@ public final class ModBrowserWindow {
      */
     private final Button identifyButton = new Button();
     private final Label identifyNote = new Label();
+
+    /**
+     * Getting a pile of jars into an instance in one go.
+     *
+     * <p>A player who has just downloaded eleven mods from a browser has them in
+     * one folder, and the only way in used to be a file manager and a path they
+     * had to be told. The launcher knows the path.
+     */
+    private final Button importButton = new Button();
+
+    private final TextField installedSearch = new TextField();
+    private final ComboBox<ModFilter> installedFilter = new ComboBox<>();
+    private final Label installedCount = new Label();
+
+    /**
+     * Every mod in the folder, before the search box and the filter have had
+     * their say. Kept so that typing narrows a list that is already in hand
+     * rather than re-reading the folder on every keystroke.
+     */
+    private java.util.List<ModEntry> installedAll = java.util.List.of();
 
     private final Tab browseTab = new Tab();
     private final Tab installedTab = new Tab();
@@ -202,6 +226,13 @@ public final class ModBrowserWindow {
         searchButton.setText(I18n.t("mods.search"));
         browseTab.setText(I18n.t("mods.tab.browse"));
         installedEmpty.setText(I18n.t("mods.installed.empty"));
+        installedSearch.setPromptText(I18n.t("mods.installed.search"));
+        importButton.setText(I18n.t("mods.import"));
+        // The filter names are drawn by its converter, which reads I18n each
+        // time; nudging the box is what makes it redraw after a language change.
+        ModFilter chosen = installedFilter.getValue();
+        installedFilter.setValue(null);
+        installedFilter.setValue(chosen);
         refreshCurseForgeState();
     }
 
@@ -366,6 +397,38 @@ public final class ModBrowserWindow {
         installedList.setCellFactory(view -> new InstalledCell());
         installedList.setPlaceholder(installedEmpty);
         VBox.setVgrow(installedList, Priority.ALWAYS);
+        acceptDroppedJars(installedList);
+
+        installedSearch.setPromptText(I18n.t("mods.installed.search"));
+        HBox.setHgrow(installedSearch, Priority.ALWAYS);
+        // On every keystroke, over a list already in memory: the folder is not
+        // re-read, so there is nothing here worth waiting for a pause to do.
+        installedSearch.textProperty().addListener(
+                (observable, previous, value) -> applyInstalledFilter());
+
+        installedFilter.setItems(FXCollections.observableArrayList(ModFilter.values()));
+        installedFilter.setValue(ModFilter.ALL);
+        installedFilter.setPrefWidth(190);
+        installedFilter.setConverter(new javafx.util.StringConverter<>() {
+            @Override
+            public String toString(ModFilter value) {
+                return value == null ? "" : I18n.t(value.key());
+            }
+
+            @Override
+            public ModFilter fromString(String text) {
+                return null;
+            }
+        });
+        installedFilter.valueProperty().addListener(
+                (observable, previous, value) -> applyInstalledFilter());
+
+        importButton.setOnAction(event -> importMods());
+
+        HBox controls = new HBox(8, installedSearch, installedFilter, importButton);
+        controls.setAlignment(Pos.CENTER_LEFT);
+
+        installedCount.getStyleClass().add("muted");
 
         identifyNote.getStyleClass().add("muted");
         identifyNote.setWrapText(true);
@@ -377,13 +440,43 @@ public final class ModBrowserWindow {
         identifyRow.setManaged(false);
         this.identifyRow = identifyRow;
 
-        VBox pane = new VBox(10, identifyRow, installedList);
+        VBox pane = new VBox(10, controls, identifyRow, installedCount, installedList);
         pane.getStyleClass().add("browse-pane");
         return pane;
     }
 
     /** Holds the identify button, so it can be hidden when there is nothing to ask about. */
     private HBox identifyRow;
+
+    /** What the installed list is narrowed to. */
+    private enum ModFilter {
+
+        ALL("mods.filter.all"),
+        MANAGED("mods.filter.managed"),
+        EXTERNAL("mods.filter.external"),
+        DISABLED("mods.filter.disabled"),
+        WRONG_VERSION("mods.filter.wrongVersion");
+
+        private final String key;
+
+        ModFilter(String key) {
+            this.key = key;
+        }
+
+        String key() {
+            return key;
+        }
+
+        boolean accepts(ModEntry mod) {
+            return switch (this) {
+                case ALL -> true;
+                case MANAGED -> mod.isManaged();
+                case EXTERNAL -> !mod.isManaged();
+                case DISABLED -> !mod.enabled();
+                case WRONG_VERSION -> mod.isWrongVersion();
+            };
+        }
+    }
 
     private VBox buildFooter() {
         progressBar.setMaxWidth(Double.MAX_VALUE);
@@ -498,20 +591,27 @@ public final class ModBrowserWindow {
             setPrefWidth(0);
         }
 
-        /** Shows or hides a line, so an absent one takes no height. */
+        /**
+         * Writes one line, and keeps its space whether or not there is one.
+         *
+         * <p>Hidden rather than unmanaged, and that is the whole of the "the
+         * list goes uneven" bug. A row whose mod published no description, or no
+         * page, used to be one line shorter than the row above it, so a list of
+         * forty mods was a ladder of four different row heights that changed
+         * again as logos arrived. Every row now reserves the same four lines and
+         * leaves the ones it has nothing for blank.
+         */
         protected static void line(Label label, String value) {
             boolean present = value != null && !value.isBlank();
             label.setText(present ? value : "");
             label.setVisible(present);
-            label.setManaged(present);
         }
 
-        /** Points the link at a page, or takes it out of the row entirely. */
+        /** Points the link at a page, or leaves its line blank. */
         protected void link(String url, Runnable action) {
             boolean present = SystemBrowser.isWebPage(url);
             page.setText(present ? I18n.t("mods.details") : "");
             page.setVisible(present);
-            page.setManaged(present);
             page.setOnAction(event -> action.run());
         }
 
@@ -842,11 +942,12 @@ public final class ModBrowserWindow {
         // what the installed tab lists - and the two differ by exactly the mods
         // the launcher did not put there.
         library = service.installedMods(profile);
-        java.util.List<ModEntry> mods = service.modsIn(profile);
-        installedList.setItems(FXCollections.observableArrayList(mods));
-        installedEmpty.setText(I18n.t("mods.installed.empty"));
-        installedTab.setText(I18n.t("mods.tab.installed", mods.size()));
-        updateIdentifyRow(mods);
+        installedAll = service.modsIn(profile);
+        installedTab.setText(I18n.t("mods.tab.installed", installedAll.size()));
+        importButton.setText(I18n.t("mods.import"));
+        installedSearch.setPromptText(I18n.t("mods.installed.search"));
+        applyInstalledFilter();
+        updateIdentifyRow(installedAll);
         browseTab.setText(I18n.t("mods.tab.browse"));
         searchButton.setText(I18n.t("mods.search"));
         updatePackButton();
@@ -964,6 +1065,113 @@ public final class ModBrowserWindow {
         thread.start();
     }
 
+    /**
+     * Narrows the installed list to what was asked for.
+     *
+     * <p>The search matches the name, the file name and the authors, because
+     * those are the three things a player knows a mod by and they are rarely the
+     * same word - "sodium", "sodium-fabric-0.5.13.jar" and "jellysquid3" are one
+     * mod, and any of them is a reasonable thing to type.
+     */
+    private void applyInstalledFilter() {
+        ModFilter filter = installedFilter.getValue() == null
+                ? ModFilter.ALL : installedFilter.getValue();
+        String query = installedSearch.getText() == null
+                ? "" : installedSearch.getText().trim().toLowerCase(Locale.ROOT);
+
+        java.util.List<ModEntry> shown = installedAll.stream()
+                .filter(filter::accepts)
+                .filter(mod -> matches(mod, query))
+                .toList();
+        installedList.setItems(FXCollections.observableArrayList(shown));
+
+        boolean narrowed = shown.size() != installedAll.size();
+        installedEmpty.setText(installedAll.isEmpty()
+                ? I18n.t("mods.installed.empty")
+                : I18n.t("mods.installed.noMatch"));
+        installedCount.setText(narrowed
+                ? I18n.t("mods.installed.shown", shown.size(), installedAll.size())
+                : "");
+        installedCount.setVisible(narrowed);
+        installedCount.setManaged(narrowed);
+    }
+
+    private static boolean matches(ModEntry mod, String query) {
+        if (query.isEmpty()) {
+            return true;
+        }
+        if (mod.title().toLowerCase(Locale.ROOT).contains(query)
+                || mod.fileName().toLowerCase(Locale.ROOT).contains(query)) {
+            return true;
+        }
+        return mod.authors().stream()
+                .anyMatch(author -> author.toLowerCase(Locale.ROOT).contains(query));
+    }
+
+    /**
+     * Asks for jar files and copies them in.
+     *
+     * <p>Several at once, because that is how they arrive: a player who has just
+     * been through a mod site has a folder of them, not one.
+     */
+    private void importMods() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(I18n.t("mods.import.title"));
+        chooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter(I18n.t("mods.import.filter"), "*.jar"));
+        java.util.List<java.io.File> chosen = chooser.showOpenMultipleDialog(stage);
+        if (chosen == null || chosen.isEmpty()) {
+            return;
+        }
+        importFiles(chosen.stream().map(java.io.File::toPath).toList());
+    }
+
+    /**
+     * Lets jars be dropped onto the installed list.
+     *
+     * <p>The same action as the button, reached the way a player would try it
+     * first. Only files are accepted, and only as a copy - a drop that moved the
+     * originals out of the folder they were downloaded to would be a surprise.
+     */
+    private void acceptDroppedJars(javafx.scene.Node target) {
+        target.setOnDragOver(event -> {
+            if (event.getDragboard().hasFiles() && !busy) {
+                event.acceptTransferModes(TransferMode.COPY);
+            }
+            event.consume();
+        });
+        target.setOnDragDropped(event -> {
+            Dragboard board = event.getDragboard();
+            boolean handled = board.hasFiles();
+            if (handled) {
+                importFiles(board.getFiles().stream().map(java.io.File::toPath).toList());
+            }
+            event.setDropCompleted(handled);
+            event.consume();
+        });
+    }
+
+    private void importFiles(java.util.List<java.nio.file.Path> files) {
+        if (files.isEmpty()) {
+            return;
+        }
+        mutate(I18n.t("mods.task.import", files.size()), () -> {
+            com.hexadron.launcher.mods.ModScan.Imported result =
+                    service.importMods(profile, files, progress);
+            Platform.runLater(() -> {
+                refreshInstalled();
+                progress.done(I18n.t("mods.imported", result.imported().size()));
+                // Named rather than counted. "Three of your eleven files were
+                // skipped" without saying which three is a message that has to
+                // be worked out with a file manager.
+                if (!result.skipped().isEmpty()) {
+                    warn(I18n.t("mods.import.skipped.header"),
+                            String.join("\n", result.skipped()));
+                }
+            });
+        });
+    }
+
     /** Offers the lookup only while there is something in the folder to look up. */
     private void updateIdentifyRow(java.util.List<ModEntry> mods) {
         int pending = service.unidentifiedModCount(profile, mods);
@@ -978,6 +1186,7 @@ public final class ModBrowserWindow {
         busy = value;
         packButton.setDisable(value || pack == null);
         identifyButton.setDisable(value);
+        importButton.setDisable(value);
         resultList.refresh();
         installedList.refresh();
     }
