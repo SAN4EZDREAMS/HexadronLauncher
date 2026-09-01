@@ -63,7 +63,8 @@ public final class ModScan {
 
     /** A file that has no descriptor at all, so the miss is cached as well. */
     private static final LocalModInfo NONE =
-            new LocalModInfo(null, null, null, null, List.of(), null, null, null, List.of());
+            new LocalModInfo(null, null, null, null, List.of(), null, null, null,
+                    List.of(), List.of());
 
     private ModScan() {
     }
@@ -161,7 +162,8 @@ public final class ModScan {
                 info.iconPath(),
                 isEnabled(name),
                 info.minecraft().isEmpty() ? null : info.minecraftLine(),
-                info.worksWith(minecraftVersion));
+                info.worksWith(minecraftVersion),
+                mod.categories());
     }
 
     /** A row for a jar the launcher did not put there. */
@@ -185,7 +187,8 @@ public final class ModScan {
                 info.iconPath(),
                 isEnabled(name),
                 info.minecraft().isEmpty() ? null : info.minecraftLine(),
-                info.worksWith(minecraftVersion));
+                info.worksWith(minecraftVersion),
+                known.map(ModProvider.ProjectCard::categories).orElse(List.of()));
     }
 
     /** The mods that will not load, in the order they are listed. */
@@ -373,7 +376,7 @@ public final class ModScan {
     // ---------------------------------------------------------------- reading
 
     /** The jar's own description of itself, read once per version of the file. */
-    private static LocalModInfo descriptorOf(Path file) {
+    static LocalModInfo descriptorOf(Path file) {
         // Every entry is one small record and the key is unique per version of
         // a file, so the map only grows when files change. Clearing it wholesale
         // at a generous ceiling costs one re-read of the visible rows and cannot

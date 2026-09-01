@@ -3,6 +3,7 @@ package com.hexadron.launcher.ui;
 import com.hexadron.launcher.core.LauncherService;
 import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.install.loader.LoaderType;
+import com.hexadron.launcher.mods.ModCategory;
 import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.ModInstaller;
 import com.hexadron.launcher.mods.ModLibrary;
@@ -18,8 +19,11 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Hyperlink;
+import javafx.scene.control.MenuButton;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
@@ -28,6 +32,7 @@ import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -75,6 +80,27 @@ public final class ModBrowserWindow {
 
     private final TextField searchField = new TextField();
     private final ComboBox<ModSort> sortBox = new ComboBox<>();
+
+    /**
+     * The category filter.
+     *
+     * <p>A menu of tick boxes rather than a list that picks one, because a mod
+     * is filed under several and a player narrowing a search usually means more
+     * than one thing at once - "adventure and magic", not "adventure, and now
+     * start again with magic". The menu stays open while they are ticked, so
+     * choosing four is four clicks rather than four round trips.
+     */
+    private final MenuButton categoryBox = new MenuButton();
+    private final java.util.Set<ModCategory> chosenCategories =
+            java.util.EnumSet.noneOf(ModCategory.class);
+
+    /** The boxes themselves, so "clear all" can untick them without rebuilding the menu. */
+    private final java.util.Map<ModCategory, CheckBox> categoryBoxes =
+            new java.util.EnumMap<>(ModCategory.class);
+    private final Button clearCategories = new Button();
+
+    /** Names, and the drawings that go beside them. Rebuilt when the drawings arrive. */
+    private Categories categories;
     private final ComboBox<SourceChoice> sourceBox = new ComboBox<>();
     private final Button searchButton = new Button();
 
@@ -129,6 +155,15 @@ public final class ModBrowserWindow {
      * rather than re-reading the folder on every keystroke.
      */
     private java.util.List<ModEntry> installedAll = java.util.List.of();
+
+    /**
+     * Which of those mods are needed by which others, read from the jars.
+     *
+     * <p>Rebuilt with the list, because switching one mod off changes the answer
+     * for every other one: a mod that is not loaded cannot need anything.
+     */
+    private com.hexadron.launcher.mods.ModDependents dependents =
+            com.hexadron.launcher.mods.ModDependents.NONE;
 
     private final Tab browseTab = new Tab();
     private final Tab installedTab = new Tab();
@@ -186,6 +221,7 @@ public final class ModBrowserWindow {
         loadPackStateAsync();
         nextOffset = 0;
         totalMatches = -1;
+        loadCategoryDataAsync();
         runSearch();
 
         stage.show();
@@ -194,6 +230,7 @@ public final class ModBrowserWindow {
 
     /** One-time stage setup. Everything here is illegal after the first show. */
     private void buildStage() {
+        categories = new Categories(service.categoryArt());
         stage.initOwner(owner);
         // Not modal: the launcher stays usable while mods are being chosen.
         stage.initModality(Modality.NONE);
@@ -230,9 +267,10 @@ public final class ModBrowserWindow {
         importButton.setText(I18n.t("mods.import"));
         // The filter names are drawn by its converter, which reads I18n each
         // time; nudging the box is what makes it redraw after a language change.
-        ModFilter chosen = installedFilter.getValue();
+        ModFilter chosenFilter = installedFilter.getValue();
         installedFilter.setValue(null);
-        installedFilter.setValue(chosen);
+        installedFilter.setValue(chosenFilter);
+        buildCategoryMenu();
         refreshCurseForgeState();
     }
 
@@ -321,9 +359,12 @@ public final class ModBrowserWindow {
         });
         sourceBox.valueProperty().addListener((observable, previous, value) -> runSearch());
 
+        categoryBox.setPrefWidth(170);
+        buildCategoryMenu();
+
         searchButton.setOnAction(event -> runSearch());
 
-        HBox controls = new HBox(8, searchField, sortBox, sourceBox, searchButton);
+        HBox controls = new HBox(8, searchField, sortBox, categoryBox, sourceBox, searchButton);
         controls.setAlignment(Pos.CENTER_LEFT);
 
         curseForgeNote.getStyleClass().add("muted");
@@ -347,6 +388,111 @@ public final class ModBrowserWindow {
         VBox pane = new VBox(10, controls, curseForgeRow, resultList, moreButton);
         pane.getStyleClass().add("browse-pane");
         return pane;
+    }
+
+    /**
+     * Fills the category menu.
+     *
+     * <p>Rebuilt rather than updated when the language changes or the drawings
+     * arrive, because both change every item in it and a menu of nineteen is
+     * cheaper to build than to reconcile.
+     */
+    private void buildCategoryMenu() {
+        categoryBoxes.clear();
+
+        // Every category on screen at once, in two columns.
+        //
+        // The panel this replaces was one column in a scroller, and a scroller
+        // is a thing that has to be discovered: nine of the nineteen were below
+        // the edge with nothing but a thin bar to say so, and somebody looking
+        // for "Технології" saw a list that stopped at "Оптимізація". Two columns
+        // is the shape that fits the whole list in a panel shorter than the
+        // window it drops out of, so the list is read rather than scrolled.
+        //
+        // Down the first column, then the second, because a list in reading
+        // order is read down, not across.
+        java.util.List<ModCategory> ordered = Categories.inReadingOrder();
+        int rows = (ordered.size() + 1) / 2;
+
+        GridPane list = new GridPane();
+        list.getStyleClass().add("category-list");
+        list.setHgap(14);
+        list.setVgap(2);
+        int placed = 0;
+        for (ModCategory category : ordered) {
+            CheckBox box = new CheckBox(Categories.name(category));
+            box.setSelected(chosenCategories.contains(category));
+            box.setGraphic(categories.icon(category, 14));
+            box.setMaxWidth(Double.MAX_VALUE);
+            // As wide as its name, never narrower. A row that may stretch to
+            // fill its column may also be squeezed into it, and a squeezed name
+            // is not a name with less space around it: it is a name with its
+            // last two letters replaced by an ellipsis. The column widens to the
+            // longest name instead.
+            box.setMinWidth(Region.USE_PREF_SIZE);
+            box.setOnAction(event -> {
+                if (box.isSelected()) {
+                    chosenCategories.add(category);
+                } else {
+                    chosenCategories.remove(category);
+                }
+                updateCategoryLabel();
+                runSearch();
+            });
+            categoryBoxes.put(category, box);
+            list.add(box, placed / rows, placed % rows);
+            placed++;
+        }
+
+        clearCategories.setText(I18n.t("mods.category.clear"));
+        clearCategories.setMaxWidth(Double.MAX_VALUE);
+        clearCategories.getStyleClass().add("category-clear");
+        clearCategories.setOnAction(event -> {
+            if (chosenCategories.isEmpty()) {
+                return;
+            }
+            chosenCategories.clear();
+            // The boxes are unticked rather than the panel rebuilt: this runs
+            // from inside the popup that holds them, and replacing what a menu
+            // is showing while it delivers an event to it is not a thing to do
+            // for the sake of saving a loop.
+            categoryBoxes.values().forEach(box -> box.setSelected(false));
+            updateCategoryLabel();
+            runSearch();
+        });
+
+        VBox panel = new VBox(6, clearCategories, list);
+        panel.getStyleClass().add("category-panel");
+
+        CustomMenuItem item = new CustomMenuItem(panel);
+        // One item holding the whole panel means the menu's own highlight is the
+        // whole panel: the pointer anywhere inside lit all nineteen rows at
+        // once. The stylesheet turns that highlight off for this item, and each
+        // row lights itself instead.
+        item.getStyleClass().add("category-item");
+        // The popup stays up while boxes are ticked: choosing four categories
+        // should be four clicks, not four times opening the same menu.
+        item.setHideOnClick(false);
+        categoryBox.getItems().setAll(item);
+        updateCategoryLabel();
+    }
+
+    private void updateCategoryLabel() {
+        categoryBox.setText(chosenCategories.isEmpty()
+                ? I18n.t("mods.category.any")
+                : I18n.t("mods.category.some", chosenCategories.size()));
+        clearCategories.setDisable(chosenCategories.isEmpty());
+    }
+
+    /** The chosen categories, in the platform's own order rather than the menu's. */
+    private java.util.List<ModCategory> categoriesForSearch() {
+        java.util.List<ModCategory> chosen = new java.util.ArrayList<>();
+        for (ModCategory category : ModCategory.values()) {
+            if (chosenCategories.contains(category)) {
+                chosen.add(category);
+            }
+        }
+        return chosen;
     }
 
     /** Shows or hides the CurseForge notice, depending on whether it has a key. */
@@ -533,6 +679,9 @@ public final class ModBrowserWindow {
      */
     private abstract class ModRow<T> extends ListCell<T> {
 
+        /** The height of the category line, empty or not. See {@link #tags}. */
+        private static final double TAG_HEIGHT = 18;
+
         protected final ModIcons.Tile icon = new ModIcons.Tile(40);
         protected final Label name = new Label();
         protected final Label meta = new Label();
@@ -549,7 +698,17 @@ public final class ModBrowserWindow {
          */
         protected final Hyperlink page = new Hyperlink();
 
-        private final VBox text = new VBox(1, name, meta, description, page);
+        /**
+         * What the mod is for, as the platform files it.
+         *
+         * <p>Its own line, and always the same height whether or not there is
+         * anything on it. A row that grew a line when a mod happened to have
+         * categories would put the list back to the ladder of uneven heights it
+         * was before.
+         */
+        protected final TagFlow tags = new TagFlow(TAG_HEIGHT, 11);
+
+        private final VBox text = new VBox(1, name, meta, description, tags, page);
         private final HBox row;
 
         /** Everything to the right of the text: set by the subclass, never shrunk. */
@@ -574,6 +733,7 @@ public final class ModBrowserWindow {
             // words are.
             page.setMaxWidth(Region.USE_PREF_SIZE);
             page.setAlignment(Pos.CENTER_LEFT);
+
 
             text.setFillWidth(true);
             text.setMinWidth(0);
@@ -605,6 +765,19 @@ public final class ModBrowserWindow {
             boolean present = value != null && !value.isBlank();
             label.setText(present ? value : "");
             label.setVisible(present);
+        }
+
+        /**
+         * Writes the category line.
+         *
+         * <p>All of them, in the order the reader is most likely to be looking
+         * for. Whatever they ticked in the filter comes first: somebody who has
+         * narrowed a search to two categories is scanning for those two, and
+         * finding them behind a count that has to be hovered would answer the
+         * question they asked with an extra step.
+         */
+        protected void tags(java.util.List<ModCategory> shown) {
+            tags.show(ModCategory.chosenFirst(shown, chosenCategories), categories);
         }
 
         /** Points the link at a page, or leaves its line blank. */
@@ -700,6 +873,7 @@ public final class ModBrowserWindow {
                     + (hit.author() == null || hit.author().isBlank() ? "" : "  ·  " + hit.author())
                     + "  ·  " + I18n.t("mods.downloads", formatCount(hit.downloads())));
             line(description, hit.description());
+            tags(hit.categories());
             // The catalogue needs the link at least as much as the installed
             // list does: this is where the user is deciding whether they want
             // the mod at all, and that decision is made on the mod's own page.
@@ -735,9 +909,16 @@ public final class ModBrowserWindow {
         private final javafx.scene.control.Tooltip badgeTip = new javafx.scene.control.Tooltip();
         private final javafx.scene.control.Tooltip removeTip = new javafx.scene.control.Tooltip();
 
+        /** The names of the mods that need this one, shown while the badge is hovered. */
+        private final HoverPanel needed = new HoverPanel();
+        private java.util.List<ModEntry> neededShows = java.util.List.of();
+
         InstalledCell() {
             badge.getStyleClass().add("badge");
             badge.setMinWidth(Region.USE_PREF_SIZE);
+            // Set once, on a badge that is reused. A panel with nothing in it
+            // opens nothing, so a mod nothing depends on simply never shows one.
+            needed.watch(badge);
             // Set once. Remove is the destructive button in every row this cell
             // will ever show, so saying so again on each of them is churn with
             // no answer that can change.
@@ -762,6 +943,7 @@ public final class ModBrowserWindow {
             String author = mod.authorLine();
             line(meta, author == null ? mod.fileName() : author + "  ·  " + mod.fileName());
             line(description, mod.description());
+            tags(mod.categories());
             link(mod.pageUrl(), () -> openPage(mod.title(), mod.pageUrl()));
 
             badge.setText(ModLabels.badge(mod));
@@ -769,7 +951,22 @@ public final class ModBrowserWindow {
             styleClass(badge, "badge-wrong", mod.enabled() && mod.isWrongVersion());
             styleClass(badge, "badge-pack",
                     mod.enabled() && !mod.isWrongVersion() && mod.origin() == ModOrigin.PACK);
-            tooltip(badge, badgeTip, mod.isWrongVersion() && mod.requires() != null
+            styleClass(badge, "badge-dependency", mod.enabled() && !mod.isWrongVersion()
+                    && mod.origin() == ModOrigin.DEPENDENCY);
+
+            // What would break if this one went away. Rebuilt only when the
+            // answer differs from the row this cell drew last.
+            java.util.List<ModEntry> needs = dependents.of(mod);
+            styleClass(badge, "badge-linked", !needs.isEmpty());
+            if (!needs.equals(neededShows)) {
+                neededShows = needs;
+                fillNeeded(needs);
+            }
+
+            // One thing at a time under the pointer: a row whose badge already
+            // opens a list of names does not also get a hint over the top of it.
+            tooltip(badge, badgeTip, needs.isEmpty()
+                    && mod.isWrongVersion() && mod.requires() != null
                     ? I18n.t("mods.wrongVersion.tooltip", mod.requires(),
                             profile.minecraftVersion())
                     : null);
@@ -785,6 +982,37 @@ public final class ModBrowserWindow {
                     mod.isRemovable() ? null : I18n.t("mods.remove.packLocked"));
             remove.setOnAction(event -> removeMod(mod));
             showRow();
+        }
+
+        /**
+         * Fills the panel behind the badge with the mods that need this one.
+         *
+         * <p>Names that can be pressed, not a sentence listing them. The reader
+         * hovering a dependency is asking "what is this here for", and the
+         * useful next step is the mod that put it there - so each name takes
+         * them to that row, the way an anchor on a page does.
+         */
+        private void fillNeeded(java.util.List<ModEntry> needs) {
+            needed.content().clear();
+            if (needs.isEmpty()) {
+                needed.hide();
+                return;
+            }
+            Label title = new Label(I18n.t("mods.dependents.title"));
+            title.getStyleClass().add("hover-title");
+            needed.content().add(title);
+            for (ModEntry dependent : needs) {
+                Hyperlink link = new Hyperlink(dependent.title());
+                link.getStyleClass().add("hover-link");
+                link.setOnAction(event -> {
+                    needed.hide();
+                    jumpToMod(dependent);
+                });
+                needed.content().add(link);
+            }
+            Label hint = new Label(I18n.t("mods.dependents.hint"));
+            hint.getStyleClass().add("muted");
+            needed.content().add(hint);
         }
     }
 
@@ -813,6 +1041,7 @@ public final class ModBrowserWindow {
         }
         String query = searchField.getText() == null ? "" : searchField.getText().trim();
         ModSort sort = sortBox.getValue() == null ? ModSort.POPULAR : sortBox.getValue();
+        java.util.List<ModCategory> chosen = categoriesForSearch();
         ModProvider.Source only = sourceBox.getValue() == null ? null : sourceBox.getValue().source();
         int offset = fresh ? 0 : nextOffset;
 
@@ -826,7 +1055,7 @@ public final class ModBrowserWindow {
         // way of the retry.
         run(I18n.t("mods.task.search"), false, () -> {
             ModProvider.SearchPage page =
-                    service.searchMods(profile, query, sort, only, PAGE_SIZE, offset);
+                    service.searchMods(profile, query, sort, chosen, only, PAGE_SIZE, offset);
             Platform.runLater(() -> {
                 if (fresh) {
                     results.setAll(page.results());
@@ -886,12 +1115,18 @@ public final class ModBrowserWindow {
         String body = mod.isManaged()
                 ? I18n.t("mods.remove.body", mod.title())
                 : I18n.t("mods.remove.body.external", mod.title(), mod.fileName());
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, body);
-        confirm.initOwner(stage);
-        Theme.apply(confirm.getDialogPane());
-        confirm.setHeaderText(I18n.t("mods.remove.header"));
-        confirm.getDialogPane().setPrefWidth(520);
-        if (confirm.showAndWait().filter(button -> button.getButtonData().isDefaultButton()).isEmpty()) {
+
+        // One dialog, not two. A mod that other mods need is still a mod being
+        // removed, and asking twice for one button is how a warning becomes
+        // something to click past.
+        java.util.List<ModEntry> needs = warnedDependents(mod);
+        if (!needs.isEmpty()) {
+            body = dependentsBody(mod, needs, true) + "\n\n" + body;
+        }
+        if (!confirmTakingAway(needs.isEmpty()
+                        ? I18n.t("mods.remove.header")
+                        : I18n.t("mods.dependents.header"),
+                body, !needs.isEmpty())) {
             return;
         }
         mutate(I18n.t("mods.task.remove", mod.title()), () -> {
@@ -916,6 +1151,16 @@ public final class ModBrowserWindow {
      */
     private void toggleMod(ModEntry mod) {
         boolean enable = !mod.enabled();
+        // Only on the way off. Switching a mod on cannot leave anything without
+        // what it needs, so there is nothing to ask about.
+        if (!enable) {
+            java.util.List<ModEntry> needs = warnedDependents(mod);
+            if (!needs.isEmpty() && !confirmTakingAway(I18n.t("mods.dependents.header"),
+                    dependentsBody(mod, needs, false) + "\n\n"
+                            + I18n.t("mods.dependents.confirm.disable"), true)) {
+                return;
+            }
+        }
         mutate(I18n.t(enable ? "mods.task.enable" : "mods.task.disable", mod.title()), () -> {
             service.setModEnabled(profile, mod, enable);
             Platform.runLater(() -> {
@@ -923,6 +1168,108 @@ public final class ModBrowserWindow {
                 progress.done(I18n.t(enable ? "mods.enabled" : "mods.disabled", mod.title()));
             });
         });
+    }
+
+    /** How many dependent mods are named in a warning before it says "and more". */
+    private static final int DEPENDENTS_LISTED = 8;
+
+    /**
+     * The mods that need this one, or nothing at all when the warning is off.
+     *
+     * <p>The setting is read here rather than at each call site so that "do not
+     * show this again" means one thing in both places it can be ticked.
+     */
+    private java.util.List<ModEntry> warnedDependents(ModEntry mod) {
+        return service.settings().warnAboutDependents()
+                ? dependents.of(mod)
+                : java.util.List.of();
+    }
+
+    /** What is about to be left without something it needs, by name. */
+    private String dependentsBody(ModEntry mod, java.util.List<ModEntry> needs, boolean removing) {
+        StringBuilder text = new StringBuilder(I18n.t(
+                removing ? "mods.dependents.remove" : "mods.dependents.disable", mod.title()));
+        needs.stream().limit(DEPENDENTS_LISTED)
+                .forEach(dependent -> text.append("\n   \u2022 ").append(dependent.title()));
+        if (needs.size() > DEPENDENTS_LISTED) {
+            text.append("\n   ").append(
+                    I18n.t("mods.dependents.more", needs.size() - DEPENDENTS_LISTED));
+        }
+        return text.toString();
+    }
+
+    /**
+     * Asks the question, with the box that stops it being asked again.
+     *
+     * <p>The box is honoured whichever way the question is answered, because
+     * that is what it says: somebody who ticks it and then presses No has said
+     * "stop asking", not "stop asking if I agree". Where to switch it back on is
+     * written under it, since a dialog that can turn itself off for good has to
+     * say where it went.
+     *
+     * @return true when the action should go ahead
+     */
+    private boolean confirmTakingAway(String header, String body, boolean offerToHide) {
+        Label text = new Label(body);
+        text.setWrapText(true);
+
+        CheckBox hide = new CheckBox(I18n.t("mods.dependents.hide"));
+        Label hideNote = new Label(I18n.t("mods.dependents.hideNote"));
+        hideNote.getStyleClass().add("muted");
+        hideNote.setWrapText(true);
+
+        VBox content = offerToHide
+                ? new VBox(10, text, hide, hideNote)
+                : new VBox(10, text);
+        content.setMinWidth(0);
+
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.initOwner(stage);
+        Theme.apply(confirm.getDialogPane());
+        confirm.setHeaderText(header);
+        confirm.getDialogPane().setContent(content);
+        confirm.getDialogPane().setPrefWidth(560);
+
+        boolean yes = confirm.showAndWait()
+                .filter(button -> button.getButtonData().isDefaultButton()).isPresent();
+        if (offerToHide && hide.isSelected()) {
+            service.settings().warnAboutDependents(false);
+            try {
+                service.settings().save();
+            } catch (java.io.IOException e) {
+                progress.failed(I18n.t("log.settingsSaveFailed", e.getMessage()));
+            }
+        }
+        return yes;
+    }
+
+    /**
+     * Goes to a mod in the installed list and selects it.
+     *
+     * <p>The list is widened first when the mod is not in the current view.
+     * Jumping to a row that a search box is hiding does nothing visible at all,
+     * which reads as a link that is broken rather than as a filter that is on.
+     */
+    private void jumpToMod(ModEntry target) {
+        tabs.getSelectionModel().select(installedTab);
+        boolean visible = installedList.getItems().stream()
+                .anyMatch(mod -> mod.key().equals(target.key()));
+        if (!visible) {
+            installedSearch.clear();
+            installedFilter.setValue(ModFilter.ALL);
+            applyInstalledFilter();
+        }
+        java.util.List<ModEntry> shown = installedList.getItems();
+        for (int index = 0; index < shown.size(); index++) {
+            if (shown.get(index).key().equals(target.key())) {
+                installedList.getSelectionModel().clearAndSelect(index);
+                // One row above the target, so it does not land against the top
+                // edge with no context above it.
+                installedList.scrollTo(Math.max(0, index - 1));
+                installedList.requestFocus();
+                return;
+            }
+        }
     }
 
     /** Opens a mod's page in the user's own browser. */
@@ -994,6 +1341,7 @@ public final class ModBrowserWindow {
         // the launcher did not put there.
         library = service.installedMods(profile);
         installedAll = service.modsIn(profile);
+        dependents = service.modDependents(installedAll);
         installedTab.setText(I18n.t("mods.tab.installed", installedAll.size()));
         importButton.setText(I18n.t("mods.import"));
         installedSearch.setPromptText(I18n.t("mods.installed.search"));
@@ -1007,6 +1355,49 @@ public final class ModBrowserWindow {
         if (onChanged != null) {
             onChanged.run();
         }
+    }
+
+    /**
+     * Fetches the category drawings, and fills in what old lock files never
+     * recorded about the mods already installed.
+     *
+     * <p>Both quietly. A failure costs nineteen little pictures and a line of
+     * categories, the names beside them are already on screen, and neither is
+     * worth a message or a place on the status line - which belongs to whatever
+     * the user actually asked for.
+     */
+    private void loadCategoryDataAsync() {
+        Thread thread = new Thread(() -> {
+            try {
+                if (service.refreshCategoryArt()) {
+                    Platform.runLater(() -> {
+                        categories = new Categories(service.categoryArt());
+                        buildCategoryMenu();
+                        resultList.refresh();
+                        installedList.refresh();
+                    });
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception ignored) {
+                // Nineteen drawings. Not worth a word.
+            }
+            try {
+                // Everything installed before the lock file had a place for
+                // categories has none, and would sit for ever with an empty line
+                // where its categories go. One request fills in the lot.
+                if (service.describeInstalledMods(profile)) {
+                    Platform.runLater(this::refreshInstalled);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception ignored) {
+                // The rows keep the little they had. Not worth a word either.
+            }
+        }, "hexadron-categories");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     /**

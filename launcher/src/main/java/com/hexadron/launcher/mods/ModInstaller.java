@@ -458,6 +458,7 @@ public final class ModInstaller {
      */
     public ModProvider.SearchPage search(String query, String minecraftVersion,
                                          LoaderType loader, ModSort sort,
+                                         List<ModCategory> categories,
                                          int limitPerProvider, int offset,
                                          ModProvider.Source only)
             throws IOException, InterruptedException {
@@ -477,7 +478,8 @@ public final class ModInstaller {
             }
             try {
                 ModProvider.SearchPage page = provider.search(
-                        query, minecraftVersion, loader, sort, limitPerProvider, offset);
+                        query, minecraftVersion, loader, sort, categories,
+                        limitPerProvider, offset);
                 results.addAll(page.results());
                 if (page.total() >= 0) {
                     total += page.total();
@@ -517,6 +519,9 @@ public final class ModInstaller {
      * behind the full request URL.
      */
     public static String reasonFor(IOException failure) {
+        if (failure instanceof CurseForgeProvider.UnsupportedCategoriesException) {
+            return "the chosen categories are Modrinth's own and have no equivalent here";
+        }
         if (failure instanceof com.hexadron.launcher.net.Http.HttpStatusException status) {
             return switch (status.statusCode()) {
                 case 401, 403 -> "HTTP " + status.statusCode() + " - the API key was refused";

@@ -832,7 +832,7 @@ hold the launcher hostage for as long as it took.
 | 26.2 · Fabric                                                 |
 +--------------------------------------------------------------+
 | [ Browse ] [ Installed (5) ]                                  |
-|  [ search .......... ] [ Most popular v ] [ All sources v ]   |
+|  [ search ...... ] [ Most popular v ] [ Category v ] [ All v ]|
 | []  Sodium                 Modrinth · 40.1M downloads         |
 |     A modern rendering engine ...                 [ Install ] |
 |  ...                                                          |
@@ -846,6 +846,47 @@ loader, so anything listed is a build that will actually load. That is the
 point of browsing from inside a launcher rather than on a website. Sorting is
 by best match, downloads, popularity, last update or newest; the source filter
 picks one platform or both.
+
+**Категорія** is a menu of tick boxes rather than a list that picks one, because
+a mod is filed under several and somebody narrowing a search usually means more
+than one thing at once - "adventure and magic", not "adventure, and now start
+again with magic". The menu stays open while they are ticked, so choosing four
+categories is four clicks rather than four times opening the same menu, and
+**Зняти всі** empties it in one. Several categories narrow rather than widen,
+which is what the platform's own filter does and therefore what somebody who has
+used it expects.
+
+The nineteen categories are named in `ModCategory` rather than taken from
+whatever the last request returned, and each of the three reasons is a thing that
+breaks otherwise. Modrinth stores the loaders in the same field a category lives
+in - `fabric` sits beside `magic` - so a filter built from the raw list offers to
+narrow a Fabric instance's search to Forge mods. The names are shown in the
+player's own language, and a name that arrives from a request cannot be
+translated. And a launcher opened with no connection still has to draw its own
+filter. A category Modrinth adds later is one line in that file; that is the
+whole cost of the choice.
+
+The little drawing beside each name comes from Modrinth, so it is the one the
+player already recognises from the website. It arrives as markup rather than as a
+picture, which is the good case: `SvgPaths` reads it into path data and it is
+drawn as shapes, sharp at any scale, taking the theme's colour like a piece of
+text instead of needing a light copy and a dark one. That reader is deliberately
+not an SVG reader - six element types cover every icon of this kind, and anything
+else is left out, because a half-implemented transform draws something subtly
+wrong rather than nothing. The drawings are asked for once a month and kept in
+`cache/mod-categories.json`; a category whose drawing has not arrived is a
+category with a name.
+
+The same categories are on every row in both lists, as the marks the platform's
+own listing uses, so a mod recognised on the website is recognised here. For an
+installed mod they come out of the lock file, which is why the row can say what a
+mod is for with no connection and no lookup.
+
+Category filtering is Modrinth's. CurseForge files its projects under a different
+set of its own, and only a handful of names coincide, so a search with categories
+chosen says out loud that CurseForge was not searched rather than guessing a
+mapping and quietly returning the wrong mods. Whichever of a CurseForge project's
+own categories this launcher has a name for are still shown on its row.
 
 Results are paged. The status line shows the platform's own total - "showing 40
 of 3812" - and **Show more** fetches the next page. The first version of this

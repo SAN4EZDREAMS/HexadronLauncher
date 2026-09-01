@@ -218,8 +218,16 @@ public final class CurseForgeProvider implements ModProvider {
 
     @Override
     public SearchPage search(String query, String minecraftVersion, LoaderType loader,
-                             ModSort sort, int limit, int offset)
+                             ModSort sort, List<ModCategory> categories, int limit, int offset)
             throws IOException, InterruptedException {
+
+        // The categories are Modrinth's, and CurseForge files its projects under
+        // a different set of its own. Guessing a mapping would quietly return
+        // the wrong mods; saying so is the honest answer, and the browser has a
+        // line for exactly this.
+        if (!categories.isEmpty()) {
+            throw new UnsupportedCategoriesException();
+        }
 
         StringBuilder url = new StringBuilder(API + "/mods/search")
                 .append("?gameId=").append(GAME_MINECRAFT)
@@ -253,6 +261,7 @@ public final class CurseForgeProvider implements ModProvider {
                     mod.get("downloadCount").asLong(0),
                     mod.get("logo").get("thumbnailUrl").asString(null),
                     pageUrl(mod, slug),
+                    categoriesOf(mod),
                     Source.CURSEFORGE));
         }
         return new SearchPage(results,
@@ -278,6 +287,34 @@ public final class CurseForgeProvider implements ModProvider {
                 return Optional.empty();
             }
             throw e;
+        }
+    }
+
+    /**
+     * Whichever of a CurseForge project's own categories this launcher has a
+     * name for.
+     *
+     * <p>The two platforms file mods under different sets, and only a handful of
+     * names coincide - magic, technology, food, storage, mobs. Those are shown;
+     * the rest are left off rather than translated by guesswork into something
+     * the project's author did not say.
+     */
+    private static List<ModCategory> categoriesOf(Json mod) {
+        List<String> ids = new ArrayList<>();
+        for (Json category : mod.get("categories").elements()) {
+            String slug = category.get("slug").asString(null);
+            if (slug != null) {
+                ids.add(slug);
+            }
+        }
+        return ModCategory.parse(ids);
+    }
+
+    /** Raised when a search asks for categories this platform cannot express. */
+    public static final class UnsupportedCategoriesException extends IOException {
+
+        UnsupportedCategoriesException() {
+            super("categories are Modrinth's and do not map onto CurseForge's own");
         }
     }
 

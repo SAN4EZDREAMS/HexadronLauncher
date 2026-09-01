@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -76,10 +77,15 @@ import java.util.zip.ZipFile;
  *                    satisfied by any one of them. Empty when it declares none,
  *                    which is not the same as "any": it means nothing can be
  *                    said, and nothing will be
+ * @param depends     the identifiers of the other mods this one requires, with
+ *                    the loader and the game itself left out - they are always
+ *                    there, and a list that named them would report every mod as
+ *                    depending on Minecraft. Only what stops the mod loading:
+ *                    a recommendation is not a requirement
  */
 public record LocalModInfo(String modId, String name, String version, String description,
                            List<String> authors, String homepage, String iconPath,
-                           LoaderType loader, List<String> minecraft) {
+                           LoaderType loader, List<String> minecraft, List<String> depends) {
 
     /**
      * Largest descriptor this will read, in bytes.
@@ -100,7 +106,19 @@ public record LocalModInfo(String modId, String name, String version, String des
     public LocalModInfo {
         authors = List.copyOf(authors);
         minecraft = List.copyOf(minecraft);
+        depends = List.copyOf(depends);
     }
+
+    /**
+     * What is always in a mods folder and is never a mod in it.
+     *
+     * <p>The loader and the game are declared as dependencies by almost every
+     * mod, and neither is a jar the player can switch off. Left in, they would
+     * make every mod in the list depend on things that are not in the list.
+     */
+    private static final Set<String> PLATFORM = Set.of(
+            "minecraft", "java", "forge", "neoforge", "fml", "javafml", "lowcodefml",
+            "fabricloader", "fabric-loader", "quilt_loader", "quilt_base", "mcp");
 
     /**
      * Whether this mod says it works with a Minecraft version.
@@ -247,7 +265,10 @@ public record LocalModInfo(String modId, String name, String version, String des
                 // "depends" is the only one that stops a mod loading. A
                 // "recommends" or a "breaks" is a different conversation and is
                 // not what a version mismatch looks like.
-                versionsOf(root.get("depends").get("minecraft"))));
+                versionsOf(root.get("depends").get("minecraft")),
+                // The same field read the other way round: its keys are the mods
+                // this one cannot start without.
+                idsOf(root.get("depends").fields().keySet())));
     }
 
     /**
@@ -278,7 +299,8 @@ public record LocalModInfo(String modId, String name, String version, String des
                         contact.get("issues").asString(null)),
                 iconPathOf(metadata.get("icon")),
                 LoaderType.QUILT,
-                quiltMinecraft(loaderNode.get("depends"))));
+                quiltMinecraft(loaderNode.get("depends")),
+                quiltDepends(loaderNode.get("depends"))));
     }
 
     // ---------------------------------------------------------------- forge
@@ -333,7 +355,8 @@ public record LocalModInfo(String modId, String name, String version, String des
                         toml.root().get("issueTrackerURL")),
                 mod.get("logoFile") == null ? toml.root().get("logoFile") : mod.get("logoFile"),
                 loader,
-                tomlMinecraft(toml)));
+                tomlMinecraft(toml),
+                tomlDepends(toml)));
     }
 
     /** {@code mcmod.info} - a JSON array of mods, for Forge 1.12 and older. */
@@ -359,7 +382,9 @@ public record LocalModInfo(String modId, String name, String version, String des
                 first.get("logoFile").asString(null),
                 LoaderType.FORGE,
                 // mcmod.info names one version and means exactly it.
-                versionsOf(first.get("mcversion"))));
+                versionsOf(first.get("mcversion")),
+                // "requiredMods" holds entries like "jei@[4.0,)".
+                idsOf(versionsOf(first.get("requiredMods")))));
     }
 
     /**
@@ -385,7 +410,7 @@ public record LocalModInfo(String modId, String name, String version, String des
             authors.add(vendor);
         }
         return Optional.of(new LocalModInfo(null, name, version, null, authors,
-                null, null, LoaderType.VANILLA, List.of()));
+                null, null, LoaderType.VANILLA, List.of(), List.of()));
     }
 
     /** The manifest's main section, keys lower-cased. */
@@ -491,6 +516,74 @@ public record LocalModInfo(String modId, String name, String version, String des
             }
         }
         return List.of();
+    }
+
+    /**
+     * Mod identifiers out of whatever the descriptor listed, cleaned up.
+     *
+     * <p>Lower-cased, because the loaders treat an identifier as one string and
+     * the descriptors are not consistent about case. Anything after an
+     * {@code @} is a version range - the old descriptors write
+     * {@code "jei@[4.0,)"} - and is not part of the name. The loader and the
+     * game are dropped: see {@link #PLATFORM}.
+     */
+    private static List<String> idsOf(Collection<String> raw) {
+        Set<String> ids = new LinkedHashSet<>();
+        for (String value : raw) {
+            if (blank(value)) {
+                continue;
+            }
+            String id = value.trim();
+            int at = id.indexOf('@');
+            if (at > 0) {
+                id = id.substring(0, at);
+            }
+            id = id.trim().toLowerCase(Locale.ROOT);
+            if (!id.isEmpty() && !PLATFORM.contains(id)) {
+                ids.add(id);
+            }
+        }
+        return List.copyOf(ids);
+    }
+
+    /** Quilt writes its dependencies as entries, each a string or an object. */
+    private static List<String> quiltDepends(Json depends) {
+        List<String> ids = new ArrayList<>();
+        for (Json entry : depends.elements()) {
+            String id = entry.isString() ? entry.asString(null) : entry.get("id").asString(null);
+            // "optional": true is a suggestion, and the mod starts without it.
+            if (!entry.isString() && entry.get("optional").asBool(false)) {
+                continue;
+            }
+            if (!blank(id)) {
+                ids.add(id);
+            }
+        }
+        return idsOf(ids);
+    }
+
+    /**
+     * The mods a {@code mods.toml} says are required.
+     *
+     * <p>Both dialects of "required" are read, because the two families spell it
+     * differently and reading one of them only would report half the graph.
+     * Forge writes {@code mandatory = true}; NeoForge writes
+     * {@code type = "required"}. An entry that says neither is taken as required,
+     * which is what Forge does with a dependency table that omits the field.
+     */
+    private static List<String> tomlDepends(Toml toml) {
+        List<String> ids = new ArrayList<>();
+        for (Map<String, String> dependency : toml.allUnder("dependencies")) {
+            String id = dependency.get("modId");
+            String mandatory = dependency.get("mandatory");
+            String type = dependency.get("type");
+            boolean optional = "false".equalsIgnoreCase(String.valueOf(mandatory))
+                    || (type != null && !"required".equalsIgnoreCase(type.trim()));
+            if (!blank(id) && !optional) {
+                ids.add(id);
+            }
+        }
+        return idsOf(ids);
     }
 
     /**

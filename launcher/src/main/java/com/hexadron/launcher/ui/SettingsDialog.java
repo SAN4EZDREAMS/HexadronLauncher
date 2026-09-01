@@ -93,6 +93,15 @@ public final class SettingsDialog {
      */
     private final CheckBox verifyEveryLaunch = new CheckBox();
 
+    /**
+     * Ask before a mod other mods need is switched off or deleted.
+     *
+     * <p>Here rather than only in the dialog itself, because the dialog offers
+     * to stop showing itself and a switch that can only be turned off from a
+     * window that no longer appears is a switch that cannot be turned back on.
+     */
+    private final CheckBox warnAboutDependents = new CheckBox();
+
     // Java
     private final ComboBox<JavaRuntimes.DownloadPolicy> javaPolicyBox = new ComboBox<>();
 
@@ -331,10 +340,14 @@ public final class SettingsDialog {
         Button test = new Button(I18n.t("settings.proxy.test"));
         test.setOnAction(event -> testConnection(test));
 
+        warnAboutDependents.setText(I18n.t("settings.modWarnings"));
+
         GridPane grid = form();
         int row = 0;
         grid.addRow(row++, label("settings.concurrency"), concurrencySpinner);
         grid.addRow(row++, new Label(), note("settings.concurrency.note"));
+        grid.addRow(row++, new Label(), warnAboutDependents);
+        grid.addRow(row++, new Label(), note("settings.modWarnings.note"));
         grid.addRow(row++, label("settings.curseforge"), curseForgeKey);
         grid.addRow(row++, new Label(), note("mods.curseforge.key.body"));
         grid.addRow(row++, new Label(), new javafx.scene.control.Separator());
@@ -563,6 +576,7 @@ public final class SettingsDialog {
         minimiseToTray.setSelected(settings.minimiseToTrayWhilePlaying());
         showAllVersions.setSelected(settings.showAllVersions());
         verifyEveryLaunch.setSelected(settings.verifyEveryLaunch());
+        warnAboutDependents.setSelected(settings.warnAboutDependents());
         javaPolicyBox.setValue(settings.javaDownloadPolicy());
         curseForgeKey.setText(settings.curseForgeApiKey());
         signInMethodBox.setValue(settings.usesBrowserSignIn() ? "browser" : "deviceCode");
@@ -591,6 +605,7 @@ public final class SettingsDialog {
         settings.minimiseToTrayWhilePlaying(minimiseToTray.isSelected());
         settings.showAllVersions(showAllVersions.isSelected());
         settings.verifyEveryLaunch(verifyEveryLaunch.isSelected());
+        settings.warnAboutDependents(warnAboutDependents.isSelected());
         settings.javaDownloadPolicy(javaPolicyBox.getValue());
         settings.downloadConcurrency(value(concurrencySpinner));
         settings.curseForgeApiKey(curseForgeKey.getText());

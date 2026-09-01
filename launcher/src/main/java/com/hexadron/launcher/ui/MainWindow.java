@@ -789,6 +789,8 @@ public final class MainWindow implements ProfileHost {
             setBadgeClass(badge, "badge-wrong", mod.enabled() && mod.isWrongVersion());
             setBadgeClass(badge, "badge-pack", mod.enabled() && !mod.isWrongVersion()
                     && mod.origin() == ModOrigin.PACK);
+            setBadgeClass(badge, "badge-dependency", mod.enabled() && !mod.isWrongVersion()
+                    && mod.origin() == ModOrigin.DEPENDENCY);
             setGraphic(box);
         }
     }

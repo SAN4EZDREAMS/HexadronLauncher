@@ -423,15 +423,114 @@ public final class LauncherService {
                 .pruneMissingFiles();
     }
 
+    /**
+     * The line drawings that go beside the category names.
+     *
+     * <p>Read from the data folder, so the filter draws itself with no
+     * connection. {@link #refreshCategoryArt} is what fills it in, and it is
+     * called once, in the background, when the mod browser is first opened.
+     */
+    public com.hexadron.launcher.mods.CategoryArt categoryArt() {
+        if (categoryArt == null) {
+            categoryArt = com.hexadron.launcher.mods.CategoryArt.read(dirs.cache());
+        }
+        return categoryArt;
+    }
+
+    /**
+     * Asks Modrinth for the category drawings, at most once a month.
+     *
+     * @return true when something changed and the interface should redraw
+     */
+    public boolean refreshCategoryArt() throws IOException, InterruptedException {
+        com.hexadron.launcher.mods.CategoryArt art = categoryArt();
+        return art.isStale() && art.refresh(modrinth);
+    }
+
+    private com.hexadron.launcher.mods.CategoryArt categoryArt;
+
+    /**
+     * Fills in what the launcher never recorded about the mods it installed.
+     *
+     * <p>Each version of the lock file learned to keep a little more - the
+     * project's logo, then its page, then its categories - and every entry
+     * written before it learned is missing that field for ever. A mod installed
+     * last month therefore sits with a lettered tile, a dead link and an empty
+     * category line, while the one installed today has all three.
+     *
+     * <p>One request fixes the lot: these are the launcher's own downloads and it
+     * knows exactly which projects they are, so it can ask about all of them at
+     * once. Nothing already recorded is overwritten - what is on disk was true
+     * when it was written and is not this method's to second-guess.
+     *
+     * <p>Modrinth only, because a bulk lookup is what makes this one request
+     * rather than one per mod. A CurseForge entry keeps what it has until it is
+     * installed again.
+     *
+     * @return true when anything was filled in and the interface should redraw
+     */
+    public boolean describeInstalledMods(Profile profile) throws IOException, InterruptedException {
+        com.hexadron.launcher.mods.ModLibrary library =
+                com.hexadron.launcher.mods.ModLibrary.read(profiles.modsDirectory(profile));
+
+        java.util.List<String> unknown = new java.util.ArrayList<>();
+        for (com.hexadron.launcher.mods.InstalledMod mod : library.all()) {
+            boolean complete = !mod.categories().isEmpty()
+                    && mod.iconUrl() != null && mod.pageUrl() != null;
+            if (!complete && mod.file().source() == ModProvider.Source.MODRINTH
+                    && !unknown.contains(mod.file().projectId())) {
+                unknown.add(mod.file().projectId());
+            }
+        }
+        if (unknown.isEmpty()) {
+            return false;
+        }
+
+        // In batches, because a folder can hold hundreds and a URL cannot.
+        java.util.Map<String, ModProvider.ProjectCard> published = new java.util.HashMap<>();
+        for (int from = 0; from < unknown.size(); from += 100) {
+            java.util.List<String> batch =
+                    unknown.subList(from, Math.min(from + 100, unknown.size()));
+            for (ModProvider.ProjectCard card : modrinth.projects(batch)) {
+                published.put(card.projectId(), card);
+            }
+        }
+
+        boolean changed = false;
+        for (com.hexadron.launcher.mods.InstalledMod mod : library.all()) {
+            ModProvider.ProjectCard card = published.get(mod.file().projectId());
+            if (card == null) {
+                continue;
+            }
+            String icon = mod.iconUrl() != null ? mod.iconUrl() : card.iconUrl();
+            String page = mod.pageUrl() != null ? mod.pageUrl() : card.pageUrl();
+            java.util.List<com.hexadron.launcher.mods.ModCategory> categories =
+                    mod.categories().isEmpty() ? card.categories() : mod.categories();
+            if (java.util.Objects.equals(icon, mod.iconUrl())
+                    && java.util.Objects.equals(page, mod.pageUrl())
+                    && categories.equals(mod.categories())) {
+                continue;
+            }
+            library.put(new com.hexadron.launcher.mods.InstalledMod(mod.title(), mod.file(),
+                    mod.origin(), mod.packId(), icon, page, categories));
+            changed = true;
+        }
+        if (changed) {
+            library.write();
+        }
+        return changed;
+    }
+
     /** Searches the mod platforms for builds matching this profile. */
     public ModProvider.SearchPage searchMods(
             Profile profile, String query, com.hexadron.launcher.mods.ModSort sort,
+            java.util.List<com.hexadron.launcher.mods.ModCategory> categories,
             ModProvider.Source only, int limitPerProvider, int offset)
             throws IOException, InterruptedException {
 
         requireModdedLoader(profile);
         return modInstaller.search(query, profile.minecraftVersion(), profile.loader(),
-                sort, limitPerProvider, offset, only);
+                sort, categories, limitPerProvider, offset, only);
     }
 
     /** Installs one mod, with its required dependencies, into a profile. */
@@ -453,6 +552,19 @@ public final class LauncherService {
         // by a change of version is a row that says so rather than a crash.
         return com.hexadron.launcher.mods.ModScan.scan(
                 profiles.modsDirectory(profile), profile.minecraftVersion());
+    }
+
+    /**
+     * Which of these mods are needed by which others.
+     *
+     * <p>Read from the jars already scanned, so it is a map built in memory
+     * rather than a folder read again. Asked before switching a mod off or
+     * deleting it: a library taken out from under five mods does not fail then,
+     * it fails at the next launch.
+     */
+    public com.hexadron.launcher.mods.ModDependents modDependents(
+            java.util.List<com.hexadron.launcher.mods.ModEntry> mods) {
+        return com.hexadron.launcher.mods.ModDependents.of(mods);
     }
 
     /**

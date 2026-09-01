@@ -27,11 +27,15 @@ public interface ModProvider {
     /** A search result, before a specific file has been chosen. */
     record SearchResult(String projectId, String slug, String title, String description,
                         String author, long downloads, String iconUrl, String pageUrl,
-                        Source source) {
+                        List<ModCategory> categories, Source source) {
+
+        public SearchResult {
+            categories = List.copyOf(categories);
+        }
 
         /** What is worth keeping about this project once it has been installed. */
         public ProjectCard card() {
-            return new ProjectCard(source, projectId, slug, title, iconUrl, pageUrl);
+            return new ProjectCard(source, projectId, slug, title, iconUrl, pageUrl, categories);
         }
     }
 
@@ -45,11 +49,23 @@ public interface ModProvider {
      * away. Asking again later is not a substitute: it makes an offline launcher
      * show a list of grey squares.
      *
-     * @param iconUrl the project's own logo, or null when it publishes none
-     * @param pageUrl the project's page on the platform it came from
+     * @param iconUrl    the project's own logo, or null when it publishes none
+     * @param pageUrl    the project's page on the platform it came from
+     * @param categories what the project is filed under, so an installed list can
+     *                   say what a mod is for without asking anybody
      */
     record ProjectCard(Source source, String projectId, String slug, String title,
-                       String iconUrl, String pageUrl) {
+                       String iconUrl, String pageUrl, List<ModCategory> categories) {
+
+        public ProjectCard {
+            categories = List.copyOf(categories);
+        }
+
+        /** A card for a project nothing is known about beyond its name. */
+        public ProjectCard(Source source, String projectId, String slug, String title,
+                           String iconUrl, String pageUrl) {
+            this(source, projectId, slug, title, iconUrl, pageUrl, List.of());
+        }
     }
 
     Source source();
@@ -105,16 +121,22 @@ public interface ModProvider {
     /**
      * Searches for mods compatible with a Minecraft version and loader.
      *
-     * @param limit  page size
-     * @param offset how many matches to skip, for paging
+     * @param categories the categories the results must all be in, or empty for
+     *                   no restriction. Several narrow rather than widen, which
+     *                   is what the platform's own filter does and therefore what
+     *                   a player who has used it expects
+     * @param limit      page size
+     * @param offset     how many matches to skip, for paging
      */
     SearchPage search(String query, String minecraftVersion, LoaderType loader,
-                      ModSort sort, int limit, int offset) throws IOException, InterruptedException;
+                      ModSort sort, List<ModCategory> categories, int limit, int offset)
+            throws IOException, InterruptedException;
 
     /** First page, relevance-ordered, for callers that do not page or sort. */
     default List<SearchResult> search(String query, String minecraftVersion, LoaderType loader, int limit)
             throws IOException, InterruptedException {
-        return search(query, minecraftVersion, loader, ModSort.RELEVANCE, limit, 0).results();
+        return search(query, minecraftVersion, loader, ModSort.RELEVANCE, List.of(), limit, 0)
+                .results();
     }
 
     /**

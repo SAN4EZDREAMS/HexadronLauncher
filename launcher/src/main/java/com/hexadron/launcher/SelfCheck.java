@@ -37,7 +37,10 @@ import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModPack;
 import com.hexadron.launcher.mods.ModVersions;
 import com.hexadron.launcher.mods.LocalModInfo;
+import com.hexadron.launcher.mods.ModCategory;
+import com.hexadron.launcher.mods.ModDependents;
 import com.hexadron.launcher.mods.ModEntry;
+import com.hexadron.launcher.mods.SvgPaths;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.mods.ModScan;
 import com.hexadron.launcher.mods.VersionRanges;
@@ -73,6 +76,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -119,6 +123,9 @@ public final class SelfCheck {
         modVersionRanges();
         modVersionMismatch();
         modImport();
+        modDependencies();
+        modCategories();
+        categoryOrder();
         loaderCompatibility();
         forgeInstallerProfiles();
         forgeTokenLanguage();
@@ -2612,6 +2619,378 @@ public final class SelfCheck {
                 !ModInstaller.readableNameFrom("").isBlank());
     }
 
+    // ------------------------------------------------------- mod dependencies
+
+    /**
+     * Which mods need which, and what the launcher says before one goes away.
+     *
+     * <p>The graph is read from the jars, so this builds real ones: a library,
+     * two mods that need it, a mod that needs one of those, and a switched-off
+     * mod that needs the library too. Every value that decides whether a warning
+     * appears is checked here, because the warning itself cannot be: it is a
+     * dialog, and this runs with no screen.
+     */
+    private static void modDependencies() {
+        section("Mod dependencies");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-deps-check");
+
+            writeJar(dir.resolve("fabric-api.jar"), Map.of("fabric.mod.json",
+                    "{\"id\":\"fabric-api\",\"version\":\"0.100.0\",\"name\":\"Fabric API\"}"));
+            writeJar(dir.resolve("sodium.jar"), Map.of("fabric.mod.json", """
+                    {"id":"sodium","version":"0.6.13","name":"Sodium",
+                     "depends":{"minecraft":">=1.20","java":">=21",
+                                "fabricloader":">=0.15","fabric-api":"*"}}"""));
+            writeJar(dir.resolve("iris.jar"), Map.of("fabric.mod.json", """
+                    {"id":"iris","version":"1.7","name":"Iris",
+                     "depends":{"minecraft":">=1.20","sodium":"*"}}"""));
+            writeJar(dir.resolve("indium.jar.disabled"), Map.of("fabric.mod.json", """
+                    {"id":"indium","version":"1.0","name":"Indium",
+                     "depends":{"fabric-api":"*"}}"""));
+
+            LocalModInfo sodiumInfo = LocalModInfo.read(dir.resolve("sodium.jar")).orElseThrow();
+            check("a Fabric mod's requirements are read",
+                    sodiumInfo.depends().contains("fabric-api"));
+            check("the loader and the game are not mods in the folder",
+                    !sodiumInfo.depends().contains("minecraft")
+                            && !sodiumInfo.depends().contains("fabricloader")
+                            && !sodiumInfo.depends().contains("java"));
+
+            List<ModEntry> mods = ModScan.scan(dir);
+            ModDependents dependents = ModDependents.of(mods);
+
+            ModEntry api = byTitle(mods, "Fabric API");
+            ModEntry sodium = byTitle(mods, "Sodium");
+            ModEntry iris = byTitle(mods, "Iris");
+
+            check("a library knows what needs it", dependents.isNeeded(api));
+            check("and says which", dependents.of(api).stream()
+                    .anyMatch(mod -> "Sodium".equals(mod.title())));
+            check("a mod that is needed by one thing is still needed",
+                    dependents.isNeeded(sodium)
+                            && dependents.of(sodium).size() == 1
+                            && "Iris".equals(dependents.of(sodium).get(0).title()));
+            check("nothing needs the mod at the end of the chain",
+                    !dependents.isNeeded(iris));
+
+            // A jar renamed to .disabled is not loaded, so it cannot break, and
+            // a warning that it will is a warning about nothing.
+            check("a switched-off mod does not hold anything back",
+                    dependents.of(api).stream()
+                            .noneMatch(mod -> "Indium".equals(mod.title())));
+
+            check("a folder with one mod in it has no graph",
+                    ModDependents.of(List.of(sodium)).size() == 0);
+            check("neither has an empty one", ModDependents.of(List.of()).size() == 0);
+
+            // Forge and NeoForge write "required" two different ways, and reading
+            // one of them only reports half of what a folder actually needs.
+            Path forge = dir.resolve("forgey.jar");
+            writeJar(forge, Map.of("META-INF/mods.toml", String.join("\n",
+                    "modLoader=\"javafml\"",
+                    "[[mods]]",
+                    "modId=\"forgey\"",
+                    "displayName=\"Forgey\"",
+                    "[[dependencies.forgey]]",
+                    "modId=\"forge\"",
+                    "mandatory=true",
+                    "[[dependencies.forgey]]",
+                    "modId=\"jei\"",
+                    "mandatory=true",
+                    "[[dependencies.forgey]]",
+                    "modId=\"curios\"",
+                    "mandatory=false")));
+            LocalModInfo forgeInfo = LocalModInfo.read(forge).orElseThrow();
+            check("a mandatory Forge dependency is a requirement",
+                    forgeInfo.depends().contains("jei"));
+            check("an optional one is not",
+                    !forgeInfo.depends().contains("curios"));
+            check("the loader is not one either",
+                    !forgeInfo.depends().contains("forge"));
+
+            Path neo = dir.resolve("neo.jar");
+            writeJar(neo, Map.of("META-INF/neoforge.mods.toml", String.join("\n",
+                    "modLoader=\"javafml\"",
+                    "[[mods]]",
+                    "modId=\"neo\"",
+                    "displayName=\"Neo\"",
+                    "[[dependencies.neo]]",
+                    "modId=\"jade\"",
+                    "type=\"required\"",
+                    "[[dependencies.neo]]",
+                    "modId=\"emi\"",
+                    "type=\"optional\"")));
+            LocalModInfo neoInfo = LocalModInfo.read(neo).orElseThrow();
+            check("NeoForge spells required its own way",
+                    neoInfo.depends().equals(List.of("jade")));
+
+            Path quilt = dir.resolve("quilted.jar");
+            writeJar(quilt, Map.of("quilt.mod.json", """
+                    {"quilt_loader":{"id":"quilted","version":"1.0",
+                       "depends":[{"id":"minecraft","versions":"1.20.1"},
+                                  {"id":"qsl"},
+                                  {"id":"extra","optional":true}]}}"""));
+            LocalModInfo quiltInfo = LocalModInfo.read(quilt).orElseThrow();
+            check("a Quilt requirement is read",
+                    quiltInfo.depends().equals(List.of("qsl")));
+
+            Path legacy = dir.resolve("legacy.jar");
+            writeJar(legacy, Map.of("mcmod.info", """
+                    [{"modid":"legacy","name":"Legacy","version":"1.0",
+                      "requiredMods":["jei@[4.0,)","codechickenlib"]}]"""));
+            LocalModInfo legacyInfo = LocalModInfo.read(legacy).orElseThrow();
+            check("a version range is not part of a mod's name",
+                    legacyInfo.depends().equals(List.of("jei", "codechickenlib")));
+
+            // The dialog offers to stop appearing, so the answer has to outlive
+            // the session that gave it - and has to be findable again, which is
+            // what the switch in the settings window is for.
+            GameDirs dirs = new GameDirs(dir.resolve("data"));
+            com.hexadron.launcher.core.LauncherSettings settings =
+                    new com.hexadron.launcher.core.LauncherSettings(dirs);
+            check("the warning is on to begin with", settings.warnAboutDependents());
+            settings.warnAboutDependents(false);
+            settings.save();
+            check("and 'do not show this again' survives a restart",
+                    !new com.hexadron.launcher.core.LauncherSettings(dirs)
+                            .load().warnAboutDependents());
+            settings.warnAboutDependents(true);
+            settings.save();
+            check("and can be turned back on",
+                    new com.hexadron.launcher.core.LauncherSettings(dirs)
+                            .load().warnAboutDependents());
+
+        } catch (IOException e) {
+            check("mod dependencies could be read: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
+
+    // ---------------------------------------------------------------- categories
+
+    /**
+     * The categories a mod is filed under, and the drawings beside their names.
+     *
+     * <p>Two things are checked here. That the loaders are kept out of the
+     * category list - Modrinth stores {@code fabric} in the same field it stores
+     * {@code magic}, and a filter built from the raw list offers to narrow a
+     * Fabric search to Forge mods. And that the little drawings survive being
+     * read out of the markup they are published as, which is untrusted text
+     * turned into shapes and therefore worth checking without a display.
+     */
+
+    private static void modCategories() {
+        section("Mod categories");
+
+        check("a category is recognised by its identifier",
+                ModCategory.byId("worldgen").orElseThrow() == ModCategory.WORLDGEN);
+        check("a hyphenated identifier is recognised",
+                ModCategory.byId("game-mechanics").orElseThrow() == ModCategory.GAME_MECHANICS);
+        check("case and spacing do not matter",
+                ModCategory.byId("  Magic ").orElseThrow() == ModCategory.MAGIC);
+        check("a loader is not a category", ModCategory.byId("fabric").isEmpty());
+        check("neither is anything else", ModCategory.byId("client").isEmpty());
+        check("nor nothing at all", ModCategory.byId(null).isEmpty());
+
+        // The list a project publishes carries its loaders in with its
+        // categories, and the same category twice when both fields are read.
+        List<ModCategory> parsed = ModCategory.parse(
+                List.of("fabric", "magic", "quilt", "storage", "magic", "neoforge"));
+        check("the loaders are dropped", parsed.size() == 2);
+        check("the categories are kept in order",
+                parsed.equals(List.of(ModCategory.MAGIC, ModCategory.STORAGE)));
+        check("an empty list stays empty", ModCategory.parse(List.of()).isEmpty());
+        check("identifiers come back out as they went in",
+                ModCategory.idsOf(parsed).equals(List.of("magic", "storage")));
+
+        // The full list, not the three an author features on the platform's own
+        // card. Voxy WorldGen is filed under six things and used to say three,
+        // which is a shorter answer than the truth with nothing to show it was
+        // short. The loaders come in the same field and still have to go.
+        List<ModCategory> voxy = ModCategory.parse(List.of("fabric", "game-mechanics",
+                "management", "neoforge", "optimization", "storage", "utility", "worldgen"));
+        check("every category a project is filed under is kept", voxy.size() == 6);
+        check("and the loaders in the same field are not",
+                !voxy.contains(ModCategory.LIBRARY) && voxy.contains(ModCategory.WORLDGEN)
+                        && voxy.contains(ModCategory.STORAGE));
+
+        // What is being filtered on comes first, and nothing else moves.
+        List<ModCategory> row = List.of(ModCategory.GAME_MECHANICS, ModCategory.MANAGEMENT,
+                ModCategory.OPTIMIZATION, ModCategory.STORAGE);
+        check("the chosen categories come first",
+                ModCategory.chosenFirst(row,
+                        Set.of(ModCategory.STORAGE, ModCategory.MANAGEMENT))
+                        .equals(List.of(ModCategory.MANAGEMENT, ModCategory.STORAGE,
+                                ModCategory.GAME_MECHANICS, ModCategory.OPTIMIZATION)));
+        check("the rest keep the order they arrived in",
+                ModCategory.chosenFirst(row, Set.of(ModCategory.OPTIMIZATION))
+                        .equals(List.of(ModCategory.OPTIMIZATION, ModCategory.GAME_MECHANICS,
+                                ModCategory.MANAGEMENT, ModCategory.STORAGE)));
+        check("nothing moves when nothing is chosen",
+                ModCategory.chosenFirst(row, Set.of()).equals(row));
+        check("nor when the chosen ones are not on this row",
+                ModCategory.chosenFirst(row, Set.of(ModCategory.MAGIC)).equals(row));
+        check("a row keeps every category it had",
+                ModCategory.chosenFirst(row, Set.of(ModCategory.STORAGE)).size() == row.size());
+        check("one category is left alone",
+                ModCategory.chosenFirst(List.of(ModCategory.MAGIC), Set.of(ModCategory.MAGIC))
+                        .equals(List.of(ModCategory.MAGIC)));
+
+        // --- the drawings
+        check("nothing is read out of nothing", SvgPaths.read(null).isEmpty());
+        check("nor out of an empty string", SvgPaths.read("  ").isEmpty());
+        check("nor out of markup with no shapes in it",
+                SvgPaths.read("<svg viewBox=\"0 0 24 24\"><title>x</title></svg>").isEmpty());
+
+        // A real one, exactly as the platform publishes it.
+        List<String> adventure = SvgPaths.read(
+                "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\""
+                        + " stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">"
+                        + "<circle cx=\"12\" cy=\"12\" r=\"10\"/>"
+                        + "<polygon points=\"16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"
+                        + " 16.24 7.76\"/></svg>");
+        check("a published drawing yields one path per shape", adventure.size() == 2);
+        check("a circle becomes two arcs",
+                adventure.get(0).startsWith("M 2.0 12.0") && countOf(adventure.get(0), " a ") == 2);
+        check("a circle is closed", adventure.get(0).endsWith("Z"));
+        check("a polygon becomes a closed run of points",
+                adventure.get(1).startsWith("M 16.24 7.76") && adventure.get(1).endsWith(" Z"));
+        check("a polygon keeps every point", countOf(adventure.get(1), " L ") == 4);
+
+        check("a path is taken as it is",
+                SvgPaths.read("<path d=\"M9.09 9a3 3 0 0 1 5.83 1\"/>")
+                        .equals(List.of("M9.09 9a3 3 0 0 1 5.83 1")));
+        check("a closing tag is not a second shape",
+                SvgPaths.read("<path d=\"M1 1 L2 2\"></path>").size() == 1);
+        check("a line becomes a move and a line",
+                SvgPaths.read("<line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/>")
+                        .equals(List.of("M 12.0 17.0 L 12.01 17.0")));
+        check("a polyline is not closed",
+                !SvgPaths.read("<polyline points=\"1,1 2,2 3,3\"/>").get(0).endsWith("Z"));
+        check("commas and spaces are both separators",
+                SvgPaths.read("<polyline points=\"1,1 2,2\"/>")
+                        .equals(SvgPaths.read("<polyline points=\"1 1 2 2\"/>")));
+        check("an odd number of points is refused",
+                SvgPaths.read("<polyline points=\"1 1 2\"/>").isEmpty());
+
+        List<String> square = SvgPaths.read("<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\"/>");
+        check("a plain rectangle is four sides", square.size() == 1
+                && square.get(0).equals("M 3.0 3.0 h 18.0 v 18.0 h -18.0 Z"));
+        List<String> rounded =
+                SvgPaths.read("<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/>");
+        check("a rounded rectangle has four corners",
+                countOf(rounded.get(0), " a ") == 4 && rounded.get(0).endsWith("Z"));
+
+        check("an ellipse uses both radii",
+                SvgPaths.read("<ellipse cx=\"12\" cy=\"12\" rx=\"10\" ry=\"4\"/>")
+                        .get(0).contains(" a 10.0 4.0 "));
+        check("a shape with no size is left out",
+                SvgPaths.read("<circle cx=\"12\" cy=\"12\" r=\"0\"/>").isEmpty());
+        check("an element this does not draw is left out",
+                SvgPaths.read("<text x=\"1\" y=\"1\">hello</text>").isEmpty());
+        check("the shapes it does draw survive one it does not",
+                SvgPaths.read("<g><text>x</text><line x1=\"1\" y1=\"1\" x2=\"2\" y2=\"2\"/></g>")
+                        .size() == 1);
+
+        // Untrusted text: whatever comes back, nothing may throw at a caller
+        // that is drawing a list.
+        int survived = 0;
+        String[] rubbish = {"<", "<path", "<path d=", "<path d=\"", "<circle cx=\"a\" r=\"b\"/>",
+            "<rect width=\"-5\" height=\"3\"/>", "<polygon points=\"\"/>", "<<<>>>",
+            "<path d=\"\"/>", "<line/>"};
+        for (String text : rubbish) {
+            try {
+                SvgPaths.read(text);
+                survived++;
+            } catch (RuntimeException e) {
+                // Counted by not counting.
+            }
+        }
+        check("no malformed markup throws", survived == rubbish.length);
+    }
+
+    /**
+     * The order the categories are offered in, in each language.
+     *
+     * <p>A list of names is sorted with the alphabet of whoever is reading it,
+     * and the obvious tool gets that wrong in three of the five languages this
+     * launcher speaks. {@code String.CASE_INSENSITIVE_ORDER} compares code
+     * points after lowering the case, and Ukrainian і and ї live at U+0456 and
+     * U+0457 - above the whole of а-я - so they came out after the last word in
+     * the menu instead of between "Економіка" and "Керування". Polish ą, ć, ł
+     * and German ä, ö, ü are outside their alphabet's block for the same reason.
+     *
+     * <p>Checked against the real translation files rather than made-up strings,
+     * because what is being checked is the order of the actual menu.
+     */
+    private static void categoryOrder() {
+        section("Category order");
+
+        check("English is in English order",
+                orderIn(Language.ENGLISH).startsWith("Adventure, Cursed, Decoration, Economy"));
+
+        // The one the bug was found in. І and Ї belong after Е and before К.
+        String ukrainian = orderIn(byCode("uk"));
+        check("Ukrainian starts at Б", ukrainian.startsWith("Бібліотека, Взаємодія"));
+        check("Ukrainian puts І and Ї in the alphabet, not after it",
+                ukrainian.contains("Економіка, Ігрові механіки, Їжа, Керування"));
+        check("Ukrainian ends at Ч", ukrainian.endsWith("Технології, Чаклунство"));
+        check("nothing is lost or repeated by the sort",
+                ukrainian.split(", ").length == ModCategory.values().length);
+
+        // Polish: ł sorts inside L, and ś inside S.
+        String polish = orderIn(byCode("pl"));
+        check("Polish puts ł where l is", polish.contains("Minigra, Narzędzia"));
+        check("Polish sorts ś as s", polish.contains("Generowanie świata, Interakcja"));
+
+        // German: ü sorts as u, so Ausrüstung stays under A.
+        String german = orderIn(byCode("de"));
+        check("German starts at A", german.startsWith("Abenteuer, Ausrüstung, Bibliothek"));
+        check("German ends at W", german.endsWith("Werkzeuge, Wirtschaft"));
+
+        // Russian has no letters outside its block, so it is the control: if
+        // this one were ever wrong, the collator itself would be the problem.
+        String russian = orderIn(byCode("ru"));
+        check("Russian is in Russian order", russian.startsWith("Библиотека, Взаимодействие"));
+
+        for (Language language : Language.all()) {
+            check("every category is offered in " + language.code(),
+                    ModCategory.inReadingOrder(language.locale(),
+                            category -> I18n.bundle(language).get(category.key()))
+                            .size() == ModCategory.values().length);
+        }
+    }
+
+    /** The category names of one language, in the order the menu would offer them. */
+    private static String orderIn(Language language) {
+        Map<String, String> bundle = I18n.bundle(language);
+        List<String> names = new ArrayList<>();
+        for (ModCategory category : ModCategory.inReadingOrder(language.locale(),
+                category -> bundle.getOrDefault(category.key(), category.id()))) {
+            names.add(bundle.getOrDefault(category.key(), category.id()));
+        }
+        return String.join(", ", names);
+    }
+
+    private static Language byCode(String code) {
+        return Language.byCode(code).orElseThrow();
+    }
+
+    /** How many times one string occurs in another. */
+    private static int countOf(String text, String part) {
+        int count = 0;
+        int at = text.indexOf(part);
+        while (at >= 0) {
+            count++;
+            at = text.indexOf(part, at + part.length());
+        }
+        return count;
+    }
+
     // ---------------------------------------------------------------- importing
 
     /**
@@ -3132,7 +3511,7 @@ public final class SelfCheck {
 
             check("a name falls back to the file name",
                     "Some Mod".equals(new LocalModInfo(null, null, null, null,
-                            List.of(), null, null, null, List.of())
+                            List.of(), null, null, null, List.of(), List.of())
                             .displayName("some-mod-1.2.3.jar")));
 
         } catch (IOException e) {
@@ -3268,7 +3647,7 @@ public final class SelfCheck {
 
     private static ModProvider.SearchResult hit(String id) {
         return new ModProvider.SearchResult(id, id, id, "", "", 0, null,
-                ModrinthProvider.pageUrl(id), ModProvider.Source.MODRINTH);
+                ModrinthProvider.pageUrl(id), List.of(), ModProvider.Source.MODRINTH);
     }
 
     // ---------------------------------------------------------------- names and arguments
@@ -3732,6 +4111,54 @@ public final class SelfCheck {
                 css.contains(".scroll-bar > .thumb"));
         check("and the viewport behind them is transparent",
                 css.contains(".scroll-pane > .viewport"));
+
+        // A tick box drawn by modena on a dark panel is a light box with a dark
+        // mark in it, and one filled with the colour of the panel it sits on is
+        // no box at all. Both halves have to be named.
+        check("the tick box itself is drawn, not only its label",
+                css.contains(".check-box > .box"));
+        check("and the mark in it is painted, not left in modena's ink",
+                css.contains(".check-box:selected > .box > .mark"));
+        check("an empty box is not filled with a surface colour",
+                !ruleOf(css, ".check-box > .box").contains("-fx-background-color: -fx-base-2")
+                        && !ruleOf(css, ".check-box > .box")
+                        .contains("-fx-background-color: -fx-base-1"));
+
+        // The row a mark sits on is filled with -fx-base-3 when it is selected.
+        // A mark filled with the same colour disappears the moment its mod is
+        // clicked, which is the moment it is being read.
+        check("a category mark is not filled with the selected-row colour",
+                !ruleOf(css, ".mod-tag").contains("-fx-background-color: -fx-base-3"));
+        check("and it is outlined, so it is a mark on any row",
+                ruleOf(css, ".mod-tag").contains("-fx-border-width"));
+
+        // The category panel is one menu item holding nineteen rows: without
+        // this the menu's highlight covers all nineteen at once.
+        check("the category panel turns off the menu's own highlight",
+                css.contains(".category-item:focused"));
+        check("a mod other mods need is marked in its own colour",
+                css.contains(".badge-dependency") && css.contains("-fx-warning-0"));
+        check("a badge keeps its edges on a selected row",
+                ruleOf(css, ".badge").contains("-fx-border-width")
+                        && !ruleOf(css, ".badge").contains("-fx-background-color: -fx-base-3"));
+        check("the panel that lists them is styled, not left to modena",
+                css.contains(".hover-panel") && css.contains(".hover-link"));
+        check("and its rows highlight themselves",
+                css.contains(".category-list > .check-box:hover"));
+    }
+
+    /** The body of the first rule with this selector, for asking what is in it. */
+    private static String ruleOf(String css, String selector) {
+        int at = css.indexOf(selector + " {");
+        if (at < 0) {
+            at = css.indexOf(selector + ",");
+        }
+        if (at < 0) {
+            return "";
+        }
+        int open = css.indexOf('{', at);
+        int close = css.indexOf('}', open);
+        return open < 0 || close < 0 ? "" : css.substring(open, close);
     }
 
     /**

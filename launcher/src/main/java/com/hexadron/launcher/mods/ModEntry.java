@@ -46,18 +46,22 @@ import java.util.List;
  * @param verdict     whether that admits the version this profile is set to.
  *                    {@link VersionRanges.Verdict#UNKNOWN} whenever there is any
  *                    doubt, and the interface then says nothing
+ * @param categories  what the mod is for, when the platform said so. Empty for
+ *                    a jar the launcher did not install and nobody has looked up
  */
 public record ModEntry(String key, String title, String version, String description,
                        List<String> authors, String fileName, Path path,
                        ModOrigin origin, String packId,
                        String iconUrl, String pageUrl, String iconJarPath,
-                       boolean enabled, String requires, VersionRanges.Verdict verdict) {
+                       boolean enabled, String requires, VersionRanges.Verdict verdict,
+                       List<ModCategory> categories) {
 
     /** The prefix that keeps a file-based key from ever colliding with a lock key. */
     public static final String FILE_KEY_PREFIX = "file:";
 
     public ModEntry {
         authors = List.copyOf(authors);
+        categories = List.copyOf(categories);
     }
 
     /** True when the launcher downloaded this and has a record of it. */

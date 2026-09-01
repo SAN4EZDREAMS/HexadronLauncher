@@ -24,6 +24,10 @@
     -fx-accent-0: #2d7d46; /* Minecraft green, for the one action that matters */
     -fx-accent-1: #359152;
     -fx-danger-0: #b3403a;
+    /* Amber, for a mod something else is standing on. Not red: nothing is
+       broken yet, and this is the one badge whose whole job is to be noticed
+       before a button is pressed rather than after. */
+    -fx-warning-0: #d8a13c;
 
     /* Overridden per cell by the view, from the cell's group. Declared here so
        that a cell in no group still resolves it instead of raising a CSS error. */
@@ -208,6 +212,112 @@
     -fx-border-radius: 8;
 }
 
+/*
+ * Menu buttons and their popups.
+ *
+ * They had no rule at all, so JavaFX drew them from its own light theme - a
+ * white field with white text on it, which is a control whose label cannot be
+ * read at all. The rules below are the combo box's, because to a reader the two
+ * are the same control: a box that says what is chosen and opens a list.
+ */
+.menu-button {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-padding: 6 10 6 10;
+    -fx-border-color: transparent;
+    -fx-text-fill: -fx-text-0;
+}
+
+.menu-button > .label {
+    -fx-text-fill: -fx-text-0;
+}
+
+.menu-button:hover, .menu-button:showing {
+    -fx-background-color: -fx-base-3;
+}
+
+.menu-button:focused {
+    -fx-border-color: -fx-accent-0;
+    -fx-border-radius: 8;
+}
+
+.menu-button > .arrow-button > .arrow {
+    -fx-background-color: -fx-text-1;
+}
+
+.context-menu {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 4;
+}
+
+.context-menu .menu-item .label {
+    -fx-text-fill: -fx-text-0;
+}
+
+.context-menu .menu-item:focused {
+    -fx-background-color: -fx-base-3;
+    -fx-background-radius: 6;
+}
+
+/* The category filter's panel: one grid of tick boxes rather than nineteen menu
+   items, in two columns, because nineteen in one column is a popup taller than
+   the window it drops out of - and a popup is its own window, so nothing stops
+   it running off the bottom of the screen. */
+.category-panel {
+    -fx-padding: 4 2 2 2;
+}
+
+/*
+ * Two columns, everything on screen, nothing to scroll.
+ *
+ * The names are not shortened here either, and that was the other half of the
+ * same fault: a scrolling list is fitted to its viewport - the scroller less
+ * the bar down its side - so the longest names lost their last letters to an
+ * ellipsis ("Ігрові механі..."). A grid takes the width its widest name asks
+ * for.
+ */
+.category-list {
+    -fx-padding: 2;
+}
+
+/* One item covers the whole panel, so the menu's own highlight would light all
+   of it up at once whenever the pointer was anywhere inside. The rows below
+   light themselves. */
+.category-item:focused,
+.context-menu .menu-item.category-item:focused {
+    -fx-background-color: transparent;
+}
+
+.category-list > .check-box {
+    -fx-padding: 3 6 3 6;
+    -fx-background-radius: 6;
+}
+
+.category-list > .check-box:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+/* Standing on -fx-base-2 - the popup's own colour - this button was a word with
+   no button around it, and its hover was the colour the rows highlight in. */
+.category-clear {
+    -fx-font-size: 11px;
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-padding: 5 12 5 12;
+}
+
+.category-clear:hover {
+    -fx-background-color: -fx-base-3;
+    -fx-border-color: -fx-accent-0;
+    -fx-text-fill: -fx-text-0;
+}
+
 .combo-box .list-cell {
     -fx-text-fill: -fx-text-0;
     -fx-background-color: transparent;
@@ -265,13 +375,45 @@
     -fx-background-color: white;
 }
 
-.check-box .box {
-    -fx-background-color: -fx-base-2;
+/*
+ * A tick box has to be visible before it is ticked.
+ *
+ * The rule this replaces filled the box with -fx-base-2, which is the colour of
+ * the panel the box sits on: an empty box drawn in the background colour is an
+ * empty box nobody can find. It is filled with the window colour now, which is
+ * darker than every surface a box appears on, and outlined, so the shape is
+ * there whether or not there is a mark in it.
+ *
+ * The mark is painted white on the accent fill for the same reason: modena
+ * draws it in its own dark ink, which on this green is a tick that has to be
+ * looked for.
+ */
+.check-box > .box {
+    -fx-background-color: -fx-base-0;
+    -fx-background-insets: 0;
     -fx-background-radius: 4;
+    -fx-border-color: derive(-fx-text-1, -35%);
+    -fx-border-radius: 4;
+    -fx-border-width: 1;
 }
 
-.check-box:selected .box {
+.check-box:hover > .box {
+    -fx-border-color: -fx-text-1;
+}
+
+.check-box:selected > .box,
+.check-box:indeterminate > .box {
     -fx-background-color: -fx-accent-0;
+    -fx-border-color: -fx-accent-1;
+}
+
+.check-box > .box > .mark {
+    -fx-background-color: transparent;
+}
+
+.check-box:selected > .box > .mark,
+.check-box:indeterminate > .box > .mark {
+    -fx-background-color: white;
 }
 
 .slider .track {
@@ -572,11 +714,38 @@
 /* A badge says where a mod came from. The pack badge is the accent colour
    because "you cannot delete this one on its own" is the thing worth noticing. */
 .badge {
-    -fx-background-color: -fx-base-3;
+    -fx-background-color: -fx-base-2;
     -fx-text-fill: -fx-text-1;
     -fx-background-radius: 6;
-    -fx-padding: 2 8 2 8;
+    /* Outlined, and for the same reason the category marks are: a selected row
+       is filled with -fx-base-3, so a badge filled with it lost its edges and
+       became a word lying loose on the row exactly when the row was being read.
+       One step darker than the row, one step lighter around it. */
+    -fx-border-color: derive(-fx-base-3, 30%);
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-padding: 1 7 1 7;
     -fx-font-size: 11px;
+}
+
+/*
+ * A mod that other mods are standing on.
+ *
+ * Amber, and filled, because this is the badge that changes what a button does:
+ * switching this mod off or deleting it is the one action in the list that
+ * breaks something other than itself.
+ */
+.badge-dependency {
+    -fx-background-color: -fx-warning-0;
+    -fx-border-color: derive(-fx-warning-0, -20%);
+    -fx-text-fill: #1b1206;
+    -fx-font-weight: bold;
+}
+
+/* A badge that opens something. The pointer is the only thing on the row that
+   says so, so it is worth saying. */
+.badge-linked {
+    -fx-cursor: hand;
 }
 
 .badge-pack {
@@ -602,6 +771,129 @@
     -fx-background-color: -fx-danger-0;
     -fx-text-fill: white;
     -fx-font-weight: bold;
+}
+
+/*
+ * Line drawings, as shapes rather than pictures.
+ *
+ * Stroked and not filled, which is what the icon sets these come from are, and
+ * coloured from the palette so an icon follows the text beside it into whichever
+ * theme is on. A picture would need a light copy and a dark one; this needs
+ * neither, and is sharp at any scale.
+ */
+.svg-icon {
+    -fx-fill: transparent;
+    -fx-stroke: -fx-text-1;
+}
+
+/*
+ * What a mod is filed under, on the row.
+ *
+ * Quiet on purpose. It is context for the name above it, not something to press:
+ * the same set of marks the platform's own listing uses, so a mod recognised on
+ * the website is recognised here.
+ */
+/*
+ * Filled in the control colour and outlined, and both parts are needed.
+ *
+ * The fill was -fx-base-3, which is also what a selected row is filled with, so
+ * selecting a row turned its marks into loose words on the row's own colour.
+ * The fill is one step darker than that now, and the outline is a step lighter,
+ * so a mark is a mark on a plain row, on a hovered one and on a selected one -
+ * three different backgrounds, one pair of colours that stands out from all of
+ * them.
+ */
+.mod-tag {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 5;
+    -fx-border-color: derive(-fx-base-3, 30%);
+    -fx-border-radius: 5;
+    -fx-border-width: 1;
+    -fx-padding: 0 5 0 5;
+    -fx-font-size: 10px;
+    -fx-text-fill: -fx-text-1;
+}
+
+/*
+ * The count that stands in for the categories that did not fit.
+ *
+ * Outlined rather than filled, so it reads as "there is more here" rather than
+ * as another category with a strange name. Hovering it shows the rest.
+ */
+.mod-tag-more {
+    -fx-background-color: transparent;
+    -fx-border-color: derive(-fx-base-3, 30%);
+}
+
+.mod-tag-more:hover {
+    -fx-border-color: -fx-accent-0;
+    -fx-text-fill: -fx-text-0;
+}
+
+/*
+ * The panel behind that count.
+ *
+ * A tooltip carrying a panel rather than a popup written by hand, because the
+ * behaviour wanted here - appears under the pointer, follows the window, goes
+ * away when the pointer leaves - is exactly a tooltip's, and the hand-written
+ * version of it is the one that gets left on screen.
+ */
+.tag-tooltip {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 2;
+}
+
+/* The panel is as wide as its widest line and no wider: one hidden category is
+   one small row, not a box the size of seven of them. */
+.tag-popup {
+    -fx-padding: 4;
+}
+
+.tag-popup .mod-tag {
+    -fx-background-color: -fx-base-1;
+}
+
+/*
+ * The panel that opens under a badge: which mods need this one.
+ *
+ * Its own window, so it carries its own surface and border rather than
+ * inheriting the row's. The names in it are links because they go somewhere -
+ * pressing one is how the reader gets from "something needs this" to the thing
+ * that needs it.
+ */
+.hover-panel {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 8 12 8 12;
+}
+
+.hover-title {
+    -fx-text-fill: -fx-text-0;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+}
+
+.hover-link {
+    -fx-text-fill: -fx-text-1;
+    -fx-padding: 1 0 1 0;
+    -fx-border-color: transparent;
+    -fx-underline: false;
+}
+
+.hover-link:hover {
+    -fx-text-fill: -fx-accent-1;
+    -fx-underline: true;
+}
+
+.hover-panel .muted {
+    -fx-font-size: 10px;
 }
 
 /* ------------------------------------------------------------- mod icons */

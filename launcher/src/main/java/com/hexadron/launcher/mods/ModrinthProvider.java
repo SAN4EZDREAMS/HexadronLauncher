@@ -34,7 +34,7 @@ public final class ModrinthProvider implements ModProvider {
 
     @Override
     public SearchPage search(String query, String minecraftVersion, LoaderType loader,
-                             ModSort sort, int limit, int offset)
+                             ModSort sort, List<ModCategory> categories, int limit, int offset)
             throws IOException, InterruptedException {
 
         // Modrinth facets are an array of OR-groups that are ANDed together.
@@ -45,6 +45,12 @@ public final class ModrinthProvider implements ModProvider {
         }
         if (loader != null && loader.isModded()) {
             facetGroups.add("[\"categories:" + loader.platformId() + "\"]");
+        }
+        // One group each, so they are ANDed: two ticked categories mean "both",
+        // which is how the platform's own filter behaves. A single group would
+        // mean "either" and would widen the search that the player just narrowed.
+        for (ModCategory category : categories) {
+            facetGroups.add("[\"categories:" + category.id() + "\"]");
         }
         String facets = "[" + String.join(",", facetGroups) + "]";
 
@@ -68,6 +74,7 @@ public final class ModrinthProvider implements ModProvider {
                     hit.get("downloads").asLong(0),
                     hit.get("icon_url").asString(null),
                     pageUrl(slug),
+                    categoriesOf(hit.get("categories")),
                     Source.MODRINTH));
         }
         // total_hits counts every match for these facets, not just this page.
@@ -133,13 +140,60 @@ public final class ModrinthProvider implements ModProvider {
             String slug = project.get("slug").asString(projectId);
             return Optional.of(new ProjectCard(Source.MODRINTH,
                     project.get("id").asString(projectId), slug, title,
-                    project.get("icon_url").asString(null), pageUrl(slug)));
+                    project.get("icon_url").asString(null), pageUrl(slug),
+                    categoriesOf(project.get("categories"))));
         } catch (Http.HttpStatusException e) {
             if (e.statusCode() == 404) {
                 return Optional.empty();
             }
             throw e;
         }
+    }
+
+    /**
+     * A project's categories, the loaders left out.
+     *
+     * <p>The full list, not {@code display_categories}. That field is the three
+     * the author chose to feature on the site's own card, and reading it left
+     * rows saying a mod was three things when the platform had it filed under
+     * seven - a shorter answer than the truth with nothing to show it was short.
+     *
+     * <p>It goes through {@link ModCategory}, which is what keeps {@code fabric}
+     * and {@code neoforge} - stored in the very same field - out of a list of
+     * what a mod is <em>for</em>.
+     */
+    private static List<ModCategory> categoriesOf(Json categories) {
+        List<String> ids = new ArrayList<>();
+        for (Json entry : categories.elements()) {
+            String id = entry.asString(null);
+            if (id != null) {
+                ids.add(id);
+            }
+        }
+        return ModCategory.parse(ids);
+    }
+
+    /**
+     * The line drawings the platform publishes beside its category names.
+     *
+     * <p>The same endpoint carries the categories of resource packs, plugins and
+     * servers, so only the ones filed under a mod are kept.
+     *
+     * @return category identifier to the markup of its drawing
+     */
+    public java.util.Map<String, String> categoryArt() throws IOException, InterruptedException {
+        java.util.Map<String, String> art = new java.util.LinkedHashMap<>();
+        for (Json tag : Http.getJson(API + "/tag/category").elements()) {
+            if (!"mod".equals(tag.get("project_type").asString(""))) {
+                continue;
+            }
+            String name = tag.get("name").asString(null);
+            String icon = tag.get("icon").asString(null);
+            if (name != null && icon != null && !icon.isBlank()) {
+                art.putIfAbsent(name, icon);
+            }
+        }
+        return art;
     }
 
     /**
@@ -264,7 +318,8 @@ public final class ModrinthProvider implements ModProvider {
             String slug = project.get("slug").asString(id);
             cards.add(new ProjectCard(Source.MODRINTH, id, slug,
                     project.get("title").asString(slug),
-                    project.get("icon_url").asString(null), pageUrl(slug)));
+                    project.get("icon_url").asString(null), pageUrl(slug),
+                    categoriesOf(project.get("categories"))));
         }
         return cards;
     }

@@ -2,6 +2,8 @@ package com.hexadron.launcher.mods;
 
 import com.hexadron.launcher.json.Json;
 
+import java.util.List;
+
 /**
  * One mod file recorded in a profile's lock file.
  *
@@ -23,22 +25,34 @@ import com.hexadron.launcher.json.Json;
  * @param file    the downloaded file
  * @param origin  who put it there
  * @param packId  the pack that owns it, when {@code origin} is {@link ModOrigin#PACK}
- * @param iconUrl the project's logo on the platform, or null
- * @param pageUrl the project's page on the platform, or null
+ * @param iconUrl    the project's logo on the platform, or null
+ * @param pageUrl    the project's page on the platform, or null
+ * @param categories what the project is filed under, so the installed list can
+ *                   say what a mod is for with no connection and no lookup
  */
 public record InstalledMod(String title, ModFile file, ModOrigin origin, String packId,
-                           String iconUrl, String pageUrl) {
+                           String iconUrl, String pageUrl, List<ModCategory> categories) {
+
+    public InstalledMod {
+        categories = List.copyOf(categories);
+    }
 
     /** An entry with no artwork or link recorded, as version 2 of the lock file wrote them. */
     public InstalledMod(String title, ModFile file, ModOrigin origin, String packId) {
-        this(title, file, origin, packId, null, null);
+        this(title, file, origin, packId, null, null, List.of());
+    }
+
+    /** An entry as version 3 wrote it: a logo and a page, and no categories. */
+    public InstalledMod(String title, ModFile file, ModOrigin origin, String packId,
+                        String iconUrl, String pageUrl) {
+        this(title, file, origin, packId, iconUrl, pageUrl, List.of());
     }
 
     /** An entry labelled from what the platform published about the project. */
     public static InstalledMod of(ModProvider.ProjectCard card, ModFile file,
                                   ModOrigin origin, String packId) {
         return new InstalledMod(card.title(), file, origin, packId,
-                card.iconUrl(), card.pageUrl());
+                card.iconUrl(), card.pageUrl(), card.categories());
     }
 
     /** The lock-file key: one entry per project per provider. */
@@ -67,6 +81,11 @@ public record InstalledMod(String title, ModFile file, ModOrigin origin, String 
         if (pageUrl != null) {
             json.put("pageUrl", pageUrl);
         }
+        if (!categories.isEmpty()) {
+            Json list = Json.array();
+            categories.forEach(category -> list.add(category.id()));
+            json.put("categories", list);
+        }
         return json;
     }
 
@@ -92,9 +111,17 @@ public record InstalledMod(String title, ModFile file, ModOrigin origin, String 
         if (title == null || title.isBlank()) {
             title = file.projectSlug() != null ? file.projectSlug() : file.fileName();
         }
+        List<String> categoryIds = new java.util.ArrayList<>();
+        for (Json category : json.get("categories").elements()) {
+            String id = category.asString(null);
+            if (id != null) {
+                categoryIds.add(id);
+            }
+        }
         return new InstalledMod(title, file, origin,
                 origin == ModOrigin.PACK ? packId : null,
                 json.get("iconUrl").asString(null),
-                json.get("pageUrl").asString(null));
+                json.get("pageUrl").asString(null),
+                ModCategory.parse(categoryIds));
     }
 }

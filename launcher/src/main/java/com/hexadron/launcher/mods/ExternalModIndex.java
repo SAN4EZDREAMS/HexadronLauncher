@@ -88,13 +88,21 @@ public final class ExternalModIndex {
                     index.byFileName.put(fileName, new Entry(size, null));
                     return;
                 }
+                List<String> categoryIds = new ArrayList<>();
+                for (Json category : value.get("categories").elements()) {
+                    String id = category.asString(null);
+                    if (id != null) {
+                        categoryIds.add(id);
+                    }
+                }
                 index.byFileName.put(fileName, new Entry(size, new ModProvider.ProjectCard(
                         ModProvider.Source.valueOf(value.get("source").asString("MODRINTH")),
                         projectId,
                         value.get("slug").asString(null),
                         value.get("title").asString(""),
                         value.get("iconUrl").asString(null),
-                        value.get("pageUrl").asString(null))));
+                        value.get("pageUrl").asString(null),
+                        ModCategory.parse(categoryIds))));
             });
         } catch (IOException | RuntimeException ignored) {
             // An unreadable index costs the user a logo, not a mod.
@@ -152,6 +160,11 @@ public final class ExternalModIndex {
                 putIfPresent(value, "title", card.title());
                 putIfPresent(value, "iconUrl", card.iconUrl());
                 putIfPresent(value, "pageUrl", card.pageUrl());
+                if (!card.categories().isEmpty()) {
+                    Json list = Json.array();
+                    card.categories().forEach(category -> list.add(category.id()));
+                    value.put("categories", list);
+                }
             }
             files.put(fileName, value);
         });

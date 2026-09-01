@@ -139,6 +139,19 @@ public final class LauncherSettings {
     private boolean showAllVersions = false;
 
     /**
+     * Ask before switching off or deleting a mod that other mods need.
+     *
+     * <p>On by default, and the one dialog in this launcher with a "do not show
+     * this again" box on it. The question is worth asking because the damage is
+     * invisible at the moment it is done - a library removed from under five
+     * mods fails at the next launch, in a crash naming a class the player has
+     * never heard of - and worth being able to switch off because somebody who
+     * is deliberately taking a pack apart is answering the same question for the
+     * tenth time.
+     */
+    private boolean warnAboutDependents = true;
+
+    /**
      * Interface language as an ISO 639-1 code.
      *
      * <p>Empty means "follow the operating system", which is the default: a
@@ -191,6 +204,7 @@ public final class LauncherSettings {
                 .asBool(minimiseToTrayWhilePlaying);
         downloadConcurrency = json.get("downloadConcurrency").asInt(downloadConcurrency);
         showAllVersions = json.get("showAllVersions").asBool(showAllVersions);
+        warnAboutDependents = json.get("warnAboutDependents").asBool(warnAboutDependents);
         splashMinimumMillis = json.get("splashMinimumMillis").asInt(splashMinimumMillis);
         javaDownloadPolicy = JavaRuntimes.DownloadPolicy
                 .parse(json.get("javaDownloadPolicy").asString(javaDownloadPolicy)).stored();
@@ -219,6 +233,7 @@ public final class LauncherSettings {
                 .put("minimiseToTrayWhilePlaying", minimiseToTrayWhilePlaying)
                 .put("downloadConcurrency", downloadConcurrency)
                 .put("showAllVersions", showAllVersions)
+                .put("warnAboutDependents", warnAboutDependents)
                 .put("splashMinimumMillis", splashMinimumMillis)
                 .put("javaDownloadPolicy", javaDownloadPolicy)
                 .put("language", language)
@@ -380,6 +395,16 @@ public final class LauncherSettings {
     }
 
     /** Clamped: a negative value is no floor, and no window should hold for a minute. */
+    /** True while the launcher still asks before breaking a dependency. */
+    public boolean warnAboutDependents() {
+        return warnAboutDependents;
+    }
+
+    public LauncherSettings warnAboutDependents(boolean value) {
+        this.warnAboutDependents = value;
+        return this;
+    }
+
     public int splashMinimumMillis() {
         return Math.max(0, Math.min(splashMinimumMillis, 15_000));
     }
