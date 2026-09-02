@@ -32,6 +32,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.control.Tab;
@@ -124,11 +125,20 @@ public final class SettingsDialog {
     private final ComboBox<com.hexadron.launcher.update.UpdateChannel> updateChannelBox =
             new ComboBox<>();
 
-    /** What the chosen channel means, rewritten as the choice changes. */
-    private final Label updateChannelNote = new Label();
+    /**
+     * What the chosen channel means, rewritten as the choice changes.
+     *
+     * <p>Two lines of room whichever channel is chosen: see {@link #NOTE_TWO_LINES}.
+     */
+    private final Label updateChannelNote = emptyNote(NOTE_TWO_LINES);
 
-    /** What the last check said, or nothing before the first one. */
-    private final Label updateResult = new Label();
+    /**
+     * What the last check said, or nothing before the first one.
+     *
+     * <p>Its line is kept even while it is empty, so the answer appearing does
+     * not push the proxy settings down the window.
+     */
+    private final Label updateResult = emptyNote(NOTE_ONE_LINE);
 
     // Java
     private final ComboBox<JavaRuntimes.DownloadPolicy> javaPolicyBox = new ComboBox<>();
@@ -257,10 +267,61 @@ public final class SettingsDialog {
         return tabs;
     }
 
+    /**
+     * One tab, and its contents on a scroller.
+     *
+     * <p>The scroller is not decoration. A tab pane gives every tab the height
+     * of the dialog and clips whatever is longer, with no way to reach it - and
+     * the Downloads tab, once the update controls joined the proxy block, is
+     * longer on any screen. The last note on it was cut through the middle of a
+     * line, which reads as a broken window rather than as a window that needs
+     * scrolling.
+     *
+     * <p>Fitted to the width, so the notes still wrap to the tab rather than
+     * scrolling sideways, and with no horizontal bar for the same reason.
+     */
     private static Tab tab(String key, GridPane content) {
-        Tab tab = new Tab(I18n.t(key), content);
+        ScrollPane scroller = new ScrollPane(content);
+        scroller.getStyleClass().add("settings-scroll");
+        scroller.setFitToWidth(true);
+        scroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+
+        Tab tab = new Tab(I18n.t(key), scroller);
         tab.setClosable(false);
         return tab;
+    }
+
+    /**
+     * How much room a note under a control is given, in points.
+     *
+     * <p>Two lines, whether or not this one needs two, and that is the whole
+     * point: the sentence under the channel box is one line for Release and two
+     * for Nightly, so a box that fits itself to the text moved everything below
+     * it - and the dialog itself - every time the channel was changed. A
+     * reserved height is one empty half-line on one setting against a window
+     * that does not resize itself while being read.
+     */
+    private static final double NOTE_TWO_LINES = 36;
+
+    /** The same for a one-line answer that is sometimes not there at all. */
+    private static final double NOTE_ONE_LINE = 18;
+
+    /**
+     * A note whose text is set later.
+     *
+     * <p>Everything {@link #note(String)} does, without the key. Made through
+     * one recipe rather than by hand, because the hand-made one was missing
+     * {@code setMaxWidth} - and a wrapping label whose maximum width is its own
+     * preferred width never wraps: the grid gives it exactly one line and the
+     * end of the sentence becomes an ellipsis.
+     */
+    private static Label emptyNote(double reservedHeight) {
+        Label note = new Label();
+        note.getStyleClass().add("muted");
+        note.setWrapText(true);
+        note.setMaxWidth(Double.MAX_VALUE);
+        note.setMinHeight(reservedHeight);
+        return note;
     }
 
     private GridPane interfaceTab() {
@@ -398,11 +459,6 @@ public final class SettingsDialog {
         updateChannelBox.valueProperty().addListener(
                 (observable, previous, value) -> updateChannelNote.setText(
                         value == null ? "" : I18n.t(value.noteKey())));
-        updateChannelNote.getStyleClass().add("muted");
-        updateChannelNote.setWrapText(true);
-
-        updateResult.getStyleClass().add("muted");
-        updateResult.setWrapText(true);
 
         Button checkNow = new Button(I18n.t("update.check.action"));
         checkNow.setOnAction(event -> checkForUpdatesNow(checkNow));

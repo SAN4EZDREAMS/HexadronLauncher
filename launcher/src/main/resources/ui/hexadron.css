@@ -275,6 +275,25 @@
     -fx-background-radius: 6;
 }
 
+/*
+ * The settings tabs scroll.
+ *
+ * A tab pane clips a tab that is taller than it is and offers no way to reach
+ * the rest, so the last note on the longest tab was cut through the middle of a
+ * line. The scroller has no surface of its own: the tab behind it is the panel,
+ * and a second background here would draw a lighter rectangle over it.
+ */
+.settings-scroll,
+.settings-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.settings-scroll {
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+    -fx-border-color: transparent;
+}
+
 /* The category filter's panel: one grid of tick boxes rather than nineteen menu
    items, in two columns, because nineteen in one column is a popup taller than
    the window it drops out of - and a popup is its own window, so nothing stops
