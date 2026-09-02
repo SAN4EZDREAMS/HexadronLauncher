@@ -1825,12 +1825,28 @@ public final class MainWindow implements ProfileHost {
      * <p>Here rather than in the start-up code because the window is what the
      * dialog belongs to: it needs an owner to be modal to, and the answer -
      * whichever it is - leaves the user looking at their instances.
+     *
+     * <p>Always through {@code runLater}, never straight away. The dialog waits
+     * for its answer, and waiting means a nested event loop, which JavaFX
+     * refuses to start while a pulse is being processed - and at start-up this
+     * is called from the splash's fade, which is exactly that. The refusal is an
+     * {@link IllegalStateException} thrown into an animation handler, where
+     * nothing catches it and nobody sees it: the update was simply never
+     * offered. Deferring puts the dialog on the next pulse, where it is allowed.
      */
     public void offerUpdate(com.hexadron.launcher.update.Updates.Available update) {
         if (update == null) {
             return;
         }
-        UpdateDialog.show(stage, update);
+        Platform.runLater(() -> {
+            try {
+                UpdateDialog.show(stage, update);
+            } catch (RuntimeException e) {
+                // An update that cannot be offered is not a reason to take the
+                // launcher down, but it is a reason to leave a line behind.
+                com.hexadron.launcher.core.LauncherLog.error("Could not offer the update", e);
+            }
+        });
     }
 
     private void saveSettingsQuietly() {
