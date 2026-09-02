@@ -15,14 +15,18 @@ package com.hexadron.launcher.util;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystemException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.zip.GZIPInputStream;
@@ -353,28 +357,112 @@ public final class Archives {
 
     /** Removes a directory tree. Used to clear a half-written runtime. */
     public static void deleteRecursively(Path dir) throws IOException {
-        if (!Files.exists(dir, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+        List<Path> left = deleteWhatCan(dir);
+        if (left.isEmpty()) {
             return;
         }
-        Files.walkFileTree(dir, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                Files.deleteIfExists(file);
-                return FileVisitResult.CONTINUE;
-            }
+        throw new FileSystemException(left.get(0).toString(), null,
+                left.size() + " of " + dir + " could not be deleted");
+    }
 
-            @Override
-            public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
-                // A broken symlink cannot be read but can still be deleted.
-                Files.deleteIfExists(file);
-                return FileVisitResult.CONTINUE;
-            }
+    /**
+     * Deletes as much of a tree as it can, and says what is left.
+     *
+     * <p>The difference from {@link #deleteRecursively} is the whole point of
+     * it. A walk that throws on the first file it cannot remove stops there -
+     * and by then it has already deleted everything it visited before, so the
+     * result is a half-emptied tree that nothing will ever finish. One open
+     * file, one read-only attribute, and a folder is left behind for good.
+     *
+     * <p>So every failure is recorded and the walk goes on. What comes back is
+     * the list of paths that resisted, which is what a caller that means to try
+     * again later needs to know - and what a log line needs to name.
+     *
+     * @return the paths that could not be removed, in the order they were met
+     */
+    public static List<Path> deleteWhatCan(Path dir) {
+        if (dir == null || !Files.exists(dir, LinkOption.NOFOLLOW_LINKS)) {
+            return List.of();
+        }
+        List<Path> failed = new ArrayList<>();
+        try {
+            Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    delete(file, failed);
+                    return FileVisitResult.CONTINUE;
+                }
 
-            @Override
-            public FileVisitResult postVisitDirectory(Path directory, IOException exc) throws IOException {
-                Files.deleteIfExists(directory);
-                return FileVisitResult.CONTINUE;
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                    // A broken symlink cannot be read but can still be deleted.
+                    delete(file, failed);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path directory, IOException exc) {
+                    delete(directory, failed);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException | RuntimeException e) {
+            // The walk itself gave up - an unreadable root, or a filesystem that
+            // went away. Whatever is under it is still there.
+            if (!failed.contains(dir)) {
+                failed.add(dir);
             }
-        });
+        }
+        return List.copyOf(failed);
+    }
+
+    /**
+     * One path, with the one retry that is worth making.
+     *
+     * <p>{@code jpackage} marks parts of an application image read-only, and on
+     * Windows a read-only file cannot be deleted at all - not by its owner, not
+     * by an administrator. The attribute has to come off first. That is one
+     * extra system call on the failure path and it is the difference between an
+     * update that tidies up after itself and one that does not.
+     */
+    private static void delete(Path path, List<Path> failed) {
+        try {
+            Files.deleteIfExists(path);
+            return;
+        } catch (IOException | RuntimeException first) {
+            // A lock, or an attribute. The second try tells them apart.
+        }
+        makeWritable(path);
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException | RuntimeException second) {
+            failed.add(path);
+        }
+    }
+
+    /** Takes off whatever is refusing the delete, on either kind of system. */
+    private static void makeWritable(Path path) {
+        try {
+            Files.setAttribute(path, "dos:readonly", Boolean.FALSE, LinkOption.NOFOLLOW_LINKS);
+        } catch (IOException | UnsupportedOperationException | IllegalArgumentException ignored) {
+            // Not a DOS filesystem. The POSIX attempt below is the other half.
+        }
+        if (Files.isSymbolicLink(path)) {
+            // Permissions belong to the target, and the target is not what is
+            // being deleted.
+            return;
+        }
+        try {
+            Set<PosixFilePermission> permissions =
+                    new HashSet<>(Files.getPosixFilePermissions(path));
+            permissions.add(PosixFilePermission.OWNER_WRITE);
+            if (Files.isDirectory(path)) {
+                permissions.add(PosixFilePermission.OWNER_READ);
+                permissions.add(PosixFilePermission.OWNER_EXECUTE);
+            }
+            Files.setPosixFilePermissions(path, permissions);
+        } catch (IOException | RuntimeException ignored) {
+            // Windows, or a file that is not ours. Nothing more to try.
+        }
     }
 }
