@@ -896,6 +896,60 @@
     -fx-font-size: 10px;
 }
 
+/*
+ * The window that offers a newer launcher.
+ *
+ * A window rather than a strip along the top, because what it asks - may this
+ * program replace itself - is answered by reading the notes, and notes need
+ * room. The notes themselves sit on the panel colour so that a wall of text is
+ * a block on the page rather than the page itself.
+ */
+.update-pane {
+    -fx-background-color: -fx-base-0;
+    -fx-padding: 20 24 18 24;
+}
+
+.update-versions {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-accent-1;
+}
+
+.update-notes {
+    -fx-background-color: -fx-base-1;
+    -fx-padding: 12 14 12 14;
+}
+
+.update-notes .label {
+    -fx-text-fill: -fx-text-1;
+}
+
+.update-scroll,
+.update-scroll > .viewport {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 10;
+}
+
+.update-scroll {
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 0;
+}
+
+/* Why the button is not there. Amber rather than red: nothing is broken, the
+   launcher simply cannot replace a copy of itself that it does not own. */
+.update-blocked {
+    -fx-text-fill: -fx-warning-0;
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 8;
+    -fx-padding: 8 12 8 12;
+}
+
+.update-failed {
+    -fx-text-fill: -fx-danger-0;
+}
+
 /* ------------------------------------------------------------- mod icons */
 
 /*

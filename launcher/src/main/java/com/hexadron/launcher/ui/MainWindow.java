@@ -1807,6 +1807,20 @@ public final class MainWindow implements ProfileHost {
         }
     }
 
+    /**
+     * Offers a newer launcher, over this window.
+     *
+     * <p>Here rather than in the start-up code because the window is what the
+     * dialog belongs to: it needs an owner to be modal to, and the answer -
+     * whichever it is - leaves the user looking at their instances.
+     */
+    public void offerUpdate(com.hexadron.launcher.update.Updates.Available update) {
+        if (update == null) {
+            return;
+        }
+        UpdateDialog.show(stage, update);
+    }
+
     private void saveSettingsQuietly() {
         try {
             service.settings().save();

@@ -42,6 +42,15 @@ public final class Launcher extends Application {
     private MainWindow window;
     private SplashScreen splash;
 
+    /**
+     * A newer launcher, found while the start-up screen was up.
+     *
+     * <p>Offered after the window is on screen rather than during the splash: a
+     * question about replacing the program belongs over the program, and the
+     * splash is a progress report that a dialog must not be modal to.
+     */
+    private com.hexadron.launcher.update.Updates.Available pendingUpdate;
+
     public static void main(String[] args) {
         if (args.length > 0) {
             HexadronCli.main(args);
@@ -94,10 +103,53 @@ public final class Launcher extends Application {
                 Platform.runLater(() -> failed(e));
                 return;
             }
+            // After the service, because it is the settings that say whether to
+            // look at all and on which channel; before the window, because the
+            // answer is wanted the moment the window is up.
+            pendingUpdate = lookForUpdate(service);
             Platform.runLater(() -> open(stage, service));
         }, "hexadron-startup");
         startup.setDaemon(true);
         startup.start();
+    }
+
+    /**
+     * Asks the repository whether there is a newer launcher.
+     *
+     * <p>Every failure here is a shrug. A machine with no connection, a
+     * repository that is down, a rate limit that has been reached - none of them
+     * is something the person opening a launcher can act on, and none of them is
+     * a reason to hold up the start or to put a dialog in front of it. What they
+     * all have in common is that the launcher they already have still works.
+     *
+     * <p>The leftovers of a previous update are cleared here too, for the one
+     * reason they cannot be cleared by the updater itself: that process is
+     * running out of the folder it would be deleting.
+     */
+    private com.hexadron.launcher.update.Updates.Available lookForUpdate(LauncherService service) {
+        try {
+            com.hexadron.launcher.update.UpdateInstall.detect()
+                    .ifPresent(com.hexadron.launcher.update.Updates::cleanUp);
+        } catch (Throwable ignored) {
+            // A folder that will not go is not a reason to fail a start-up.
+        }
+        if (!service.settings().checkForUpdates()) {
+            return null;
+        }
+        reportStep("updates");
+        try {
+            return com.hexadron.launcher.update.Updates.check(
+                    BuildConfig.version(),
+                    service.settings().updateChannel(),
+                    new com.hexadron.launcher.update.ReleaseFeed(),
+                    com.hexadron.launcher.util.Platform.os()).orElse(null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Throwable e) {
+            com.hexadron.launcher.core.LauncherLog.info("Update check skipped: " + e);
+            return null;
+        }
     }
 
     private void reportStep(String step) {
@@ -157,6 +209,13 @@ public final class Launcher extends Application {
             // and that question is asked with a copy of the log attached.
             window.logStartup(startupSummary);
         }
+        // Last, and over the window rather than over the splash: what this asks
+        // is whether to replace the program the user has just opened, and that
+        // question is worth the window being there behind it.
+        if (pendingUpdate != null) {
+            window.offerUpdate(pendingUpdate);
+        }
+
         // Detecting Java reads the registry and probes every runtime it finds.
         // Doing it now, in the background, keeps that cost off the first press
         // of Play - and off start-up, where it would be the slowest stage.

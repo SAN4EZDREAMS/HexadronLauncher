@@ -105,6 +105,19 @@ public final class SettingsDialog {
     /** How much of the data folder the kept mod logos may fill, in megabytes. */
     private final Spinner<Integer> modIconCache = new Spinner<>();
 
+    /** Look for a newer launcher when this one starts. */
+    private final CheckBox checkForUpdates = new CheckBox();
+
+    /** Which builds that check offers. */
+    private final ComboBox<com.hexadron.launcher.update.UpdateChannel> updateChannelBox =
+            new ComboBox<>();
+
+    /** What the chosen channel means, rewritten as the choice changes. */
+    private final Label updateChannelNote = new Label();
+
+    /** What the last check said, or nothing before the first one. */
+    private final Label updateResult = new Label();
+
     // Java
     private final ComboBox<JavaRuntimes.DownloadPolicy> javaPolicyBox = new ComboBox<>();
 
@@ -225,7 +238,8 @@ public final class SettingsDialog {
                 tab("settings.tab.interface", interfaceTab()),
                 tab("settings.tab.game", gameTab()),
                 tab("settings.tab.java", javaTab()),
-                tab("settings.tab.network", networkTab()),
+                tab("settings.tab.downloads", downloadsTab()),
+                tab("settings.tab.mods", modsTab()),
                 tab("settings.tab.accounts", accountsTab()),
                 tab("settings.tab.data", dataTab()));
         return tabs;
@@ -303,9 +317,17 @@ public final class SettingsDialog {
         return grid;
     }
 
-    private GridPane networkTab() {
+    /**
+     * Everything about fetching things: the game's files, and the launcher's own
+     * next version.
+     *
+     * <p>Split from the mods tab, which is where it used to live under the name
+     * "Downloads and mods". Two subjects in one tab is one subject too many, and
+     * the route the launcher takes to the network belongs beside the setting for
+     * how many files it fetches at once, not beside an API key for a mod site.
+     */
+    private GridPane downloadsTab() {
         spinner(concurrencySpinner, 1, 32, settings.downloadConcurrency());
-        curseForgeKey.setPromptText(I18n.t("settings.curseforge.prompt"));
 
         proxyModeBox.setItems(FXCollections.observableArrayList(ProxyChoice.Mode.values()));
         proxyModeBox.setMaxWidth(Double.MAX_VALUE);
@@ -343,20 +365,50 @@ public final class SettingsDialog {
         Button test = new Button(I18n.t("settings.proxy.test"));
         test.setOnAction(event -> testConnection(test));
 
-        warnAboutDependents.setText(I18n.t("settings.modWarnings"));
-        spinner(modIconCache, LauncherSettings.MOD_ICON_CACHE_MIN,
-                LauncherSettings.MOD_ICON_CACHE_MAX, settings.modIconCacheMegabytes());
+        checkForUpdates.setText(I18n.t("settings.update"));
+
+        updateChannelBox.setItems(FXCollections.observableArrayList(
+                com.hexadron.launcher.update.UpdateChannel.values()));
+        updateChannelBox.setMaxWidth(Double.MAX_VALUE);
+        updateChannelBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(com.hexadron.launcher.update.UpdateChannel channel) {
+                return channel == null ? "" : I18n.t(channel.key());
+            }
+
+            @Override
+            public com.hexadron.launcher.update.UpdateChannel fromString(String text) {
+                return null;
+            }
+        });
+        // The sentence under the box is the whole difference between the two
+        // channels, so it follows the choice rather than describing both at once.
+        updateChannelBox.valueProperty().addListener(
+                (observable, previous, value) -> updateChannelNote.setText(
+                        value == null ? "" : I18n.t(value.noteKey())));
+        updateChannelNote.getStyleClass().add("muted");
+        updateChannelNote.setWrapText(true);
+
+        updateResult.getStyleClass().add("muted");
+        updateResult.setWrapText(true);
+
+        Button checkNow = new Button(I18n.t("update.check.action"));
+        checkNow.setOnAction(event -> checkForUpdatesNow(checkNow));
 
         GridPane grid = form();
         int row = 0;
         grid.addRow(row++, label("settings.concurrency"), concurrencySpinner);
         grid.addRow(row++, new Label(), note("settings.concurrency.note"));
-        grid.addRow(row++, new Label(), warnAboutDependents);
-        grid.addRow(row++, new Label(), note("settings.modWarnings.note"));
-        grid.addRow(row++, label("settings.modIconCache"), modIconCache);
-        grid.addRow(row++, new Label(), note("settings.modIconCache.note"));
-        grid.addRow(row++, label("settings.curseforge"), curseForgeKey);
-        grid.addRow(row++, new Label(), note("mods.curseforge.key.body"));
+        grid.addRow(row++, new Label(), new javafx.scene.control.Separator());
+        grid.addRow(row++, new Label(), checkForUpdates);
+        grid.addRow(row++, new Label(), note("settings.update.note"));
+        grid.addRow(row++, label("settings.update.channel"), updateChannelBox);
+        grid.addRow(row++, new Label(), updateChannelNote);
+        grid.addRow(row++, new Label(),
+                new Label(I18n.t("settings.update.current",
+                        com.hexadron.launcher.BuildConfig.version())));
+        grid.addRow(row++, new Label(), checkNow);
+        grid.addRow(row++, new Label(), updateResult);
         grid.addRow(row++, new Label(), new javafx.scene.control.Separator());
         grid.addRow(row++, label("settings.proxy"), proxyModeBox);
         grid.addRow(row++, new Label(), note("settings.proxy.note"));
@@ -368,6 +420,70 @@ public final class SettingsDialog {
         grid.addRow(row++, new Label(), test);
         grid.addRow(row, new Label(), proxyResult);
         return grid;
+    }
+
+    /** Mods: what the launcher keeps about them, and what it asks before removing one. */
+    private GridPane modsTab() {
+        curseForgeKey.setPromptText(I18n.t("settings.curseforge.prompt"));
+        warnAboutDependents.setText(I18n.t("settings.modWarnings"));
+        spinner(modIconCache, LauncherSettings.MOD_ICON_CACHE_MIN,
+                LauncherSettings.MOD_ICON_CACHE_MAX, settings.modIconCacheMegabytes());
+
+        GridPane grid = form();
+        int row = 0;
+        grid.addRow(row++, new Label(), warnAboutDependents);
+        grid.addRow(row++, new Label(), note("settings.modWarnings.note"));
+        grid.addRow(row++, label("settings.modIconCache"), modIconCache);
+        grid.addRow(row++, new Label(), note("settings.modIconCache.note"));
+        grid.addRow(row++, label("settings.curseforge"), curseForgeKey);
+        grid.addRow(row, new Label(), note("mods.curseforge.key.body"));
+        return grid;
+    }
+
+    /**
+     * Asks the channel what it has, now, because somebody pressed the button.
+     *
+     * <p>Off the interface thread, and the button says so by being disabled
+     * while it waits: this is one request to a server that may be slow, and a
+     * settings window frozen mid-question is the worst way to say "working".
+     */
+    private void checkForUpdatesNow(Button button) {
+        com.hexadron.launcher.update.UpdateChannel channel = updateChannelBox.getValue() == null
+                ? com.hexadron.launcher.update.UpdateChannel.RELEASE
+                : updateChannelBox.getValue();
+        button.setDisable(true);
+        updateResult.setText(I18n.t("update.check.checking"));
+
+        Thread worker = new Thread(() -> {
+            try {
+                java.util.Optional<com.hexadron.launcher.update.Updates.Available> found =
+                        com.hexadron.launcher.update.Updates.check(
+                                com.hexadron.launcher.BuildConfig.version(), channel,
+                                new com.hexadron.launcher.update.ReleaseFeed(),
+                                com.hexadron.launcher.util.Platform.os());
+                javafx.application.Platform.runLater(() -> {
+                    button.setDisable(false);
+                    if (found.isEmpty()) {
+                        updateResult.setText(I18n.t("update.check.upToDate",
+                                com.hexadron.launcher.BuildConfig.version()));
+                        return;
+                    }
+                    updateResult.setText("");
+                    UpdateDialog.show(button.getScene() == null
+                            ? null : button.getScene().getWindow(), found.get());
+                });
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                javafx.application.Platform.runLater(() -> {
+                    button.setDisable(false);
+                    updateResult.setText(I18n.t("update.check.failed",
+                            e.getMessage() == null ? e.toString() : e.getMessage()));
+                });
+            }
+        }, "hexadron-update-check");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private void refreshProxy() {
@@ -584,6 +700,9 @@ public final class SettingsDialog {
         showAllVersions.setSelected(settings.showAllVersions());
         verifyEveryLaunch.setSelected(settings.verifyEveryLaunch());
         warnAboutDependents.setSelected(settings.warnAboutDependents());
+        checkForUpdates.setSelected(settings.checkForUpdates());
+        updateChannelBox.setValue(settings.updateChannel());
+        updateChannelNote.setText(I18n.t(settings.updateChannel().noteKey()));
         modIconCache.getValueFactory().setValue(settings.modIconCacheMegabytes());
         javaPolicyBox.setValue(settings.javaDownloadPolicy());
         curseForgeKey.setText(settings.curseForgeApiKey());
@@ -614,6 +733,8 @@ public final class SettingsDialog {
         settings.showAllVersions(showAllVersions.isSelected());
         settings.verifyEveryLaunch(verifyEveryLaunch.isSelected());
         settings.warnAboutDependents(warnAboutDependents.isSelected());
+        settings.checkForUpdates(checkForUpdates.isSelected());
+        settings.updateChannel(updateChannelBox.getValue());
         settings.modIconCacheMegabytes(value(modIconCache));
         settings.javaDownloadPolicy(javaPolicyBox.getValue());
         settings.downloadConcurrency(value(concurrencySpinner));

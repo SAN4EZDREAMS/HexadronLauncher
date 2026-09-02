@@ -139,6 +139,30 @@ public final class LauncherSettings {
     private boolean showAllVersions = false;
 
     /**
+     * Look for a newer launcher when the launcher starts.
+     *
+     * <p>On by default, and worth defending: a launcher is the piece of software
+     * that stands between somebody and a game they want to play now, so a
+     * version with a fixed crash in it is only useful if it actually reaches
+     * them. The check is one request to the repository's list of releases, it
+     * happens while the start-up screen is already on screen, and a machine with
+     * no connection simply carries on - nothing waits for it and nothing is
+     * reported when it fails.
+     *
+     * <p>Nothing is ever installed without being asked. The check leads to a
+     * window that says which version, from what to what, and what changed.
+     */
+    private boolean checkForUpdates = true;
+
+    /**
+     * Which builds the update check offers: {@code "release"} or {@code "nightly"}.
+     *
+     * <p>Release by default, because that is what somebody who is here to play
+     * wants. Nightly is a deliberate choice to run test builds.
+     */
+    private String updateChannel = com.hexadron.launcher.update.UpdateChannel.RELEASE.stored();
+
+    /**
      * How much of the data folder the kept mod logos may fill, in megabytes.
      *
      * <p>Thirty-two by default, which is roughly two thousand logos - more mods
@@ -228,6 +252,9 @@ public final class LauncherSettings {
         downloadConcurrency = json.get("downloadConcurrency").asInt(downloadConcurrency);
         showAllVersions = json.get("showAllVersions").asBool(showAllVersions);
         warnAboutDependents = json.get("warnAboutDependents").asBool(warnAboutDependents);
+        checkForUpdates = json.get("checkForUpdates").asBool(checkForUpdates);
+        updateChannel = com.hexadron.launcher.update.UpdateChannel
+                .parse(json.get("updateChannel").asString(updateChannel)).stored();
         modIconCacheMegabytes(json.get("modIconCacheMegabytes").asInt(modIconCacheMegabytes));
         splashMinimumMillis = json.get("splashMinimumMillis").asInt(splashMinimumMillis);
         javaDownloadPolicy = JavaRuntimes.DownloadPolicy
@@ -258,6 +285,8 @@ public final class LauncherSettings {
                 .put("downloadConcurrency", downloadConcurrency)
                 .put("showAllVersions", showAllVersions)
                 .put("warnAboutDependents", warnAboutDependents)
+                .put("checkForUpdates", checkForUpdates)
+                .put("updateChannel", updateChannel)
                 .put("modIconCacheMegabytes", modIconCacheMegabytes)
                 .put("splashMinimumMillis", splashMinimumMillis)
                 .put("javaDownloadPolicy", javaDownloadPolicy)
@@ -420,6 +449,27 @@ public final class LauncherSettings {
     }
 
     /** Clamped: a negative value is no floor, and no window should hold for a minute. */
+    /** True while the launcher looks for a newer version at start-up. */
+    public boolean checkForUpdates() {
+        return checkForUpdates;
+    }
+
+    public LauncherSettings checkForUpdates(boolean value) {
+        this.checkForUpdates = value;
+        return this;
+    }
+
+    /** Which builds an update check offers. */
+    public com.hexadron.launcher.update.UpdateChannel updateChannel() {
+        return com.hexadron.launcher.update.UpdateChannel.parse(updateChannel);
+    }
+
+    public LauncherSettings updateChannel(com.hexadron.launcher.update.UpdateChannel value) {
+        this.updateChannel = (value == null
+                ? com.hexadron.launcher.update.UpdateChannel.RELEASE : value).stored();
+        return this;
+    }
+
     /** How much the mod logo cache may fill, in megabytes. */
     public int modIconCacheMegabytes() {
         return modIconCacheMegabytes;

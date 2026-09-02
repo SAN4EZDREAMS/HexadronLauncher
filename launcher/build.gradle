@@ -4,7 +4,13 @@ plugins {
 }
 
 group = 'com.hexadron'
-version = '0.2.0'
+// Версію можна перевизначити з CI: -PlauncherVersion=0.2.0-nightly.41
+//
+// Це те, що потрапляє в манифест jar'а як Implementation-Version, а звідти —
+// у BuildConfig.version(), у User-Agent і у вікно оновлення. Саме за цим
+// рядком лаунчер порівнює себе з тегом релізу на GitHub, тому нічні збірки
+// мусять мати в ньому свій суфікс, інакше вони незрозумілі для порівняння.
+version = (project.findProperty('launcherVersion') ?: '0.2.0').toString()
 
 repositories {
 	mavenCentral()
@@ -196,7 +202,13 @@ def appName = 'HexadronLauncher'
 def productVersion = project.version.toString()
 def isMacOs = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('mac')
 def isWindowsHost = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win')
-def bundleVersion = (isMacOs && productVersion.startsWith('0.')) ? '1.0.0' : productVersion
+
+// jpackage приймає у --app-version ЛИШЕ числа з крапками. Нічна збірка має
+// версію 0.2.0-nightly.41, і з таким рядком jpackage просто не запуститься —
+// на всіх трьох системах. Тому в бандл іде числове ядро, а повна версія
+// лишається там, де її читає лаунчер: у манифесті jar'а.
+def numericVersion = productVersion.replaceAll('[-+].*$', '')
+def bundleVersion = (isMacOs && numericVersion.startsWith('0.')) ? '1.0.0' : numericVersion
 
 def jpackageInputDir = layout.buildDirectory.dir('jpackage-input')
 def jpackageOutputDir = layout.buildDirectory.dir('jpackage')

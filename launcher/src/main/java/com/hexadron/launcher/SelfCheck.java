@@ -39,6 +39,11 @@ import com.hexadron.launcher.mods.ModVersions;
 import com.hexadron.launcher.mods.LocalModInfo;
 import com.hexadron.launcher.mods.ModCategory;
 import com.hexadron.launcher.mods.ModDependents;
+import com.hexadron.launcher.update.AppVersion;
+import com.hexadron.launcher.update.ReleaseFeed;
+import com.hexadron.launcher.update.UpdateChannel;
+import com.hexadron.launcher.update.UpdateInstall;
+import com.hexadron.launcher.update.Updates;
 import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.SvgPaths;
 import com.hexadron.launcher.mods.ModProvider;
@@ -124,6 +129,7 @@ public final class SelfCheck {
         modVersionMismatch();
         modImport();
         modDependencies();
+        launcherUpdates();
         modCategories();
         categoryOrder();
         loaderCompatibility();
@@ -2060,7 +2066,23 @@ public final class SelfCheck {
                 "grid.addColumn", "grid.removeColumn", "grid.addRow", "grid.removeRow",
                 "grid.noRoom", "grid.atMaximum", "settings.open", "settings.title",
                 "settings.tab.interface", "settings.tab.game", "settings.tab.java",
-                "settings.tab.network", "settings.tab.accounts", "settings.tab.data",
+                "settings.tab.downloads", "settings.tab.mods",
+                "settings.tab.accounts", "settings.tab.data",
+                // Self-updating: the window that offers it, the two channels,
+                // and every line the update itself can end on.
+                "splash.step.updates",
+                "update.available.title", "update.available.header",
+                "update.available.versions", "update.available.size",
+                "update.available.notes", "update.available.notes.empty",
+                "update.action.update", "update.action.later", "update.action.page",
+                "update.manual.notImage", "update.manual.readOnly",
+                "update.stage.download", "update.stage.unpack", "update.stage.apply",
+                "update.failed", "update.check.action", "update.check.checking",
+                "update.check.upToDate", "update.check.failed",
+                "settings.update", "settings.update.note", "settings.update.channel",
+                "settings.update.channel.release", "settings.update.channel.release.note",
+                "settings.update.channel.nightly", "settings.update.channel.nightly.note",
+                "settings.update.current",
                 "settings.grid.columns", "settings.grid.rows", "settings.grid.note",
                 "settings.grid.refusedHeader", "settings.grid.refusedColumns",
                 "settings.grid.refusedRows", "settings.splash", "settings.splash.note",
@@ -2825,6 +2847,268 @@ public final class SelfCheck {
         }
     }
 
+
+    // ---------------------------------------------------------- self-updating
+
+    /**
+     * The launcher replacing itself: which build is newer, which file is for
+     * this machine, and where the installed one lives.
+     *
+     * <p>Every part of that except the swap itself is checked here, because
+     * every part of it is a decision that can be wrong silently. A version
+     * comparison that reads 0.9.10 as older than 0.9.9 offers a downgrade; an
+     * asset rule that picks the jar for a Windows user replaces a working client
+     * with something that cannot start; a layout rule that misses the install
+     * root would have the updater write a new launcher into the wrong folder.
+     *
+     * <p>The swap is not checked here, and cannot honestly be: it happens in a
+     * second process, after this one has exited, on three operating systems that
+     * treat open files differently. What is checked is everything it is given.
+     */
+    private static void launcherUpdates() {
+        section("Launcher updates");
+
+        // ------------------------------------------------------------ versions
+        check("a newer patch is newer", newer("0.9.5", "0.9.4.5"));
+        check("ten is after nine, which a string comparison gets backwards",
+                newer("0.9.10", "0.9.9"));
+        check("a leading v is not part of the number",
+                AppVersion.of("v1.0.0").orElseThrow()
+                        .equals(AppVersion.of("1.0.0").orElseThrow()));
+        check("a missing number is a zero",
+                AppVersion.of("1.2").orElseThrow().equals(AppVersion.of("1.2.0").orElseThrow()));
+        check("build metadata takes no part in it",
+                AppVersion.of("1.0.0+abc123").orElseThrow()
+                        .equals(AppVersion.of("1.0.0").orElseThrow()));
+
+        // The rule that makes a nightly channel work at all.
+        check("a release is newer than its own pre-releases",
+                newer("1.0.0", "1.0.0-nightly.20260902"));
+        check("a later nightly is newer than an earlier one",
+                newer("1.0.0-nightly.20260902", "1.0.0-nightly.20260901"));
+        check("nightly numbers are compared as numbers",
+                newer("1.0.0-nightly.10", "1.0.0-nightly.9"));
+        check("and a nightly of a newer version wins over the older release",
+                newer("1.1.0-nightly.1", "1.0.0"));
+        check("nothing is newer than itself", !newer("1.0.0", "1.0.0"));
+        check("a version that is not a version is refused",
+                AppVersion.of("beta").isEmpty() && AppVersion.of("").isEmpty()
+                        && AppVersion.of(null).isEmpty());
+
+        // ------------------------------------------------------------ channels
+        check("the nightly channel is stored and read back",
+                UpdateChannel.parse(UpdateChannel.NIGHTLY.stored()) == UpdateChannel.NIGHTLY);
+        check("anything unreadable means the safe channel",
+                UpdateChannel.parse("something else") == UpdateChannel.RELEASE
+                        && UpdateChannel.parse(null) == UpdateChannel.RELEASE);
+        check("only nightly takes pre-releases",
+                UpdateChannel.NIGHTLY.acceptsPrereleases()
+                        && !UpdateChannel.RELEASE.acceptsPrereleases());
+
+        // ------------------------------------------------------------ releases
+        Json feed = Json.parse("""
+                [
+                  {"tag_name":"v1.1.0","name":"draft","draft":true,"prerelease":false,
+                   "assets":[]},
+                  {"tag_name":"v1.0.1-nightly.7","name":"nightly","draft":false,
+                   "prerelease":true,"body":"- a change\\n- another",
+                   "html_url":"https://example.invalid/n","published_at":"2026-09-02T00:00:00Z",
+                   "assets":[{"name":"HexadronLauncher-windows.zip","size":123,
+                              "browser_download_url":"https://example.invalid/w.zip"}]},
+                  {"tag_name":"v1.0.0","name":"release","draft":false,"prerelease":false,
+                   "body":"first","html_url":"https://example.invalid/r",
+                   "published_at":"2026-09-01T00:00:00Z",
+                   "assets":[
+                     {"name":"launcher-1.0.0.jar","size":9,
+                      "browser_download_url":"https://example.invalid/j.jar"},
+                     {"name":"HexadronLauncher-windows.zip","size":10,
+                      "browser_download_url":"https://example.invalid/w.zip"},
+                     {"name":"HexadronLauncher-linux.tar.gz","size":11,
+                      "browser_download_url":"https://example.invalid/l.tgz"},
+                     {"name":"HexadronLauncher-macos.tar.gz","size":12,
+                      "browser_download_url":"https://example.invalid/m.tgz"}]}
+                ]""");
+        List<ReleaseFeed.Release> releases = ReleaseFeed.parseAll(feed);
+        check("every release in the list is read", releases.size() == 3);
+
+        ReleaseFeed.Release stable = ReleaseFeed.newest(releases, UpdateChannel.RELEASE).orElseThrow();
+        check("the release channel skips drafts and pre-releases",
+                "v1.0.0".equals(stable.tag()));
+        ReleaseFeed.Release nightly = ReleaseFeed.newest(releases, UpdateChannel.NIGHTLY).orElseThrow();
+        check("the nightly channel takes the newest of them",
+                "v1.0.1-nightly.7".equals(nightly.tag()));
+        check("a draft is not published to either",
+                releases.stream().anyMatch(ReleaseFeed.Release::draft)
+                        && !"v1.1.0".equals(nightly.tag()));
+
+        // The asset rule. Each system gets its own build and never the jar.
+        check("Windows gets the zip",
+                stable.assetFor(Platform.OsFamily.WINDOWS).orElseThrow().name()
+                        .equals("HexadronLauncher-windows.zip"));
+        check("Linux gets its tarball",
+                stable.assetFor(Platform.OsFamily.LINUX).orElseThrow().name()
+                        .equals("HexadronLauncher-linux.tar.gz"));
+        check("macOS gets its own",
+                stable.assetFor(Platform.OsFamily.OSX).orElseThrow().name()
+                        .equals("HexadronLauncher-macos.tar.gz"));
+        check("and nobody is handed the bare jar",
+                !ReleaseFeed.matches("launcher-1.0.0.jar", Platform.OsFamily.WINDOWS)
+                        && !ReleaseFeed.matches("launcher-1.0.0.jar", Platform.OsFamily.LINUX)
+                        && !ReleaseFeed.matches("launcher-1.0.0.jar", Platform.OsFamily.OSX));
+        check("a release with no build for this system is not an update",
+                Updates.compare("0.1.0", releases.get(0), Platform.OsFamily.WINDOWS).isEmpty());
+
+        // ------------------------------------------------------------ the offer
+        check("an older launcher is offered the release",
+                Updates.compare("0.9.4.5", stable, Platform.OsFamily.WINDOWS).isPresent());
+        check("the same version is offered nothing",
+                Updates.compare("1.0.0", stable, Platform.OsFamily.WINDOWS).isEmpty());
+        check("and a newer one is offered nothing either",
+                Updates.compare("1.2.0", stable, Platform.OsFamily.WINDOWS).isEmpty());
+        Updates.Available offer =
+                Updates.compare("0.9.4.5", stable, Platform.OsFamily.LINUX).orElseThrow();
+        check("the offer carries both versions and the file",
+                "0.9.4.5".equals(offer.from().text())
+                        && "v1.0.0".equals(offer.to().text())
+                        && offer.size() == 11
+                        && offer.notes().contains("first"));
+
+        // ------------------------------------------------------------- layouts
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-update-check");
+            checkLayout(dir, Platform.OsFamily.WINDOWS, "HexadronLauncher",
+                    "app", "runtime/bin/java.exe", "HexadronLauncher.exe");
+            checkLayout(dir, Platform.OsFamily.LINUX, "linux-image",
+                    "lib/app", "lib/runtime/bin/java", "bin/HexadronLauncher");
+            checkLayout(dir, Platform.OsFamily.OSX, "HexadronLauncher.app",
+                    "Contents/app", "Contents/runtime/Contents/Home/bin/java",
+                    "Contents/MacOS/HexadronLauncher");
+
+            // A jar that is not inside an image at all: a development run, and
+            // there is nothing there to replace.
+            Path loose = dir.resolve("loose");
+            java.nio.file.Files.createDirectories(loose);
+            Path looseJar = loose.resolve("launcher.jar");
+            writeJar(looseJar, Map.of("a.txt", "b"));
+            check("a launcher that is not installed has nothing to update",
+                    UpdateInstall.detect(looseJar, Platform.OsFamily.WINDOWS).isEmpty());
+
+            // The archive shapes the workflow actually produces: the image at the
+            // top, and the image one level down beside a note.
+            Path nested = dir.resolve("unpacked");
+            java.nio.file.Files.createDirectories(nested);
+            java.nio.file.Files.writeString(nested.resolve("HOW-TO-RUN.txt"), "run me");
+            image(nested.resolve("HexadronLauncher"), Platform.OsFamily.WINDOWS,
+                    "app", "runtime/bin/java.exe", "HexadronLauncher.exe");
+            check("the image is found inside an unpacked archive",
+                    UpdateInstall.imageIn(nested, Platform.OsFamily.WINDOWS)
+                            .map(path -> path.getFileName().toString())
+                            .orElse("").equals("HexadronLauncher"));
+
+            // The jar the updater is started from has to be the one with the
+            // updater in it, not the first jar in the folder.
+            Path image = dir.resolve("HexadronLauncher");
+            Path appDir = image.resolve("app");
+            writeJar(appDir.resolve("javafx-controls-25.jar"), Map.of("javafx/Thing.class", "x"));
+            writeJar(appDir.resolve("launcher-1.0.0.jar"),
+                    Map.of("com/hexadron/launcher/update/Updater.class", "x"));
+            check("the launcher jar is picked out of the folder by what is in it",
+                    Updates.launcherJarIn(new UpdateInstall(image, Platform.OsFamily.WINDOWS))
+                            .map(path -> path.getFileName().toString())
+                            .orElse("").equals("launcher-1.0.0.jar"));
+
+            // Copying an image must keep what makes it runnable.
+            Path source = dir.resolve("tree");
+            java.nio.file.Files.createDirectories(source.resolve("bin"));
+            Path binary = source.resolve("bin/HexadronLauncher");
+            java.nio.file.Files.writeString(binary, "#!/bin/sh\nexit 0\n");
+            boolean executableSet = false;
+            try {
+                java.nio.file.Files.setPosixFilePermissions(binary,
+                        java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"));
+                executableSet = true;
+            } catch (UnsupportedOperationException ignored) {
+                // Windows, where the bit does not exist and nothing can lose it.
+            }
+            java.nio.file.Files.createSymbolicLink(source.resolve("current"),
+                    java.nio.file.Path.of("bin"));
+            Path copy = dir.resolve("tree-copy");
+            Updates.copyTree(source, copy);
+            check("a copied image keeps its files",
+                    java.nio.file.Files.isRegularFile(copy.resolve("bin/HexadronLauncher")));
+            check("a copied image keeps its links",
+                    java.nio.file.Files.isSymbolicLink(copy.resolve("current")));
+            check("and the launcher stays executable",
+                    !executableSet || java.nio.file.Files.isExecutable(
+                            copy.resolve("bin/HexadronLauncher")));
+
+        } catch (IOException e) {
+            check("update layouts could be read: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+
+        // ------------------------------------------------------------ settings
+        Path settingsDir = null;
+        try {
+            settingsDir = java.nio.file.Files.createTempDirectory("hexadron-update-settings");
+            GameDirs dirs = new GameDirs(settingsDir);
+            com.hexadron.launcher.core.LauncherSettings settings =
+                    new com.hexadron.launcher.core.LauncherSettings(dirs);
+            check("the check is on by default", settings.checkForUpdates());
+            check("and the channel is the stable one",
+                    settings.updateChannel() == UpdateChannel.RELEASE);
+            settings.checkForUpdates(false).updateChannel(UpdateChannel.NIGHTLY);
+            settings.save();
+            com.hexadron.launcher.core.LauncherSettings reread =
+                    new com.hexadron.launcher.core.LauncherSettings(dirs).load();
+            check("both survive a restart",
+                    !reread.checkForUpdates() && reread.updateChannel() == UpdateChannel.NIGHTLY);
+        } catch (IOException e) {
+            check("update settings could be written: " + e, false);
+        } finally {
+            deleteRecursively(settingsDir);
+        }
+    }
+
+    /** True when the first version is newer than the second. */
+    private static boolean newer(String first, String second) {
+        return AppVersion.of(first).orElseThrow().isNewerThan(AppVersion.of(second).orElseThrow());
+    }
+
+    /** Builds an application image of one platform's shape and reads it back. */
+    private static void checkLayout(Path dir, Platform.OsFamily os, String name,
+                                    String appDir, String runtime, String executable)
+            throws IOException {
+
+        Path root = image(dir.resolve(name), os, appDir, runtime, executable);
+        Path jar = root.resolve(appDir).resolve("launcher.jar");
+        writeJar(jar, Map.of("a.txt", "b"));
+
+        UpdateInstall install = UpdateInstall.detect(jar, os).orElseThrow(
+                () -> new IOException("the " + os + " image was not recognised"));
+        check(os + ": the installed folder is found", install.root().equals(root));
+        check(os + ": its jars are where they should be",
+                install.appDirectory().equals(root.resolve(appDir)));
+        check(os + ": the bundled runtime is found",
+                install.javaExecutable().equals(root.resolve(runtime)));
+        check(os + ": the launcher to start again is found",
+                install.launcherExecutable().equals(root.resolve(executable)));
+        check(os + ": the work folder is beside the install, not inside it",
+                Updates.workDirectory(install).equals(dir.resolve(Updates.WORK_DIR)));
+    }
+
+    /** Writes the bare bones of an application image. */
+    private static Path image(Path root, Platform.OsFamily os, String appDir,
+                              String runtime, String executable) throws IOException {
+        java.nio.file.Files.createDirectories(root.resolve(appDir));
+        java.nio.file.Files.createDirectories(root.resolve(runtime).getParent());
+        java.nio.file.Files.writeString(root.resolve(runtime), "java");
+        java.nio.file.Files.createDirectories(root.resolve(executable).getParent());
+        java.nio.file.Files.writeString(root.resolve(executable), "launcher");
+        return root;
+    }
 
     // ---------------------------------------------------------------- categories
 
@@ -4210,6 +4494,9 @@ public final class SelfCheck {
                         && !ruleOf(css, ".badge").contains("-fx-background-color: -fx-base-3"));
         check("the panel that lists them is styled, not left to modena",
                 css.contains(".hover-panel") && css.contains(".hover-link"));
+        check("the update window is styled too",
+                css.contains(".update-pane") && css.contains(".update-notes")
+                        && css.contains(".update-blocked"));
         check("and its rows highlight themselves",
                 css.contains(".category-list > .check-box:hover"));
     }
