@@ -18,6 +18,22 @@
 #   HexadronLauncher-macos.tar.gz
 # Перейменуєте тут — оновлення тихо перестане знаходити збірку для системи.
 #
+# ОНОВЛЕННЯ ЧАСТИНАМИ
+#
+# Поруч із повним архівом кожна збірка публікує ще й опис самої себе:
+#   HexadronLauncher-<система>.manifest.json   — кожен файл образу з SHA-256
+#   HexadronLauncher-<система>-runtime.<арх>   — вбудована Java
+#   HexadronLauncher-<система>-libs.<арх>      — JavaFX і решта залежностей
+#   HexadronLauncher-<система>-app.<арх>       — власний jar лаунчера
+#   HexadronLauncher-<система>-base.<арх>      — виконуваний файл і те, що в корені
+#
+# Лаунчер бере з манифеста ті частини, файлів яких у нього ще немає (звіряючи
+# ЗА ХЕШЕМ, не за іменем чи датою), решту копіює зі своєї теки, а потім звіряє
+# зібраний образ із манифестом файл за файлом. Якщо манифеста немає, він
+# нечитабельний або хоч один хеш не збігся — качається повний архів, як раніше.
+# Тому імена вище теж контракт: їх пише ManifestTool, і він же єдине джерело
+# правди про те, який файл до якої частини належить.
+#
 # Архіви робить сам workflow, а не upload-artifact: до релізу файли додаються
 # як є, тож подвійної упаковки, через яку Windows отримував zip у zip, тут
 # немає взагалі. tar на Linux і macOS лишається обов'язковим — zip не переносить
@@ -160,6 +176,51 @@ jobs:
           else
             tar czf "$GITHUB_WORKSPACE/release/HexadronLauncher-${{ matrix.label }}.tar.gz" .
           fi
+      # ОПИС ЗБІРКИ Й ЇЇ ЧАСТИНИ
+      #
+      # Манифест пише ManifestTool — той самий код, яким лаунчер його потім
+      # читає. Він же вирішує, який файл до якої частини належить, і кладе
+      # поруч списки імен; пакують ці списки tar і 7z, бо вони вже пакують
+      # повний архів у кроці вище і вміють зберігати симлінки та біт запуску.
+      - name: describe the build and pack its parts
+        run: |
+          set -euo pipefail
+          # $PWD, а не $GITHUB_WORKSPACE: на Windows остання — шлях зі зворотними
+          # скісними (D:\a\...), а в bash цієї машини зворотна скісна — це екран.
+          root="$PWD"
+          label="${{ matrix.label }}"
+          out="$root/manifest"
+          if [ "$label" = "windows" ]; then
+            archive="$root/release/HexadronLauncher-windows.zip"
+          else
+            archive="$root/release/HexadronLauncher-$label.tar.gz"
+          fi
+          # Образ — єдина тека всередині build/jpackage; на macOS це .app.
+          image=$(ls -d launcher/build/jpackage/*/ | head -1)
+          image="${image%/}"
+          echo "образ: $image"
+
+          java -cp "launcher/build/libs/*" \
+            com.hexadron.launcher.update.ManifestTool \
+            "$root/$image" "$label" "${{ needs.plan.outputs.version }}" \
+            "$out" "$archive" "$(basename "$archive")"
+
+          cd "$root/$image"
+          for part in runtime libs app base; do
+            list="$out/$part.list"
+            [ -s "$list" ] || continue
+            if [ "$label" = "windows" ]; then
+              7z a -tzip -mx=5 \
+                "$root/release/HexadronLauncher-windows-$part.zip" \
+                "@$list" >/dev/null
+            else
+              tar czf \
+                "$root/release/HexadronLauncher-$label-$part.tar.gz" \
+                -T "$list"
+            fi
+          done
+          cp "$out"/HexadronLauncher-*.manifest.json "$root/release/"
+          ls -la "$root/release"
       - uses: actions/upload-artifact@v7
         with:
           name: client-${{ matrix.label }}
@@ -212,6 +273,15 @@ jobs:
           if [ "${{ needs.plan.outputs.prerelease }}" = "true" ]; then
             flags="--prerelease"
           fi
+          # Три повні архіви — обов'язкові: без них оновитися нічим. Частини й
+          # манифести додаються тим самим шаблоном, тож нова частина не вимагає
+          # правити цей крок.
+          for required in \
+            downloaded/HexadronLauncher-windows.zip \
+            downloaded/HexadronLauncher-linux.tar.gz \
+            downloaded/HexadronLauncher-macos.tar.gz; do
+            [ -f "$required" ] || { echo "немає $required"; exit 1; }
+          done
           # Перезапис того самого тега — щоб повторний запуск не падав.
           gh release delete "${{ needs.plan.outputs.tag }}" --yes --cleanup-tag 2>/dev/null || true
           gh release create "${{ needs.plan.outputs.tag }}" \
@@ -219,9 +289,7 @@ jobs:
             --notes-file notes.md \
             --target "$GITHUB_SHA" \
             $flags \
-            downloaded/HexadronLauncher-windows.zip \
-            downloaded/HexadronLauncher-linux.tar.gz \
-            downloaded/HexadronLauncher-macos.tar.gz
+            downloaded/HexadronLauncher-*
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Нічних збірок за місяць набирається тридцять, і жодна з них нікому не
