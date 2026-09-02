@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Puts the project's licence header at the top of every source file.
 
-The header itself lives in LICENSE-HEADER.txt, once, and both this script and
+The header itself lives in tools/license-header.txt, once, and both this script and
 the Gradle task that enforces it read that file - so there is one text, and a
 change to it is a change everywhere rather than a change in one place and a
 build failure in another.
@@ -21,7 +21,12 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-HEADER_FILE = ROOT / "LICENSE-HEADER.txt"
+
+# Beside this script rather than at the repository root, and that is not tidying:
+# GitHub decides what a project's licence is by looking for LICENSE* in the root,
+# so a header template called LICENSE-HEADER.txt was detected as a second licence
+# and the repository page grew a second "License" tab beside the real one.
+HEADER_FILE = ROOT / "tools" / "license-header.txt"
 
 # Where source lives. Everything else - build output, the Gradle wrapper, the
 # icons - is either generated or not ours to stamp.
@@ -40,7 +45,13 @@ STYLES = {
 
 # The line that identifies a header of ours, whatever its wording. Used to
 # replace an outdated block instead of stacking a second one on top of it.
-MARKER = "Copyright (c) 2026 SAN4EZDREAMS"
+#
+# The SPDX line rather than the copyright line, because the copyright line is
+# exactly the part that gets reworded - the author's name was written one way and
+# then another - and a marker that changes with the text it is meant to find
+# stops finding the blocks it should be replacing, leaving a second header on top
+# of the first.
+MARKER = "SPDX-License-Identifier: LicenseRef-Hexadron-NC"
 
 
 def header_lines():

@@ -1425,7 +1425,9 @@ everybody, not for sale". [PolyForm Noncommercial
 licence for this intent and the terms here are close to it in substance.
 
 **Every source file carries the notice**, and the build enforces it. The text
-lives once, in [LICENSE-HEADER.txt](LICENSE-HEADER.txt);
+lives once, in [tools/license-header.txt](tools/license-header.txt) - beside the
+script rather than in the root, because GitHub reads anything called `LICENSE*`
+there as a licence and gave the repository two "License" tabs when it was;
 `tools/stamp-license-headers.py` puts it into every `.java`, `.css` and
 `.properties` file in `launcher/src` and `mod/src`, and the Gradle task
 `licenseHeaders` fails the build when one of them is missing it or carries an
@@ -1435,7 +1437,7 @@ as their first step. Removing the authorship "by accident, along with something
 else" is therefore not a quiet operation: it is a red build with the file name in
 it.
 
-To change the wording, edit `LICENSE-HEADER.txt` and run the script; that is one
+To change the wording, edit `tools/license-header.txt` and run the script; that is one
 edit and one command rather than a hundred and fifty edits and a broken build.
 
 What the launcher downloads is not covered by any of this - Minecraft itself, the

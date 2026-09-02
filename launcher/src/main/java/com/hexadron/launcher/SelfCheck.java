@@ -1,6 +1,6 @@
 /*
  * HexadronLauncher - a Minecraft launcher, and the Hexadron Optimise mod.
- * Copyright (c) 2026 SAN4EZDREAMS. All rights reserved.
+ * Copyright (c) 2026 OLEKSII RADCHUK (SAN4EZDREAMS). All rights reserved.
  *
  * Licensed for noncommercial use only. You may use, study, share and improve
  * this software; you may not sell it, and you may not remove, alter or obscure
@@ -4655,7 +4655,7 @@ public final class SelfCheck {
         }
         check("the credits list ships with the launcher", true);
 
-        check("it names the author", credits.author().name().equals("SAN4EZDREAMS"));
+        check("it names the author", credits.author().name().equals("OLEKSII RADCHUK"));
 
         // The licence sentence in that window is the attribution the licence
         // itself points at, so it is checked rather than trusted. It said "CC0:

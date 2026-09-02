@@ -2,7 +2,7 @@
   "_note": "The about window reads this file. It is a resource rather than code so the list can be corrected or added to without a rebuild. Every url must be https. Groups are shown in the order below; 'heading' is an i18n key.",
 
   "author": {
-    "name": "SAN4EZDREAMS",
+    "name": "OLEKSII RADCHUK",
     "links": [
       { "name": "YouTube",  "url": "https://www.youtube.com/@OrestGames" },
       { "name": "Telegram", "url": "https://t.me/SAN4EZ01" },

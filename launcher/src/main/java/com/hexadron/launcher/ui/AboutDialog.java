@@ -1,6 +1,6 @@
 /*
  * HexadronLauncher - a Minecraft launcher, and the Hexadron Optimise mod.
- * Copyright (c) 2026 SAN4EZDREAMS. All rights reserved.
+ * Copyright (c) 2026 OLEKSII RADCHUK (SAN4EZDREAMS). All rights reserved.
  *
  * Licensed for noncommercial use only. You may use, study, share and improve
  * this software; you may not sell it, and you may not remove, alter or obscure
@@ -87,7 +87,7 @@ final class AboutDialog {
         } catch (IOException | RuntimeException e) {
             // The window is still worth showing: the version and the licence are
             // in the code, and those are the two things somebody came for.
-            credits = new Credits(new Credits.Author("SAN4EZDREAMS", java.util.List.of()),
+            credits = new Credits(new Credits.Author("OLEKSII RADCHUK", java.util.List.of()),
                     null, java.util.List.of());
         }
 

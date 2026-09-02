@@ -1,7 +1,7 @@
 # License
 
 **HexadronLauncher** and **Hexadron Optimise**
-Copyright (c) 2026 SAN4EZDREAMS — <https://github.com/SAN4EZDREAMS/HexadronLauncher>
+Copyright (c) 2026 OLEKSII RADCHUK (SAN4EZDREAMS) — <https://github.com/SAN4EZDREAMS/HexadronLauncher>
 
 This project is **source-available and noncommercial**. It is not an
 OSI-approved open-source licence, and that is a deliberate choice: the terms
@@ -32,7 +32,8 @@ This summary is for reading. The sections after it are the licence.
 launcher, the Hexadron Optimise mod, the build scripts, the documentation, the
 icons and the translations.
 
-**"The Author"** is SAN4EZDREAMS, the copyright holder named above.
+**"The Author"** is OLEKSII RADCHUK, who publishes this project as
+SAN4EZDREAMS, and who is the copyright holder named above.
 
 **"You"** is any person or organisation exercising the permissions in section 2.
 
@@ -145,7 +146,8 @@ attributed and free, not to catch people out.
 ## 6. Names and marks
 
 This licence gives you no right to use the names *HexadronLauncher*, *Hexadron
-Optimise*, *Hexadron* or *SAN4EZDREAMS*, or the project's marks and icons, to
+Optimise*, *Hexadron*, *SAN4EZDREAMS* or the Author's own name, or the
+project's marks and icons, to
 endorse, advertise or name your own product. You may of course say, truthfully,
 that your work is based on this project.
 

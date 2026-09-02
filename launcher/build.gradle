@@ -334,13 +334,13 @@ tasks.register('appImage', Exec) {
 
 // ------------------------------------------------------------ licence headers
 //
-// Кожен файл із кодом мусить починатися блоком ліцензії з LICENSE-HEADER.txt.
+// Кожен файл із кодом мусить починатися блоком ліцензії з tools/license-header.txt.
 // Ця задача це перевіряє, і від неї залежить compileJava — тобто НІЧОГО не
 // збереться, поки хоч в одному файлі блок відсутній або змінений. Не стиль, а
 // захист авторства: зняти згадку про ліцензію мовчки, "заодно" з іншою правкою,
 // тепер неможливо — збірка падає першим же кроком і називає файл.
 //
-// Текст блоку живе в LICENSE-HEADER.txt в корені й більше ніде. Той самий файл
+// Текст блоку живе в tools/license-header.txt і більше ніде. Той самий файл
 // читає tools/stamp-license-headers.py, який ці блоки і проставляє, тож зміна
 // формулювання — це одна правка та один запуск скрипта, а не сто п'ятдесят
 // правок і червона збірка.
@@ -349,7 +349,10 @@ tasks.register('appImage', Exec) {
 // порожні рядки прибираються. Тому один і той самий блок годиться і для .java,
 // і для .css, і для .properties, а перевірка не чіпляється до пробілів.
 
-def licenseHeaderFile = rootProject.layout.projectDirectory.file('LICENSE-HEADER.txt').asFile
+// Лежить у tools/, а не в корені: GitHub шукає ліцензію за шаблоном LICENSE*
+// у корені репозиторію, тому файл-шаблон LICENSE-HEADER.txt він теж вважав
+// ліцензією — і на сторінці проєкту з'являлася друга вкладка "License".
+def licenseHeaderFile = rootProject.layout.projectDirectory.file('tools/license-header.txt').asFile
 
 // Розширення, у яких взагалі бувають коментарі. JSON у цей список не входить:
 // у ньому коментарів немає, а заголовок усередині .png — це зіпсований .png.
@@ -391,12 +394,12 @@ tasks.register('licenseHeaders') {
 		}
 
 		if (!header.exists()) {
-			throw new GradleException("LICENSE-HEADER.txt не знайдено: ${header}. "
+			throw new GradleException("tools/license-header.txt не знайдено: ${header}. "
 				+ 'Без нього нема з чим звіряти заголовки.')
 		}
 		def wanted = normalise(header.text)
 		if (wanted.isEmpty()) {
-			throw new GradleException("LICENSE-HEADER.txt порожній: ${header}")
+			throw new GradleException("tools/license-header.txt порожній: ${header}")
 		}
 
 		def offenders = []
@@ -421,7 +424,7 @@ tasks.register('licenseHeaders') {
 				"Ліцензійний заголовок відсутній або змінений у ${offenders.size()} файл(ах):\n"
 					+ offenders.collect { "  - $it" }.join('\n')
 					+ "\n\nВідновити: python3 tools/stamp-license-headers.py\n"
-					+ 'Текст заголовка: LICENSE-HEADER.txt. Умови: LICENSE.md.')
+					+ 'Текст заголовка: tools/license-header.txt. Умови: LICENSE.md.')
 		}
 		logger.lifecycle("Licence headers: ${scanned} file(s) checked, all present.")
 	}

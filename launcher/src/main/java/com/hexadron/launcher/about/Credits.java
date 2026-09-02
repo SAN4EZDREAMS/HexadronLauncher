@@ -1,6 +1,6 @@
 /*
  * HexadronLauncher - a Minecraft launcher, and the Hexadron Optimise mod.
- * Copyright (c) 2026 SAN4EZDREAMS. All rights reserved.
+ * Copyright (c) 2026 OLEKSII RADCHUK (SAN4EZDREAMS). All rights reserved.
  *
  * Licensed for noncommercial use only. You may use, study, share and improve
  * this software; you may not sell it, and you may not remove, alter or obscure
