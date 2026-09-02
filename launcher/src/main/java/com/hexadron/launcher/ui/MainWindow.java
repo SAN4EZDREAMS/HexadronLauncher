@@ -377,6 +377,7 @@ public final class MainWindow implements ProfileHost {
         searchField.textProperty().addListener((observable, previous, value) -> applyFilter(value));
 
         modeButton.setOnAction(event -> toggleMode());
+        asIcon(modeButton, Glyphs.grid(), "ui.mode.toGrid");
         settingsButton.setOnAction(event -> openSettings());
         asIcon(settingsButton, Glyphs.settings(), "settings.open");
         aboutButton.setOnAction(event -> openAbout());
@@ -459,6 +460,7 @@ public final class MainWindow implements ProfileHost {
         gridNewGroupButton.setOnAction(event -> createGroup(null));
         gridSortButton.setOnAction(event -> sortAlphabetically());
         gridModeButton.setOnAction(event -> toggleMode());
+        asIcon(gridModeButton, Glyphs.list(), "ui.mode.toList");
         gridSettingsButton.setOnAction(event -> openSettings());
         asIcon(gridSettingsButton, Glyphs.settings(), "settings.open");
         gridAboutButton.setOnAction(event -> openAbout());
@@ -529,7 +531,6 @@ public final class MainWindow implements ProfileHost {
         }
         layout().mode(mode);
         saveProfilesQuietly();
-        applyModeTexts();
 
         if (mode == ProfileLayout.Mode.INVENTORY) {
             inventoryView.rebuild();
@@ -1035,7 +1036,8 @@ public final class MainWindow implements ProfileHost {
         // which still has to follow a language change. Each remembers its own
         // key, so this loop does not have to know what any of them is.
         for (javafx.scene.control.Button button : new javafx.scene.control.Button[]{
-                settingsButton, gridSettingsButton, aboutButton, gridAboutButton}) {
+                settingsButton, gridSettingsButton, aboutButton, gridAboutButton,
+                modeButton, gridModeButton}) {
             Object key = button.getProperties().get("hexadron.name");
             if (key == null) {
                 continue;
@@ -1049,7 +1051,6 @@ public final class MainWindow implements ProfileHost {
         gridTitle.setText(I18n.t("ui.mode.grid"));
         gridHint.setText(I18n.t("inventory.hint"));
         gridSearchField.setPromptText(I18n.t("search.prompt"));
-        applyModeTexts();
 
         accountTitle.setText(I18n.t("label.account"));
         logPane.setText(I18n.t("log.title"));
@@ -1060,22 +1061,15 @@ public final class MainWindow implements ProfileHost {
     }
 
     /**
-     * The two switch buttons.
+     * Turns a button into a shape with its name in the tooltip.
      *
-     * <p>Each says where it goes, not where it is. "Inventory" on a button in
-     * the list is ambiguous - it could as easily be a label for the view you are
-     * already in - and a button that has to be tried to find out what it does is
-     * a button that gets tried once and then avoided.
-     */
-    /**
-     * Turns a settings button into a cog.
-     *
-     * <p>The word was the wrong shape for the place it sits: a bar of two
-     * buttons at the far right, next to a search field, where every other
-     * launcher and every browser puts a cog. A word there is wider than it
-     * needs to be, it grows in translation - German and Ukrainian both run
-     * longer - and it competes with the one control on the bar that has
-     * something to say.
+     * <p>The word was the wrong shape for the place it sits: a bar of buttons at
+     * the far right, next to a search field, where every other launcher and
+     * every browser puts shapes. A word there is wider than it needs to be, it
+     * grows in translation - German and Ukrainian both run longer - and it
+     * competes with the one control on the bar that has something to say. The
+     * view switch is the same argument twice over: "Inventory view" is three
+     * words for a choice between two pictures.
      *
      * <p>The name is not lost, only moved: it is the tooltip, and it is what a
      * screen reader is given. An icon nobody can name is worse than a word
@@ -1090,11 +1084,6 @@ public final class MainWindow implements ProfileHost {
         String name = I18n.t(key);
         button.setTooltip(new javafx.scene.control.Tooltip(name));
         button.setAccessibleText(name);
-    }
-
-    private void applyModeTexts() {
-        modeButton.setText(I18n.t("ui.mode.toGrid"));
-        gridModeButton.setText(I18n.t("ui.mode.toList"));
     }
 
     // ---------------------------------------------------------------- actions

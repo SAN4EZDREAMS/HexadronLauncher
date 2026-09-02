@@ -90,6 +90,67 @@ final class Glyphs {
     }
 
     /**
+     * Four tiles in a square.
+     *
+     * <p>The inventory, drawn as what it is: cells of equal size in a grid. Four
+     * rather than nine, because at sixteen pixels nine tiles are nine grey specks
+     * with a pixel between them and the shape stops reading as anything.
+     *
+     * <p>The corners are rounded by the same amount as the profile tiles they
+     * stand for, which is what makes this an icon of that grid rather than a
+     * generic four-square.
+     */
+    static Group grid() {
+        SVGPath tiles = new SVGPath();
+        tiles.setFillRule(FillRule.EVEN_ODD);
+        tiles.setContent(
+                // Written out in full - absolute segments, spaces between every
+                // number - because the compact form these are usually exported
+                // in leans on a parser being generous, and a path that is read
+                // wrongly is not an error anywhere, only a wrong shape.
+                "M 4 3 H 10.2 A 1 1 0 0 1 11.2 4 V 10.2 A 1 1 0 0 1 10.2 11.2 H 4 "
+                        + "A 1 1 0 0 1 3 10.2 V 4 A 1 1 0 0 1 4 3 Z "
+                        + "M 13.8 3 H 20 A 1 1 0 0 1 21 4 V 10.2 A 1 1 0 0 1 20 11.2 H 13.8 "
+                        + "A 1 1 0 0 1 12.8 10.2 V 4 A 1 1 0 0 1 13.8 3 Z "
+                        + "M 4 12.8 H 10.2 A 1 1 0 0 1 11.2 13.8 V 20 A 1 1 0 0 1 10.2 21 H 4 "
+                        + "A 1 1 0 0 1 3 20 V 13.8 A 1 1 0 0 1 4 12.8 Z "
+                        + "M 13.8 12.8 H 20 A 1 1 0 0 1 21 13.8 V 20 A 1 1 0 0 1 20 21 H 13.8 "
+                        + "A 1 1 0 0 1 12.8 20 V 13.8 A 1 1 0 0 1 13.8 12.8 Z");
+        return sized(tiles, 16);
+    }
+
+    /**
+     * Three rows, each a marker and a line.
+     *
+     * <p>The list, and the pair reads as a pair: this one is wide and thin where
+     * the grid is square, which is the difference somebody sees before they have
+     * looked at either. The markers are square rather than round because the
+     * rows they stand for carry an instance's icon, not a bullet.
+     */
+    static Group list() {
+        SVGPath rows = new SVGPath();
+        rows.setFillRule(FillRule.EVEN_ODD);
+        rows.setContent(
+                // Three markers down the left, three bars beside them, each pair
+                // sharing a centre line: 6.6, 12 and 17.4 on the 24 grid.
+                "M 3.6 4.4 H 6.8 A 0.6 0.6 0 0 1 7.4 5 V 8.2 A 0.6 0.6 0 0 1 6.8 8.8 H 3.6 "
+                        + "A 0.6 0.6 0 0 1 3 8.2 V 5 A 0.6 0.6 0 0 1 3.6 4.4 Z "
+                        + "M 10.3 5.7 H 20.1 A 0.9 0.9 0 0 1 20.1 7.5 H 10.3 "
+                        + "A 0.9 0.9 0 0 1 10.3 5.7 Z "
+                        + "M 3.6 9.8 H 6.8 A 0.6 0.6 0 0 1 7.4 10.4 V 13.6 "
+                        + "A 0.6 0.6 0 0 1 6.8 14.2 H 3.6 A 0.6 0.6 0 0 1 3 13.6 V 10.4 "
+                        + "A 0.6 0.6 0 0 1 3.6 9.8 Z "
+                        + "M 10.3 11.1 H 20.1 A 0.9 0.9 0 0 1 20.1 12.9 H 10.3 "
+                        + "A 0.9 0.9 0 0 1 10.3 11.1 Z "
+                        + "M 3.6 15.2 H 6.8 A 0.6 0.6 0 0 1 7.4 15.8 V 19 "
+                        + "A 0.6 0.6 0 0 1 6.8 19.6 H 3.6 A 0.6 0.6 0 0 1 3 19 V 15.8 "
+                        + "A 0.6 0.6 0 0 1 3.6 15.2 Z "
+                        + "M 10.3 16.5 H 20.1 A 0.9 0.9 0 0 1 20.1 18.3 H 10.3 "
+                        + "A 0.9 0.9 0 0 1 10.3 16.5 Z");
+        return sized(rows, 16);
+    }
+
+    /**
      * Scales a path to a height in pixels and wraps it so layout can measure it.
      *
      * <p>Wrapped in a Group because a scaled node still reports its unscaled
