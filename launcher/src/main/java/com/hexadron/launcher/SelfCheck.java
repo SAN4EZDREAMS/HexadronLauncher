@@ -3055,6 +3055,32 @@ public final class SelfCheck {
                     !executableSet || java.nio.file.Files.isExecutable(
                             copy.resolve("bin/HexadronLauncher")));
 
+            // What the updater could not remove itself. A folder that Windows
+            // would not let go of at the moment of the swap is still there the
+            // next time the launcher starts, and this is what removes it - so
+            // that "one folder was busy for a second" does not turn into a copy
+            // of every version the user has ever run.
+            Path installed = image(dir.resolve("swept"), Platform.OsFamily.WINDOWS,
+                    "app", "runtime/bin/java.exe", "HexadronLauncher.exe");
+            UpdateInstall install = new UpdateInstall(installed, Platform.OsFamily.WINDOWS);
+            Path leftOver = dir.resolve("swept" + Updates.OLD_SUFFIX + "1788348448700");
+            java.nio.file.Files.createDirectories(leftOver.resolve("app"));
+            java.nio.file.Files.writeString(leftOver.resolve("app/old.jar"), "x");
+            Path keep = dir.resolve("swept-notes");
+            java.nio.file.Files.createDirectories(keep);
+            java.nio.file.Files.createDirectories(Updates.workDirectory(install));
+
+            check("the moved-aside folder is seen as this install's",
+                    Updates.oldInstallations(install).equals(List.of(leftOver)));
+            Updates.cleanUp(install);
+            check("a start clears what the update could not delete",
+                    !java.nio.file.Files.exists(leftOver));
+            check("and the work folder with it",
+                    !java.nio.file.Files.exists(Updates.workDirectory(install)));
+            check("nothing else beside the install is touched",
+                    java.nio.file.Files.isDirectory(keep)
+                            && java.nio.file.Files.isDirectory(installed));
+
         } catch (IOException e) {
             check("update layouts could be read: " + e, false);
         } finally {

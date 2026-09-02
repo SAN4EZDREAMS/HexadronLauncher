@@ -82,7 +82,7 @@ public final class Updater {
         log("update: " + staged + " -> " + target + ", waiting for process " + pid);
         waitForExit(pid);
 
-        Path aside = target.resolveSibling(target.getFileName() + ".old-"
+        Path aside = target.resolveSibling(target.getFileName() + Updates.OLD_SUFFIX
                 + System.currentTimeMillis());
         boolean movedAside = false;
         try {
@@ -94,10 +94,15 @@ public final class Updater {
             Updates.copyTree(staged, target);
             log("the new build is in place");
 
+            // Started before the old folder is removed, not after. The update is
+            // finished the moment the new build is in place; making the user
+            // watch an empty screen while a folder that no longer matters is
+            // deleted - for up to five seconds, if something is holding it -
+            // would be charging them for housekeeping.
+            start(target);
             if (movedAside) {
                 deleteQuietly(aside);
             }
-            start(target);
             log("done");
         } catch (Exception failure) {
             log("the update failed: " + failure);
@@ -179,15 +184,38 @@ public final class Updater {
         throw last == null ? new IOException("could not move " + source) : last;
     }
 
+    /**
+     * Removes the folder that was moved aside, waiting out what is holding it.
+     *
+     * <p>The same patience as the move, for the same reason: an antivirus reads
+     * a folder that has just been renamed, and a folder being read cannot be
+     * removed on Windows. What that patience will not outlast is somebody
+     * looking at the folder in Explorer, and there is no answer to that from
+     * here - so a folder that will not go is left, and the launcher's next start
+     * clears it ({@link Updates#cleanUp}). The update itself is already done;
+     * this is housekeeping.
+     */
     private static void deleteQuietly(Path path) {
-        try {
-            if (Files.exists(path)) {
+        for (int attempt = 0; attempt < MOVE_ATTEMPTS; attempt++) {
+            try {
+                if (!Files.exists(path)) {
+                    return;
+                }
                 Archives.deleteRecursively(path);
+                return;
+            } catch (IOException | RuntimeException e) {
+                if (attempt == MOVE_ATTEMPTS - 1) {
+                    log("the old folder could not be deleted: " + e);
+                    log("it will be removed the next time the launcher starts");
+                    return;
+                }
+                try {
+                    Thread.sleep(MOVE_PAUSE_MILLIS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
             }
-        } catch (IOException | RuntimeException e) {
-            // The old version is a folder named .old-<time> beside the new one.
-            // Worth a line in the log and nothing more.
-            log("the old folder could not be deleted: " + e);
         }
     }
 

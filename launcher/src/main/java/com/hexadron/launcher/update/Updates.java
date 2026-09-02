@@ -251,24 +251,67 @@ public final class Updates {
         return Optional.empty();
     }
 
+    /** What the updater names the folder it moves aside before replacing it. */
+    public static final String OLD_SUFFIX = ".old-";
+
     /**
      * Clears what an update left behind.
      *
-     * <p>Called at start-up, because the updater cannot delete the folder it is
-     * itself running from - its own copy of the runtime and the jar are in it.
-     * By the time the launcher is up again, that process has ended and the
-     * folder is nobody's.
+     * <p>Two kinds of leftover, both of them from a process that could not tidy
+     * up after itself. The work folder, because the updater is running out of it
+     * - its own copy of the runtime and the jar are in there. And the previous
+     * installation, moved aside as {@code <name>.old-<time>}, which the updater
+     * does delete, except when Windows will not let it: a folder open in
+     * Explorer, or one an antivirus is still reading, cannot be removed no
+     * matter how long you wait, and by the time it can be, the updater is long
+     * gone.
+     *
+     * <p>So it is done here, at every start. By then that process has ended, the
+     * handles are released, and neither folder is anybody's.
      */
     public static void cleanUp(UpdateInstall install) {
-        Path workDir = workDirectory(install);
-        if (!Files.isDirectory(workDir)) {
+        removeQuietly(workDirectory(install));
+        for (Path old : oldInstallations(install)) {
+            removeQuietly(old);
+        }
+    }
+
+    /**
+     * The moved-aside copies of this installation that are still lying about.
+     *
+     * <p>Matched by the name the updater gives them and nothing else, and only
+     * directly beside the installation. This deletes folders whole; it is not a
+     * place to be clever about what might count.
+     */
+    public static List<Path> oldInstallations(UpdateInstall install) {
+        Path parent = install.root().getParent();
+        Path name = install.root().getFileName();
+        if (parent == null || name == null) {
+            return List.of();
+        }
+        String prefix = name + OLD_SUFFIX;
+        List<Path> found = new ArrayList<>();
+        try (java.util.stream.Stream<Path> children = Files.list(parent)) {
+            children.filter(Files::isDirectory)
+                    .filter(child -> child.getFileName().toString().startsWith(prefix))
+                    .sorted()
+                    .forEach(found::add);
+        } catch (IOException | RuntimeException ignored) {
+            // Nothing readable beside the installation is nothing to clean.
+        }
+        return List.copyOf(found);
+    }
+
+    private static void removeQuietly(Path directory) {
+        if (!Files.isDirectory(directory)) {
             return;
         }
         try {
-            Archives.deleteRecursively(workDir);
+            Archives.deleteRecursively(directory);
         } catch (IOException | RuntimeException ignored) {
-            // Still in use, or not ours to delete. It is a cache folder beside
-            // the installation; the next start tries again.
+            // Still in use, or not ours to delete. Both of these sit beside the
+            // installation and cost nothing but space; the next start tries
+            // again.
         }
     }
 
