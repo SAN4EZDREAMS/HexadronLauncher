@@ -127,7 +127,10 @@ public final class ManifestTool {
             for (ImageManifest.Entry entry : manifest.filesOf(part)) {
                 paths.add(entry.path());
             }
-            Path list = out.resolve(part + ".list");
+            // Named after the file it is to become, so that the workflow packs
+            // it without knowing anything about how parts are named. One place
+            // decides that, and it is this one.
+            Path list = out.resolve(assets.get(part) + ".list");
             Files.writeString(list, String.join("\n", paths) + (paths.isEmpty() ? "" : "\n"),
                     StandardCharsets.UTF_8);
             System.out.println(part + ": " + paths.size() + " files, "
@@ -135,10 +138,29 @@ public final class ManifestTool {
         }
     }
 
+    /**
+     * What each system is called in a <em>part's</em> name.
+     *
+     * <p>Deliberately not "windows", "linux" or "macos". Launchers that are
+     * already installed choose the build to download by its name, and the
+     * versions before parts existed did it by looking for a name with their
+     * system in it - so a part called {@code HexadronLauncher-windows-app.zip}
+     * is picked up by them as the whole build, and the update dies with "the
+     * downloaded archive holds no application image". It cannot be fixed in
+     * those launchers, because they are already on people's machines. It can be
+     * fixed here, once, by never publishing a part under a name their rule can
+     * match.
+     */
+    private static final Map<String, String> PART_TOKEN = Map.of(
+            "windows", "win",
+            "linux", "lnx",
+            "macos", "darwin");
+
     /** The published name of a part's archive, per system. */
     public static String partAsset(String label, String part) {
         String extension = "windows".equals(label) ? ".zip" : ".tar.gz";
-        return "HexadronLauncher-" + label + "-" + part + extension;
+        String token = PART_TOKEN.getOrDefault(label, label);
+        return "HexadronLauncher-parts-" + token + "-" + part + extension;
     }
 
     /**

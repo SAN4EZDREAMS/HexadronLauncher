@@ -3147,6 +3147,40 @@ public final class SelfCheck {
             ImageManifest manifest = ImageManifest.scan(published, "windows", "1.1.0", assets,
                     path -> ManifestTool.partOf(path, layout));
 
+            // THE BUG THIS SECTION EXISTS FOR
+            //
+            // A part is a file in the same release as the build, with a name
+            // built from the same words. The first time parts were published,
+            // HexadronLauncher-windows-app.zip satisfied the rule that chose
+            // the build to download - it had "windows" in it and ended in .zip
+            // - and it came first in the list. Launchers downloaded nine
+            // hundred kilobytes of the app part and reported that it held no
+            // application image, which was true.
+            for (String part : List.of("runtime", "libs", "app", "base")) {
+                for (String label : List.of("windows", "linux", "macos")) {
+                    String name = ManifestTool.partAsset(label, part);
+                    check("a part is never taken for the whole build: " + name,
+                            !ReleaseFeed.matches(name, Platform.OsFamily.WINDOWS)
+                                    && !ReleaseFeed.matches(name, Platform.OsFamily.LINUX)
+                                    && !ReleaseFeed.matches(name, Platform.OsFamily.OSX));
+                }
+            }
+            check("nor is a manifest",
+                    !ReleaseFeed.matches("HexadronLauncher-windows" + ImageManifest.SUFFIX,
+                            Platform.OsFamily.WINDOWS)
+                            && !ReleaseFeed.matches("HexadronLauncher-macos" + ImageManifest.SUFFIX,
+                                    Platform.OsFamily.OSX));
+            check("and the whole build still is",
+                    ReleaseFeed.matches("HexadronLauncher-windows.zip", Platform.OsFamily.WINDOWS)
+                            && ReleaseFeed.matches("HexadronLauncher-linux.tar.gz",
+                                    Platform.OsFamily.LINUX)
+                            && ReleaseFeed.matches("HexadronLauncher-macos.tar.gz",
+                                    Platform.OsFamily.OSX));
+            check("a jar in the same release is not an update either",
+                    !ReleaseFeed.matches("launcher-0.9.5.jar", Platform.OsFamily.WINDOWS)
+                            && !ReleaseFeed.matches("HexadronLauncher-windows-2.zip",
+                                    Platform.OsFamily.WINDOWS));
+
             check("the runtime is its own part",
                     partIn(manifest, "runtime/lib/modules").equals("runtime"));
             check("a dependency jar is not in the part that changes every build",

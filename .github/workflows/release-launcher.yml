@@ -21,11 +21,19 @@
 # ОНОВЛЕННЯ ЧАСТИНАМИ
 #
 # Поруч із повним архівом кожна збірка публікує ще й опис самої себе:
-#   HexadronLauncher-<система>.manifest.json   — кожен файл образу з SHA-256
-#   HexadronLauncher-<система>-runtime.<арх>   — вбудована Java
-#   HexadronLauncher-<система>-libs.<арх>      — JavaFX і решта залежностей
-#   HexadronLauncher-<система>-app.<арх>       — власний jar лаунчера
-#   HexadronLauncher-<система>-base.<арх>      — виконуваний файл і те, що в корені
+#   HexadronLauncher-<система>.manifest.json       — кожен файл образу з SHA-256
+#   HexadronLauncher-parts-<токен>-runtime.<арх>   — вбудована Java
+#   HexadronLauncher-parts-<токен>-libs.<арх>      — JavaFX і решта залежностей
+#   HexadronLauncher-parts-<токен>-app.<арх>       — власний jar лаунчера
+#   HexadronLauncher-parts-<токен>-base.<арх>      — виконуваний файл і корінь
+#
+# Токен — win / lnx / darwin, і це НЕ те саме слово, що в повному архіві. Так
+# зроблено навмисно: лаунчери, які вже стоять у людей, шукали свій архів за
+# "у назві є windows і закінчується на .zip", тому частина з назвою
+# HexadronLauncher-windows-app.zip ставала для них "новою версією" і оновлення
+# падало з "the downloaded archive holds no application image". Виправити це в
+# уже встановлених лаунчерах неможливо — можна лише ніколи не публікувати
+# частину під назвою, яку їхнє правило впізнає.
 #
 # Лаунчер бере з манифеста ті частини, файлів яких у нього ще немає (звіряючи
 # ЗА ХЕШЕМ, не за іменем чи датою), решту копіює зі своєї теки, а потім звіряє
@@ -205,19 +213,18 @@ jobs:
             "$root/$image" "$label" "${{ needs.plan.outputs.version }}" \
             "$out" "$archive" "$(basename "$archive")"
 
+          # Кожен список названий іменем файлу, яким має стати. Як саме
+          # називаються частини, вирішує ManifestTool і тільки він: тут лишається
+          # прибрати ".list" і спакувати за розширенням.
           cd "$root/$image"
-          for part in runtime libs app base; do
-            list="$out/$part.list"
+          for list in "$out"/*.list; do
             [ -s "$list" ] || continue
-            if [ "$label" = "windows" ]; then
-              7z a -tzip -mx=5 \
-                "$root/release/HexadronLauncher-windows-$part.zip" \
-                "@$list" >/dev/null
-            else
-              tar czf \
-                "$root/release/HexadronLauncher-$label-$part.tar.gz" \
-                -T "$list"
-            fi
+            name=$(basename "$list" .list)
+            case "$name" in
+              *.zip)    7z a -tzip -mx=5 "$root/release/$name" "@$list" >/dev/null ;;
+              *.tar.gz) tar czf "$root/release/$name" -T "$list" ;;
+              *) echo "невідоме розширення: $name"; exit 1 ;;
+            esac
           done
           cp "$out"/HexadronLauncher-*.manifest.json "$root/release/"
           ls -la "$root/release"
