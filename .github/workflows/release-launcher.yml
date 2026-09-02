@@ -130,6 +130,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
+      # ЛІЦЕНЗІЙНІ ЗАГОЛОВКИ — ПЕРШИМ КРОКОМ, ДО БУДЬ-ЯКОЇ ЗБІРКИ
+      #
+      # Кожен файл із кодом мусить починатися блоком із LICENSE-HEADER.txt.
+      # Якщо десь блок прибрали або переписали — збірка падає ТУТ і називає
+      # файли. Це не стиль: заголовок несе авторство й умови ліцензії, і зняти
+      # його "заодно" з якоюсь іншою правкою не має бути тихою операцією.
+      #
+      # Перевірка стоїть перед усім іншим свідомо: немає сенсу компілювати й
+      # пакувати те, що вже порушує ліцензію проєкту.
+      - name: verify the licence headers
+        run: ./gradlew --configure-on-demand :launcher:licenseHeaders
       # Ядро перевіряється один раз, на Linux: воно однакове на всіх трьох.
       - name: verify the launch core
         if: matrix.label == 'linux'

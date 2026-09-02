@@ -2,8 +2,9 @@
 
 This document describes how HexadronLauncher handles secrets and how it runs
 code it did not write: Microsoft account credentials in sections 1 to 6, the
-CurseForge API key in section 7, and the Forge installer's processors in
-section 8. For each one it says what the measure does protect against and what
+CurseForge API key in section 7, the Forge installer's processors in section 8,
+what the self-check covers in section 9, and the launcher replacing itself in
+section 10. For each one it says what the measure does protect against and what
 it does not. It is written to be read by a reviewer as well as by a user.
 
 Two rules govern everything below.
@@ -308,9 +309,9 @@ own maven, and it is the same jar the user would download and double-click.
 
 ## 9. Verification
 
-`./gradlew :launcher:selfCheck` runs 409 assertions with no network and no
-display, including where the CurseForge key may be sent, and the authentication
-hardening:
+`./gradlew :launcher:selfCheck` runs 1213 assertions with no network and no
+display, including where the CurseForge key may be sent, what the update check
+will and will not accept as a newer build, and the authentication hardening:
 
 - PKCE `S256` against RFC 7636's own test vector, verifier length and character
   set, and that two verifiers differ;
@@ -327,6 +328,59 @@ hardening:
   key set at runtime reaches the API host and both content hosts, that Modrinth
   and look-alike domains receive nothing, and that the key is masked in a log
   line.
+
+---
+
+## 10. Updating the launcher
+
+The launcher replaces itself from the project's own releases (README, "Updating
+itself"). That is code arriving on the user's machine and being run, so it is
+written down here in the same terms as everything else: what is checked, and what
+is not.
+
+**What happens.** One request to `api.github.com` over HTTPS asks what the chosen
+channel has published. Nothing is downloaded on the strength of that answer
+alone: a window says which version, from what to what, and what changed, and
+waits. Only then is the file for this operating system fetched - over HTTPS, from
+the address the release publishes - unpacked beside the installed folder, and
+swapped in by a second process that moves the old folder aside first and puts it
+back if anything fails.
+
+| Checked | How |
+|---|---|
+| The transport | HTTPS to `api.github.com` and to the release's own download host, through the JDK's default TLS. No custom trust manager anywhere in this codebase |
+| That it is the right file | The asset is matched by name to this operating system, and a release with no build for it produces no offer at all |
+| That it arrived whole | The number of bytes received is compared with the length the release publishes; a short file is deleted rather than unpacked |
+| That the archive is an application image | The unpacked folder must carry the runtime and the jars in the layout jpackage produces, or the update stops before anything is replaced |
+| That the swap can be undone | The installed folder is moved aside, not deleted, until the new one is in place |
+
+**What is not checked, and this is the important half.**
+
+- **There is no signature.** The build is not code-signed and the download is not
+  verified against a key this project controls. What authenticates it is the
+  transport and the repository: whoever can publish a release in
+  `SAN4EZDREAMS/HexadronLauncher` can publish a build the launcher will install.
+  A compromised maintainer account is therefore a compromised launcher, and no
+  amount of hashing inside this repository would change that - a hash published
+  next to the file it describes is signed by nobody.
+- **Neither Windows SmartScreen nor macOS Gatekeeper vouches for it.** The
+  clients are unsigned archives; see the README on why an unsigned installer is
+  worse than none. A user who wants a second opinion has the release page and the
+  build log that produced the file.
+- **The update is only as trustworthy as the channel.** Nightly builds are
+  published from a branch without review. That is what the channel means, it is
+  not the default, and switching to it is a deliberate act in the settings.
+
+**What it does not need.** No elevation, ever: the update writes only to the
+folder the launcher is installed in and to `.hexadron-update` beside it. An
+installation the user cannot write to is refused with an explanation rather than
+asking for a password, and the launcher never starts an installer or a helper
+with rights of its own.
+
+**The check can be switched off** in Settings, under Downloads. With it off the
+launcher makes no request of its own at start-up.
+
+---
 
 ## Reporting
 

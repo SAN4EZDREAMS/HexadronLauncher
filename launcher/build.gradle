@@ -331,3 +331,113 @@ tasks.register('appImage', Exec) {
 // launcher/build/jpackage, which is what a developer actually wants anyway.
 //
 // launcher/build/jpackage, which is what a developer actually wants anyway.
+
+// ------------------------------------------------------------ licence headers
+//
+// Кожен файл із кодом мусить починатися блоком ліцензії з LICENSE-HEADER.txt.
+// Ця задача це перевіряє, і від неї залежить compileJava — тобто НІЧОГО не
+// збереться, поки хоч в одному файлі блок відсутній або змінений. Не стиль, а
+// захист авторства: зняти згадку про ліцензію мовчки, "заодно" з іншою правкою,
+// тепер неможливо — збірка падає першим же кроком і називає файл.
+//
+// Текст блоку живе в LICENSE-HEADER.txt в корені й більше ніде. Той самий файл
+// читає tools/stamp-license-headers.py, який ці блоки і проставляє, тож зміна
+// формулювання — це одна правка та один запуск скрипта, а не сто п'ятдесят
+// правок і червона збірка.
+//
+// Порівнюється НОРМАЛІЗОВАНИЙ текст: символи коментаря (/*, *, #) знімаються,
+// порожні рядки прибираються. Тому один і той самий блок годиться і для .java,
+// і для .css, і для .properties, а перевірка не чіпляється до пробілів.
+
+def licenseHeaderFile = rootProject.layout.projectDirectory.file('LICENSE-HEADER.txt').asFile
+
+// Розширення, у яких взагалі бувають коментарі. JSON у цей список не входить:
+// у ньому коментарів немає, а заголовок усередині .png — це зіпсований .png.
+def licensedExtensions = ['.java', '.css', '.properties']
+
+tasks.register('licenseHeaders') {
+	group = 'verification'
+	description = 'Fails the build when a source file has no licence header, or an altered one.'
+
+	// Усе, що потрібно задачі, зчитується тут, під час конфігурації: у Gradle 9
+	// звертання до Project із дії задачі вже застаріле, а в 10 його не буде.
+	def header = licenseHeaderFile
+	def repoRoot = rootProject.projectDir
+	def roots = [rootProject.file('launcher/src'), rootProject.file('mod/src')].findAll { it.isDirectory() }
+	def extensions = licensedExtensions
+
+	inputs.file(header)
+	roots.each { inputs.dir(it) }
+	// Дешева задача, і пропускати її не можна: саме та перевірка, заради якої
+	// вона існує, потрібна на КОЖНІЙ збірці.
+	outputs.upToDateWhen { false }
+
+	doLast {
+		// Знімає синтаксис коментаря і лишає самий текст, тож один заголовок
+		// годиться і для .java, і для .css, і для .properties.
+		def normalise = { String text ->
+			text.readLines()
+				.collect { it.trim() }
+				.collect { line ->
+					line.startsWith('/*') ? line.substring(2)
+						: line.startsWith('*/') ? line.substring(2)
+						: line.startsWith('*') ? line.substring(1)
+						: line.startsWith('#') ? line.substring(1)
+						: line
+				}
+				.collect { it.trim() }
+				.findAll { !it.isEmpty() }
+				.join('\n')
+		}
+
+		if (!header.exists()) {
+			throw new GradleException("LICENSE-HEADER.txt не знайдено: ${header}. "
+				+ 'Без нього нема з чим звіряти заголовки.')
+		}
+		def wanted = normalise(header.text)
+		if (wanted.isEmpty()) {
+			throw new GradleException("LICENSE-HEADER.txt порожній: ${header}")
+		}
+
+		def offenders = []
+		int scanned = 0
+		roots.each { root ->
+			root.eachFileRecurse { f ->
+				if (!f.isFile() || !extensions.any { f.name.endsWith(it) }) {
+					return
+				}
+				scanned++
+				// Перших рядків вистачає: заголовок мусить бути НА ПОЧАТКУ файлу,
+				// а не десь усередині - інакше "є згадка" не означає "видно".
+				def head = normalise(f.readLines().take(40).join('\n'))
+				if (!head.startsWith(wanted)) {
+					offenders << repoRoot.toPath().relativize(f.toPath()).toString()
+				}
+			}
+		}
+
+		if (!offenders.isEmpty()) {
+			throw new GradleException(
+				"Ліцензійний заголовок відсутній або змінений у ${offenders.size()} файл(ах):\n"
+					+ offenders.collect { "  - $it" }.join('\n')
+					+ "\n\nВідновити: python3 tools/stamp-license-headers.py\n"
+					+ 'Текст заголовка: LICENSE-HEADER.txt. Умови: LICENSE.md.')
+		}
+		logger.lifecycle("Licence headers: ${scanned} file(s) checked, all present.")
+	}
+}
+
+// Ворота стоять перед компіляцією, а не поруч із нею: `assemble`, `appImage`,
+// `run` і `build` — усі проходять через compileJava, тож обійти перевірку,
+// зібравши "щось інше", не вийде.
+tasks.named('compileJava') {
+	dependsOn 'licenseHeaders'
+}
+
+tasks.named('compileWrapperJava') {
+	dependsOn 'licenseHeaders'
+}
+
+tasks.named('check') {
+	dependsOn 'licenseHeaders'
+}

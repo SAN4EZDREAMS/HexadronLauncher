@@ -1,3 +1,15 @@
+/*
+ * HexadronLauncher - a Minecraft launcher, and the Hexadron Optimise mod.
+ * Copyright (c) 2026 SAN4EZDREAMS. All rights reserved.
+ *
+ * Licensed for noncommercial use only. You may use, study, share and improve
+ * this software; you may not sell it, and you may not remove, alter or obscure
+ * this notice or the authorship it records. Full terms: LICENSE.md in the
+ * project root. Provided without any warranty.
+ *
+ * SPDX-License-Identifier: LicenseRef-Hexadron-NC-1.0
+ */
+
 package com.hexadron.launcher;
 
 import com.hexadron.launcher.about.Credits;
@@ -4644,6 +4656,21 @@ public final class SelfCheck {
         check("the credits list ships with the launcher", true);
 
         check("it names the author", credits.author().name().equals("SAN4EZDREAMS"));
+
+        // The licence sentence in that window is the attribution the licence
+        // itself points at, so it is checked rather than trusted. It said "CC0:
+        // no rights reserved, no attribution required" for one release after the
+        // terms had changed - a window telling users the opposite of the file
+        // beside it, in five languages, and nothing said so.
+        for (Language language : Language.all()) {
+            String sentence = I18n.bundle(language).getOrDefault("about.licence", "");
+            String code = language.code();
+            check(code + ": the About window states the licence",
+                    sentence.contains("LICENSE.md"));
+            check(code + ": and does not claim the project is public domain",
+                    !sentence.contains("CC0") && !sentence.toLowerCase(java.util.Locale.ROOT)
+                            .contains("public domain"));
+        }
         check("with somewhere to find them", credits.author().links().size() >= 3);
         check("and it points at the project's own repository",
                 credits.repository() != null

@@ -13,7 +13,8 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Loaders | Fabric, Quilt, Forge and NeoForge all install and launch. The version picker offers only versions the chosen loader has builds for |
 | Accounts | Offline accounts work and can be removed. Microsoft sign-in is implemented and needs an approved Azure client ID |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments and Java path |
-| Mods | A browser window per instance: search, sort, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically |
+| Mods | A browser window per instance: search, sort, filter by category, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically, and the launcher asks before you switch off or delete something other mods depend on |
+| Updating itself | Checks the project's own releases at start-up, on the Release or the Nightly channel, and offers the new version with its notes. Downloads, unpacks and replaces the installed folder, then starts again |
 | Java | The launcher finds the installed runtimes - PATH, the registry, the vendor folders, the official launcher's own downloads - and picks the one the version asks for. If the machine has none, it offers to download an Eclipse Temurin JRE |
 | Assets | Modern, `virtual` (1.6) and `map_to_resources` (pre-1.6) layouts |
 | Languages | English, Ukrainian, Russian, Polish, German. The picker changes the window immediately, without a restart |
@@ -26,11 +27,16 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 You need JDK 25.
 
 ```
-./gradlew :launcher:build      # build the launcher
-./gradlew :launcher:selfCheck  # verify the launch core, no network needed
-./gradlew :launcher:run        # start the window
-./gradlew :mod:build           # build the mod
+./gradlew :launcher:build          # build the launcher
+./gradlew :launcher:selfCheck      # verify the launch core, no network needed
+./gradlew :launcher:licenseHeaders # verify the licence header in every source file
+./gradlew :launcher:run            # start the window
+./gradlew :mod:build               # build the mod
 ```
+
+`compileJava` depends on `licenseHeaders`, so every one of those already runs it.
+A file whose licence notice is missing or altered fails the build by name; see
+[License](#license).
 
 Add `--configure-on-demand` to keep one subproject out of the other's way:
 without it Gradle configures every project, so an error in `mod/build.gradle`
@@ -67,6 +73,14 @@ build does not throw away the Windows and Linux ones that already worked.
 | `hexadron-launcher-linux` | a zip holding `HexadronLauncher-linux.tar.gz` | no |
 | `hexadron-launcher-macos` | a zip holding `HexadronLauncher-macos.tar.gz` | no |
 | `hexadron-launcher-jar` | the launcher jar and the start-script zip | **yes**, JDK 25 |
+
+Those are the per-push artifacts, which expire. A **release** carries the same
+three clients under fixed names - `HexadronLauncher-windows.zip`,
+`HexadronLauncher-linux.tar.gz`, `HexadronLauncher-macos.tar.gz` - and those
+names are a contract: the launcher's own updater looks for the file for its
+system by name. `.github/workflows/release-launcher.yml` publishes them, on a
+`v*` tag for the Release channel and on a schedule or a manual run for Nightly.
+See [Updating itself](#updating-itself).
 
 Windows is not packed twice and the other two are, and that is deliberate.
 `actions/upload-artifact` always hands a download over as a zip - it is not
@@ -144,6 +158,14 @@ Gradle's archive tasks follow symlinks and drop the executable bit. Both matter:
 the launcher binary has to stay executable, and a macOS `.app` is full of
 symlinks into its embedded runtime. An archive built the other way unpacks into
 something that will not start - and it fails at the user's end, not in CI.
+
+**jpackage only takes numbers.** `--app-version` accepts digits and dots and
+nothing else, so a nightly build's version - `0.2.0-nightly.41` - cannot go into
+a bundle at all. The numeric core goes there and the full version stays where the
+launcher reads it: `Implementation-Version` in the jar's manifest, which is what
+`BuildConfig.version()` returns, what the User-Agent carries, and what the update
+check compares against the tag of a release. `-PlauncherVersion=` sets it; CI
+passes the version it is publishing.
 
 **The macOS bundle reports 1.0.0.** Apple requires `CFBundleVersion` to start
 above zero, so jpackage refuses a `0.x` app-version outright - "The first number
@@ -234,8 +256,14 @@ profile's `mods/` folder the launcher keeps two files of its own:
 `.hexadron-mods.json`, the record of what it downloaded, and
 `.hexadron-external.json`, what Modrinth said about the jars it did not. Mod
 logos are cached under `cache/mod-icons`, keyed by the digest of their address,
-and that folder is bounded: thirty-two megabytes or twenty-five hundred files,
-whichever is reached first, least recently used thrown away. It had no bound at
+and that folder is bounded: thirty-two megabytes by default, least recently used
+thrown away. The size is a setting - Downloads and mods, 8 MB to 1 GB - because
+both ends of that range are real: a machine short of disk wants it small, and
+somebody browsing the whole catalogue on a slow line would rather spend a few
+hundred megabytes than fetch the same pictures twice. A second bound on the
+number of files follows the first, since tens of thousands of tiny logos fit
+inside any size budget and slow every sweep after. Lowering the setting sweeps
+the folder at once rather than at the next start. It had no bound at
 all to begin with, which is a browser scrolled through a few thousand results
 turning into gigabytes of pictures of leaves in a folder nobody ever opens.
 Nothing kept there cannot be fetched again, which is what lets the sweep be as
@@ -276,6 +304,13 @@ empty needs to say so rather than look like a failure.
 | `splashMinimumMillis` | How long the start-up window stays up at minimum, in milliseconds. `3000` by default; `0` removes the floor. A click or a key closes it sooner |
 | `javaDownloadPolicy` | What to do when no installed Java fits: `ask` (the default), `always` or `never` |
 | `keepOpenWhilePlaying` | Keep the launcher window open while the game runs |
+| `verifyEveryLaunch` | Re-read and re-hash every file before each launch instead of trusting the ledger. `false` by default |
+| `proxy` | How the launcher reaches the network: `mode` (`system`, `direct`, `manual`), `host`, `port`, `user`. The password is not here - it goes to the credential store |
+| `warnAboutDependents` | Ask before switching off or deleting a mod that other installed mods need. `true` by default |
+| `modIconCacheMegabytes` | How much of the data folder the kept mod logos may fill. `32` by default, 8 to 1024 |
+| `checkForUpdates` | Look for a newer launcher at start-up. `true` by default |
+| `updateChannel` | Which builds that check offers: `release` (the default) or `nightly` |
+| `customGroupColors` | Colours mixed by hand in the group editor, newest first |
 
 ### Microsoft sign-in
 
@@ -593,9 +628,16 @@ launched either.
 ### Settings
 
 One button, in both views, opens the settings window. Everything the launcher
-can be told is there, on six tabs - interface, game, Java, downloads and mods,
+can be told is there, on seven tabs - interface, game, Java, downloads, mods,
 accounts, and the data folder - including the things that previously existed only
 in `launcher.json` or as a "never ask again" button inside a prompt.
+
+Downloads and mods used to be one tab, and two subjects in one tab is one subject
+too many: how many files to fetch at once and which route to take belong beside
+the update channel, not beside an API key for a mod site. **Downloads** now holds
+the concurrency, the update check, the channel, a Check for updates button and
+the whole proxy block; **Mods** holds the CurseForge key, the dependency warning
+and the size of the logo cache.
 
 Save writes and Cancel writes nothing, the same rule as the instance editor: half
 of these cannot be undone by typing them back.
@@ -847,12 +889,15 @@ point of browsing from inside a launcher rather than on a website. Sorting is
 by best match, downloads, popularity, last update or newest; the source filter
 picks one platform or both.
 
-**Категорія** is a menu of tick boxes rather than a list that picks one, because
+**Category** is a menu of tick boxes rather than a list that picks one, because
 a mod is filed under several and somebody narrowing a search usually means more
 than one thing at once - "adventure and magic", not "adventure, and now start
 again with magic". The menu stays open while they are ticked, so choosing four
 categories is four clicks rather than four times opening the same menu, and
-**Зняти всі** empties it in one. Several categories narrow rather than widen,
+**Clear all** empties it in one. All nineteen are on screen at once, in two
+columns: they used to be one scrolling column, and nine of them below the edge
+with nothing but a thin bar to say so is a list that stops at "Optimisation" for
+anybody who does not think to scroll. Several categories narrow rather than widen,
 which is what the platform's own filter does and therefore what somebody who has
 used it expects.
 
@@ -881,6 +926,13 @@ The same categories are on every row in both lists, as the marks the platform's
 own listing uses, so a mod recognised on the website is recognised here. For an
 installed mod they come out of the lock file, which is why the row can say what a
 mod is for with no connection and no lookup.
+
+All of them, not the first three. A row is one line wide and a mod is filed under
+as many categories as its author chose, so what does not fit goes behind a small
+`+N` at the end of the line, and hovering that opens the rest. The ones ticked in
+the filter come first: somebody who has narrowed a search to two categories is
+scanning the rows for those two, and finding them behind a count that has to be
+hovered answers the question they asked with an extra step.
 
 Category filtering is Modrinth's. CurseForge files its projects under a different
 set of its own, and only a handful of names coincide, so a search with categories
@@ -982,9 +1034,39 @@ that folder is not the launcher's decision to take. Nothing already in the
 instance is ever overwritten, because behind an existing jar there is a version
 and a config folder, and a silent replacement is how a working instance becomes a
 broken one with nothing to point at. Everything refused - not a jar, not an
-archive, an archive with no mod in it, a name already taken - is refused by name,
-since a silent skip in a batch of twenty is a mod somebody spends an evening
-looking for.
+archive, a name already taken - is refused by name, since a silent skip in a
+batch of twenty is a mod somebody spends an evening looking for.
+
+The test is that the file is an archive, and nothing more. It used to be that the
+launcher could read a mod descriptor out of it, which refused real mods: a
+descriptor can be written in a dialect this reader does not parse, and a library
+jar has none at all - and the same file dragged into the folder by hand was
+listed without complaint. The button and the file manager disagreed about one
+file, and the button was the one that was wrong. What is still refused is a file
+that is not an archive: a half-finished download, or something renamed to `.jar`.
+The loader will not read that one either.
+
+**Which mods need this one.** A library nobody installs for its own sake -
+Fabric API, Architectury, a mod's own core - is in the folder because five other
+mods put it there, and taking it out does not fail at the point of taking it out.
+It fails at the next launch, in a crash report naming a class the player has
+never heard of, and the last thing they did was remove something else.
+
+So the launcher reads the graph the loader is about to read - every jar declares
+what it cannot start without, in its own loader's dialect - and says the same
+thing first, by name: *these five mods need this one*. Switching such a mod off
+or deleting it asks, lists what would be left without it, and can be told not to
+ask again; the switch to bring the question back is Settings, under Mods. The
+badge on those rows is amber, and hovering it opens the list of the mods that
+need this one - each of them a link that jumps to that row in the list.
+
+It is read from the jars rather than from the lock file, and only for mods that
+are switched on. The lock file knows what the launcher installed as a dependency
+once; it knows nothing about the jar the player dropped in yesterday that now
+needs it. And a mod that is switched off is not loaded, so it cannot break -
+warning that it will is warning about something that is not going to happen. A
+mod that was installed as a dependency and that nothing needs any more says so
+when hovered, which is the launcher saying it can go.
 
 **Search and filter** narrow the list. The search matches the name, the file name
 and the authors, because those are the three things a player knows a mod by and
@@ -1067,6 +1149,60 @@ one with it. Jars the user copied into the folder themselves are not in that
 file at all: they are listed, and they are removed only when the button on their
 own row is pressed. Nothing else in the launcher moves or deletes them.
 
+## Updating itself
+
+The launcher checks its own repository for a newer build while the start-up
+screen is up, and offers what it finds in a window: from this version to that
+one, the notes that were written for the release, and two answers.
+
+**Two channels, one list of releases.** *Release* takes only what was published
+as a finished release - what somebody who is here to play wants. *Nightly* takes
+whatever is newest, pre-releases included, which is what somebody testing it
+wants and which will from time to time be broken. Both read the same list and
+differ only in what they are willing to take from it, so a nightly user who
+switches back to Release is simply offered nothing until a release passes the
+build they are on. Release is the default.
+
+Versions are compared as versions rather than as strings, which is the whole
+reason a nightly channel can work at all: `0.9.10` is newer than `0.9.9`,
+`1.0.0` is newer than `1.0.0-nightly.7`, and `nightly.10` is newer than
+`nightly.9`. A version that cannot be read produces no offer - the rule is the
+same one the mod-version warnings follow, silence unless certain.
+
+**What actually happens when you say yes.** The file for this operating system is
+downloaded into `.hexadron-update` beside the installed folder - beside it, so
+that replacing the folder is a move within one filesystem, and so that a machine
+where the folder cannot be written to is found out before a hundred and fifty
+megabytes have been fetched rather than after. It is checked against the length
+the platform published, unpacked with the launcher's own archive reader - which
+keeps symbolic links and the executable bit, both of which an image needs to
+start - and then a second process takes over.
+
+That second process is not an implementation detail. The folder being replaced is
+the folder the launcher is running from, and on Windows an open file cannot be
+deleted or renamed at all. So the launcher hands over to `Updater`, started from
+the *new* build's own runtime and jar, and exits. The updater waits for it to be
+gone, moves the installed folder aside rather than deleting it, copies the new
+one into place, deletes the old one and starts the launcher again. If anything in
+the middle fails, the folder that was moved aside is put back and *that* launcher
+is started: a failed update leaves you with the version you had, which is the
+only acceptable outcome for a program that replaces itself. What it deliberately
+does not do is delete the folder it is itself running from; the next start does
+that.
+
+**When it cannot.** A launcher started from an IDE or with `java -jar` has no
+installed folder to replace, and one installed somewhere the user cannot write to
+must not be half-replaced. Both are said plainly in the window, which then offers
+the release page instead of a button that would fail.
+
+Everything about it is a setting - Settings, Downloads: whether to check at all,
+which channel, and a Check for updates button for asking now. With no connection
+nothing happens and nothing is reported: the launcher you already have still
+works, and a dialog about a failed update check is in the way of the game.
+
+See [SECURITY.md](SECURITY.md) section 10 for what is and is not verified about a
+downloaded build.
+
 ## While the game runs
 
 The launcher hides to the notification area, not to the taskbar. A minimised
@@ -1123,7 +1259,11 @@ auth/     accounts, offline UUIDs, Microsoft sign-in (PKCE + device code),
           credential stores (DPAPI / Keychain / Secret Service / encrypted file)
 profile/  profiles and their isolated game folders
 mods/     Modrinth and CurseForge providers, pack and single-mod installer,
-          ownership records
+          ownership records, jar descriptors, categories, the dependency graph
+update/   the launcher's own releases: channels, version comparison, download,
+          and the second process that replaces the installed folder
+skin/     skins and capes: the viewer, the sheet layouts, the service
+about/    the credits shown in the About window
 launch/   Java locator, command builder, process control
 core/     settings and the application service
 ui/       JavaFX window, mod browser, instance dialog, theme, tray -
@@ -1134,10 +1274,12 @@ cli/      headless entry point
 `SelfCheck` verifies the metadata layer, the player-name rule, JVM-argument
 splitting, mod ownership, loader/version compatibility, search paging, the
 language files, the Forge installer profile formats and their token language,
-the CurseForge key chain and where that key is allowed to be sent, and the
-authentication hardening - PKCE against RFC 7636's own test vector, state
-validation, log redaction, the credential split - with 409 assertions. It needs
-no network, no display and no test framework.
+the CurseForge key chain and where that key is allowed to be sent, the update
+machinery - version ordering, channel filtering, which published file belongs to
+which operating system, and the three application-image layouts - and the
+authentication hardening: PKCE against RFC 7636's own test vector, state
+validation, log redaction, the credential split. 1213 assertions, and it needs no
+network, no display and no test framework.
 
 ## Sandboxing, and what it is actually for
 
@@ -1265,4 +1407,37 @@ field is for `mangohud`-style tools, not for isolation.
 
 ## License
 
-CC0.
+**Noncommercial, source-available, attribution fixed.** The full terms are in
+[LICENSE.md](LICENSE.md); this is the summary.
+
+You may use the launcher for free, for anything, copy it, give it away, read and
+change the source, publish your changed version under these same terms, and send
+changes back. You may not sell it or charge for access to it; you may not remove,
+rename or obscure the authorship and the licence notices; and you may not publish
+a build made to damage, spy on, or sabotage the people who run it.
+
+That is deliberately not an OSI-approved open-source licence - the Open Source
+Definition does not allow a licence to forbid selling, and this one does. MIT,
+Apache-2.0 and the GPL all permit commercial use, GPL included: copyleft
+restricts closing the source, not selling it. None of them can express "free for
+everybody, not for sale". [PolyForm Noncommercial
+1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) is the standard
+licence for this intent and the terms here are close to it in substance.
+
+**Every source file carries the notice**, and the build enforces it. The text
+lives once, in [LICENSE-HEADER.txt](LICENSE-HEADER.txt);
+`tools/stamp-license-headers.py` puts it into every `.java`, `.css` and
+`.properties` file in `launcher/src` and `mod/src`, and the Gradle task
+`licenseHeaders` fails the build when one of them is missing it or carries an
+altered one - naming the files. `compileJava` depends on that task, so nothing
+compiles, packages or runs while a notice is missing, and both workflows run it
+as their first step. Removing the authorship "by accident, along with something
+else" is therefore not a quiet operation: it is a red build with the file name in
+it.
+
+To change the wording, edit `LICENSE-HEADER.txt` and run the script; that is one
+edit and one command rather than a hundred and fifty edits and a broken build.
+
+What the launcher downloads is not covered by any of this - Minecraft itself, the
+mod loaders, the mods, the Temurin runtimes and JavaFX each carry their own
+terms. LICENSE.md section 8 lists them.
