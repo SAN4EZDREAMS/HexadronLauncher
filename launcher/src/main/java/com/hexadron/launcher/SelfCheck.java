@@ -3073,17 +3073,89 @@ public final class SelfCheck {
             Path keep = dir.resolve("swept-notes");
             java.nio.file.Files.createDirectories(keep);
             java.nio.file.Files.createDirectories(Updates.workDirectory(install));
+            // The handoff note the updater leaves, naming a process that ended
+            // long ago. A dead or reused id must not make a start wait: the one
+            // number that is certainly not a live updater is checked here.
+            java.nio.file.Files.writeString(
+                    Updates.workDirectory(install).resolve(Updates.HANDOFF_FILE), "0");
 
             check("the moved-aside folder is seen as this install's",
                     Updates.oldInstallations(install).equals(List.of(leftOver)));
-            Updates.cleanUp(install);
+            long startedAt = System.currentTimeMillis();
+            List<Path> remaining = Updates.cleanUp(install);
             check("a start clears what the update could not delete",
                     !java.nio.file.Files.exists(leftOver));
             check("and the work folder with it",
                     !java.nio.file.Files.exists(Updates.workDirectory(install)));
+            check("and says that nothing is left", remaining.isEmpty());
+            check("a handoff note with no process behind it is not waited for",
+                    System.currentTimeMillis() - startedAt < 5_000);
             check("nothing else beside the install is touched",
                     java.nio.file.Files.isDirectory(keep)
                             && java.nio.file.Files.isDirectory(installed));
+
+            // ---- what the sweep does with a path that will not be deleted ----
+            //
+            // This is the fault the leftovers came from, and it is the one thing
+            // the old test could not see: it only ever swept folders that gave
+            // way. A walk that throws at the first refusal has by then deleted
+            // everything it visited before it, so the folder is left half empty
+            // and no later start ever finishes it.
+
+            // Read-only first, because it is the ordinary case rather than the
+            // exotic one: jpackage marks parts of an application image
+            // read-only, and on Windows a read-only file cannot be deleted at
+            // all until the attribute comes off.
+            Path readOnly = dir.resolve("read-only");
+            java.nio.file.Files.createDirectories(readOnly);
+            Path marked = readOnly.resolve("marked.txt");
+            java.nio.file.Files.writeString(marked, "x");
+            try {
+                java.nio.file.Files.setAttribute(marked, "dos:readonly", Boolean.TRUE);
+            } catch (IOException | UnsupportedOperationException
+                    | IllegalArgumentException ignored) {
+                // Not a DOS filesystem, where there is no such attribute to set
+                // and none to get in the way either.
+            }
+            check("a read-only file is still removed",
+                    Archives.deleteWhatCan(readOnly).isEmpty()
+                            && !java.nio.file.Files.exists(readOnly));
+
+            // And now one that genuinely will not go. A directory with its write
+            // bit off will not give up its child - which is as close as a test
+            // can get to the file an antivirus is holding.
+            Path partial = dir.resolve("partial");
+            Path sealed = partial.resolve("sealed");
+            java.nio.file.Files.createDirectories(sealed);
+            java.nio.file.Files.writeString(partial.resolve("goes-1.txt"), "1");
+            java.nio.file.Files.writeString(partial.resolve("goes-2.txt"), "2");
+            Path stays = sealed.resolve("stays.txt");
+            java.nio.file.Files.writeString(stays, "k");
+            boolean sealable = false;
+            try {
+                java.nio.file.Files.setPosixFilePermissions(sealed,
+                        java.nio.file.attribute.PosixFilePermissions.fromString("r-xr-xr-x"));
+                sealable = true;
+            } catch (UnsupportedOperationException | IOException ignored) {
+                // Windows. There is no bit to clear, so this half cannot be
+                // staged here - and the read-only check above is the one that
+                // matters on that system.
+            }
+            List<Path> left = Archives.deleteWhatCan(partial);
+            if (sealable && !left.isEmpty()) {
+                check("one path that will not go does not stop the sweep",
+                        !java.nio.file.Files.exists(partial.resolve("goes-1.txt"))
+                                && !java.nio.file.Files.exists(partial.resolve("goes-2.txt")));
+                check("and the sweep names what is left",
+                        left.contains(stays) || left.contains(sealed));
+                if (java.nio.file.Files.exists(sealed)) {
+                    java.nio.file.Files.setPosixFilePermissions(sealed,
+                            java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"));
+                }
+                check("and finishes on the next pass",
+                        Archives.deleteWhatCan(partial).isEmpty()
+                                && !java.nio.file.Files.exists(partial));
+            }
 
         } catch (IOException e) {
             check("update layouts could be read: " + e, false);

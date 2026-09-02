@@ -1190,6 +1190,29 @@ only acceptable outcome for a program that replaces itself. What it deliberately
 does not do is delete the folder it is itself running from; the next start does
 that.
 
+**Who clears up, and when.** The downloaded archive is the largest single thing
+an update leaves lying about, nothing holds it once it has been read, and the
+updater deletes it the moment the new build is in place. What is left after that
+is the staging folder - which is the updater's own working copy of the runtime -
+and the installation that was moved aside. Both are for the next start.
+
+That next start is the one the updater itself launches, and it therefore begins
+while the updater is still finishing: for those few seconds the staging folder is
+that process's current directory, which on Windows nobody can delete. So the
+updater writes its process id into `.hexadron-update/handoff`, and the cleanup
+waits for that process to end before it touches anything - on a thread of its
+own, because waiting is not something to hold a start-up for. It then tries
+again on a widening interval, and every outcome goes into `logs/launcher.log`. A
+cleanup that says nothing cannot be told apart from a cleanup that never ran, and
+the two want opposite fixes.
+
+Deleting a folder is done by removing as much of it as will go and reporting the
+rest, never by stopping at the first refusal. A walk that throws on one busy file
+has by then deleted everything it passed, and what it leaves is a half-empty
+folder that no later start will ever finish. Read-only is cleared first and the
+delete retried, because `jpackage` marks parts of an image read-only and on
+Windows a read-only file cannot be deleted at all.
+
 **When it cannot.** A launcher started from an IDE or with `java -jar` has no
 installed folder to replace, and one installed somewhere the user cannot write to
 must not be half-replaced. Both are said plainly in the window, which then offers

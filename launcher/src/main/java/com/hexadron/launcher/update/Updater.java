@@ -71,13 +71,16 @@ public final class Updater {
 
     public static void main(String[] args) {
         if (args.length < 3) {
-            log("usage: Updater <new-image> <installed-folder> <launcher-pid>");
+            log("usage: Updater <new-image> <installed-folder> <launcher-pid> [work-folder]");
             System.exit(2);
             return;
         }
         Path staged = Path.of(args[0]);
         Path target = Path.of(args[1]);
         long pid = parsePid(args[2]);
+        // Optional, so that an updater from this build still runs when started
+        // by an older launcher that did not pass it.
+        Path workDir = args.length > 3 ? Path.of(args[3]) : null;
 
         log("update: " + staged + " -> " + target + ", waiting for process " + pid);
         waitForExit(pid);
@@ -94,6 +97,12 @@ public final class Updater {
             Updates.copyTree(staged, target);
             log("the new build is in place");
 
+            // The downloaded archive is half of what is left lying about and
+            // nothing holds it - it was read once and closed. Deleted here
+            // rather than left for the next start, because this is the last
+            // moment at which its folder is certainly known.
+            dropDownloads(workDir);
+
             // Started before the old folder is removed, not after. The update is
             // finished the moment the new build is in place; making the user
             // watch an empty screen while a folder that no longer matters is
@@ -108,6 +117,40 @@ public final class Updater {
             log("the update failed: " + failure);
             rollBack(target, aside, movedAside);
             System.exit(1);
+        }
+    }
+
+    /**
+     * Deletes the downloaded archives, and only those.
+     *
+     * <p>The files directly inside the work folder are what was fetched: the
+     * archive, or the parts a delta update fetched. Once the new build is in
+     * place none of them is of any further use, and together they are the
+     * largest single thing an update leaves behind - a hundred and fifty
+     * megabytes of it.
+     *
+     * <p>Named by what is kept rather than by what goes: the update log, which
+     * is the only account of this run, and the handoff note, which the next
+     * launcher reads to know when this process has finished. The unpacked tree
+     * is not touched either - this process is running out of it.
+     */
+    private static void dropDownloads(Path workDir) {
+        if (workDir == null || !Files.isDirectory(workDir)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> files = Files.list(workDir)) {
+            files.filter(Files::isRegularFile)
+                    .filter(file -> !"update.log".equals(file.getFileName().toString()))
+                    .filter(file -> !Updates.HANDOFF_FILE.equals(file.getFileName().toString()))
+                    .forEach(file -> {
+                        try {
+                            Files.deleteIfExists(file);
+                        } catch (IOException e) {
+                            log("could not delete " + file.getFileName() + ": " + e);
+                        }
+                    });
+        } catch (IOException | RuntimeException e) {
+            log("the downloads could not be cleared: " + e);
         }
     }
 
@@ -197,24 +240,27 @@ public final class Updater {
      */
     private static void deleteQuietly(Path path) {
         for (int attempt = 0; attempt < MOVE_ATTEMPTS; attempt++) {
-            try {
-                if (!Files.exists(path)) {
-                    return;
-                }
-                Archives.deleteRecursively(path);
+            if (!Files.exists(path)) {
                 return;
-            } catch (IOException | RuntimeException e) {
-                if (attempt == MOVE_ATTEMPTS - 1) {
-                    log("the old folder could not be deleted: " + e);
-                    log("it will be removed the next time the launcher starts");
-                    return;
-                }
-                try {
-                    Thread.sleep(MOVE_PAUSE_MILLIS);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
+            }
+            // Every pass removes what it can and names what it could not, so a
+            // folder with one busy file in it still loses the rest, and the
+            // line below says which file to blame.
+            List<Path> left = Archives.deleteWhatCan(path);
+            if (left.isEmpty()) {
+                return;
+            }
+            if (attempt == MOVE_ATTEMPTS - 1) {
+                log("the old folder could not be deleted, " + left.size()
+                        + " path(s) are held, first is " + left.get(0));
+                log("it will be removed the next time the launcher starts");
+                return;
+            }
+            try {
+                Thread.sleep(MOVE_PAUSE_MILLIS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
             }
         }
     }

@@ -12,6 +12,7 @@
 
 package com.hexadron.launcher.update;
 
+import com.hexadron.launcher.core.LauncherLog;
 import com.hexadron.launcher.core.Progress;
 import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.util.Archives;
@@ -24,6 +25,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -398,15 +400,34 @@ public final class Updates {
         command.add(stagedImage.toString());
         command.add(install.root().toString());
         command.add(String.valueOf(ProcessHandle.current().pid()));
+        command.add(workDir.toString());
 
         // The log is the only thing left behind if this goes wrong after the
         // window has closed, so it is written where the next start can find it.
         Path log = workDir.resolve("update.log");
-        new ProcessBuilder(command)
-                .directory(workDir.toFile())
+
+        // Anywhere but the work folder. A process's working directory cannot be
+        // deleted on Windows, and the work folder is one of the two things the
+        // next start has to delete - so an updater started in it guaranteed the
+        // failure it was then blamed for. The folder above the installation is
+        // the one place that is certain to exist for as long as this runs.
+        Path parent = install.root().getParent();
+        Process updater = new ProcessBuilder(command)
+                .directory((parent == null ? install.root() : parent).toFile())
                 .redirectErrorStream(true)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(log.toFile()))
                 .start();
+
+        // Who to wait for. The next launcher is started by this updater and so
+        // begins while it is still running, out of this very folder; without the
+        // number it has no way to tell "busy for another second" from "stuck",
+        // and cleaning up is the thing it gets wrong. See #cleanUp.
+        try {
+            Files.writeString(workDir.resolve(HANDOFF_FILE), String.valueOf(updater.pid()));
+        } catch (IOException | RuntimeException ignored) {
+            // Then the next start falls back to a fixed wait. Not worth failing
+            // an update that is otherwise under way.
+        }
     }
 
     /**
@@ -434,6 +455,18 @@ public final class Updates {
     /** What the updater names the folder it moves aside before replacing it. */
     public static final String OLD_SUFFIX = ".old-";
 
+    /** Where the updater records its own process id, for the next start. */
+    public static final String HANDOFF_FILE = "handoff";
+
+    /** How long to wait for the updater to finish before deleting around it. */
+    private static final Duration HANDOFF_WAIT = Duration.ofSeconds(45);
+
+    /** Past this, a handoff note is from an update that is long over. */
+    private static final Duration HANDOFF_STALE = Duration.ofMinutes(10);
+
+    /** When the retries happen, counted from the start of the attempt before. */
+    private static final long[] RETRY_DELAYS_MILLIS = {0, 2_000, 8_000, 30_000, 120_000};
+
     /**
      * Clears what an update left behind.
      *
@@ -446,13 +479,120 @@ public final class Updates {
      * matter how long you wait, and by the time it can be, the updater is long
      * gone.
      *
-     * <p>So it is done here, at every start. By then that process has ended, the
-     * handles are released, and neither folder is anybody's.
+     * <p>So it is done here. What it must not do is what it used to do, which is
+     * try once, immediately. The launcher that runs this was started <em>by</em>
+     * the updater and is therefore up while the updater is still finishing - and
+     * for those few seconds the work folder is that process's own, which on
+     * Windows cannot be deleted by anybody. One attempt at that moment fails by
+     * construction; that it then said nothing is why it looked like no attempt
+     * at all. So: wait for the process named in the handoff note to end, and
+     * then try, and try again on a widening interval for as long as anything is
+     * left. See {@link #cleanUpInBackground}.
+     *
+     * @return the paths that are still there, empty when nothing is
      */
-    public static void cleanUp(UpdateInstall install) {
-        removeQuietly(workDirectory(install));
+    public static List<Path> cleanUp(UpdateInstall install) {
+        Path workDir = workDirectory(install);
+        awaitHandOver(workDir);
+
+        List<Path> left = new ArrayList<>(removeQuietly(workDir));
         for (Path old : oldInstallations(install)) {
-            removeQuietly(old);
+            left.addAll(removeQuietly(old));
+        }
+        return List.copyOf(left);
+    }
+
+    /**
+     * The same, off the start-up path and with the retries.
+     *
+     * <p>On its own thread because the first thing it does is wait: the updater
+     * has seconds of work left when the new launcher appears, and none of it is
+     * anything to hold a start-up for.
+     *
+     * <p>Every outcome is written to the log. The version of this that said
+     * nothing is the reason the fault survived - "there is a folder left over"
+     * and "the cleanup ran and could not remove it" look identical from outside
+     * and want opposite fixes.
+     */
+    public static void cleanUpInBackground(UpdateInstall install) {
+        if (nothingToClean(install)) {
+            return;
+        }
+        Thread thread = new Thread(() -> {
+            for (int attempt = 0; attempt < RETRY_DELAYS_MILLIS.length; attempt++) {
+                if (RETRY_DELAYS_MILLIS[attempt] > 0) {
+                    try {
+                        Thread.sleep(RETRY_DELAYS_MILLIS[attempt]);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+                List<Path> left;
+                try {
+                    left = cleanUp(install);
+                } catch (Throwable e) {
+                    LauncherLog.info("Cleanup failed: " + e);
+                    return;
+                }
+                if (left.isEmpty()) {
+                    LauncherLog.info("Cleanup: what the update left behind is gone");
+                    return;
+                }
+                LauncherLog.info("Cleanup: " + left.size() + " path(s) still held, first is "
+                        + left.get(0) + (attempt == RETRY_DELAYS_MILLIS.length - 1
+                                ? "; giving up until the next start"
+                                : "; trying again"));
+            }
+        }, "hexadron-cleanup");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    /** Whether there is anything there at all, before a thread is spent on it. */
+    private static boolean nothingToClean(UpdateInstall install) {
+        return !Files.isDirectory(workDirectory(install)) && oldInstallations(install).isEmpty();
+    }
+
+    /**
+     * Waits for the updater to let go of the work folder.
+     *
+     * <p>It wrote its process id there before this launcher existed. A note with
+     * no live process behind it - a finished update, a reused id from weeks ago -
+     * costs one lookup and nothing more, and one older than
+     * {@link #HANDOFF_STALE} is not asked about at all: process ids are reused,
+     * and waiting on a stranger's would be worse than not waiting.
+     */
+    private static void awaitHandOver(Path workDir) {
+        Path note = workDir.resolve(HANDOFF_FILE);
+        long pid;
+        try {
+            if (!Files.isRegularFile(note)) {
+                return;
+            }
+            if (Files.getLastModifiedTime(note).toInstant()
+                    .isBefore(java.time.Instant.now().minus(HANDOFF_STALE))) {
+                return;
+            }
+            pid = Long.parseLong(Files.readString(note).trim());
+        } catch (IOException | RuntimeException e) {
+            return;
+        }
+        if (pid <= 0 || pid == ProcessHandle.current().pid()) {
+            return;
+        }
+        Optional<ProcessHandle> updater = ProcessHandle.of(pid);
+        if (updater.isEmpty()) {
+            return;
+        }
+        LauncherLog.info("Cleanup: waiting for the updater (process " + pid + ") to finish");
+        try {
+            updater.get().onExit().get(HANDOFF_WAIT.toSeconds(), java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            LauncherLog.info("Cleanup: the updater is still running after "
+                    + HANDOFF_WAIT.toSeconds() + "s; clearing what is not its own");
         }
     }
 
@@ -482,17 +622,20 @@ public final class Updates {
         return List.copyOf(found);
     }
 
-    private static void removeQuietly(Path directory) {
+    /**
+     * Removes one folder and reports what would not go.
+     *
+     * <p>Through {@link Archives#deleteWhatCan} rather than
+     * {@code deleteRecursively}: a tree with one locked file in it must lose the
+     * other ninety-nine, and the caller must learn which one to come back for.
+     * Stopping at the first refusal is what turned a busy file into a permanent
+     * half-empty folder.
+     */
+    private static List<Path> removeQuietly(Path directory) {
         if (!Files.isDirectory(directory)) {
-            return;
+            return List.of();
         }
-        try {
-            Archives.deleteRecursively(directory);
-        } catch (IOException | RuntimeException ignored) {
-            // Still in use, or not ours to delete. Both of these sit beside the
-            // installation and cost nothing but space; the next start tries
-            // again.
-        }
+        return Archives.deleteWhatCan(directory);
     }
 
     /**

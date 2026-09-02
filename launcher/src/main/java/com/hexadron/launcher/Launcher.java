@@ -137,14 +137,20 @@ public final class Launcher extends Application {
      *
      * <p>The leftovers of a previous update are cleared here too, for the one
      * reason they cannot be cleared by the updater itself: that process is
-     * running out of the folder it would be deleting.
+     * running out of the folder it would be deleting. Handed to a thread of its
+     * own rather than done here, because the first thing it does is wait for
+     * that process to end - this launcher was started by it, and for a few
+     * seconds more the folder is still its.
      */
     private com.hexadron.launcher.update.Updates.Available lookForUpdate(LauncherService service) {
         try {
             com.hexadron.launcher.update.UpdateInstall.detect()
-                    .ifPresent(com.hexadron.launcher.update.Updates::cleanUp);
-        } catch (Throwable ignored) {
-            // A folder that will not go is not a reason to fail a start-up.
+                    .ifPresent(com.hexadron.launcher.update.Updates::cleanUpInBackground);
+        } catch (Throwable e) {
+            // A folder that will not go is not a reason to fail a start-up - but
+            // it is a reason to write a line. The version of this that said
+            // nothing is why leftovers went unnoticed for as long as they did.
+            com.hexadron.launcher.core.LauncherLog.info("Cleanup could not be started: " + e);
         }
         if (!service.settings().checkForUpdates()) {
             com.hexadron.launcher.core.LauncherLog.info("Update check: switched off in settings");
