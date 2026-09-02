@@ -61,7 +61,8 @@ public final class Launcher extends Application {
      * question about replacing the program belongs over the program, and the
      * splash is a progress report that a dialog must not be modal to.
      */
-    private com.hexadron.launcher.update.Updates.Available pendingUpdate;
+    /** Written on the start-up thread, read on the JavaFX one. */
+    private volatile com.hexadron.launcher.update.Updates.Available pendingUpdate;
 
     public static void main(String[] args) {
         if (args.length > 0) {
@@ -146,15 +147,27 @@ public final class Launcher extends Application {
             // A folder that will not go is not a reason to fail a start-up.
         }
         if (!service.settings().checkForUpdates()) {
+            com.hexadron.launcher.core.LauncherLog.info("Update check: switched off in settings");
             return null;
         }
         reportStep("updates");
+        com.hexadron.launcher.update.UpdateChannel channel = service.settings().updateChannel();
         try {
-            return com.hexadron.launcher.update.Updates.check(
-                    BuildConfig.version(),
-                    service.settings().updateChannel(),
-                    new com.hexadron.launcher.update.ReleaseFeed(),
-                    com.hexadron.launcher.util.Platform.os()).orElse(null);
+            com.hexadron.launcher.update.Updates.Available found =
+                    com.hexadron.launcher.update.Updates.check(
+                            BuildConfig.version(),
+                            channel,
+                            new com.hexadron.launcher.update.ReleaseFeed(),
+                            com.hexadron.launcher.util.Platform.os()).orElse(null);
+            // Every outcome says so, and says which channel it asked. Without
+            // this line "it did not offer me anything" cannot be told apart from
+            // "it never asked", and the two have nothing in common.
+            com.hexadron.launcher.core.LauncherLog.info(found == null
+                    ? "Update check (" + channel.stored() + "): nothing newer than "
+                            + BuildConfig.version()
+                    : "Update check (" + channel.stored() + "): " + found.to().text()
+                            + " is available");
+            return found;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return null;
@@ -225,7 +238,10 @@ public final class Launcher extends Application {
         // is whether to replace the program the user has just opened, and that
         // question is worth the window being there behind it.
         if (pendingUpdate != null) {
+            com.hexadron.launcher.core.LauncherLog.info(
+                    "Offering the update to " + pendingUpdate.to().text());
             window.offerUpdate(pendingUpdate);
+            pendingUpdate = null;
         }
 
         // Detecting Java reads the registry and probes every runtime it finds.
