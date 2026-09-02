@@ -170,10 +170,10 @@ passes the version it is publishing.
 **The macOS bundle reports 1.0.0.** Apple requires `CFBundleVersion` to start
 above zero, so jpackage refuses a `0.x` app-version outright - "The first number
 in an app-version cannot be zero or negative". A pre-1.0 product cannot be
-expressed in a macOS bundle at all. Windows and Linux accept `0.2.0` and get it;
+expressed in a macOS bundle at all. Windows and Linux accept `0.9.5` and get it;
 only macOS gets the stand-in, and the build logs the substitution rather than
-making it quietly. The jar inside the image is still `launcher-0.2.0.jar`, and
-the launcher still sends `0.2.0` in its User-Agent.
+making it quietly. The jar inside the image is still `launcher-0.9.5.jar`, and
+the launcher still sends `0.9.5` in its User-Agent.
 
 ## Headless use
 

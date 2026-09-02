@@ -73,7 +73,7 @@ public final class BuildConfig {
      * a splash screen claiming the wrong version in the IDE and the right one in
      * a release.
      */
-    private static final String FALLBACK_VERSION = "0.2.0";
+    private static final String FALLBACK_VERSION = "0.9.5";
 
     private static final String CURSEFORGE_API_KEY = readCurseForgeApiKey();
 

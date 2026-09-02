@@ -40,7 +40,19 @@ import java.util.function.Supplier;
  */
 public final class Http {
 
-    public static final String USER_AGENT = "HexadronLauncher/0.2.0 (+https://github.com/hexadron/HexadronLauncher)";
+    /**
+     * What this launcher calls itself to every server it talks to.
+     *
+     * <p>Built from the version rather than written out, because a hand-typed
+     * one goes stale silently: this string said {@code 0.2.0} while the build it
+     * was in said something else, and the only place that shows is somebody
+     * else's access log. The address is here for the same reason a user agent
+     * carries one - so that an operator who wants to complain about this
+     * launcher's traffic has somewhere to complain to.
+     */
+    public static final String USER_AGENT = "HexadronLauncher/"
+            + com.hexadron.launcher.BuildConfig.version()
+            + " (+https://github.com/SAN4EZDREAMS/HexadronLauncher)";
 
     private static final int MAX_ATTEMPTS = 4;
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
