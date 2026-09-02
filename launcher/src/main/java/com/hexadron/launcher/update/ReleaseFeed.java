@@ -107,26 +107,53 @@ public final class ReleaseFeed {
     }
 
     /**
-     * Whether a published file is the build for an operating system.
+     * Whether a published file is <em>the whole build</em> for an operating
+     * system.
      *
      * <p>Matched on the name, which is the only thing the platform can be asked
-     * about a file it is simply storing. Both halves are required - the system
-     * and the format - because a release also carries the jar and the script
-     * distribution, and handing a Windows user {@code launcher-0.9.5.jar}
-     * because it was the first file in the list would be an "update" that
-     * replaces a working launcher with something that cannot start.
+     * about a file it is simply storing - and matched on the whole name rather
+     * than on pieces of it. That is not fussiness, it is a repaired bug: while
+     * this asked for "a name with windows in it that ends in .zip", the day a
+     * release also carried {@code HexadronLauncher-windows-app.zip} beside
+     * {@code HexadronLauncher-windows.zip} the first one won, and the update
+     * failed with "the downloaded archive holds no application image" - because
+     * it was not one. A rule that can be satisfied by a file that is only part
+     * of the build has no business choosing which file is the build.
+     *
+     * <p>The name is therefore the published name exactly: the application's
+     * name, the system, and the extension for that system. Nothing else in a
+     * release can collide with that, whatever is added to one later.
      */
     public static boolean matches(String assetName, Platform.OsFamily os) {
         if (assetName == null) {
             return false;
         }
         String name = assetName.toLowerCase(Locale.ROOT);
+        for (String alias : aliases(os)) {
+            for (String extension : extensions(os)) {
+                if (name.equals("hexadronlauncher-" + alias + extension)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** What a system has been called in this project's published file names. */
+    private static List<String> aliases(Platform.OsFamily os) {
         return switch (os) {
-            case WINDOWS -> name.contains("windows") && name.endsWith(".zip");
-            case LINUX -> name.contains("linux") && (name.endsWith(".tar.gz") || name.endsWith(".tgz"));
-            case OSX -> (name.contains("macos") || name.contains("mac-") || name.contains("osx"))
-                    && (name.endsWith(".tar.gz") || name.endsWith(".tgz") || name.endsWith(".zip"));
+            case WINDOWS -> List.of("windows");
+            case LINUX -> List.of("linux");
+            // "mac" and "osx" are not used now and were accepted before; a
+            // release made under the old names still updates.
+            case OSX -> List.of("macos", "mac", "osx");
         };
+    }
+
+    private static List<String> extensions(Platform.OsFamily os) {
+        return os == Platform.OsFamily.WINDOWS
+                ? List.of(".zip")
+                : List.of(".tar.gz", ".tgz", ".zip");
     }
 
     /**

@@ -225,14 +225,12 @@ final class UpdateDialog {
         UpdateInstall target = install.orElseThrow();
         Path workDir = Updates.workDirectory(target);
         try {
-            Path archive = Updates.download(update, workDir, progress());
+            Path image = Updates.fetchImage(update, target, workDir, progress());
+
             Platform.runLater(() -> {
                 bar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-                status.setText(I18n.t("update.stage.unpack"));
+                status.setText(I18n.t("update.stage.apply"));
             });
-            Path image = Updates.unpack(archive, workDir, target.os());
-
-            Platform.runLater(() -> status.setText(I18n.t("update.stage.apply")));
             Updates.handOver(image, target, workDir);
             LauncherLog.info("Update: handed over to the updater, closing");
 
@@ -285,8 +283,16 @@ final class UpdateDialog {
 
             @Override
             public void stage(String name) {
-                // The stages here are named by the caller, in the user's own
-                // language. Nothing to add.
+                // The steps between downloads - reading what is already on the
+                // disk, copying it, checking every file against the manifest -
+                // take long enough on a slow disk to look like a hung window if
+                // nothing is said. None of them has a number to show, so the bar
+                // goes indeterminate and the line says which one it is.
+                String text = I18n.t("update.stage." + name);
+                Platform.runLater(() -> {
+                    bar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+                    status.setText(text);
+                });
             }
 
             @Override

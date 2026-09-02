@@ -25,7 +25,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.zip.ZipFile;
 
@@ -140,14 +143,20 @@ public final class Updates {
      */
     public static Path download(Available update, Path workDir, Progress progress)
             throws IOException, InterruptedException {
+        return downloadAsset(update.asset(), workDir, progress);
+    }
+
+    /** The same, for any one file attached to the release. */
+    public static Path downloadAsset(ReleaseFeed.Asset asset, Path workDir, Progress progress)
+            throws IOException, InterruptedException {
 
         Files.createDirectories(workDir);
-        Path file = workDir.resolve(update.asset().name());
+        Path file = workDir.resolve(asset.name());
         Files.deleteIfExists(file);
 
-        long expected = update.asset().size();
+        long expected = asset.size();
         long done = 0;
-        try (InputStream in = Http.openStream(update.asset().url());
+        try (InputStream in = Http.openStream(asset.url());
              OutputStream out = Files.newOutputStream(file)) {
 
             byte[] buffer = new byte[64 * 1024];
@@ -167,6 +176,177 @@ public final class Updates {
                     + " bytes");
         }
         return file;
+    }
+
+    /**
+     * Gets the new build onto the disk, by whichever route costs less.
+     *
+     * <p>Two routes, and the fast one is only taken when it is certain: if the
+     * release publishes a manifest for this system, and the parts it names cover
+     * enough of the build that most of it can come off the local disk, the image
+     * is assembled from those parts and checked against the manifest file by
+     * file. Anything at all wrong with that - no manifest, a manifest this
+     * launcher does not understand, a part that will not fetch, a hash that does
+     * not match - and the whole archive is downloaded instead, which is what
+     * always happened before and always works.
+     *
+     * <p>The archive route is now verified too, when there is a manifest to
+     * verify it against. That is worth saying plainly: before this, a downloaded
+     * update was checked for its length and nothing else.
+     *
+     * @return the unpacked image, ready to be handed to the updater
+     */
+    public static Path fetchImage(Available update, UpdateInstall install, Path workDir,
+                                  Progress progress) throws IOException, InterruptedException {
+
+        Files.createDirectories(workDir);
+        ImageManifest manifest = manifestFor(update, install.os(), progress);
+
+        if (manifest != null) {
+            try {
+                progress.stage("reuse");
+                DeltaUpdate.Plan plan = DeltaUpdate.plan(manifest, install.root(), progress);
+                if (progress.isCancelled()) {
+                    throw new InterruptedIOException("the update was cancelled");
+                }
+                if (DeltaUpdate.worthwhile(plan)) {
+                    progress.log("delta update: fetching " + plan.fetch()
+                            + ", reusing " + plan.reuse().size() + " files");
+                    return DeltaUpdate.assemble(manifest, plan, install.root(), workDir,
+                            assetsOf(update, manifest, plan), progress);
+                }
+                progress.log("delta update: too little to reuse, taking the whole archive");
+            } catch (InterruptedIOException | InterruptedException cancelled) {
+                throw cancelled;
+            } catch (IOException | RuntimeException failure) {
+                // The point of the fallback. Whatever went wrong with the parts,
+                // the archive is still there and still works.
+                progress.log("delta update failed, taking the whole archive: " + failure);
+            }
+        }
+
+        Path archive = download(update, workDir, progress);
+        checkArchive(manifest, update, archive);
+        progress.stage("unpack");
+        return unpack(archive, workDir, install.os());
+    }
+
+    /**
+     * The manifest published beside this build, when there is one.
+     *
+     * <p>Never a reason to fail: a release without one is every release made
+     * before this existed, and the answer for those is the whole archive.
+     */
+    static ImageManifest manifestFor(Available update, Platform.OsFamily os, Progress progress) {
+        String wanted = "HexadronLauncher-" + label(os) + ImageManifest.SUFFIX;
+        for (ReleaseFeed.Asset asset : update.release().assets()) {
+            if (!asset.name().equalsIgnoreCase(wanted)) {
+                continue;
+            }
+            try {
+                ImageManifest manifest = ImageManifest.parse(Http.getJson(asset.url()));
+                if (!manifest.os().equalsIgnoreCase(label(os))) {
+                    progress.log("the manifest is for " + manifest.os() + ", not " + label(os));
+                    return null;
+                }
+                return manifest;
+            } catch (IOException | InterruptedException | RuntimeException e) {
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                progress.log("the manifest could not be read: " + e);
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Checks a downloaded archive against the manifest.
+     *
+     * <p>Only when the manifest describes this very file. A release could in
+     * principle carry a manifest written for a different archive, and hashing
+     * one against the other would fail an update that is perfectly fine.
+     */
+    static void checkArchive(ImageManifest manifest, Available update, Path archive)
+            throws IOException {
+
+        if (manifest == null || manifest.archive() == null
+                || !manifest.archive().asset().equalsIgnoreCase(update.asset().name())) {
+            return;
+        }
+        String actual = ImageManifest.sha256(archive);
+        if (!actual.equals(manifest.archive().sha256())) {
+            Files.deleteIfExists(archive);
+            throw new IOException("the downloaded file is not the one that was published");
+        }
+    }
+
+    /** The name this system goes by in the published file names. */
+    public static String label(Platform.OsFamily os) {
+        return switch (os) {
+            case WINDOWS -> "windows";
+            case LINUX -> "linux";
+            case OSX -> "macos";
+        };
+    }
+
+    /**
+     * Fetches parts, counting the bytes across all of them.
+     *
+     * <p>Without the running total the progress bar would fill up and start
+     * again once per part, which reads as an update that keeps restarting.
+     */
+    private static DeltaUpdate.Assets assetsOf(Available update, ImageManifest manifest,
+                                               DeltaUpdate.Plan plan) {
+        Map<String, ReleaseFeed.Asset> published = new HashMap<>();
+        for (ReleaseFeed.Asset asset : update.release().assets()) {
+            published.put(asset.name().toLowerCase(Locale.ROOT), asset);
+        }
+        long total = 0;
+        for (String part : plan.fetch()) {
+            ReleaseFeed.Asset asset = published.get(
+                    manifest.assetOf(part).orElse("").toLowerCase(Locale.ROOT));
+            total += asset == null ? 0 : asset.size();
+        }
+        long grandTotal = total;
+        long[] before = {0};
+
+        return (name, workDir, progress) -> {
+            ReleaseFeed.Asset asset = published.get(name.toLowerCase(Locale.ROOT));
+            if (asset == null) {
+                throw new IOException("the release does not carry " + name);
+            }
+            Path file = downloadAsset(asset, workDir, new Progress() {
+
+                @Override
+                public void stage(String stage) {
+                    progress.stage(stage);
+                }
+
+                @Override
+                public void bytes(long completed, long ignored) {
+                    progress.bytes(before[0] + completed, grandTotal);
+                }
+
+                @Override
+                public void items(int completed, int ofTotal) {
+                    progress.items(completed, ofTotal);
+                }
+
+                @Override
+                public void log(String message) {
+                    progress.log(message);
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return progress.isCancelled();
+                }
+            });
+            before[0] += asset.size();
+            return file;
+        };
     }
 
     /**
@@ -251,24 +431,67 @@ public final class Updates {
         return Optional.empty();
     }
 
+    /** What the updater names the folder it moves aside before replacing it. */
+    public static final String OLD_SUFFIX = ".old-";
+
     /**
      * Clears what an update left behind.
      *
-     * <p>Called at start-up, because the updater cannot delete the folder it is
-     * itself running from - its own copy of the runtime and the jar are in it.
-     * By the time the launcher is up again, that process has ended and the
-     * folder is nobody's.
+     * <p>Two kinds of leftover, both of them from a process that could not tidy
+     * up after itself. The work folder, because the updater is running out of it
+     * - its own copy of the runtime and the jar are in there. And the previous
+     * installation, moved aside as {@code <name>.old-<time>}, which the updater
+     * does delete, except when Windows will not let it: a folder open in
+     * Explorer, or one an antivirus is still reading, cannot be removed no
+     * matter how long you wait, and by the time it can be, the updater is long
+     * gone.
+     *
+     * <p>So it is done here, at every start. By then that process has ended, the
+     * handles are released, and neither folder is anybody's.
      */
     public static void cleanUp(UpdateInstall install) {
-        Path workDir = workDirectory(install);
-        if (!Files.isDirectory(workDir)) {
+        removeQuietly(workDirectory(install));
+        for (Path old : oldInstallations(install)) {
+            removeQuietly(old);
+        }
+    }
+
+    /**
+     * The moved-aside copies of this installation that are still lying about.
+     *
+     * <p>Matched by the name the updater gives them and nothing else, and only
+     * directly beside the installation. This deletes folders whole; it is not a
+     * place to be clever about what might count.
+     */
+    public static List<Path> oldInstallations(UpdateInstall install) {
+        Path parent = install.root().getParent();
+        Path name = install.root().getFileName();
+        if (parent == null || name == null) {
+            return List.of();
+        }
+        String prefix = name + OLD_SUFFIX;
+        List<Path> found = new ArrayList<>();
+        try (java.util.stream.Stream<Path> children = Files.list(parent)) {
+            children.filter(Files::isDirectory)
+                    .filter(child -> child.getFileName().toString().startsWith(prefix))
+                    .sorted()
+                    .forEach(found::add);
+        } catch (IOException | RuntimeException ignored) {
+            // Nothing readable beside the installation is nothing to clean.
+        }
+        return List.copyOf(found);
+    }
+
+    private static void removeQuietly(Path directory) {
+        if (!Files.isDirectory(directory)) {
             return;
         }
         try {
-            Archives.deleteRecursively(workDir);
+            Archives.deleteRecursively(directory);
         } catch (IOException | RuntimeException ignored) {
-            // Still in use, or not ours to delete. It is a cache folder beside
-            // the installation; the next start tries again.
+            // Still in use, or not ours to delete. Both of these sit beside the
+            // installation and cost nothing but space; the next start tries
+            // again.
         }
     }
 

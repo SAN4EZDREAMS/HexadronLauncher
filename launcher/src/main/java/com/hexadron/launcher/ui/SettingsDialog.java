@@ -42,6 +42,7 @@ import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.stage.Screen;
 import javafx.stage.Window;
 import javafx.util.StringConverter;
 
@@ -237,6 +238,14 @@ public final class SettingsDialog {
         dialog.getDialogPane().setMinWidth(660);
         Theme.apply(dialog.getDialogPane());
 
+        // Once it is on screen and everything in it has a real size, the window
+        // is grown to the tallest tab. Before it is shown there is nothing to
+        // measure: how tall a wrapped sentence is depends on the font the
+        // stylesheet gives it and on the width the column ends up with, and
+        // neither exists until the first layout has run.
+        dialog.setOnShown(event -> javafx.application.Platform.runLater(
+                () -> growToTallestTab(dialog)));
+
         prefill();
 
         // The Test button applies what is on screen so it can try it. Cancel has
@@ -279,16 +288,99 @@ public final class SettingsDialog {
      *
      * <p>Fitted to the width, so the notes still wrap to the tab rather than
      * scrolling sideways, and with no horizontal bar for the same reason.
+     *
+     * <p>It is the safety net and not the plan: the window sizes itself to the
+     * tallest tab when it opens (see {@link #growToTallestTab}), so on a screen
+     * with room there is nothing to scroll. What is left for the scroller is the
+     * case that has no better answer - a tab longer than the screen it is on.
      */
-    private static Tab tab(String key, GridPane content) {
+    private Tab tab(String key, GridPane content) {
         ScrollPane scroller = new ScrollPane(content);
         scroller.getStyleClass().add("settings-scroll");
         scroller.setFitToWidth(true);
         scroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scrollers.add(scroller);
 
         Tab tab = new Tab(I18n.t(key), scroller);
         tab.setClosable(false);
         return tab;
+    }
+
+    /** Every tab's scroller, in the order the tabs were built. */
+    private final List<ScrollPane> scrollers = new ArrayList<>();
+
+    /** How much of the screen the window may take when it grows. */
+    private static final double SCREEN_SHARE = 0.92;
+
+    /**
+     * Makes the window as tall as its longest tab.
+     *
+     * <p>A tab pane is as tall as the window and no taller, so a tab with more
+     * in it than fits is simply cut off at the bottom, and the only clue that
+     * anything is missing is that the last sentence ends in the middle. Nobody
+     * reaches for the wheel to find out; they read what is there and assume that
+     * is all of it.
+     *
+     * <p>So the window asks every tab how tall it would like to be at the width
+     * it has, takes the largest answer, and grows by the difference - the
+     * <em>largest</em>, because a window that resized itself as tabs were
+     * clicked would be worse than one that is too short. It stops at
+     * {@link #SCREEN_SHARE} of the screen it is on, and what will not fit within
+     * that is what the scroller is still there for.
+     */
+    private void growToTallestTab(Dialog<?> dialog) {
+        ScrollPane shown = null;
+        for (ScrollPane scroller : scrollers) {
+            javafx.geometry.Bounds viewport = scroller.getViewportBounds();
+            if (viewport != null && viewport.getWidth() > 0 && viewport.getHeight() > 0) {
+                shown = scroller;
+                break;
+            }
+        }
+        if (shown == null || dialog.getDialogPane().getScene() == null) {
+            return;
+        }
+        double width = shown.getViewportBounds().getWidth();
+        double tallest = 0;
+        for (ScrollPane scroller : scrollers) {
+            // The width of the tab that is on screen, for the tabs that are not:
+            // they are all the same width, and only the visible one has been
+            // through a layout pass of its own.
+            if (scroller.getContent() instanceof javafx.scene.layout.Region content) {
+                tallest = Math.max(tallest, content.prefHeight(width));
+            }
+        }
+        double missing = tallest - shown.getViewportBounds().getHeight();
+        if (missing <= 1) {
+            return;
+        }
+        Window window = dialog.getDialogPane().getScene().getWindow();
+        if (window == null) {
+            return;
+        }
+        javafx.geometry.Rectangle2D screen = screenFor(dialog);
+        double grow = Math.min(missing, screen.getHeight() * SCREEN_SHARE - dialog.getHeight());
+        if (grow <= 1) {
+            return;
+        }
+        // Through the pane's preferred height and sizeToScene rather than by
+        // setting the window's height: a dialog sizes itself to its scene
+        // whenever its content changes, and a height written straight onto the
+        // window is undone the next time it does.
+        dialog.getDialogPane().setPrefHeight(dialog.getDialogPane().getHeight() + grow);
+        window.sizeToScene();
+
+        // Grown from the middle rather than downwards, so a window that was
+        // centred stays centred instead of walking off the bottom of the screen.
+        double top = Math.min(dialog.getY() - grow / 2, screen.getMaxY() - dialog.getHeight());
+        dialog.setY(Math.max(screen.getMinY(), top));
+    }
+
+    /** The screen this window is on, or the primary one when that is unclear. */
+    private static javafx.geometry.Rectangle2D screenFor(Dialog<?> dialog) {
+        List<Screen> screens = Screen.getScreensForRectangle(
+                dialog.getX(), dialog.getY(), dialog.getWidth(), dialog.getHeight());
+        return (screens.isEmpty() ? Screen.getPrimary() : screens.get(0)).getVisualBounds();
     }
 
     /**

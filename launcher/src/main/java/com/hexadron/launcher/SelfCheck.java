@@ -52,6 +52,9 @@ import com.hexadron.launcher.mods.LocalModInfo;
 import com.hexadron.launcher.mods.ModCategory;
 import com.hexadron.launcher.mods.ModDependents;
 import com.hexadron.launcher.update.AppVersion;
+import com.hexadron.launcher.update.DeltaUpdate;
+import com.hexadron.launcher.update.ImageManifest;
+import com.hexadron.launcher.update.ManifestTool;
 import com.hexadron.launcher.update.ReleaseFeed;
 import com.hexadron.launcher.update.UpdateChannel;
 import com.hexadron.launcher.update.UpdateInstall;
@@ -142,6 +145,7 @@ public final class SelfCheck {
         modImport();
         modDependencies();
         launcherUpdates();
+        deltaUpdates();
         modCategories();
         categoryOrder();
         loaderCompatibility();
@@ -3055,6 +3059,32 @@ public final class SelfCheck {
                     !executableSet || java.nio.file.Files.isExecutable(
                             copy.resolve("bin/HexadronLauncher")));
 
+            // What the updater could not remove itself. A folder that Windows
+            // would not let go of at the moment of the swap is still there the
+            // next time the launcher starts, and this is what removes it - so
+            // that "one folder was busy for a second" does not turn into a copy
+            // of every version the user has ever run.
+            Path installed = image(dir.resolve("swept"), Platform.OsFamily.WINDOWS,
+                    "app", "runtime/bin/java.exe", "HexadronLauncher.exe");
+            UpdateInstall install = new UpdateInstall(installed, Platform.OsFamily.WINDOWS);
+            Path leftOver = dir.resolve("swept" + Updates.OLD_SUFFIX + "1788348448700");
+            java.nio.file.Files.createDirectories(leftOver.resolve("app"));
+            java.nio.file.Files.writeString(leftOver.resolve("app/old.jar"), "x");
+            Path keep = dir.resolve("swept-notes");
+            java.nio.file.Files.createDirectories(keep);
+            java.nio.file.Files.createDirectories(Updates.workDirectory(install));
+
+            check("the moved-aside folder is seen as this install's",
+                    Updates.oldInstallations(install).equals(List.of(leftOver)));
+            Updates.cleanUp(install);
+            check("a start clears what the update could not delete",
+                    !java.nio.file.Files.exists(leftOver));
+            check("and the work folder with it",
+                    !java.nio.file.Files.exists(Updates.workDirectory(install)));
+            check("nothing else beside the install is touched",
+                    java.nio.file.Files.isDirectory(keep)
+                            && java.nio.file.Files.isDirectory(installed));
+
         } catch (IOException e) {
             check("update layouts could be read: " + e, false);
         } finally {
@@ -3082,6 +3112,196 @@ public final class SelfCheck {
         } finally {
             deleteRecursively(settingsDir);
         }
+    }
+
+    /**
+     * Updating by parts: what is reused, what is fetched, and what is refused.
+     *
+     * <p>The whole feature exists to avoid downloading a Java runtime that has
+     * not changed, and the whole risk in it is that "has not changed" is decided
+     * wrongly. So the checks are mostly about the ways a file can look right and
+     * not be one: the same name, the same length, different content; a manifest
+     * whose paths climb out of the image; an assembled image with one file
+     * altered after the fact.
+     */
+    private static void deltaUpdates() {
+        section("Updating by parts");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-delta");
+
+            // The build that is published: a Windows-shaped image.
+            Path published = dir.resolve("new");
+            writeFile(published.resolve("HexadronLauncher.exe"), "the launcher");
+            writeFile(published.resolve("app/launcher-1.1.0.jar"), "new code");
+            writeFile(published.resolve("app/javafx-controls-25.jar"), "javafx");
+            writeFile(published.resolve("runtime/bin/java.exe"), "a whole runtime");
+            writeFile(published.resolve("runtime/lib/modules"), "modules".repeat(64));
+
+            Map<String, String> assets = new java.util.LinkedHashMap<>();
+            for (String part : List.of("runtime", "libs", "app", "base")) {
+                assets.put(part, ManifestTool.partAsset("windows", part));
+            }
+            String[] layout = {"runtime/", "app/"};
+            ImageManifest manifest = ImageManifest.scan(published, "windows", "1.1.0", assets,
+                    path -> ManifestTool.partOf(path, layout));
+
+            // THE BUG THIS SECTION EXISTS FOR
+            //
+            // A part is a file in the same release as the build, with a name
+            // built from the same words. The first time parts were published,
+            // HexadronLauncher-windows-app.zip satisfied the rule that chose
+            // the build to download - it had "windows" in it and ended in .zip
+            // - and it came first in the list. Launchers downloaded nine
+            // hundred kilobytes of the app part and reported that it held no
+            // application image, which was true.
+            for (String part : List.of("runtime", "libs", "app", "base")) {
+                for (String label : List.of("windows", "linux", "macos")) {
+                    String name = ManifestTool.partAsset(label, part);
+                    check("a part is never taken for the whole build: " + name,
+                            !ReleaseFeed.matches(name, Platform.OsFamily.WINDOWS)
+                                    && !ReleaseFeed.matches(name, Platform.OsFamily.LINUX)
+                                    && !ReleaseFeed.matches(name, Platform.OsFamily.OSX));
+                }
+            }
+            check("nor is a manifest",
+                    !ReleaseFeed.matches("HexadronLauncher-windows" + ImageManifest.SUFFIX,
+                            Platform.OsFamily.WINDOWS)
+                            && !ReleaseFeed.matches("HexadronLauncher-macos" + ImageManifest.SUFFIX,
+                                    Platform.OsFamily.OSX));
+            check("and the whole build still is",
+                    ReleaseFeed.matches("HexadronLauncher-windows.zip", Platform.OsFamily.WINDOWS)
+                            && ReleaseFeed.matches("HexadronLauncher-linux.tar.gz",
+                                    Platform.OsFamily.LINUX)
+                            && ReleaseFeed.matches("HexadronLauncher-macos.tar.gz",
+                                    Platform.OsFamily.OSX));
+            check("a jar in the same release is not an update either",
+                    !ReleaseFeed.matches("launcher-0.9.5.jar", Platform.OsFamily.WINDOWS)
+                            && !ReleaseFeed.matches("HexadronLauncher-windows-2.zip",
+                                    Platform.OsFamily.WINDOWS));
+
+            check("the runtime is its own part",
+                    partIn(manifest, "runtime/lib/modules").equals("runtime"));
+            check("a dependency jar is not in the part that changes every build",
+                    partIn(manifest, "app/javafx-controls-25.jar").equals("libs"));
+            check("and the launcher's own jar is",
+                    partIn(manifest, "app/launcher-1.1.0.jar").equals("app"));
+            check("what sits at the root is the base",
+                    partIn(manifest, "HexadronLauncher.exe").equals("base"));
+
+            // A manifest is read by one launcher and written by another version
+            // of it, so the two have to agree through the file and not in memory.
+            ImageManifest reread = ImageManifest.parse(
+                    com.hexadron.launcher.json.Json.parse(manifest.toJson().toString()));
+            check("a manifest survives being written and read",
+                    reread.files().size() == manifest.files().size()
+                            && reread.version().equals("1.1.0")
+                            && reread.assetOf("libs").equals(manifest.assetOf("libs")));
+
+            // What the user has: the same runtime and the same JavaFX, an older
+            // launcher jar, and an executable that happens to be the same size
+            // as the published one but is not the published one.
+            Path installed = dir.resolve("installed");
+            writeFile(installed.resolve("HexadronLauncher.exe"), "the launched");
+            writeFile(installed.resolve("app/launcher-1.0.0.jar"), "old code");
+            writeFile(installed.resolve("app/javafx-controls-25.jar"), "javafx");
+            writeFile(installed.resolve("runtime/bin/java.exe"), "a whole runtime");
+            writeFile(installed.resolve("runtime/lib/modules"), "modules".repeat(64));
+
+            DeltaUpdate.Plan plan = DeltaUpdate.plan(manifest, installed, Progress.NOOP);
+            check("an unchanged runtime is not downloaded again",
+                    !plan.fetch().contains("runtime"));
+            check("neither are unchanged dependencies", !plan.fetch().contains("libs"));
+            check("the launcher's own jar is", plan.fetch().contains("app"));
+            check("and so is a file of the right length whose content is wrong",
+                    plan.fetch().contains("base"));
+            check("most of the build comes off the disk", DeltaUpdate.worthwhile(plan));
+
+            // Assembling it, with the parts served out of the published build
+            // rather than over a network.
+            Path assembled = DeltaUpdate.assemble(manifest, plan, installed, dir.resolve("work"),
+                    servedFrom(manifest, published, dir.resolve("served")), Progress.NOOP);
+            check("the assembled build has the new files",
+                    java.nio.file.Files.readString(assembled.resolve("app/launcher-1.1.0.jar"))
+                            .equals("new code"));
+            check("and no trace of the old ones",
+                    !java.nio.file.Files.exists(assembled.resolve("app/launcher-1.0.0.jar")));
+            check("the reused runtime is there in full",
+                    java.nio.file.Files.readString(assembled.resolve("runtime/lib/modules"))
+                            .equals("modules".repeat(64)));
+
+            // The check that makes the rest of it safe: one altered file, and
+            // the whole image is refused.
+            writeFile(assembled.resolve("runtime/lib/modules"), "modules".repeat(63) + "modulez");
+            check("an image with one file altered does not pass",
+                    !verifies(manifest, assembled));
+
+            // A manifest that would write outside the image is not read at all.
+            check("a manifest that climbs out of the image is refused",
+                    !ImageManifest.isSafe("../elsewhere/file")
+                            && !ImageManifest.isSafe("/etc/passwd")
+                            && ImageManifest.isSafe("app/launcher.jar"));
+
+            // Nothing in common: the parts add requests and save nothing.
+            Path stranger = dir.resolve("stranger");
+            writeFile(stranger.resolve("readme.txt"), "not a launcher at all");
+            check("a build with nothing to reuse takes the whole archive instead",
+                    !DeltaUpdate.worthwhile(
+                            DeltaUpdate.plan(manifest, stranger, Progress.NOOP)));
+
+        } catch (IOException | InterruptedException e) {
+            check("the delta update could be exercised: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
+    /** Which part the manifest files a path under. */
+    private static String partIn(ImageManifest manifest, String path) {
+        for (ImageManifest.Entry entry : manifest.files()) {
+            if (entry.path().equals(path)) {
+                return entry.part();
+            }
+        }
+        return "(not listed)";
+    }
+
+    /** True when an assembled image matches its manifest. */
+    private static boolean verifies(ImageManifest manifest, Path root) {
+        try {
+            DeltaUpdate.verify(manifest, root);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** Serves a manifest's parts out of a folder, as zips, instead of a release. */
+    private static DeltaUpdate.Assets servedFrom(ImageManifest manifest, Path image, Path store) {
+        return (name, workDir, progress) -> {
+            String part = manifest.partNames().stream()
+                    .filter(candidate -> manifest.assetOf(candidate).orElse("").equals(name))
+                    .findFirst()
+                    .orElseThrow(() -> new IOException("no part is published as " + name));
+            java.nio.file.Files.createDirectories(store);
+            Path archive = store.resolve(name.replace(".tar.gz", ".zip"));
+            try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(
+                    java.nio.file.Files.newOutputStream(archive))) {
+                for (ImageManifest.Entry entry : manifest.filesOf(part)) {
+                    zip.putNextEntry(new java.util.zip.ZipEntry(entry.path()));
+                    zip.write(java.nio.file.Files.readAllBytes(image.resolve(entry.path())));
+                    zip.closeEntry();
+                }
+            }
+            return archive;
+        };
+    }
+
+    /** Writes a file, and whatever folders it needs. */
+    private static void writeFile(Path path, String content) throws IOException {
+        java.nio.file.Files.createDirectories(path.getParent());
+        java.nio.file.Files.writeString(path, content);
     }
 
     /** True when the first version is newer than the second. */
