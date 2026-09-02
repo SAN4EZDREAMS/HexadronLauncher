@@ -1,0 +1,732 @@
+/*
+ * HexadronLauncher - a Minecraft launcher, and the Hexadron Optimise mod.
+ * Copyright (c) 2026 OLEKSII RADCHUK (SAN4EZDREAMS). All rights reserved.
+ *
+ * Licensed for noncommercial use only. You may use, study, share and improve
+ * this software; you may not sell it, and you may not remove, alter or obscure
+ * this notice or the authorship it records. Full terms: LICENSE.md in the
+ * project root. Provided without any warranty.
+ *
+ * SPDX-License-Identifier: LicenseRef-Hexadron-NC-1.0
+ */
+
+package com.hexadron.launcher.net;
+
+import com.hexadron.launcher.json.Json;
+import com.hexadron.launcher.util.Redactor;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
+
+/**
+ * Shared HTTP client with retry and a launcher-identifying User-Agent.
+ *
+ * <p>Mojang, Modrinth and CurseForge all rate-limit and all expect a
+ * descriptive User-Agent; Modrinth's API terms ask for a contactable one
+ * explicitly. Retries cover the 5xx/429 and transient-IO cases only - a 404 is
+ * an answer, not a failure to retry.
+ */
+public final class Http {
+
+    /**
+     * What this launcher calls itself to every server it talks to.
+     *
+     * <p>Built from the version rather than written out, because a hand-typed
+     * one goes stale silently: this string said {@code 0.2.0} while the build it
+     * was in said something else, and the only place that shows is somebody
+     * else's access log. The address is here for the same reason a user agent
+     * carries one - so that an operator who wants to complain about this
+     * launcher's traffic has somewhere to complain to.
+     */
+    public static final String USER_AGENT = "HexadronLauncher/"
+            + com.hexadron.launcher.BuildConfig.version()
+            + " (+https://github.com/SAN4EZDREAMS/HexadronLauncher)";
+
+    private static final int MAX_ATTEMPTS = 4;
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(5);
+
+    /**
+     * How the launcher is currently routed. Replaced, never mutated.
+     *
+     * <p>Both clients are rebuilt together when this changes, so a request can
+     * never be sent through a half-applied configuration.
+     */
+    private static volatile ProxyChoice proxy = ProxyChoice.system();
+    private static volatile java.net.Authenticator proxyAuthenticator;
+
+    private static volatile HttpClient client = buildClient(HttpClient.Redirect.NORMAL);
+    private static volatile HttpClient authClient = buildClient(HttpClient.Redirect.NEVER);
+
+    /**
+     * Headers that belong to a host rather than to a call site.
+     *
+     * <p>This exists because of one platform. CurseForge has always required its
+     * API key on {@code api.curseforge.com}, and since July 2026 it requires the
+     * same key on the content hosts that serve the actual mod files. Those files
+     * are fetched by the generic downloader, which knows nothing about CurseForge
+     * and should not have to - so the key is attached here, by host, once, and
+     * every path that goes through this class is covered: metadata, file
+     * downloads, and anything added later.
+     *
+     * <p>Registered as a supplier rather than a value so that a key entered in
+     * the settings while the launcher is running takes effect immediately.
+     */
+    private record HostHeaders(Predicate<String> matches, Supplier<Map<String, String>> headers) {
+    }
+
+    private static final List<HostHeaders> HOST_HEADERS = new CopyOnWriteArrayList<>();
+
+    /**
+     * The client used for every credential-bearing request.
+     *
+     * <p>It differs from {@link #CLIENT} in one deliberate way: it does not
+     * follow redirects. A redirect on the authentication path is not a routine
+     * event - it is either a misconfiguration or a redirect to a host the
+     * launcher did not choose, and following it would forward an
+     * {@code Authorization} header or a form body containing a refresh token to
+     * that host. Refusing is the correct response to both.
+     *
+     * <p>TLS is the JDK default, which means certificate and hostname
+     * verification against the platform trust store, TLS 1.2 minimum and TLS 1.3
+     * preferred. The launcher deliberately installs no custom
+     * {@code SSLContext}, no custom {@code TrustManager} and no hostname-verifier
+     * override anywhere - the commonest way a desktop client ends up accepting a
+     * proxy's certificate is a developer switching one of those off during
+     * debugging and shipping it.
+     */
+    private Http() {
+    }
+
+    public static HttpClient client() {
+        return client;
+    }
+
+    /** How the launcher is currently routed. */
+    public static ProxyChoice proxy() {
+        return proxy;
+    }
+
+    /**
+     * Points every request at a proxy, or at none.
+     *
+     * <h2>What a proxy can and cannot see</h2>
+     *
+     * <p>Everything the launcher fetches is HTTPS, and an HTTP proxy carries
+     * HTTPS by opening a tunnel: it is told a host and a port and then forwards
+     * bytes it cannot read. So the proxy learns which hosts the launcher talks
+     * to and nothing else - not a Microsoft token, not a skin-service password,
+     * not the contents of any download. That is not a claim about the proxy's
+     * good behaviour; it is the shape of the connection. The launcher installs
+     * no custom trust manager and no hostname-verifier override anywhere, so a
+     * proxy that tried to read the tunnel by presenting its own certificate
+     * would fail verification rather than succeed quietly.
+     *
+     * <p>The one thing that does go to the proxy is the proxy's own username
+     * and password, if it needs them - to the party that issued them.
+     *
+     * @param password the proxy password, or null. Held for the life of the
+     *                 process only; it is written to the credential store by the
+     *                 caller, never to a settings file
+     */
+    public static synchronized void useProxy(ProxyChoice choice, String password) {
+        proxy = choice == null ? ProxyChoice.system() : choice;
+
+        if (proxy.wantsAuthentication() && password != null && !password.isEmpty()) {
+            java.net.PasswordAuthentication credentials =
+                    new java.net.PasswordAuthentication(proxy.user(), password.toCharArray());
+            proxyAuthenticator = new java.net.Authenticator() {
+                @Override
+                protected java.net.PasswordAuthentication getPasswordAuthentication() {
+                    // Only ever to the proxy. A server that answers 401 gets
+                    // nothing from here: the launcher's own credentials go in
+                    // headers it sets deliberately, and answering a challenge
+                    // from an arbitrary host with the proxy password would hand
+                    // it to whoever asked.
+                    return getRequestorType() == RequestorType.PROXY
+                            ? credentials : null;
+                }
+            };
+            // Basic over a CONNECT tunnel is refused by default, because it
+            // shows the proxy password to the proxy in near-plain form. Here
+            // that is the intended recipient and the password it already
+            // issued, and without this a proxy that only offers Basic cannot be
+            // used at all. Enabled only when there is a proxy password to send.
+            allowTunnelledBasic();
+        } else {
+            proxyAuthenticator = null;
+        }
+
+        client = buildClient(HttpClient.Redirect.NORMAL);
+        authClient = buildClient(HttpClient.Redirect.NEVER);
+    }
+
+    private static HttpClient buildClient(HttpClient.Redirect redirects) {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(CONNECT_TIMEOUT)
+                .followRedirects(redirects);
+
+        ProxyChoice choice = proxy;
+        switch (choice.mode()) {
+            case DIRECT -> builder.proxy(HttpClient.Builder.NO_PROXY);
+            case MANUAL -> {
+                if (choice.isUsable()) {
+                    builder.proxy(java.net.ProxySelector.of(
+                            new java.net.InetSocketAddress(choice.host(), choice.port())));
+                } else {
+                    // Half-typed settings must not silently become "direct" on
+                    // a network where direct does not work: that reads as the
+                    // proxy being ignored. The system route is the honest
+                    // fallback, and the settings window refuses to save this.
+                    builder.proxy(java.net.ProxySelector.getDefault());
+                }
+            }
+            case SYSTEM -> {
+                // The operating system's own settings, the same ones the
+                // browsers on this machine use, plus the -Dhttp.proxyHost family
+                // when the launcher was started with it.
+                System.setProperty("java.net.useSystemProxies", "true");
+                builder.proxy(java.net.ProxySelector.getDefault());
+            }
+        }
+
+        java.net.Authenticator authenticator = proxyAuthenticator;
+        if (authenticator != null) {
+            builder.authenticator(authenticator);
+        }
+        return builder.build();
+    }
+
+    private static void allowTunnelledBasic() {
+        String disabled = System.getProperty("jdk.http.auth.tunneling.disabledSchemes", "Basic");
+        if (!disabled.isBlank()) {
+            System.setProperty("jdk.http.auth.tunneling.disabledSchemes", "");
+        }
+    }
+
+    /**
+     * Attaches headers to every request whose host {@code matches}.
+     *
+     * <p>Scoped by host on purpose: a credential must reach the one service it
+     * belongs to and no other. An explicit header passed to a call always wins,
+     * so a caller can still override.
+     */
+    public static void registerHostHeaders(Predicate<String> matches,
+                                           Supplier<Map<String, String>> headers) {
+        HOST_HEADERS.add(new HostHeaders(matches, headers));
+    }
+
+    /** Drops every host header rule. For the self-check only. */
+    public static void clearHostHeaders() {
+        HOST_HEADERS.clear();
+    }
+
+    /**
+     * The host headers that would be sent to one URI.
+     *
+     * <p>Public because it is the only way to assert the property that matters:
+     * that a credential registered for one service reaches that service's hosts
+     * and no others. The self-check does exactly that.
+     */
+    public static Map<String, String> hostHeadersFor(URI uri) {
+        String host = uri.getHost();
+        if (host == null || HOST_HEADERS.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> headers = new LinkedHashMap<>();
+        for (HostHeaders entry : HOST_HEADERS) {
+            if (entry.matches().test(host)) {
+                headers.putAll(entry.headers().get());
+            }
+        }
+        return headers;
+    }
+
+    /**
+     * Rejects anything that is not HTTPS.
+     *
+     * <p>Called on every authentication endpoint. Mojang's version metadata
+     * still contains a handful of {@code http://} library URLs, so this cannot
+     * be a blanket rule for downloads - those are covered by the SHA-1 in the
+     * manifest instead - but a token must never travel in clear text, and a
+     * mistyped constant is exactly how that happens.
+     */
+    public static String requireHttps(String url) throws IOException {
+        URI uri = URI.create(url);
+        if (!"https".equalsIgnoreCase(uri.getScheme())) {
+            throw new IOException("refusing to send credentials over a non-HTTPS URL: " + uri.getHost());
+        }
+        return url;
+    }
+
+    /** A non-2xx response that should surface to the caller rather than be retried. */
+    /**
+     * The host was never reached: no DNS, no route, or the connection was
+     * refused.
+     *
+     * <p>Its own type because it is the one network failure a caller can
+     * sensibly act on rather than report. "Fabric's meta service answered 503"
+     * has to be surfaced; "there is no internet" is something the launcher
+     * should already have avoided needing, and where it could not, it can at
+     * least say so in those words.
+     */
+    public static final class OfflineException extends IOException {
+
+        private final String host;
+
+        OfflineException(String host, Throwable cause) {
+            super(describe(host, cause), cause);
+            this.host = host;
+        }
+
+        /** The host that could not be reached. */
+        public String host() {
+            return host;
+        }
+
+        /**
+         * Why it could not be reached, in words that point somewhere.
+         *
+         * <p>"There is no internet connection" was one sentence for three very
+         * different situations, and it is wrong for the commonest of them. A
+         * connection that is dropped rather than refused - a firewall, an
+         * antivirus that filters TLS, a provider blocking a host - looks exactly
+         * like a timeout, and telling somebody with a working connection that
+         * they have none sends them to check the wrong thing.
+         */
+        private static String describe(String host, Throwable cause) {
+            if (isCausedBy(cause, java.net.http.HttpConnectTimeoutException.class)) {
+                return "the launcher cannot reach " + host + " - it did not answer within "
+                        + CONNECT_TIMEOUT.toSeconds() + " seconds. Either this computer is offline,"
+                        + " or something between it and that host is blocking the connection:"
+                        + " a firewall, an antivirus, a VPN, or the internet provider";
+            }
+            // Both, because the two look nothing alike from here and mean the
+            // same thing: the JDK's HTTP client reports a name it could not
+            // resolve as a ConnectException wrapping UnresolvedAddressException,
+            // and only the plain socket path throws UnknownHostException. Test
+            // for one and every DNS failure is reported as a refused connection.
+            if (isCausedBy(cause, java.net.UnknownHostException.class)
+                    || isCausedBy(cause, java.nio.channels.UnresolvedAddressException.class)) {
+                return "the launcher cannot reach " + host + " - that name could not be looked up."
+                        + " The computer is offline, or its DNS server is not answering";
+            }
+            return "the launcher cannot reach " + host
+                    + " - the connection was refused, or there is no route to it";
+        }
+    }
+
+    public static final class HttpStatusException extends IOException {
+        private final int statusCode;
+        private final String uri;
+        private final String body;
+
+        public HttpStatusException(int statusCode, String uri, String body) {
+            // The body is scrubbed before it reaches the message. Error responses
+            // from the Xbox and Minecraft endpoints routinely echo back tokens,
+            // and this message ends up in the launcher log and in stack traces.
+            super("HTTP " + statusCode + " for " + uri
+                    + (body == null || body.isBlank() ? "" : ": " + truncate(Redactor.scrub(body))));
+            this.statusCode = statusCode;
+            this.uri = uri;
+            this.body = body;
+        }
+
+        public int statusCode() {
+            return statusCode;
+        }
+
+        public String uri() {
+            return uri;
+        }
+
+        public String body() {
+            return body == null ? "" : body;
+        }
+
+        private static String truncate(String s) {
+            return s.length() <= 500 ? s : s.substring(0, 500) + "...";
+        }
+    }
+
+    // ---------------------------------------------------------------- GET
+
+    public static String getString(String url) throws IOException, InterruptedException {
+        return getString(url, Map.of());
+    }
+
+    public static String getString(String url, Map<String, String> headers) throws IOException, InterruptedException {
+        HttpResponse<String> response = send(
+                requestBuilder(url, headers).GET().build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        return response.body();
+    }
+
+    public static Json getJson(String url) throws IOException, InterruptedException {
+        return getJson(url, Map.of());
+    }
+
+    public static Json getJson(String url, Map<String, String> headers) throws IOException, InterruptedException {
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Accept", "application/json");
+        return Json.parse(getString(url, merged));
+    }
+
+    public static byte[] getBytes(String url) throws IOException, InterruptedException {
+        return send(requestBuilder(url, Map.of()).GET().build(),
+                HttpResponse.BodyHandlers.ofByteArray()).body();
+    }
+
+    /**
+     * Streams a response body. The caller owns the stream and must close it.
+     * Used by the downloader so large jars never sit in the heap.
+     *
+     * <h2>This is the path the bytes take</h2>
+     *
+     * <p>Every jar, every asset object, every version manifest comes through
+     * here - thousands of requests in one install, against the whole of the
+     * traffic this class handles. It used to be the only path with no retry and
+     * no offline classification at all: one {@code send}, and whatever came back
+     * was the answer. So a single dropped connection failed a file, and a
+     * blocked host produced a raw {@code "HTTP connect timed out"} instead of a
+     * sentence naming the host.
+     *
+     * <p>Now it follows the same policy as everything else. What retry cannot
+     * cover is a transfer that dies after the stream is handed over - the caller
+     * owns it by then - so the downloader keeps its own loop around this for
+     * that case.
+     */
+    public static InputStream openStream(String url) throws IOException, InterruptedException {
+        HttpRequest request = requestBuilder(url, Map.of()).GET().build();
+        IOException lastFailure = null;
+
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            HttpResponse<InputStream> response;
+            try {
+                response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            } catch (IOException e) {
+                lastFailure = e;
+                if (attempt == MAX_ATTEMPTS || isUnreachable(e)) {
+                    break;
+                }
+                sleepBackoff(attempt, null);
+                continue;
+            }
+
+            int status = response.statusCode();
+            if (status / 100 == 2) {
+                return response.body();
+            }
+            response.body().close();
+            if (isRetryableStatus(status) && attempt < MAX_ATTEMPTS) {
+                sleepBackoff(attempt, response);
+                continue;
+            }
+            throw new HttpStatusException(status, url, "");
+        }
+
+        if (isUnreachable(lastFailure)) {
+            throw new OfflineException(URI.create(url).getHost(), lastFailure);
+        }
+        throw new IOException("request to " + url + " failed after " + MAX_ATTEMPTS + " attempts",
+                lastFailure);
+    }
+
+    // ---------------------------------------------------------------- POST
+
+    public static Json postJson(String url, Json body, Map<String, String> headers)
+            throws IOException, InterruptedException {
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Content-Type", "application/json");
+        merged.putIfAbsent("Accept", "application/json");
+        HttpResponse<String> response = send(
+                requestBuilder(url, merged)
+                        .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        return Json.parse(response.body());
+    }
+
+    public static Json postForm(String url, Map<String, String> form, Map<String, String> headers)
+            throws IOException, InterruptedException {
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Content-Type", "application/x-www-form-urlencoded");
+        merged.putIfAbsent("Accept", "application/json");
+        HttpResponse<String> response = send(
+                requestBuilder(url, merged)
+                        .POST(HttpRequest.BodyPublishers.ofString(encodeForm(form), StandardCharsets.UTF_8))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        return Json.parse(response.body());
+    }
+
+    /**
+     * POST that returns the raw response even on a non-2xx status.
+     * The OAuth device-code endpoint signals "still pending" with HTTP 400 and a
+     * JSON error body, so that case must not be thrown away.
+     */
+    public static HttpResponse<String> postFormRaw(String url, Map<String, String> form, Map<String, String> headers)
+            throws IOException, InterruptedException {
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Content-Type", "application/x-www-form-urlencoded");
+        merged.putIfAbsent("Accept", "application/json");
+        return client.send(
+                requestBuilder(url, merged)
+                        .POST(HttpRequest.BodyPublishers.ofString(encodeForm(form), StandardCharsets.UTF_8))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    // ------------------------------------------------- authentication requests
+
+    /**
+     * POST a form to an authentication endpoint.
+     *
+     * <p>HTTPS is enforced, redirects are refused, and the request is not
+     * retried: replaying a token exchange or a device-code poll is not
+     * idempotent, and a retry of a refresh-token grant against a server that
+     * rotates refresh tokens can invalidate the account.
+     */
+    public static HttpResponse<String> authPostForm(String url, Map<String, String> form,
+                                                    Map<String, String> headers)
+            throws IOException, InterruptedException {
+        requireHttps(url);
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Content-Type", "application/x-www-form-urlencoded");
+        merged.putIfAbsent("Accept", "application/json");
+        return authClient.send(
+                requestBuilder(url, merged)
+                        .POST(HttpRequest.BodyPublishers.ofString(encodeForm(form), StandardCharsets.UTF_8))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    /** POST JSON to an authentication endpoint. Throws on any non-2xx status. */
+    public static Json authPostJson(String url, Json body, Map<String, String> headers)
+            throws IOException, InterruptedException {
+        requireHttps(url);
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Content-Type", "application/json");
+        merged.putIfAbsent("Accept", "application/json");
+        HttpResponse<String> response = authClient.send(
+                requestBuilder(url, merged)
+                        .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() / 100 != 2) {
+            throw new HttpStatusException(response.statusCode(), url, response.body());
+        }
+        return Json.parse(response.body());
+    }
+
+    /** GET from an authentication endpoint, with a bearer token. */
+    public static Json authGetJson(String url, Map<String, String> headers)
+            throws IOException, InterruptedException {
+        requireHttps(url);
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Accept", "application/json");
+        HttpResponse<String> response = authClient.send(
+                requestBuilder(url, merged).GET().build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() / 100 != 2) {
+            throw new HttpStatusException(response.statusCode(), url, response.body());
+        }
+        return Json.parse(response.body());
+    }
+
+    /**
+     * Sends a body with a method the small helpers above do not cover, over an
+     * authenticated connection, and returns the response only when it succeeded.
+     *
+     * <p>Used for the Minecraft profile API, which changes a skin with a
+     * multipart POST and a cape with PUT and DELETE. HTTPS is enforced and the
+     * request is not retried, for the same reason as the other authenticated
+     * calls: repeating a write is not the same as repeating a read.
+     */
+    public static String authSend(String method, String url, byte[] body,
+                                  Map<String, String> headers)
+            throws IOException, InterruptedException {
+        requireHttps(url);
+        Map<String, String> merged = new LinkedHashMap<>(headers);
+        merged.putIfAbsent("Accept", "application/json");
+        HttpRequest.BodyPublisher publisher = body == null
+                ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofByteArray(body);
+        HttpResponse<String> response = authClient.send(
+                requestBuilder(url, merged).method(method, publisher).build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (response.statusCode() / 100 != 2) {
+            throw new HttpStatusException(response.statusCode(), url, response.body());
+        }
+        return response.body();
+    }
+
+    public static String encodeForm(Map<String, String> form) {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> e : form.entrySet()) {
+            if (sb.length() > 0) {
+                sb.append('&');
+            }
+            sb.append(java.net.URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8));
+            sb.append('=');
+            sb.append(java.net.URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8));
+        }
+        return sb.toString();
+    }
+
+    // ---------------------------------------------------------------- plumbing
+
+    private static HttpRequest.Builder requestBuilder(String url, Map<String, String> headers) {
+        URI uri = URI.create(url);
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
+                .timeout(REQUEST_TIMEOUT)
+                .header("User-Agent", USER_AGENT);
+        headers.forEach(builder::header);
+        // Added second, and only where the caller said nothing: HttpRequest.header
+        // appends rather than replaces, and a request carrying the same
+        // credential header twice is rejected by some services.
+        hostHeadersFor(uri).forEach((name, value) -> {
+            if (!headers.containsKey(name)) {
+                builder.header(name, value);
+            }
+        });
+        return builder;
+    }
+
+    private static <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> handler)
+            throws IOException, InterruptedException {
+        IOException lastFailure = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                HttpResponse<T> response = client.send(request, handler);
+                int status = response.statusCode();
+                if (status / 100 == 2) {
+                    return response;
+                }
+                String body = response.body() instanceof String s ? s : "";
+                if (isRetryableStatus(status) && attempt < MAX_ATTEMPTS) {
+                    sleepBackoff(attempt, response);
+                    continue;
+                }
+                throw new HttpStatusException(status, request.uri().toString(), body);
+            } catch (HttpStatusException e) {
+                throw e;
+            } catch (IOException e) {
+                lastFailure = e;
+                if (attempt == MAX_ATTEMPTS || isUnreachable(e)) {
+                    break;
+                }
+                sleepBackoff(attempt, null);
+            }
+        }
+        if (isUnreachable(lastFailure)) {
+            // Not retried to the end, and not reported as a request that failed
+            // four times: there is nothing to retry and nothing the launcher
+            // did wrong. Callers that can carry on without this request - a
+            // launch of something already installed - test for this type.
+            throw new OfflineException(request.uri().getHost(), lastFailure);
+        }
+        throw new IOException("request to " + request.uri() + " failed after " + MAX_ATTEMPTS + " attempts",
+                lastFailure);
+    }
+
+    /**
+     * Whether a failure means the host was never reached at all.
+     *
+     * <p>These four are the shape of "no network": no DNS answer, a refused or
+     * unanswered connection, no route, and a connection attempt that ran out of
+     * time. None of them is transient in the way a 503 is, so retrying them
+     * three more times only makes the user wait longer for the same answer. A
+     * read that dies mid-transfer is a different thing and is still retried.
+     *
+     * <p>The timeout is the one that was missing, and it is the one that matters
+     * most in practice. A network that refuses a connection sends something
+     * back; a network that <em>drops</em> it sends nothing, and the client waits
+     * out the clock - which is what a firewall, a filtering antivirus and a
+     * blocked host all look like from here. Without it those failures were
+     * retried four times, taking four times as long to arrive, and then
+     * reported as "HTTP connect timed out" - a sentence with no host in it and
+     * no idea what to do about it.
+     *
+     * <p>Deliberately narrow: {@link java.net.http.HttpConnectTimeoutException}
+     * only, not its parent. The parent also covers a request that ran past the
+     * response timeout, which means a host that answered and then stalled -
+     * transient, and worth retrying.
+     */
+    public static boolean isUnreachable(IOException failure) {
+        for (Throwable cause : chain(failure)) {
+            if (cause instanceof java.net.UnknownHostException
+                    || cause instanceof java.net.ConnectException
+                    || cause instanceof java.net.NoRouteToHostException
+                    || cause instanceof java.net.http.HttpConnectTimeoutException
+                    || cause instanceof java.nio.channels.UnresolvedAddressException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isCausedBy(Throwable failure, Class<? extends Throwable> type) {
+        for (Throwable cause : chain(failure)) {
+            if (type.isInstance(cause)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A cause chain, walked safely.
+     *
+     * <p>Bounded rather than guarded against self-reference. A chain can be
+     * circular without any link pointing at itself - two exceptions each given
+     * the other as a cause is enough, and a wrapper that does that turns a
+     * question about a failure into a hang. Real chains are a handful deep, so a
+     * cap costs nothing and cannot be got wrong.
+     */
+    private static List<Throwable> chain(Throwable failure) {
+        List<Throwable> causes = new java.util.ArrayList<>(CAUSE_DEPTH);
+        Throwable cause = failure;
+        while (cause != null && causes.size() < CAUSE_DEPTH) {
+            causes.add(cause);
+            cause = cause.getCause();
+        }
+        return causes;
+    }
+
+    /** Deeper than any real cause chain, shallower than any loop can hide in. */
+    private static final int CAUSE_DEPTH = 16;
+
+    private static boolean isRetryableStatus(int status) {
+        return status == 408 || status == 429 || status == 500 || status == 502 || status == 503 || status == 504;
+    }
+
+    private static void sleepBackoff(int attempt, HttpResponse<?> response) throws InterruptedException {
+        long millis = 400L * (1L << (attempt - 1));
+        if (response != null) {
+            // Honour Retry-After when the server sends one (Modrinth and CurseForge do).
+            long retryAfter = response.headers().firstValue("Retry-After")
+                    .map(v -> {
+                        try {
+                            return Long.parseLong(v.trim()) * 1000L;
+                        } catch (NumberFormatException e) {
+                            return 0L;
+                        }
+                    }).orElse(0L);
+            millis = Math.max(millis, retryAfter);
+        }
+        Thread.sleep(Math.min(millis, 30_000L));
+    }
+}

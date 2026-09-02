@@ -1,0 +1,230 @@
+/*
+ * HexadronLauncher - a Minecraft launcher, and the Hexadron Optimise mod.
+ * Copyright (c) 2026 OLEKSII RADCHUK (SAN4EZDREAMS). All rights reserved.
+ *
+ * Licensed for noncommercial use only. You may use, study, share and improve
+ * this software; you may not sell it, and you may not remove, alter or obscure
+ * this notice or the authorship it records. Full terms: LICENSE.md in the
+ * project root. Provided without any warranty.
+ *
+ * SPDX-License-Identifier: LicenseRef-Hexadron-NC-1.0
+ */
+
+package com.hexadron.launcher.core;
+
+import com.hexadron.launcher.util.Platform;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Locale;
+
+/**
+ * Canonical on-disk layout.
+ *
+ * <p>Deliberately mirrors the official launcher's shared-store layout so that
+ * artifacts are downloaded once and reused by every profile:
+ *
+ * <pre>
+ * &lt;root&gt;/
+ *   launcher.json            launcher settings
+ *   accounts.json            saved accounts (owner-readable only; see AccountStore)
+ *   profiles.json            profile/instance definitions
+ *   versions/&lt;id&gt;/&lt;id&gt;.json  one version manifest per installed version
+ *   versions/&lt;id&gt;/&lt;id&gt;.jar   client jar
+ *   libraries/&lt;maven path&gt;   shared library store
+ *   assets/indexes/&lt;id&gt;.json
+ *   assets/objects/&lt;xx&gt;/&lt;hash&gt;
+ *   assets/virtual/&lt;id&gt;/     materialised assets for pre-1.7 versions
+ *   natives/&lt;id&gt;/            extracted native libraries per version
+ *   java/&lt;component&gt;/        launcher-managed Java runtimes
+ *   instances/&lt;profile&gt;/     per-profile game directory (mods, saves, config)
+ *   cache/                   metadata cache
+ * </pre>
+ *
+ * <p>Each profile gets its own game directory under {@code instances/} so that
+ * a Fabric 26.2 profile and a NeoForge 26.1 profile cannot corrupt each other's
+ * mods, configs or worlds.
+ */
+public final class GameDirs {
+
+    private final Path root;
+
+    public GameDirs(Path root) {
+        this.root = root.toAbsolutePath().normalize();
+    }
+
+    /** Default root, following each platform's convention for application data. */
+    public static GameDirs defaultDirs() {
+        return new GameDirs(defaultRoot());
+    }
+
+    public static Path defaultRoot() {
+        String override = System.getProperty("hexadron.root");
+        if (override != null && !override.isBlank()) {
+            return Paths.get(override);
+        }
+        String home = System.getProperty("user.home", ".");
+        return switch (Platform.os()) {
+            case WINDOWS -> {
+                String appData = System.getenv("APPDATA");
+                Path base = (appData == null || appData.isBlank()) ? Paths.get(home) : Paths.get(appData);
+                yield base.resolve(".hexadronlauncher");
+            }
+            case OSX -> Paths.get(home, "Library", "Application Support", "hexadronlauncher");
+            case LINUX -> {
+                String xdg = System.getenv("XDG_DATA_HOME");
+                Path base = (xdg == null || xdg.isBlank()) ? Paths.get(home, ".local", "share") : Paths.get(xdg);
+                yield base.resolve("hexadronlauncher");
+            }
+        };
+    }
+
+    public Path root() {
+        return root;
+    }
+
+    public Path settingsFile() {
+        return root.resolve("launcher.json");
+    }
+
+    public Path accountsFile() {
+        return root.resolve("accounts.json");
+    }
+
+    public Path profilesFile() {
+        return root.resolve("profiles.json");
+    }
+
+    public Path versions() {
+        return root.resolve("versions");
+    }
+
+    public Path versionDir(String versionId) {
+        return versions().resolve(versionId);
+    }
+
+    public Path versionJson(String versionId) {
+        return versionDir(versionId).resolve(versionId + ".json");
+    }
+
+    public Path versionJar(String versionId) {
+        return versionDir(versionId).resolve(versionId + ".jar");
+    }
+
+    public Path libraries() {
+        return root.resolve("libraries");
+    }
+
+    /** Absolute path of a library given its repository-relative path. */
+    public Path library(String relativePath) {
+        return libraries().resolve(relativePath.replace('/', java.io.File.separatorChar));
+    }
+
+    public Path assets() {
+        return root.resolve("assets");
+    }
+
+    public Path assetIndexes() {
+        return assets().resolve("indexes");
+    }
+
+    public Path assetIndexFile(String indexId) {
+        return assetIndexes().resolve(indexId + ".json");
+    }
+
+    public Path assetObjects() {
+        return assets().resolve("objects");
+    }
+
+    /** Object store path for a content hash: {@code objects/<first two hex chars>/<hash>}. */
+    public Path assetObject(String hash) {
+        String normalised = hash.toLowerCase(Locale.ROOT);
+        return assetObjects().resolve(normalised.substring(0, 2)).resolve(normalised);
+    }
+
+    /** Materialised asset tree used by pre-1.7 versions ("virtual" asset indexes). */
+    public Path virtualAssets(String indexId) {
+        return assets().resolve("virtual").resolve(indexId);
+    }
+
+    public Path natives(String versionId) {
+        return root.resolve("natives").resolve(versionId);
+    }
+
+    public Path javaRuntimes() {
+        return root.resolve("java");
+    }
+
+    public Path javaRuntime(String component) {
+        return javaRuntimes().resolve(component);
+    }
+
+    public Path instances() {
+        return root.resolve("instances");
+    }
+
+    public Path instance(String profileId) {
+        return instances().resolve(profileId);
+    }
+
+    /**
+     * User-supplied profile icons.
+     *
+     * <p>Chosen pictures are copied in here rather than referred to where they
+     * were found, so an icon survives the original being renamed, deleted or
+     * unplugged, and so the launcher never has to read a path out of
+     * profiles.json and open whatever it points at.
+     */
+    public Path icons() {
+        return root.resolve("icons");
+    }
+
+    /**
+     * Skins and capes the user chose, and the record of who wears what.
+     *
+     * <p>Copied in here for the same reasons as profile icons: a skin outlives
+     * the file it was picked from, two accounts wearing the same picture share
+     * one copy, and nothing in a settings file is ever a path the launcher
+     * opens. It is also what the local skin service reads from, so it has to be
+     * somewhere the launcher owns rather than somewhere the user pointed at.
+     */
+    public Path skins() {
+        return root.resolve("skins");
+    }
+
+    /** Who wears what: account id to skin, cape and model. */
+    public Path skinsFile() {
+        return skins().resolve("skins.json");
+    }
+
+    /**
+     * Java agents the launcher attaches to the game.
+     *
+     * <p>Only one so far, the skin agent. Its own directory rather than the
+     * cache because deleting it is not free - it has to be fetched again - and
+     * because a folder called "agents" is a readable answer to "what is this
+     * launcher adding to my JVM".
+     */
+    public Path agents() {
+        return root.resolve("agents");
+    }
+
+    public Path cache() {
+        return root.resolve("cache");
+    }
+
+    public Path logs() {
+        return root.resolve("logs");
+    }
+
+    /** Creates the directories that must exist before anything else runs. */
+    public GameDirs createBaseDirectories() throws IOException {
+        for (Path p : new Path[]{root, versions(), libraries(), assetIndexes(), assetObjects(),
+                instances(), cache(), logs(), javaRuntimes(), skins()}) {
+            Files.createDirectories(p);
+        }
+        return this;
+    }
+}

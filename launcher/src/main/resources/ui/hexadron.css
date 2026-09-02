@@ -1,0 +1,1746 @@
+/*
+ * HexadronLauncher - a Minecraft launcher, and the Hexadron Optimise mod.
+ * Copyright (c) 2026 OLEKSII RADCHUK (SAN4EZDREAMS). All rights reserved.
+ *
+ * Licensed for noncommercial use only. You may use, study, share and improve
+ * this software; you may not sell it, and you may not remove, alter or obscure
+ * this notice or the authorship it records. Full terms: LICENSE.md in the
+ * project root. Provided without any warranty.
+ *
+ * SPDX-License-Identifier: LicenseRef-Hexadron-NC-1.0
+ */
+
+/*
+ * HexadronLauncher theme.
+ *
+ * A dark surface is the default in every launcher people compare this one to,
+ * and it is the right default for a window that sits next to a full-screen
+ * game: a white panel behind an alt-tab is a flashbang at night.
+ *
+ * Colours are defined once, at the root, and referenced by name. Changing the
+ * accent means editing one line rather than hunting for hex codes.
+ */
+
+.root {
+    -fx-base-0: #14161a;   /* window background */
+    -fx-base-1: #1b1e24;   /* panels */
+    -fx-base-2: #23272f;   /* controls */
+    -fx-base-3: #2f343d;   /* borders, hover */
+    -fx-text-0: #e6e8ec;   /* primary text */
+    /* Secondary text: notes under a control, subtitles, hints. Lifted from
+       #9aa2b1, which cleared the contrast threshold on paper and still read as
+       switched-off on a real screen - these are whole sentences of explanation,
+       not decoration, and the ones worth reading are the ones that were faded
+       the most. */
+    -fx-text-1: #aab3c2;   /* secondary text */
+    -fx-accent-0: #2d7d46; /* Minecraft green, for the one action that matters */
+    -fx-accent-1: #359152;
+    -fx-danger-0: #b3403a;
+    /* Amber, for a mod something else is standing on. Not red: nothing is
+       broken yet, and this is the one badge whose whole job is to be noticed
+       before a button is pressed rather than after. */
+    -fx-warning-0: #d8a13c;
+
+    /* Overridden per cell by the view, from the cell's group. Declared here so
+       that a cell in no group still resolves it instead of raising a CSS error. */
+    -fx-group-tint: #23272f;
+
+    -fx-background-color: -fx-base-0;
+    -fx-font-family: "Segoe UI", "Inter", "Noto Sans", sans-serif;
+    -fx-font-size: 13px;
+    -fx-text-fill: -fx-text-0;
+}
+
+.label {
+    -fx-text-fill: -fx-text-0;
+}
+
+.muted {
+    -fx-text-fill: -fx-text-1;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.header {
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: transparent transparent -fx-base-3 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 10 14 10 14;
+}
+
+.header .brand {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+}
+
+.header .brand-mark {
+    -fx-background-color: -fx-accent-0;
+    -fx-background-radius: 8;
+    -fx-min-width: 28;
+    -fx-min-height: 28;
+    -fx-max-width: 28;
+    -fx-max-height: 28;
+    -fx-alignment: center;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
+/* ------------------------------------------------------------------ sidebar */
+
+.sidebar {
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: transparent -fx-base-3 transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 12;
+}
+
+.section-title {
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.list-view {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.list-view .list-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 8 10 8 10;
+    -fx-background-radius: 8;
+}
+
+.list-view .list-cell:filled:hover {
+    -fx-background-color: -fx-base-2;
+}
+
+.list-view .list-cell:filled:selected {
+    -fx-background-color: -fx-base-3;
+}
+
+.instance-name {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.instance-subtitle {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-1;
+}
+
+/* ------------------------------------------------------------------ detail */
+
+.detail {
+    -fx-padding: 18 20 18 20;
+}
+
+.detail-title {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+}
+
+.detail-subtitle {
+    -fx-font-size: 12px;
+    -fx-text-fill: -fx-text-1;
+}
+
+/* A plate under the instance picture, so a transparent or pixel-art icon has
+   an edge of its own instead of floating on the panel background. */
+.detail-icon {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 12;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 6;
+}
+
+.summary {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 10;
+    -fx-padding: 14;
+}
+
+.summary .form-label,
+.form .form-label {
+    -fx-text-fill: -fx-text-1;
+}
+
+.summary-value {
+    -fx-text-fill: -fx-text-0;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+.button {
+    -fx-background-color: -fx-base-2;
+    -fx-text-fill: -fx-text-0;
+    -fx-background-radius: 8;
+    -fx-padding: 7 14 7 14;
+    -fx-cursor: hand;
+}
+
+.button:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+.button:disabled {
+    -fx-opacity: 0.45;
+}
+
+.button.primary {
+    -fx-background-color: -fx-accent-0;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-font-size: 15px;
+    -fx-padding: 10 34 10 34;
+}
+
+.button.primary:hover {
+    -fx-background-color: -fx-accent-1;
+}
+
+.button.danger:hover {
+    -fx-background-color: -fx-danger-0;
+}
+
+.text-field, .combo-box, .text-area {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-text-fill: -fx-text-0;
+    -fx-prompt-text-fill: -fx-text-1;
+    -fx-border-color: transparent;
+}
+
+.text-field, .combo-box {
+    -fx-padding: 6 10 6 10;
+}
+
+.text-field:focused, .combo-box:focused {
+    -fx-border-color: -fx-accent-0;
+    -fx-border-radius: 8;
+}
+
+/*
+ * Menu buttons and their popups.
+ *
+ * They had no rule at all, so JavaFX drew them from its own light theme - a
+ * white field with white text on it, which is a control whose label cannot be
+ * read at all. The rules below are the combo box's, because to a reader the two
+ * are the same control: a box that says what is chosen and opens a list.
+ */
+.menu-button {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-padding: 6 10 6 10;
+    -fx-border-color: transparent;
+    -fx-text-fill: -fx-text-0;
+}
+
+.menu-button > .label {
+    -fx-text-fill: -fx-text-0;
+}
+
+.menu-button:hover, .menu-button:showing {
+    -fx-background-color: -fx-base-3;
+}
+
+.menu-button:focused {
+    -fx-border-color: -fx-accent-0;
+    -fx-border-radius: 8;
+}
+
+.menu-button > .arrow-button > .arrow {
+    -fx-background-color: -fx-text-1;
+}
+
+.context-menu {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 4;
+}
+
+.context-menu .menu-item .label {
+    -fx-text-fill: -fx-text-0;
+}
+
+.context-menu .menu-item:focused {
+    -fx-background-color: -fx-base-3;
+    -fx-background-radius: 6;
+}
+
+/*
+ * The settings tabs scroll.
+ *
+ * A tab pane clips a tab that is taller than it is and offers no way to reach
+ * the rest, so the last note on the longest tab was cut through the middle of a
+ * line. The scroller has no surface of its own: the tab behind it is the panel,
+ * and a second background here would draw a lighter rectangle over it.
+ */
+.settings-scroll,
+.settings-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.settings-scroll {
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+    -fx-border-color: transparent;
+}
+
+/* The category filter's panel: one grid of tick boxes rather than nineteen menu
+   items, in two columns, because nineteen in one column is a popup taller than
+   the window it drops out of - and a popup is its own window, so nothing stops
+   it running off the bottom of the screen. */
+.category-panel {
+    -fx-padding: 4 2 2 2;
+}
+
+/*
+ * Two columns, everything on screen, nothing to scroll.
+ *
+ * The names are not shortened here either, and that was the other half of the
+ * same fault: a scrolling list is fitted to its viewport - the scroller less
+ * the bar down its side - so the longest names lost their last letters to an
+ * ellipsis ("Ігрові механі..."). A grid takes the width its widest name asks
+ * for.
+ */
+.category-list {
+    -fx-padding: 2;
+}
+
+/* One item covers the whole panel, so the menu's own highlight would light all
+   of it up at once whenever the pointer was anywhere inside. The rows below
+   light themselves. */
+.category-item:focused,
+.context-menu .menu-item.category-item:focused {
+    -fx-background-color: transparent;
+}
+
+.category-list > .check-box {
+    -fx-padding: 3 6 3 6;
+    -fx-background-radius: 6;
+}
+
+.category-list > .check-box:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+/* Standing on -fx-base-2 - the popup's own colour - this button was a word with
+   no button around it, and its hover was the colour the rows highlight in. */
+.category-clear {
+    -fx-font-size: 11px;
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-padding: 5 12 5 12;
+}
+
+.category-clear:hover {
+    -fx-background-color: -fx-base-3;
+    -fx-border-color: -fx-accent-0;
+    -fx-text-fill: -fx-text-0;
+}
+
+.combo-box .list-cell {
+    -fx-text-fill: -fx-text-0;
+    -fx-background-color: transparent;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: -fx-base-2;
+}
+
+.text-area {
+    -fx-background-insets: 0;
+}
+
+.text-area .content {
+    -fx-background-color: -fx-base-1;
+}
+
+.check-box {
+    -fx-text-fill: -fx-text-0;
+}
+
+/* Radio buttons had no rule at all, so JavaFX drew them from its own light
+   theme: dark text on this window's dark panel, which is how a legible label
+   ends up unreadable while the note under it is fine. */
+.radio-button {
+    -fx-text-fill: -fx-text-0;
+}
+
+.radio-button .radio {
+    -fx-background-color: -fx-base-2;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 1em;
+    -fx-border-width: 1;
+    -fx-padding: 4;
+}
+
+.radio-button:hover .radio {
+    -fx-border-color: -fx-text-1;
+}
+
+.radio-button:selected .radio {
+    -fx-background-color: -fx-accent-0;
+    -fx-border-color: -fx-accent-1;
+}
+
+/* The dot. Painted in the button's own text colour so it stays visible on the
+   accent fill. */
+.radio-button .radio .dot {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 3;
+}
+
+.radio-button:selected .radio .dot {
+    -fx-background-color: white;
+}
+
+/*
+ * A tick box has to be visible before it is ticked.
+ *
+ * The rule this replaces filled the box with -fx-base-2, which is the colour of
+ * the panel the box sits on: an empty box drawn in the background colour is an
+ * empty box nobody can find. It is filled with the window colour now, which is
+ * darker than every surface a box appears on, and outlined, so the shape is
+ * there whether or not there is a mark in it.
+ *
+ * The mark is painted white on the accent fill for the same reason: modena
+ * draws it in its own dark ink, which on this green is a tick that has to be
+ * looked for.
+ */
+.check-box > .box {
+    -fx-background-color: -fx-base-0;
+    -fx-background-insets: 0;
+    -fx-background-radius: 4;
+    -fx-border-color: derive(-fx-text-1, -35%);
+    -fx-border-radius: 4;
+    -fx-border-width: 1;
+}
+
+.check-box:hover > .box {
+    -fx-border-color: -fx-text-1;
+}
+
+.check-box:selected > .box,
+.check-box:indeterminate > .box {
+    -fx-background-color: -fx-accent-0;
+    -fx-border-color: -fx-accent-1;
+}
+
+.check-box > .box > .mark {
+    -fx-background-color: transparent;
+}
+
+.check-box:selected > .box > .mark,
+.check-box:indeterminate > .box > .mark {
+    -fx-background-color: white;
+}
+
+.slider .track {
+    -fx-background-color: -fx-base-2;
+}
+
+.slider .thumb {
+    -fx-background-color: -fx-accent-0;
+}
+
+.progress-bar {
+    -fx-accent: -fx-accent-0;
+}
+
+.progress-bar .track {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 6;
+}
+
+.titled-pane > .title {
+    -fx-background-color: -fx-base-1;
+    -fx-text-fill: -fx-text-1;
+}
+
+.titled-pane > *.content {
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: -fx-base-3;
+}
+
+.separator .line {
+    -fx-border-color: -fx-base-3;
+}
+
+/* A control that is off still has to be readable: the text in it is what says
+   what turning it on would do. The platform default fades it to a third of its
+   contrast, which on a dark surface is close to invisible. */
+.text-field:disabled,
+.combo-box:disabled,
+.radio-button:disabled,
+.check-box:disabled,
+.button:disabled {
+    -fx-opacity: 0.72;
+}
+
+/* ------------------------------------------------------------ icon buttons */
+
+/*
+ * A button that is a shape rather than a word: square, quiet, and the same size
+ * whatever language the launcher is in.
+ */
+.icon-button {
+    -fx-padding: 6 8 6 8;
+    -fx-min-width: 34;
+    -fx-background-radius: 8;
+}
+
+/* The path takes its colour from here, so one rule covers the icon and its
+   states rather than the shape carrying a colour of its own. */
+.glyph {
+    -fx-fill: -fx-text-0;
+}
+
+.icon-button:hover .glyph {
+    -fx-fill: -fx-accent-1;
+}
+
+.icon-button:disabled .glyph {
+    -fx-fill: -fx-text-1;
+}
+
+/* ------------------------------------------------------------- about window */
+
+/* The mark, on the panel colour rather than floating on the window, so it reads
+   as a badge rather than as an image somebody pasted in. */
+.about-logo {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 16;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 16;
+    -fx-border-width: 1;
+    -fx-padding: 8;
+}
+
+.about-title {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.about-author {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-accent-1;
+}
+
+/* Group headings inside the list: quieter than a section title, because the
+   list is long and a row of loud headings turns it into a table of contents. */
+.about-group {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-1;
+    -fx-padding: 8 0 0 0;
+}
+
+/* A rule down the left of each credit, so the name and the line under it read
+   as one item without a box around every one of them. */
+.about-entry {
+    -fx-border-color: transparent transparent transparent -fx-base-3;
+    -fx-border-width: 0 0 0 2;
+    -fx-padding: 0 0 0 10;
+}
+
+.about-licence {
+    -fx-font-size: 11px;
+}
+
+.about-footer {
+    -fx-padding: 6 0 0 0;
+}
+
+/* Links look like links and nothing else: no focus ring box, no underline until
+   the pointer is on one. An underline on every name turns the list into noise. */
+.about-link {
+    -fx-text-fill: -fx-accent-1;
+    -fx-padding: 0;
+    -fx-border-color: transparent;
+    -fx-underline: false;
+}
+
+.about-link:hover {
+    -fx-underline: true;
+}
+
+.about-link:visited {
+    -fx-text-fill: -fx-accent-1;
+}
+
+/* ------------------------------------------------------------- scrollbars */
+
+/*
+ * Every scroller in the launcher, including the two views that had none of this
+ * and were drawing modena's light-grey bar down the side of a dark panel.
+ */
+.scroll-pane {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}
+
+.scroll-pane:focused {
+    -fx-background-insets: 0;
+}
+
+.scroll-pane > .corner {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar:horizontal,
+.scroll-bar:vertical {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 2;
+}
+
+.scroll-bar > .thumb {
+    -fx-background-color: -fx-base-3;
+    -fx-background-insets: 0;
+    -fx-background-radius: 5;
+}
+
+.scroll-bar > .thumb:hover {
+    -fx-background-color: derive(-fx-base-3, 25%);
+}
+
+/* The arrow buttons are removed rather than restyled: they are four pixels of
+   target that nobody aims at, and without them the bar is the thumb. */
+.scroll-bar > .increment-button,
+.scroll-bar > .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.scroll-bar > .increment-button > .increment-arrow,
+.scroll-bar > .decrement-button > .decrement-arrow {
+    -fx-shape: " ";
+    -fx-padding: 0;
+}
+
+.scroll-bar:vertical > .track,
+.scroll-bar:horizontal > .track {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+}
+
+/* --------------------------------------------------------------- skin viewer */
+
+.skin-viewer {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+}
+
+/* While a file is over it. The whole panel answers, rather than a small target
+   somewhere inside it: the thing being aimed at is the figure. */
+.skin-viewer.drag-over {
+    -fx-border-color: -fx-accent-0;
+    -fx-border-width: 2;
+    -fx-background-color: derive(-fx-base-1, 6%);
+}
+
+/* Small, round and quiet: they sit over the figure, so anything with weight to
+   it would compete with the thing it is there to turn. */
+.viewer-button {
+    -fx-background-color: rgba(20, 22, 26, 0.72);
+    -fx-background-radius: 14;
+    -fx-text-fill: -fx-text-0;
+    -fx-font-size: 13px;
+    -fx-min-width: 28;
+    -fx-min-height: 28;
+    -fx-padding: 0;
+}
+
+.viewer-button:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+/* ------------------------------------------------------------------ footer */
+
+.footer {
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: -fx-base-3 transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 10 14 10 14;
+}
+
+/* ------------------------------------------------------------------ dialogs */
+
+.dialog-pane {
+    -fx-background-color: -fx-base-0;
+}
+
+.dialog-pane > .content.label,
+.dialog-pane .label {
+    -fx-text-fill: -fx-text-0;
+}
+
+.dialog-pane .header-panel {
+    -fx-background-color: -fx-base-1;
+}
+
+.dialog-pane .header-panel .label {
+    -fx-text-fill: -fx-text-0;
+}
+
+/* ------------------------------------------------------------------ mod browser */
+
+.browse-pane {
+    -fx-padding: 14 0 0 0;
+}
+
+.tab-pane .tab-header-background {
+    -fx-background-color: -fx-base-0;
+}
+
+.tab-pane .tab {
+    -fx-background-color: transparent;
+    -fx-padding: 7 16 7 16;
+}
+
+.tab-pane .tab:selected {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8 8 0 0;
+}
+
+.tab-pane .tab .tab-label {
+    -fx-text-fill: -fx-text-1;
+}
+
+.tab-pane .tab:selected .tab-label {
+    -fx-text-fill: -fx-text-0;
+    -fx-font-weight: bold;
+}
+
+.tab-pane > .tab-content-area {
+    -fx-background-color: transparent;
+}
+
+.tab-pane:top > .tab-header-area > .headers-region > .tab:selected .focus-indicator {
+    -fx-border-color: transparent;
+}
+
+/* A badge says where a mod came from. The pack badge is the accent colour
+   because "you cannot delete this one on its own" is the thing worth noticing. */
+.badge {
+    -fx-background-color: -fx-base-2;
+    -fx-text-fill: -fx-text-1;
+    -fx-background-radius: 6;
+    /* Outlined, and for the same reason the category marks are: a selected row
+       is filled with -fx-base-3, so a badge filled with it lost its edges and
+       became a word lying loose on the row exactly when the row was being read.
+       One step darker than the row, one step lighter around it. */
+    -fx-border-color: derive(-fx-base-3, 30%);
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-padding: 1 7 1 7;
+    -fx-font-size: 11px;
+}
+
+/*
+ * A mod that other mods are standing on.
+ *
+ * Amber, and filled, because this is the badge that changes what a button does:
+ * switching this mod off or deleting it is the one action in the list that
+ * breaks something other than itself.
+ */
+.badge-dependency {
+    -fx-background-color: -fx-warning-0;
+    -fx-border-color: derive(-fx-warning-0, -20%);
+    -fx-text-fill: #1b1206;
+    -fx-font-weight: bold;
+}
+
+/* A badge that opens something. The pointer is the only thing on the row that
+   says so, so it is worth saying. */
+.badge-linked {
+    -fx-cursor: hand;
+}
+
+.badge-pack {
+    -fx-background-color: -fx-accent-0;
+    -fx-text-fill: white;
+}
+
+/* A switched-off mod is present but not loaded, which is neither "installed"
+   nor "gone". The badge is drawn hollow so the row reads as inactive at a
+   glance rather than needing the word to be read. */
+.badge-off {
+    -fx-background-color: transparent;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-text-fill: -fx-text-1;
+}
+
+/* A mod the game is going to refuse. Red, because unlike every other badge in
+   this list it is not a description of the mod - it is something that has to be
+   dealt with before the instance will start at all. */
+.badge-wrong {
+    -fx-background-color: -fx-danger-0;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
+/*
+ * Line drawings, as shapes rather than pictures.
+ *
+ * Stroked and not filled, which is what the icon sets these come from are, and
+ * coloured from the palette so an icon follows the text beside it into whichever
+ * theme is on. A picture would need a light copy and a dark one; this needs
+ * neither, and is sharp at any scale.
+ */
+.svg-icon {
+    -fx-fill: transparent;
+    -fx-stroke: -fx-text-1;
+}
+
+/*
+ * What a mod is filed under, on the row.
+ *
+ * Quiet on purpose. It is context for the name above it, not something to press:
+ * the same set of marks the platform's own listing uses, so a mod recognised on
+ * the website is recognised here.
+ */
+/*
+ * Filled in the control colour and outlined, and both parts are needed.
+ *
+ * The fill was -fx-base-3, which is also what a selected row is filled with, so
+ * selecting a row turned its marks into loose words on the row's own colour.
+ * The fill is one step darker than that now, and the outline is a step lighter,
+ * so a mark is a mark on a plain row, on a hovered one and on a selected one -
+ * three different backgrounds, one pair of colours that stands out from all of
+ * them.
+ */
+.mod-tag {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 5;
+    -fx-border-color: derive(-fx-base-3, 30%);
+    -fx-border-radius: 5;
+    -fx-border-width: 1;
+    -fx-padding: 0 5 0 5;
+    -fx-font-size: 10px;
+    -fx-text-fill: -fx-text-1;
+}
+
+/*
+ * The count that stands in for the categories that did not fit.
+ *
+ * Outlined rather than filled, so it reads as "there is more here" rather than
+ * as another category with a strange name. Hovering it shows the rest.
+ */
+.mod-tag-more {
+    -fx-background-color: transparent;
+    -fx-border-color: derive(-fx-base-3, 30%);
+}
+
+.mod-tag-more:hover {
+    -fx-border-color: -fx-accent-0;
+    -fx-text-fill: -fx-text-0;
+}
+
+/*
+ * The panel behind that count.
+ *
+ * A tooltip carrying a panel rather than a popup written by hand, because the
+ * behaviour wanted here - appears under the pointer, follows the window, goes
+ * away when the pointer leaves - is exactly a tooltip's, and the hand-written
+ * version of it is the one that gets left on screen.
+ */
+.tag-tooltip {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 2;
+}
+
+/* The panel is as wide as its widest line and no wider: one hidden category is
+   one small row, not a box the size of seven of them. */
+.tag-popup {
+    -fx-padding: 4;
+}
+
+.tag-popup .mod-tag {
+    -fx-background-color: -fx-base-1;
+}
+
+/*
+ * The panel that opens under a badge: which mods need this one.
+ *
+ * Its own window, so it carries its own surface and border rather than
+ * inheriting the row's. The names in it are links because they go somewhere -
+ * pressing one is how the reader gets from "something needs this" to the thing
+ * that needs it.
+ */
+.hover-panel {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 8 12 8 12;
+}
+
+.hover-title {
+    -fx-text-fill: -fx-text-0;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+}
+
+.hover-link {
+    -fx-text-fill: -fx-text-1;
+    -fx-padding: 1 0 1 0;
+    -fx-border-color: transparent;
+    -fx-underline: false;
+}
+
+.hover-link:hover {
+    -fx-text-fill: -fx-accent-1;
+    -fx-underline: true;
+}
+
+.hover-panel .muted {
+    -fx-font-size: 10px;
+}
+
+/*
+ * The window that offers a newer launcher.
+ *
+ * A window rather than a strip along the top, because what it asks - may this
+ * program replace itself - is answered by reading the notes, and notes need
+ * room. The notes themselves sit on the panel colour so that a wall of text is
+ * a block on the page rather than the page itself.
+ */
+.update-pane {
+    -fx-background-color: -fx-base-0;
+    -fx-padding: 20 24 18 24;
+}
+
+.update-versions {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-accent-1;
+}
+
+.update-notes {
+    -fx-background-color: -fx-base-1;
+    -fx-padding: 12 14 12 14;
+}
+
+.update-notes .label {
+    -fx-text-fill: -fx-text-1;
+}
+
+.update-scroll,
+.update-scroll > .viewport {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 10;
+}
+
+.update-scroll {
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 0;
+}
+
+/* Why the button is not there. Amber rather than red: nothing is broken, the
+   launcher simply cannot replace a copy of itself that it does not own. */
+.update-blocked {
+    -fx-text-fill: -fx-warning-0;
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 8;
+    -fx-padding: 8 12 8 12;
+}
+
+.update-failed {
+    -fx-text-fill: -fx-danger-0;
+}
+
+/* ------------------------------------------------------------- mod icons */
+
+/*
+ * The tile beside a mod. It is a square with the mod's first letter on it,
+ * coloured from the name, and the logo is laid over it once one has been
+ * fetched or read out of the jar. Drawing the letter first rather than leaving
+ * a gap is what stops a list from flickering into place as pictures arrive.
+ */
+/*
+ * The tile is sized in code, to whatever the list it is in asks for, and its
+ * size is deliberately not set here. It used to be: -fx-min-width and
+ * -fx-min-height were pinned to 24 in this file, and a stylesheet wins over a
+ * setter, so a 40-pixel tile was allowed to shrink to 24 whenever the layout
+ * felt like it. A rule that overrides the code that asks for a size is a rule
+ * that makes rows different heights for no reason the reader can see.
+ */
+.mod-icon {
+    -fx-background-radius: 8;
+}
+
+.mod-icon-letter {
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
+/*
+ * The link to a mod's page.
+ *
+ * It sits under the description, in the text column, and it is deliberately the
+ * quietest thing in the row. It is the one control that leaves the launcher
+ * entirely, and it shares a row with Remove - so it is small, muted, and
+ * underlined only under the pointer, which reads as a link without becoming a
+ * target on the way to something else. No padding and no focus ring, or a
+ * JavaFX Hyperlink adds a box of its own that looks like a button.
+ */
+.mod-link {
+    -fx-padding: 1 0 0 0;
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-1;
+    -fx-underline: false;
+    -fx-border-color: transparent;
+    -fx-background-color: transparent;
+}
+
+.mod-link:hover {
+    -fx-text-fill: -fx-accent-0;
+    -fx-underline: true;
+}
+
+.mod-link:focused {
+    -fx-border-color: transparent;
+}
+
+/* ------------------------------------------------------------------ splash */
+
+/*
+ * The start-up window. It is a transparent stage, so the panel, its rounded
+ * corners and its shadow are all drawn by this card rather than by the window
+ * manager - which is also why the scene root is left transparent in code: the
+ * .root rule above would otherwise paint an opaque square behind the corners.
+ */
+.splash-card {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 16;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 16;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.55), 28, 0.2, 0, 8);
+}
+
+.splash-title {
+    -fx-font-size: 19px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.splash-version {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-1;
+}
+
+/* The stage lines carry their font as an inline style - see SplashScreen for
+   why - so only their colour is decided here. */
+
+/* The stage that is running now: readable. */
+.splash-line {
+    -fx-text-fill: -fx-text-0;
+}
+
+/* One that has finished: grey, and out of the way of the one that has not. */
+.splash-line-done {
+    -fx-text-fill: -fx-text-1;
+    -fx-opacity: 0.75;
+}
+
+/* "Click to skip". Quiet on purpose: it is a way out, not an instruction. */
+.splash-skip {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -fx-text-1;
+    -fx-opacity: 0.7;
+}
+
+/* A hairline, not a control. The default progress bar reserves a lot of
+   vertical space for a shape that here only has to say how far along we are. */
+.splash-bar {
+    -fx-accent: -fx-accent-1;
+    -fx-pref-height: 4;
+    -fx-min-height: 4;
+    -fx-max-height: 4;
+    -fx-padding: 0;
+}
+
+.splash-bar > .track {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 2;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.splash-bar > .bar {
+    -fx-background-color: -fx-accent-1;
+    -fx-background-radius: 2;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+/* ==================================================================== */
+/* The two profile interfaces.                                          */
+/*                                                                      */
+/* One block, because the list and the inventory grid are the same       */
+/* instances shown twice: they share the row colours, the selection      */
+/* colour and the drop indicator, and a change to one of those has to    */
+/* reach both or the views stop looking like one program.                */
+/* ==================================================================== */
+
+/* ------------------------------------------------------------ the list */
+
+.profile-scroll,
+.profile-scroll > .viewport,
+.inv-scroll,
+.inv-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.profile-rows {
+    -fx-padding: 0 2 0 0;
+}
+
+.profile-row {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 7 10 7 10;
+    -fx-cursor: hand;
+    /* The drop line is drawn as a border, so every row reserves the space for
+       it. Without this the rows below a highlighted one shift down by a pixel
+       as the pointer moves, and the whole list appears to twitch. */
+    -fx-border-color: transparent;
+    -fx-border-width: 1 0 1 0;
+}
+
+.profile-row:hover {
+    -fx-background-color: -fx-base-2;
+}
+
+.profile-row-selected {
+    -fx-background-color: -fx-base-3;
+}
+
+/*
+ * A group in the list is one block, the same as a band in the grid: a tint of
+ * the group's colour with a solid rail down the left, holding the header and its
+ * members. Indentation on its own could not say where a group ended or which of
+ * two adjacent groups a row belonged to.
+ *
+ * The tint is on this panel rather than on the rows so that a row's own hover
+ * and selection colours still paint over it.
+ */
+.profile-band {
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+}
+
+.profile-band-content {
+    -fx-padding: 3 3 3 3;
+}
+
+.profile-band-rail {
+    -fx-min-width: 4;
+    -fx-pref-width: 4;
+    -fx-max-width: 4;
+    -fx-background-radius: 8 0 0 8;
+}
+
+/*
+ * Inside a band the header needs no panel of its own - the band is the panel.
+ *
+ * Everything on it is white at some opacity rather than the interface's greys.
+ * A grey caption over a coloured tint is two colour families fighting, which is
+ * what made the heading look muddy; one family over the group's colour reads as
+ * one object.
+ */
+.group-row-banded {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent rgba(255, 255, 255, 0.09) transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 5 10 6 8;
+}
+
+.group-row-banded:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.06);
+}
+
+.profile-band .group-name {
+    -fx-text-fill: white;
+    -fx-font-size: 12px;
+}
+
+.profile-band .group-count {
+    -fx-text-fill: rgba(255, 255, 255, 0.45);
+}
+
+.profile-band .group-toggle {
+    -fx-text-fill: rgba(255, 255, 255, 0.8);
+}
+
+/* The version line under a member's name, in the same white family. */
+.profile-band .profile-row-nested .instance-subtitle {
+    -fx-text-fill: rgba(255, 255, 255, 0.42);
+}
+
+/* A member of a group. The rail already sets the block apart, so the indent is
+   only enough to tell a member from a heading. */
+.profile-row-nested {
+    -fx-padding: 7 10 7 16;
+}
+
+/* The row being dragged: still visible, clearly no longer in place. */
+.drag-source {
+    -fx-opacity: 0.4;
+}
+
+/* Where the drop will land. A line, not a highlight: a highlighted row says
+   "into this", and for a reorder the answer is "between these two". */
+.drop-above {
+    -fx-border-color: -fx-accent-1 transparent transparent transparent;
+    -fx-border-width: 2 0 0 0;
+}
+
+.drop-below {
+    -fx-border-color: transparent transparent -fx-accent-1 transparent;
+    -fx-border-width: 0 0 2 0;
+}
+
+/* "Into this container" - a group header, a free cell, the tail of the list. */
+.drop-into {
+    -fx-background-color: -fx-base-3;
+    -fx-border-color: -fx-accent-1;
+    -fx-border-width: 1;
+    -fx-border-radius: 8;
+}
+
+.profile-tail {
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+}
+
+/* ----------------------------------------------------------- the groups */
+
+.group-row {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-padding: 5 10 5 8;
+    -fx-cursor: hand;
+    -fx-border-color: transparent;
+    -fx-border-width: 1 0 1 0;
+}
+
+.group-row:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+/* The - and + that collapse and expand. Wide enough to be a target, and
+   monospaced so the two glyphs occupy the same width and the name beside them
+   does not move when the group is collapsed. */
+.group-toggle {
+    -fx-font-family: "Consolas", "Menlo", monospace;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+    -fx-min-width: 16;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+}
+
+/* The place the fold control would be, in a group that has nothing to fold. */
+.group-toggle-idle {
+    -fx-text-fill: -fx-text-1;
+    -fx-opacity: 0.5;
+    -fx-cursor: default;
+}
+
+.group-name {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.group-count {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-1;
+}
+
+/* -------------------------------------------------- the inventory grid */
+
+.inventory-panel {
+    -fx-background-color: -fx-base-0;
+}
+
+/* The bar above the grid stands in for the header it covers, so it is the
+   header, plus a line to say it is a different view of the same thing. */
+.inventory-bar {
+    -fx-border-color: transparent transparent -fx-accent-0 transparent;
+    -fx-border-width: 0 0 2 0;
+}
+
+/*
+ * The grid frame: bands of cells, a plate down the left of each band, and the
+ * two edge strips that add and remove a column and a row.
+ */
+.inv-frame {
+    -fx-background-color: transparent;
+}
+
+.inv-rows {
+    -fx-background-color: transparent;
+}
+
+.inv-band {
+    -fx-background-color: transparent;
+}
+
+/* A group's rows, tinted and boxed, so the group is a block on screen. */
+.inv-band-group {
+    -fx-border-width: 1;
+    -fx-background-radius: 3;
+    -fx-border-radius: 3;
+}
+
+/* The plate down the left of a band. Coloured for a group, and an empty gutter
+   of the same width for rows in none - the same width, so grouped and ungrouped
+   rows line up and the grid still reads as one grid. */
+.inv-plate {
+    -fx-background-radius: 3 0 0 3;
+    -fx-cursor: hand;
+}
+
+.inv-plate:hover {
+    -fx-effect: innershadow(gaussian, rgba(255, 255, 255, 0.45), 8, 0.4, 0, 0);
+}
+
+.inv-plate-empty {
+    -fx-background-color: transparent;
+}
+
+/*
+ * The group's name, written along its plate.
+ *
+ * Grey smoothing is asked for rather than left to the default. Text under a
+ * rotation cannot use the platform's sub-pixel smoothing, so it silently falls
+ * back to grey - and bold at ten and a half pixels through that fallback came
+ * out hard-edged next to the same name drawn upright in a collapsed strip.
+ * Naming the smoothing, dropping the bold and going up half a pixel makes the
+ * two match.
+ */
+.inv-plate-name {
+    -fx-font-size: 11px;
+    -fx-font-weight: normal;
+    -fx-font-smoothing-type: gray;
+    -fx-text-fill: rgba(255, 255, 255, 0.92);
+}
+
+/* A group's own row buttons, at the right end of its band. The colour is set by
+   the view, from the group, so that with three groups on screen there is no
+   question which one a plus belongs to. */
+.inv-group-edge {
+    -fx-padding: 2;
+}
+
+/*
+ * Nearly invisible at rest, and that is the point.
+ *
+ * They were at 0.55 opacity over a saturated fill, which over the dark band read
+ * as a control already switched on - the group looked like it had two lit
+ * buttons attached to it at all times. A control that is not being used should
+ * not be brighter than the content it sits beside.
+ *
+ * Three steps rather than two: barely there until the pointer is somewhere in
+ * the group, half-lit then so it can be found at all, and full only under the
+ * pointer itself. Without the middle step the buttons are invisible to anybody
+ * who does not already know they exist.
+ */
+.inv-group-edge-button {
+    -fx-text-fill: white;
+    -fx-opacity: 0.12;
+}
+
+.inv-band-group:hover .inv-group-edge-button {
+    -fx-opacity: 0.38;
+}
+
+/*
+ * Scoped to the band on purpose, and it has to be.
+ *
+ * A plain `.inv-group-edge-button:hover` is one class and one pseudo-class,
+ * which loses on specificity to the two-class rule above - and since the button
+ * is inside the band, both rules match whenever the pointer is on the button.
+ * The plain rule therefore never applied and the button stopped at 0.38, never
+ * reaching the state that says it can be clicked.
+ */
+.inv-band-group:hover .inv-group-edge-button:hover {
+    -fx-opacity: 1;
+    -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.5), 6, 0.4, 0, 0);
+}
+
+/* The strip a collapsed group folds into. It carries the name, because a folded
+   band with no name on it is a coloured line nobody can identify. */
+.inv-collapsed {
+    -fx-padding: 4 12 4 12;
+    -fx-cursor: hand;
+}
+
+/*
+ * The edge strips.
+ *
+ * Faint until the pointer is somewhere in the grid, because four small buttons
+ * competing with the instances is four buttons too many - and on the edge they
+ * change, so that they need no label to say what they do.
+ */
+.inv-edge {
+    -fx-opacity: 0.14;
+    -fx-padding: 2;
+}
+
+.inv-frame:hover .inv-edge {
+    -fx-opacity: 1;
+}
+
+.inv-edge-button {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 4;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 4;
+    -fx-text-fill: -fx-text-0;
+    -fx-font-family: "Consolas", "Menlo", monospace;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+
+.inv-edge-button:hover {
+    -fx-background-color: -fx-accent-0;
+    -fx-border-color: -fx-accent-1;
+    -fx-text-fill: white;
+    -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.35), 6, 0.4, 0, 0);
+}
+
+/*
+ * A cell.
+ *
+ * The wide border is the whole point of this view - it is what makes a grid of
+ * icons read as an inventory rather than as a page of thumbnails - so it is
+ * drawn with two insets: an outer dark edge and an inner light one, which is
+ * the bevel the game's own slots have.
+ */
+.inv-cell {
+    -fx-background-color: -fx-base-3, -fx-base-1;
+    -fx-background-insets: 0, 3;
+    -fx-background-radius: 2, 0;
+    -fx-padding: 4;
+    -fx-cursor: hand;
+}
+
+.inv-cell:hover {
+    -fx-background-color: -fx-base-3, -fx-base-2;
+}
+
+/*
+ * A cell in a group takes the group's colour.
+ *
+ * Built from -fx-group-tint, which the view sets on the cell as a looked-up
+ * colour. That is the whole reason it is not simply an inline background: an
+ * inline background beats the stylesheet, so the hover and selected rules below
+ * would never have applied to a cell in a group.
+ *
+ * Declared after the plain rules and at the same specificity, so it wins on
+ * order; the hover and selected variants repeat that pairing.
+ *
+ * The numbers matter more than they look. At -68% the inside of a cell came out
+ * at #0e2816 for a green group - which is the right hue and so dark that it reads
+ * as black, sitting on a band that was only a shade darker again. The colour was
+ * being applied correctly and could not be seen, which is the same thing as not
+ * being applied.
+ *
+ * The cell is now clearly lighter than the band behind it, so it still reads as a
+ * slot rather than a hole, and clearly the group's colour rather than the
+ * interface's grey.
+ */
+.inv-cell-tinted {
+    -fx-background-color: derive(-fx-group-tint, -26%), derive(-fx-group-tint, -52%);
+}
+
+.inv-cell-tinted:hover {
+    -fx-background-color: derive(-fx-group-tint, -8%), derive(-fx-group-tint, -36%);
+}
+
+.inv-cell-empty {
+    -fx-background-color: -fx-base-2, -fx-base-0;
+    -fx-background-insets: 0, 3;
+    -fx-opacity: 0.55;
+    -fx-cursor: default;
+}
+
+.inv-cell-empty.inv-cell-tinted {
+    -fx-background-color: derive(-fx-group-tint, -46%), derive(-fx-group-tint, -66%);
+    -fx-opacity: 0.8;
+}
+
+.inv-cell-selected {
+    -fx-background-color: -fx-accent-0, -fx-base-2;
+    -fx-background-insets: 0, 3;
+}
+
+/* Selected and in a group: the accent ring stays, the inside keeps the tint. */
+.inv-cell-tinted.inv-cell-selected {
+    -fx-background-color: -fx-accent-0, derive(-fx-group-tint, -40%);
+    -fx-background-insets: 0, 3;
+}
+
+/* The name under the icon, as on a desktop shortcut. Two lines at most: a
+   third would push the icon out of the cell. */
+.inv-name {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -fx-text-0;
+    -fx-alignment: center;
+}
+
+/* A free cell under the pointer: this exact cell is where it will land. */
+.inv-cell.drop-into {
+    -fx-background-color: -fx-accent-1, -fx-base-2;
+    -fx-background-insets: 0, 3;
+    -fx-opacity: 1;
+}
+
+/* An occupied cell under the pointer. One highlight, not a left and a right
+   edge: dropping on an occupied cell exchanges the two profiles, so there is no
+   before and after for the feedback to promise. */
+.inv-cell.drop-swap {
+    -fx-background-color: -fx-accent-1, -fx-base-3;
+    -fx-background-insets: 0, 3;
+}
+
+/* A drop on the plate means "into this group, wherever there is room". */
+.inv-plate.drop-into {
+    -fx-effect: innershadow(gaussian, rgba(255, 255, 255, 0.9), 12, 0.6, 0, 0);
+}
+
+/* --------------------------------------------------- the icon in the editor */
+
+.icon-preview {
+    -fx-background-color: -fx-base-3, -fx-base-1;
+    -fx-background-insets: 0, 2;
+    -fx-background-radius: 4, 2;
+}
+
+/* ------------------------------------------------------- context menus */
+
+.context-menu {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-padding: 4;
+}
+
+.context-menu .menu-item {
+    -fx-background-radius: 6;
+}
+
+.context-menu .menu-item:focused {
+    -fx-background-color: -fx-base-3;
+}
+
+.context-menu .menu-item .label {
+    -fx-text-fill: -fx-text-0;
+}
+
+.context-menu .menu-item:disabled .label {
+    -fx-text-fill: -fx-text-1;
+    -fx-opacity: 0.6;
+}
+
+/*
+ * A refusal, said over the bottom of the view rather than squeezed into the
+ * toolbar - where it arrived ellipsised, which is the one thing a message
+ * explaining a refusal must not be.
+ */
+.toast {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 10;
+    -fx-border-color: #e0b25a;
+    -fx-border-radius: 10;
+    -fx-border-width: 1;
+    -fx-padding: 12 14 12 12;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.55), 22, 0.2, 0, 6);
+}
+
+.toast-marker {
+    -fx-background-color: #e0b25a;
+    -fx-background-radius: 2;
+    -fx-min-width: 3;
+    -fx-min-height: 34;
+    -fx-max-width: 3;
+}
+
+.toast-text {
+    -fx-text-fill: -fx-text-0;
+    -fx-font-size: 12.5px;
+}
+
+.toast-close {
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 15px;
+    -fx-min-width: 18;
+    -fx-alignment: center;
+}
+
+.toast-close:hover {
+    -fx-text-fill: -fx-text-0;
+}
+
+/* ------------------------------------------------------- settings window */
+
+.tab-pane > .tab-content-area > .tab-content {
+    -fx-background-color: transparent;
+}
+
+.spinner {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+}
+
+.spinner .text-field {
+    -fx-background-color: transparent;
+    -fx-text-fill: -fx-text-0;
+}
+
+.spinner .increment-arrow-button,
+.spinner .decrement-arrow-button {
+    -fx-background-color: -fx-base-3;
+}
+
+.spinner .increment-arrow,
+.spinner .decrement-arrow {
+    -fx-background-color: -fx-text-0;
+}
+
+.password-field {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-text-fill: -fx-text-0;
+    -fx-prompt-text-fill: -fx-text-1;
+    -fx-padding: 6 10 6 10;
+}
+
+.password-field:focused {
+    -fx-border-color: -fx-accent-0;
+    -fx-border-radius: 8;
+}
+
+/* ------------------------------------------------------ the group's colour */
+
+.swatch {
+    -fx-background-radius: 5;
+    -fx-border-radius: 5;
+    -fx-border-color: rgba(255, 255, 255, 0.12);
+    -fx-border-width: 1;
+    -fx-cursor: hand;
+}
+
+.swatch:hover {
+    -fx-border-color: rgba(255, 255, 255, 0.55);
+}
+
+/* The mixer at the end of the row: the same square, dashed and empty, so it
+   reads as "one more colour" rather than as a colour of its own. */
+.swatch-add {
+    -fx-background-color: -fx-base-2;
+    -fx-border-color: rgba(255, 255, 255, 0.35);
+    -fx-border-style: segments(3, 3) line-cap round;
+}
+
+.swatch-add-mark {
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 15px;
+}
+
+.swatch-add:hover .swatch-add-mark {
+    -fx-text-fill: -fx-text-0;
+}
+
+/* ---------------------------------------------------------- colour chooser */
+
+/* The saturation-brightness square. Its three background layers are written
+   inline, because the bottom one is the picked hue and changes as it is picked;
+   what belongs here is the shape it is painted into. */
+.chooser-field {
+    -fx-background-radius: 8;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 8;
+    -fx-border-width: 1;
+    -fx-cursor: hand;
+}
+
+.chooser-hue {
+    -fx-background-color: linear-gradient(to bottom,
+        #ff0000 0%, #ffff00 16.7%, #00ff00 33.3%, #00ffff 50%,
+        #0000ff 66.7%, #ff00ff 83.3%, #ff0000 100%);
+    -fx-background-radius: 6;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+    -fx-cursor: hand;
+}
+
+/* White over a dark border, so the mark is visible on the yellow of the bar as
+   well as on the blue. A single colour is not, at either end. */
+.chooser-hue-mark {
+    -fx-background-color: -fx-text-0;
+    -fx-border-color: rgba(0, 0, 0, 0.75);
+    -fx-border-width: 1;
+}
+
+.chooser-thumb {
+    -fx-fill: transparent;
+    -fx-stroke: white;
+    -fx-stroke-width: 2;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.85), 5, 0.3, 0, 1);
+}
+
+.chooser-preview {
+    -fx-background-radius: 6;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 6;
+    -fx-border-width: 1;
+}
+
+/* The chosen one, marked with a ring rather than by changing its own colour -
+   the colour is the thing being chosen and must stay exactly what it is. */
+.swatch-chosen {
+    -fx-border-color: -fx-text-0;
+    -fx-border-width: 2;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.6), 8, 0.2, 0, 2);
+}

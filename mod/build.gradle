@@ -33,21 +33,51 @@ loom {
 }
 
 dependencies {
-	// To change the versions see the gradle.properties file
+	// To change the versions see the gradle.properties file.
+	//
+	// Minecraft 26.1 is the first unobfuscated version. From it on the
+	// `net.fabricmc.fabric-loom` plugin performs no remapping, so the `mod*`
+	// configurations (modImplementation, modCompileOnly, modRuntimeOnly, ...)
+	// do not exist: plain `implementation` / `compileOnly` / `runtimeOnly` are
+	// the correct ones, and `jar` replaces `remapJar`. The `mod*` names survive
+	// only in `net.fabricmc.fabric-loom-remap`, which targets 1.21.11 and older.
+	//
+	// Using modImplementation here is what produced
+	//   "Could not find method modImplementation() ... on DefaultDependencyHandler".
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-	// Fabric API. This is technically optional, but you probably want it anyway.
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
 
-	// Оптимізація — готові, перевірені моди замість написання рендера/логіки з нуля
-	implementation "maven.modrinth:AANobbMI:2Yom1N68" // Sodium 0.9.1 (26.2)
-	implementation "maven.modrinth:gvQqBUqZ:UPNexAfy" // Lithium 0.25.2 (26.2)
-	implementation "maven.modrinth:uXXizFIs:d5ddUdiB" // FerriteCore 9.0.0 (26.2) — економія памʼяті
-	implementation "maven.modrinth:fQEb0iXm:5WeL0Nkz" // Krypton 0.3.1 (26.2) — мережевий стек
-	implementation "maven.modrinth:NNAgCjsB:iiF6U3Ne" // EntityCulling 1.10.5 (26.2) — не рендерить те, що не видно
-	implementation "maven.modrinth:YL57xq9U:oaD6KQls" // Iris 1.11.2+26.2 (26.2) — шейдери, збірка саме під Sodium 0.9.1
-	implementation "maven.modrinth:mOgUt4GM:njXb639R" // Mod Menu 20.0.1 (26.2) — перегляд списку модів
+// The optimisation set, for the development environment only.
+//
+// Off by default. `./gradlew :mod:build` must not depend on the Modrinth API
+// being reachable, or on seven third-party builds still existing under the
+// exact ids pinned below - that couples a green build of our own code to other
+// projects' release hygiene. Turn it on when you want `runClient` to start with
+// the whole set loaded:
+//
+//     ./gradlew :mod:runClient -Phexadron.devMods=true
+//
+// The authoritative list is not here. It is
+// launcher/src/main/resources/packs/hexadron-optimise.json, which the launcher
+// reads at runtime and which can be edited without rebuilding anything. The
+// ids below are the same projects, pinned to the builds used for development.
+//
+// Nothing is wrapped in `include`. `include` would bundle other people's mods
+// inside hexadron-optimise.jar, which is redistribution and a per-mod licensing
+// question rather than a build setting. The launcher downloads them instead.
+if (providers.gradleProperty('hexadron.devMods').getOrElse('false').toBoolean()) {
+	dependencies {
+		runtimeOnly "maven.modrinth:AANobbMI:2Yom1N68" // Sodium
+		runtimeOnly "maven.modrinth:gvQqBUqZ:UPNexAfy" // Lithium
+		runtimeOnly "maven.modrinth:uXXizFIs:d5ddUdiB" // FerriteCore
+		runtimeOnly "maven.modrinth:fQEb0iXm:5WeL0Nkz" // Krypton
+		runtimeOnly "maven.modrinth:NNAgCjsB:iiF6U3Ne" // EntityCulling
+		runtimeOnly "maven.modrinth:YL57xq9U:oaD6KQls" // Iris
+		runtimeOnly "maven.modrinth:mOgUt4GM:njXb639R" // Mod Menu
+	}
 }
 
 processResources {
@@ -64,8 +94,7 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 java {
-	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-	// if it is present.
+	// Loom attaches sourcesJar to the "build" task if it is present.
 	// If you remove this line, sources will not be generated.
 	withSourcesJar()
 
@@ -81,12 +110,11 @@ jar {
 	def projectName = project.name
 	inputs.property "projectName", projectName
 
-	from("LICENSE") {
-		rename { "${it}_$projectName"}
+	from(rootProject.file("LICENSE")) {
+		rename { "${it}_$projectName" }
 	}
 }
 
-// configure the maven publication
 publishing {
 	publications {
 		create("mavenJava", MavenPublication) {
@@ -94,11 +122,7 @@ publishing {
 		}
 	}
 
-	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
 	repositories {
 		// Add repositories to publish to here.
-		// Notice: This block does NOT have the same function as the block in the top level.
-		// The repositories here will be used for publishing your artifact, not for
-		// retrieving dependencies.
 	}
 }

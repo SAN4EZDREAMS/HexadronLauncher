@@ -1,0 +1,72 @@
+{
+  "id": "hexadron-optimise",
+  "name": "Hexadron Optimise",
+  "description": "The performance set the Hexadron Optimise mod depends on. Project ids are Modrinth project ids, taken from mod/build.gradle so the launcher and the mod stay in step. Edit this file to change the set - no rebuild required.",
+
+  "_note_versions": "No versionId is pinned, so the launcher installs the newest build compatible with the profile's Minecraft version and loader. Add \"versionId\" to an entry to pin a specific build.",
+
+  "_note_conditions": "An entry may carry \"onlyWith\": { \"projectId\": ..., \"versionBelow\": ... } - it is then installed only when that other mod in this set resolves to a build older than the given version. For compatibility mods that become harmful past a version.",
+
+  "mods": [
+    {
+      "provider": "MODRINTH",
+      "projectId": "P7dR8mSH",
+      "label": "Fabric API",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "AANobbMI",
+      "label": "Sodium",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "Orvt0mRa",
+      "label": "Indium",
+      "optional": true,
+      "onlyWith": {
+        "projectId": "AANobbMI",
+        "versionBelow": "0.6.0"
+      },
+      "_why": "Indium gives Sodium the Fabric Rendering API. Sodium 0.6 has it built in AND is incompatible with Indium, so this is installed only when the Sodium build that was actually resolved is older than 0.6.0. Keyed on Sodium's version rather than the Minecraft version because Sodium is backported: 1.20.1 gets 0.5.13 and needs this, 1.21.1 gets 0.8.13 and must not have it, even though Indium publishes builds for both.",
+      "optional_note": "Optional so that a Minecraft version with no Indium build is a logged line rather than a failed install."
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "gvQqBUqZ",
+      "label": "Lithium",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "uXXizFIs",
+      "label": "FerriteCore",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "fQEb0iXm",
+      "label": "Krypton",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "NNAgCjsB",
+      "label": "EntityCulling",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "YL57xq9U",
+      "label": "Iris Shaders",
+      "optional": false
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "mOgUt4GM",
+      "label": "Mod Menu",
+      "optional": false
+    }
+  ]
+}

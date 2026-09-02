@@ -1,0 +1,241 @@
+# Публікує готові клієнти як релізи GitHub — те, звідки лаунчер оновлює сам себе.
+#
+# ДВА КАНАЛИ, ОДИН СПИСОК РЕЛІЗІВ
+#
+# Release  — тег виду v0.9.5. Звичайний реліз, не prerelease.
+# Nightly  — тег виду v0.9.5-nightly.<номер запуску>, позначений prerelease.
+#
+# Лаунчер читає той самий список і фільтрує його за каналом: канал Release
+# бере лише не-prerelease, канал Nightly — найновіше з усього. Порівнюються
+# саме теги, тому суфікс -nightly.N обов'язковий і обов'язково зростає:
+# 0.9.5-nightly.42 новіше за 0.9.5-nightly.41 і СТАРІШЕ за 0.9.5.
+#
+# ІМЕНА ФАЙЛІВ — ЦЕ КОНТРАКТ
+#
+# ReleaseFeed.matches() шукає файл для своєї системи за назвою:
+#   HexadronLauncher-windows.zip
+#   HexadronLauncher-linux.tar.gz
+#   HexadronLauncher-macos.tar.gz
+# Перейменуєте тут — оновлення тихо перестане знаходити збірку для системи.
+#
+# Архіви робить сам workflow, а не upload-artifact: до релізу файли додаються
+# як є, тож подвійної упаковки, через яку Windows отримував zip у zip, тут
+# немає взагалі. tar на Linux і macOS лишається обов'язковим — zip не переносить
+# біт запуску й симлінки, без яких образ не стартує.
+
+name: release-launcher
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Який канал публікувати'
+        type: choice
+        required: true
+        default: nightly
+        options: [nightly, release]
+  # Нічна збірка раз на добу. Якщо за добу не було жодного коміту, крок
+  # перевірки зупиняє запуск — сорок релізів однакового коду нікому не потрібні.
+  schedule:
+    - cron: '0 3 * * *'
+
+concurrency:
+  group: release-launcher-${{ github.ref }}
+  cancel-in-progress: false
+
+# Запис потрібен рівно для одного: створити реліз і покласти в нього файли.
+permissions:
+  contents: write
+
+jobs:
+  # Що саме публікуємо і під яким тегом. Один раз, щоб три збірки не рахували
+  # це кожна по-своєму.
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.decide.outputs.tag }}
+      version: ${{ steps.decide.outputs.version }}
+      prerelease: ${{ steps.decide.outputs.prerelease }}
+      proceed: ${{ steps.decide.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: decide what is being published
+        id: decide
+        run: |
+          set -euo pipefail
+          base=$(grep -m1 -oP "(?<=\?: ')[0-9][^']*" launcher/build.gradle)
+          echo "base version: $base"
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            version="${tag#v}"
+            # Тег із дефісом — це заздалегідь нестабільна версія.
+            case "$tag" in *-*) pre=true;; *) pre=false;; esac
+            proceed=true
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+               && [ "${{ inputs.channel }}" = "release" ]; then
+            version="$base"
+            tag="v$base"
+            pre=false
+            proceed=true
+          else
+            version="${base}-nightly.${{ github.run_number }}"
+            tag="v${version}"
+            pre=true
+            proceed=true
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              # Коміти за останню добу. Немає — немає й нічної збірки.
+              if [ -z "$(git log --since='24 hours ago' --oneline)" ]; then
+                echo "за добу змін не було, нічна збірка пропускається"
+                proceed=false
+              fi
+            fi
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+          echo "proceed=$proceed" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.proceed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            label: windows
+          - os: ubuntu-24.04
+            label: linux
+          - os: macos-15
+            label: macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: gradle/actions/wrapper-validation@v6
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+      # ЛІЦЕНЗІЙНІ ЗАГОЛОВКИ — ПЕРШИМ КРОКОМ, ДО БУДЬ-ЯКОЇ ЗБІРКИ
+      #
+      # Кожен файл із кодом мусить починатися блоком із LICENSE-HEADER.txt.
+      # Якщо десь блок прибрали або переписали — збірка падає ТУТ і називає
+      # файли. Це не стиль: заголовок несе авторство й умови ліцензії, і зняти
+      # його "заодно" з якоюсь іншою правкою не має бути тихою операцією.
+      #
+      # Перевірка стоїть перед усім іншим свідомо: немає сенсу компілювати й
+      # пакувати те, що вже порушує ліцензію проєкту.
+      - name: verify the licence headers
+        run: ./gradlew --configure-on-demand :launcher:licenseHeaders
+      # Ядро перевіряється один раз, на Linux: воно однакове на всіх трьох.
+      - name: verify the launch core
+        if: matrix.label == 'linux'
+        run: ./gradlew --configure-on-demand :launcher:selfCheck -PlauncherVersion=${{ needs.plan.outputs.version }}
+      - name: build the application image
+        run: ./gradlew --configure-on-demand :launcher:appImage -PlauncherVersion=${{ needs.plan.outputs.version }}
+        env:
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+      # Імена нижче читає сам лаунчер. Див. коментар угорі.
+      - name: pack the client
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cd launcher/build/jpackage
+          if [ "${{ matrix.label }}" = "windows" ]; then
+            7z a -tzip -mx=5 "$GITHUB_WORKSPACE/release/HexadronLauncher-windows.zip" HexadronLauncher >/dev/null
+          else
+            tar czf "$GITHUB_WORKSPACE/release/HexadronLauncher-${{ matrix.label }}.tar.gz" .
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: client-${{ matrix.label }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [plan, build]
+    if: needs.plan.outputs.proceed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      # Уся історія: опис релізу — це список комітів від попереднього релізу,
+      # а з поверхневим клоном такого діапазону просто немає.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v6
+        with:
+          path: downloaded
+          merge-multiple: true
+      - name: list what will be published
+        run: ls -la downloaded
+      # Опис релізу — це те, що користувач читає у вікні оновлення. Для тега
+      # з push беремо повідомлення тега, якщо воно є; для нічної збірки —
+      # список комітів від попереднього релізу.
+      - name: write the notes
+        id: notes
+        run: |
+          set -euo pipefail
+          previous=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' || true)
+          {
+            if [ -n "$previous" ]; then
+              echo "Зміни від $previous:"
+              echo
+              git log --pretty='- %s' "$previous..HEAD" 2>/dev/null | head -50 || true
+            else
+              git log --pretty='- %s' -20
+            fi
+          } > notes.md
+          # Порожній опис виглядав би у вікні оновлення як помилка лаунчера.
+          [ -s notes.md ] || echo "- без опису" > notes.md
+          cat notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: publish the release
+        run: |
+          set -euo pipefail
+          flags=""
+          if [ "${{ needs.plan.outputs.prerelease }}" = "true" ]; then
+            flags="--prerelease"
+          fi
+          # Перезапис того самого тега — щоб повторний запуск не падав.
+          gh release delete "${{ needs.plan.outputs.tag }}" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "${{ needs.plan.outputs.tag }}" \
+            --title "HexadronLauncher ${{ needs.plan.outputs.version }}" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA" \
+            $flags \
+            downloaded/HexadronLauncher-windows.zip \
+            downloaded/HexadronLauncher-linux.tar.gz \
+            downloaded/HexadronLauncher-macos.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Нічних збірок за місяць набирається тридцять, і жодна з них нікому не
+      # потрібна після наступної. П'ять останніх лишаються — на випадок, коли
+      # треба відкотитися на вчорашню.
+      - name: prune old nightlies
+        if: needs.plan.outputs.prerelease == 'true'
+        run: |
+          set -euo pipefail
+          gh release list --limit 100 --json tagName,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease) | .tagName][5:] | .[]' \
+            | while read -r old; do
+                echo "видаляємо $old"
+                gh release delete "$old" --yes --cleanup-tag || true
+              done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

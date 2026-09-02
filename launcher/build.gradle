@@ -4,17 +4,33 @@ plugins {
 }
 
 group = 'com.hexadron'
-version = '0.1.0'
+// Версію можна перевизначити з CI: -PlauncherVersion=0.2.0-nightly.41
+//
+// Це те, що потрапляє в манифест jar'а як Implementation-Version, а звідти —
+// у BuildConfig.version(), у User-Agent і у вікно оновлення. Саме за цим
+// рядком лаунчер порівнює себе з тегом релізу на GitHub, тому нічні збірки
+// мусять мати в ньому свій суфікс, інакше вони незрозумілі для порівняння.
+version = (project.findProperty('launcherVersion') ?: '0.9.5').toString()
 
 repositories {
 	mavenCentral()
 }
 
 dependencies {
-	// Перевіряємо, чи резолвиться взагалі — логіку запуску напишемо наступним кроком
-	implementation 'fr.flowarg:openlauncherlib:3.2.11'
-	implementation 'fr.flowarg:flowupdater:1.9.4'
-	implementation 'com.google.code.gson:gson:2.11.0'
+	// Deliberately none.
+	//
+	// The launch core - metadata parsing, downloads, auth, profiles, mod
+	// resolution - is written against the JDK alone (java.net.http plus a small
+	// JSON tree in com.hexadron.launcher.json). That keeps the whole core
+	// testable with nothing but a JDK, removes third-party code from the
+	// download and authentication path, and means `selfCheck` runs offline.
+	//
+	// The previous openlauncherlib/flowupdater pair was removed: they wrote a
+	// non-standard directory layout (no versions/ folder) and could not express
+	// the Forge/NeoForge installer format, which caps the project well short of
+	// "every version, every loader".
+	//
+	// JavaFX comes from the javafx plugin below and is UI-only.
 }
 
 java {
@@ -23,16 +39,408 @@ java {
 	}
 }
 
-application {
-	mainClass = 'com.hexadron.launcher.Launcher'
+// The launch wrapper: one class, built into its own jar and placed on the
+// game's classpath, so the Minecraft session token can be handed over standard
+// input instead of on the command line - where every process on the machine can
+// read it out of the process table, and where the JVM copies it verbatim into
+// hs_err_pid*.log after a crash.
+//
+// A separate source set rather than part of the launcher jar, because the
+// launcher jar also carries lang/*.properties and ui/*.css - resource paths a
+// mod could plausibly claim - and because handing a modded game the launcher's
+// own classes is not something to do for convenience.
+sourceSets {
+	wrapper {
+		java {
+			srcDirs = ['src/wrapper/java']
+		}
+	}
 }
 
-tasks.named('run') {
-	// Перш ніж запускати лаунчер — переконайся, що мод зібраний і свіжий
-	dependsOn(':mod:build')
+// Compiled for Java 8. This class runs inside the *game's* JVM, and Minecraft
+// versions up to 1.16 run on Java 8 - a wrapper compiled for 25 would fail
+// there with UnsupportedClassVersionError before the game ever started. Raise
+// this only when javac stops accepting 8, and never above the oldest runtime
+// the launcher still starts.
+tasks.named('compileWrapperJava') {
+	options.release = 8
+}
+
+tasks.register('wrapperJar', Jar) {
+	group = 'build'
+	description = 'Builds the launch wrapper that is placed on the game classpath.'
+	archiveBaseName = 'hexadron-launchwrapper'
+	archiveVersion = ''
+	from sourceSets.wrapper.output
+}
+
+// Embedded in the launcher's resources. LaunchWrapperJar extracts it to the
+// data folder on first launch, and re-extracts it whenever its hash changes.
+tasks.named('processResources') {
+	dependsOn tasks.named('wrapperJar')
+	from(tasks.named('wrapperJar')) {
+		into 'wrapper'
+	}
+}
+
+// Main, not Launcher, and this matters beyond jpackage.
+//
+// The `application` plugin puts this class into the generated start scripts and
+// therefore into distZip. Those scripts launch with -classpath, so JavaFX is on
+// the class path and not the module path - and the JDK refuses to start a main
+// class that extends Application under exactly that condition, with "JavaFX
+// runtime components are missing". So the distribution zip this project has been
+// publishing all along could not actually start; `./gradlew run` worked only
+// because the JavaFX plugin puts the modules on the module path for that one
+// task, which hid it.
+//
+// Main is not an Application, so the check does not apply, and it forwards to
+// the same two entry points. See Main's own comment.
+application {
+	mainClass = 'com.hexadron.launcher.Main'
+}
+
+// The CurseForge API key.
+//
+// CurseForge issues one key per application and its terms forbid sharing it, so
+// the key is never written down in this repository. The release build reads it
+// from the environment - on CI, from a repository secret - and puts it in the
+// launcher jar's manifest, where com.hexadron.launcher.BuildConfig finds it.
+//
+// A build without the variable set produces an empty attribute. That is a
+// working launcher with no CurseForge tab, which is exactly what a fork, a pull
+// request from a fork, or anybody's local `./gradlew build` should get. Nothing
+// fails and nothing has to be edited.
+//
+// A user who has their own key pastes it into the launcher settings, and that
+// always wins over this one.
+def curseForgeApiKey = (System.getenv('CURSEFORGE_API_KEY') ?: '').trim()
+
+tasks.named('jar') {
+	manifest {
+		attributes(
+			'Hexadron-CurseForge-Api-Key': curseForgeApiKey,
+			// Read back by Launcher for the line under the wordmark on the
+			// splash screen. Without it the splash falls back to a constant,
+			// which is the kind of version number that goes stale unnoticed.
+			'Implementation-Title': 'HexadronLauncher',
+			'Implementation-Version': project.version.toString())
+	}
+	doFirst {
+		// Whether, never what. A build log is a public artifact.
+		logger.lifecycle(curseForgeApiKey.isEmpty()
+			? 'CurseForge: no API key supplied, the platform will be disabled in this build'
+			: 'CurseForge: API key supplied from the environment')
+	}
 }
 
 javafx {
 	version = '25'
 	modules = ['javafx.controls']
+}
+
+// Verifies the metadata layer: JSON parsing, rule evaluation, library dialects,
+// inheritsFrom merging, classpath order, argument substitution, account UUIDs.
+// No network and no display, so it is safe in CI.
+tasks.register('selfCheck', JavaExec) {
+	group = 'verification'
+	description = 'Runs the dependency-free self-check over the launch core.'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.hexadron.launcher.SelfCheck'
+}
+
+tasks.named('check') {
+	dependsOn 'selfCheck'
+}
+
+// Headless entry point:
+//   ./gradlew :launcher:cli --args="versions"
+//   ./gradlew :launcher:cli --args="create Test 26.2 fabric"
+//   ./gradlew :launcher:cli --args="play test-abc123 Steve"
+tasks.register('cli', JavaExec) {
+	group = 'application'
+	description = 'Runs the launcher headlessly.'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.hexadron.launcher.cli.HexadronCli'
+}
+
+// ----------------------------------------------------------------- packaging
+//
+// `jpackage` builds a self-contained application image: the launcher, JavaFX,
+// and a Java runtime, in one folder that runs on a machine with no Java
+// installed. It only ever builds for the operating system it is running on, so
+// three artifacts means three runners - see .github/workflows/build-launcher.yml.
+//
+// The output is a portable folder, archived by the workflow. Not an .msi, a .dmg
+// or a .deb, and that is a deliberate choice rather than a missing feature: an
+// unsigned installer is worse than no installer. Windows SmartScreen warns on an
+// unsigned .msi, and macOS refuses an unsigned .dmg outright with "the app is
+// damaged and can't be opened" - a message that reads like a corrupt download.
+// Signing needs a Windows certificate and an Apple Developer membership. Until
+// those exist, an archive the user unpacks and runs is the honest format.
+//
+// The main class here is Main, not Launcher: see Main's own comment for the JDK
+// rule that requires it.
+
+def appName = 'HexadronLauncher'
+
+// The version jpackage stamps into the bundle, which on macOS is not the product
+// version.
+//
+// macOS will not accept a first number of zero. jpackage stops with "The first
+// number in an app-version cannot be zero or negative", because Apple requires
+// CFBundleVersion to begin above zero - so a pre-1.0 product cannot be expressed
+// there at all. Windows and Linux accept 0.2.0 without complaint.
+//
+// The substitution is therefore confined to macOS rather than applied everywhere
+// for the sake of consistency: two platforms can report the true version, and
+// only the one that forbids it gets a stand-in. The build says out loud when it
+// substitutes, so a bundle claiming 1.0.0 is never a silent surprise.
+//
+// Everywhere the version is not constrained it stays true: the jar inside the
+// image is launcher-0.2.0.jar, and the launcher sends 0.2.0 in its User-Agent.
+def productVersion = project.version.toString()
+def isMacOs = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('mac')
+def isWindowsHost = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win')
+
+// jpackage приймає у --app-version ЛИШЕ числа з крапками. Нічна збірка має
+// версію 0.2.0-nightly.41, і з таким рядком jpackage просто не запуститься —
+// на всіх трьох системах. Тому в бандл іде числове ядро, а повна версія
+// лишається там, де її читає лаунчер: у манифесті jar'а.
+def numericVersion = productVersion.replaceAll('[-+].*$', '')
+def bundleVersion = (isMacOs && numericVersion.startsWith('0.')) ? '1.0.0' : numericVersion
+
+def jpackageInputDir = layout.buildDirectory.dir('jpackage-input')
+def jpackageOutputDir = layout.buildDirectory.dir('jpackage')
+
+// Every jar the application needs at runtime, in one flat folder, because that
+// is the only shape --input accepts.
+tasks.register('jpackageInput', Sync) {
+	group = 'distribution'
+	description = 'Collects the runtime jars jpackage needs.'
+	from tasks.named('jar')
+	from configurations.runtimeClasspath
+	into jpackageInputDir
+}
+
+// jpackage refuses to write into a directory that already exists, so the
+// previous image is removed by its own task. Gradle 9 removed Project.delete and
+// Project.exec from task actions, which is why both are task types here rather
+// than calls inside a doLast.
+tasks.register('cleanAppImage', Delete) {
+	delete jpackageOutputDir
+}
+
+tasks.register('appImage', Exec) {
+	group = 'distribution'
+	description = 'Builds a self-contained application image for this operating system.'
+	dependsOn 'jpackageInput', 'cleanAppImage'
+
+	// Everything the task action needs is captured here, at configuration time.
+	// Reaching for `project` from inside a task action is deprecated in Gradle 9
+	// and gone in Gradle 10 - which is what the "Deprecated Gradle features were
+	// used in this build" line was about, and the reason `project.version` is
+	// read into a local above rather than used below.
+	def toolchain = javaToolchains.launcherFor {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+	// Committed rather than generated: building them would need Python and
+	// Pillow, and a build should not. launcher/packaging/make-icons.py
+	// regenerates them from the same drawing ui/Brand.java uses at runtime.
+	def iconFile = layout.projectDirectory.file(
+		'packaging/icon.' + (isMacOs ? 'icns' : (isWindowsHost ? 'ico' : 'png'))).asFile
+	def mainJarName = tasks.named('jar').flatMap { it.archiveFileName }
+	def inputDir = jpackageInputDir
+	def outputDir = jpackageOutputDir
+	def name = appName
+	def version = bundleVersion
+	def reportedVersion = productVersion
+
+	inputs.dir inputDir
+	outputs.dir outputDir
+
+	inputs.file iconFile
+
+	doFirst {
+		def windows = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win')
+		def jpackage = toolchain.get().metadata.installationPath
+			.file(windows ? 'bin/jpackage.exe' : 'bin/jpackage').asFile
+
+		if (!iconFile.exists()) {
+			throw new GradleException("the application icon is missing: ${iconFile}. "
+				+ 'Run launcher/packaging/make-icons.py to regenerate it.')
+		}
+
+		if (!jpackage.exists()) {
+			throw new GradleException("jpackage was not found at ${jpackage}. It ships with "
+				+ 'the JDK from version 14 onwards; a JRE alone does not have it.')
+		}
+
+		if (version != reportedVersion) {
+			logger.lifecycle("Bundle version ${version}, product version ${reportedVersion}"
+				+ ' - macOS rejects an app-version starting with zero')
+		}
+
+		commandLine jpackage.absolutePath,
+			'--type', 'app-image',
+			'--name', name,
+			'--app-version', version,
+			'--vendor', 'Hexadron',
+			'--input', inputDir.get().asFile.absolutePath,
+			'--main-jar', mainJarName.get(),
+			'--main-class', 'com.hexadron.launcher.Main',
+			// Without this the executable carries jpackage's stock icon, which
+			// is a generic Java cup - so the one thing a user sees before they
+			// have run the launcher once says nothing about what it is. Each
+			// platform wants its own container format: .ico, .icns, .png.
+			'--icon', iconFile.absolutePath,
+			// Keep bin/java inside the bundled runtime.
+			//
+			// jpackage's default jlink options are
+			//   --strip-native-commands --strip-debug --no-man-pages --no-header-files
+			// and the first of those deletes every executable from the embedded
+			// runtime, bin/java included. The launcher still starts - the native
+			// launcher loads libjvm directly - but the bundle then contains a
+			// Java 25 runtime that no child process can be started from, and
+			// JavaLocator, which looks for bin/java, correctly reports "no Java
+			// installation was detected at all" on a machine that has none of
+			// its own. That is the packaged build telling the truth about a
+			// runtime it is sitting on top of.
+			//
+			// Restoring the commands costs roughly ten megabytes and makes the
+			// bundled runtime usable for launching Minecraft 26.2 and for
+			// running the Forge installers, with no download at all. The other
+			// three defaults are repeated because naming this option replaces
+			// the whole default list rather than adding to it.
+			'--jlink-options', '--strip-debug --no-man-pages --no-header-files',
+			'--dest', outputDir.get().asFile.absolutePath
+	}
+}
+
+// There is deliberately no Gradle task that archives the image.
+//
+// Gradle's Zip and Tar tasks follow symlinks and do not carry the executable bit
+// across, and both matter here: the launcher binary has to stay executable on
+// Linux and macOS, and a macOS .app bundle is full of symlinks inside its
+// embedded runtime. An archive built that way unpacks into something that will
+// not start, and it fails at the user's end rather than in CI.
+//
+// So the workflow archives with the platform's own tool - tar on Linux and
+// macOS, 7z on Windows - and this build only produces the image. Locally,
+// `./gradlew :launcher:appImage` leaves a runnable folder in
+// launcher/build/jpackage, which is what a developer actually wants anyway.
+//
+// launcher/build/jpackage, which is what a developer actually wants anyway.
+
+// ------------------------------------------------------------ licence headers
+//
+// Кожен файл із кодом мусить починатися блоком ліцензії з tools/license-header.txt.
+// Ця задача це перевіряє, і від неї залежить compileJava — тобто НІЧОГО не
+// збереться, поки хоч в одному файлі блок відсутній або змінений. Не стиль, а
+// захист авторства: зняти згадку про ліцензію мовчки, "заодно" з іншою правкою,
+// тепер неможливо — збірка падає першим же кроком і називає файл.
+//
+// Текст блоку живе в tools/license-header.txt і більше ніде. Той самий файл
+// читає tools/stamp-license-headers.py, який ці блоки і проставляє, тож зміна
+// формулювання — це одна правка та один запуск скрипта, а не сто п'ятдесят
+// правок і червона збірка.
+//
+// Порівнюється НОРМАЛІЗОВАНИЙ текст: символи коментаря (/*, *, #) знімаються,
+// порожні рядки прибираються. Тому один і той самий блок годиться і для .java,
+// і для .css, і для .properties, а перевірка не чіпляється до пробілів.
+
+// Лежить у tools/, а не в корені: GitHub шукає ліцензію за шаблоном LICENSE*
+// у корені репозиторію, тому файл-шаблон LICENSE-HEADER.txt він теж вважав
+// ліцензією — і на сторінці проєкту з'являлася друга вкладка "License".
+def licenseHeaderFile = rootProject.layout.projectDirectory.file('tools/license-header.txt').asFile
+
+// Розширення, у яких взагалі бувають коментарі. JSON у цей список не входить:
+// у ньому коментарів немає, а заголовок усередині .png — це зіпсований .png.
+def licensedExtensions = ['.java', '.css', '.properties']
+
+tasks.register('licenseHeaders') {
+	group = 'verification'
+	description = 'Fails the build when a source file has no licence header, or an altered one.'
+
+	// Усе, що потрібно задачі, зчитується тут, під час конфігурації: у Gradle 9
+	// звертання до Project із дії задачі вже застаріле, а в 10 його не буде.
+	def header = licenseHeaderFile
+	def repoRoot = rootProject.projectDir
+	def roots = [rootProject.file('launcher/src'), rootProject.file('mod/src')].findAll { it.isDirectory() }
+	def extensions = licensedExtensions
+
+	inputs.file(header)
+	roots.each { inputs.dir(it) }
+	// Дешева задача, і пропускати її не можна: саме та перевірка, заради якої
+	// вона існує, потрібна на КОЖНІЙ збірці.
+	outputs.upToDateWhen { false }
+
+	doLast {
+		// Знімає синтаксис коментаря і лишає самий текст, тож один заголовок
+		// годиться і для .java, і для .css, і для .properties.
+		def normalise = { String text ->
+			text.readLines()
+				.collect { it.trim() }
+				.collect { line ->
+					line.startsWith('/*') ? line.substring(2)
+						: line.startsWith('*/') ? line.substring(2)
+						: line.startsWith('*') ? line.substring(1)
+						: line.startsWith('#') ? line.substring(1)
+						: line
+				}
+				.collect { it.trim() }
+				.findAll { !it.isEmpty() }
+				.join('\n')
+		}
+
+		if (!header.exists()) {
+			throw new GradleException("tools/license-header.txt не знайдено: ${header}. "
+				+ 'Без нього нема з чим звіряти заголовки.')
+		}
+		def wanted = normalise(header.text)
+		if (wanted.isEmpty()) {
+			throw new GradleException("tools/license-header.txt порожній: ${header}")
+		}
+
+		def offenders = []
+		int scanned = 0
+		roots.each { root ->
+			root.eachFileRecurse { f ->
+				if (!f.isFile() || !extensions.any { f.name.endsWith(it) }) {
+					return
+				}
+				scanned++
+				// Перших рядків вистачає: заголовок мусить бути НА ПОЧАТКУ файлу,
+				// а не десь усередині - інакше "є згадка" не означає "видно".
+				def head = normalise(f.readLines().take(40).join('\n'))
+				if (!head.startsWith(wanted)) {
+					offenders << repoRoot.toPath().relativize(f.toPath()).toString()
+				}
+			}
+		}
+
+		if (!offenders.isEmpty()) {
+			throw new GradleException(
+				"Ліцензійний заголовок відсутній або змінений у ${offenders.size()} файл(ах):\n"
+					+ offenders.collect { "  - $it" }.join('\n')
+					+ "\n\nВідновити: python3 tools/stamp-license-headers.py\n"
+					+ 'Текст заголовка: tools/license-header.txt. Умови: LICENSE.md.')
+		}
+		logger.lifecycle("Licence headers: ${scanned} file(s) checked, all present.")
+	}
+}
+
+// Ворота стоять перед компіляцією, а не поруч із нею: `assemble`, `appImage`,
+// `run` і `build` — усі проходять через compileJava, тож обійти перевірку,
+// зібравши "щось інше", не вийде.
+tasks.named('compileJava') {
+	dependsOn 'licenseHeaders'
+}
+
+tasks.named('compileWrapperJava') {
+	dependsOn 'licenseHeaders'
+}
+
+tasks.named('check') {
+	dependsOn 'licenseHeaders'
 }

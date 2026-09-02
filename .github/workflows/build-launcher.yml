@@ -1,19 +1,47 @@
-# Збирає ЛИШЕ лаунчер, і лише якщо змінились файли всередині launcher/
-# (або сам цей workflow-файл). Зміни в mod/ чи README цей build не запускають.
+# Збирає ЛИШЕ лаунчер.
+#
+# `--configure-on-demand` тут не косметика: без нього Gradle конфігурує ВСІ
+# проєкти, тобто й :mod разом із Fabric Loom. Через це будь-яка помилка у
+# mod/build.gradle валила збірку лаунчера, хоча лаунчер від мода не залежить.
+# З цим прапорцем конфігурується тільки корінь і :launcher.
 
 name: build-launcher
 on:
   push:
     paths:
       - 'launcher/**'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
       - '.github/workflows/build-launcher.yml'
   pull_request:
     paths:
       - 'launcher/**'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - '.github/workflows/build-launcher.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-launcher-${{ github.ref }}
+  cancel-in-progress: true
+
+# Найменші потрібні права. За замовчуванням токен job'а може мати запис у
+# репозиторій; цьому workflow запис не потрібен ніде, тож він його не отримує.
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-24.04
+    # Зависла збірка інакше з'їдає шість годин runner-часу перед тим, як GitHub
+    # її вб'є. Сорок п'ять секунд — норма, десять хвилин — вже точно поламка.
+    timeout-minutes: 15
     steps:
       - name: checkout repository
         uses: actions/checkout@v6
@@ -24,12 +52,178 @@ jobs:
         with:
           java-version: '25'
           distribution: 'microsoft'
+      # Кешує ~/.gradle/wrapper/dists, тож дистрибутив качається лише при
+      # промаху кеша - після зміни версії Gradle або його витіснення. Саме той
+      # промах і падав: розрив з'єднання під час завантаження. Кількість спроб
+      # задана у gradle/wrapper/gradle-wrapper.properties, і причина там же.
+      - name: setup gradle
+        uses: gradle/actions/setup-gradle@v6
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
-      - name: build launcher
-        run: ./gradlew :launcher:build
-      - name: capture build artifacts
+      # Окремим кроком, хоч `assemble` міг би бути один: коли червоніє саме цей
+      # крок, зрозуміло, що зламана логіка ядра, а не компіляція.
+      #
+      # Але одне застереження: це ПЕРШИЙ крок, який запускає ./gradlew, тож
+      # завантаження дистрибутива Gradle падає теж тут - і виглядає як поламане
+      # ядро, хоч у стектрейсі буде org.gradle.wrapper.Download, а не наш код.
+      # ЛІЦЕНЗІЙНІ ЗАГОЛОВКИ — ПЕРШИМ КРОКОМ, ДО БУДЬ-ЯКОЇ ЗБІРКИ
+      #
+      # Кожен файл із кодом мусить починатися блоком із LICENSE-HEADER.txt.
+      # Якщо десь блок прибрали або переписали — збірка падає ТУТ і називає
+      # файли. Це не стиль: заголовок несе авторство й умови ліцензії, і зняти
+      # його "заодно" з якоюсь іншою правкою не має бути тихою операцією.
+      #
+      # Перевірка стоїть перед усім іншим свідомо: немає сенсу компілювати й
+      # пакувати те, що вже порушує ліцензію проєкту.
+      - name: verify the licence headers
+        run: ./gradlew --configure-on-demand :launcher:licenseHeaders
+      - name: verify the launch core
+        run: ./gradlew --configure-on-demand :launcher:selfCheck
+      # `assemble`, а не `build`. `build` = `assemble` + `check`, а `check`
+      # тягне selfCheck — тобто попередній крок виконувався б удвічі. JavaExec не
+      # має оголошених виходів, тож Gradle його не пропускає як UP-TO-DATE.
+      #
+      # Ключ CurseForge приходить ЛИШЕ звідси, у репозиторії його немає.
+      # GitHub не віддає секрети збіркам форків і pull request'ам із форків. Тому
+      # там CURSEFORGE_API_KEY порожній, у манифест jar'а потрапляє порожній
+      # атрибут, CurseForgeProvider.isAvailable() повертає false і CurseForge
+      # просто зникає з інтерфейсу. Збірка при цьому зелена: сторонній внесок не
+      # має падати через відсутність нашого ключа.
+      - name: assemble launcher
+        run: ./gradlew --configure-on-demand :launcher:assemble
+        env:
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+      # Це НЕ готовий клієнт. Це jar плюс distZip зі скриптами запуску — обидва
+      # вимагають установленої Java 25. Готові клієнти з вбудованим рантаймом
+      # збирає job `package` нижче.
+      #
+      # Лишається тут навмисно: тому, хто вже має JDK, зайві 80 МБ рантайму ні до
+      # чого, а Linux-користувачі часто хочуть саме такий варіант.
+      - name: capture the jar and the script distribution
         uses: actions/upload-artifact@v7
         with:
           name: hexadron-launcher-jar
-          path: launcher/build/libs/*.jar
+          path: |
+            launcher/build/libs/*.jar
+            launcher/build/distributions/*.zip
+          if-no-files-found: error
+          # Проміжний артефакт кожного пуша. Дев'яносто днів за замовчуванням —
+          # це сховище під сотні збірок, які нікому не потрібні через тиждень.
+          retention-days: 14
+
+  # Готові клієнти для трьох систем.
+  #
+  # `needs: build` — три збірки стартують ЛИШЕ після того, як пройшли selfCheck і
+  # компіляція. Немає сенсу пакувати те, що не збирається.
+  #
+  # Чому три окремі бігуни, а не один: jpackage вміє збирати образ тільки для тієї
+  # системи, на якій сам запущений. Він кладе всередину рантайм Java саме цієї
+  # платформи, тож зібрати Windows-клієнт на Linux неможливо в принципі.
+  #
+  # fail-fast: false — щоб падіння macOS не забирало з собою вже готові Windows і
+  # Linux. Кожна платформа падає й лагодиться окремо.
+  #
+  # Пакується на КОЖЕН пуш, у будь-якій гілці. Це коштує близько трьох хвилин
+  # runner-часу на трьох машинах, і колись цього стане шкода — тоді сюди
+  # повертається `if:`, який пропускає пакування для робочих гілок:
+  #
+  #   if: >-
+  #     github.event_name == 'workflow_dispatch'
+  #     || startsWith(github.ref, 'refs/tags/')
+  #     || github.ref_name == github.event.repository.default_branch
+  #
+  # Одне попередження на майбутнє: кнопка "Re-run" зберігає початкову подію
+  # `push`, тобто НЕ вважається `workflow_dispatch`. Щоб спрацювала перша умова,
+  # потрібен саме "Run workflow".
+  package:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            label: windows
+          - os: ubuntu-24.04
+            label: linux
+          - os: macos-15
+            label: macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    # bash на всіх трьох, включно з Windows: тоді ./gradlew — одна команда, а не
+    # ./gradlew.bat в одному місці й ./gradlew у двох інших.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+      - name: validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+      - name: setup gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+      # appImage залежить тільки від jar, не від check. selfCheck тут не
+      # повторюється — його вже пройшов job build.
+      # ЛІЦЕНЗІЙНІ ЗАГОЛОВКИ — ПЕРШИМ КРОКОМ, ДО БУДЬ-ЯКОЇ ЗБІРКИ
+      #
+      # Кожен файл із кодом мусить починатися блоком із LICENSE-HEADER.txt.
+      # Якщо десь блок прибрали або переписали — збірка падає ТУТ і називає
+      # файли. Це не стиль: заголовок несе авторство й умови ліцензії, і зняти
+      # його "заодно" з якоюсь іншою правкою не має бути тихою операцією.
+      #
+      # Перевірка стоїть перед усім іншим свідомо: немає сенсу компілювати й
+      # пакувати те, що вже порушує ліцензію проєкту.
+      - name: verify the licence headers
+        run: ./gradlew --configure-on-demand :launcher:licenseHeaders
+      - name: build the application image
+        run: ./gradlew --configure-on-demand :launcher:appImage
+        env:
+          CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
+      # ЧОМУ WINDOWS І РЕШТА ПАКУЮТЬСЯ ПО-РІЗНОМУ
+      #
+      # actions/upload-artifact ЗАВЖДИ віддає завантаження як .zip — це не
+      # налаштовується. Тож усе, що ми запакуємо тут самі, користувач отримає
+      # запакованим ДВІЧІ: zip усередині zip. Саме це й було раніше на Windows.
+      #
+      # Windows: свій архів не робимо взагалі. Віддаємо папку образу як є, і
+      # єдиним архівом лишається той, який GitHub робить сам. Права доступу на
+      # Windows значення не мають, симлінків у образі немає — втрачати нічого.
+      #
+      # Linux і macOS: tar.gz лишається, і подвійна упаковка там — свідома ціна.
+      # Zip від GitHub не переносить біт запуску й не зберігає симлінки, а на цих
+      # двох системах втрата будь-чого з цього дає образ, який не запускається:
+      # виконуваний файл мусить лишитися виконуваним, а .app на macOS усередині
+      # складається зі симлінків на вбудований рантайм. Архів, зібраний без
+      # цього, зламається вже в користувача, а не в CI.
+      #
+      # Файл-пам'ятка поруч потрібен ще й технічно: корінь артефакту — спільний
+      # предок усіх доданих файлів, тож без нього в архів потрапив би ВМІСТ
+      # HexadronLauncher/, розсипаний по теці завантажень, а не сама тека.
+      - name: prepare the client for upload
+        run: |
+          mkdir -p release
+          if [ "${{ matrix.label }}" = "windows" ]; then
+            cp -r launcher/build/jpackage/HexadronLauncher release/HexadronLauncher
+            printf '%s\n' \
+              'HexadronLauncher' \
+              '' \
+              'Unpack this folder anywhere and run HexadronLauncher.exe inside it.' \
+              'Java is not required: a runtime is bundled.' \
+              > release/HOW-TO-RUN.txt
+          else
+            tar czf "release/HexadronLauncher-${{ matrix.label }}.tar.gz" \
+              -C launcher/build/jpackage .
+          fi
+      - name: capture the client
+        uses: actions/upload-artifact@v7
+        with:
+          name: hexadron-launcher-${{ matrix.label }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 30

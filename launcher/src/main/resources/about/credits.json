@@ -1,0 +1,117 @@
+{
+  "_note": "The about window reads this file. It is a resource rather than code so the list can be corrected or added to without a rebuild. Every url must be https. Groups are shown in the order below; 'heading' is an i18n key.",
+
+  "author": {
+    "name": "OLEKSII RADCHUK",
+    "links": [
+      { "name": "YouTube",  "url": "https://www.youtube.com/@OrestGames" },
+      { "name": "Telegram", "url": "https://t.me/SAN4EZ01" },
+      { "name": "GitHub",   "url": "https://github.com/SAN4EZDREAMS" }
+    ]
+  },
+
+  "repository": "https://github.com/SAN4EZDREAMS/HexadronLauncher",
+
+  "groups": [
+    {
+      "heading": "about.group.loaders",
+      "entries": [
+        {
+          "name": "Fabric Loader",
+          "url": "https://github.com/FabricMC/fabric-loader",
+          "role": "Loader metadata and the launch manifest this launcher writes",
+          "licence": "Apache-2.0"
+        },
+        {
+          "name": "Quilt Loader",
+          "url": "https://github.com/QuiltMC/quilt-loader",
+          "role": "The same, for Quilt",
+          "licence": "Apache-2.0"
+        },
+        {
+          "name": "MinecraftForge",
+          "url": "https://github.com/MinecraftForge/MinecraftForge",
+          "role": "The installer profile format and its processor pipeline",
+          "licence": "see LICENSE.txt in the repository"
+        },
+        {
+          "name": "NeoForge",
+          "url": "https://github.com/neoforged/NeoForge",
+          "role": "The same, for NeoForge",
+          "licence": "LGPL-2.1"
+        }
+      ]
+    },
+    {
+      "heading": "about.group.skins",
+      "entries": [
+        {
+          "name": "authlib-injector",
+          "url": "https://github.com/yushijinhun/authlib-injector",
+          "role": "Downloaded and attached to the game so skins from a service other than Mojang are shown",
+          "licence": "AGPL-3.0-or-later, with the AUTHLIB-INJECTOR exception that permits loading it as a Java agent"
+        },
+        {
+          "name": "LittleSkin",
+          "url": "https://littleskin.cn",
+          "role": "A Yggdrasil skin service the launcher can sign in to"
+        },
+        {
+          "name": "Ely.by",
+          "url": "https://ely.by",
+          "role": "The same"
+        }
+      ]
+    },
+    {
+      "heading": "about.group.mods",
+      "entries": [
+        {
+          "name": "Modrinth",
+          "url": "https://modrinth.com",
+          "role": "Mod search, versions and downloads"
+        },
+        {
+          "name": "CurseForge",
+          "url": "https://www.curseforge.com",
+          "role": "The same, behind an API key"
+        }
+      ]
+    },
+    {
+      "heading": "about.group.runtime",
+      "entries": [
+        {
+          "name": "Eclipse Temurin (Adoptium)",
+          "url": "https://adoptium.net",
+          "role": "The Java runtime the launcher fetches when the game needs a version this machine does not have"
+        },
+        {
+          "name": "OpenJFX",
+          "url": "https://openjfx.io",
+          "role": "The toolkit this window is drawn with",
+          "licence": "GPL-2.0 with Classpath Exception"
+        },
+        {
+          "name": "Minecraft",
+          "url": "https://www.minecraft.net",
+          "role": "Version manifests, asset indexes, library rules and the launch arguments - read as published, never redistributed"
+        }
+      ]
+    },
+    {
+      "heading": "about.group.optimise",
+      "entries": [
+        { "name": "Fabric API",    "url": "https://modrinth.com/mod/P7dR8mSH" },
+        { "name": "Sodium",        "url": "https://modrinth.com/mod/AANobbMI" },
+        { "name": "Lithium",       "url": "https://modrinth.com/mod/gvQqBUqZ" },
+        { "name": "FerriteCore",   "url": "https://modrinth.com/mod/uXXizFIs" },
+        { "name": "Krypton",       "url": "https://modrinth.com/mod/fQEb0iXm" },
+        { "name": "EntityCulling", "url": "https://modrinth.com/mod/NNAgCjsB" },
+        { "name": "Iris Shaders",  "url": "https://modrinth.com/mod/YL57xq9U" },
+        { "name": "Mod Menu",      "url": "https://modrinth.com/mod/mOgUt4GM" },
+        { "name": "Indium",        "url": "https://modrinth.com/mod/Orvt0mRa" }
+      ]
+    }
+  ]
+}
