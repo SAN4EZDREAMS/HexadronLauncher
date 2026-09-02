@@ -205,7 +205,7 @@ project wants.
 **Relation to PolyForm Noncommercial 1.0.0.** That is the standard,
 lawyer-drafted licence for exactly this intent, and the terms above are close to
 it in substance. Anyone who prefers a vetted text over a bespoke one can read it
-at <https://polyformproject.org/licenses/noncommercial/1.0.0/>; the Author may
+at <https://polyformproject.org/licenses/noncommercial/1.0.0>; the Author may
 adopt it later, and the notices in the source files would then name it instead.
 
 **This is not legal advice.** These terms were drafted to match the Author's
