@@ -1922,6 +1922,17 @@ public final class SelfCheck {
 
         check("a mod nothing needs any more can say so",
                 reference.containsKey("mods.dependents.none"));
+
+        // The bug window asks for four things and says where to send them. A
+        // missing key here is a line of the report form replaced by !bug.how!,
+        // which is worse than the question not being asked at all.
+        for (String key : new String[]{"bug.open", "bug.title", "bug.heading",
+                "bug.capture", "bug.what", "bug.how", "bug.repeat",
+                "bug.attachLog", "bug.openFolder", "bug.noLog", "bug.where",
+                "bug.send"}) {
+            check("the bug report window has its words: " + key,
+                    reference.containsKey(key));
+        }
         check("the logo cache setting is named and explained",
                 reference.containsKey("settings.modIconCache")
                         && reference.containsKey("settings.modIconCache.note"));

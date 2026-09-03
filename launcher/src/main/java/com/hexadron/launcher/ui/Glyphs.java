@@ -151,6 +151,54 @@ final class Glyphs {
     }
 
     /**
+     * A beetle: body, head, two antennae, six legs, and markings punched out.
+     *
+     * <p>An insect rather than an exclamation mark or a crossed-out circle. The
+     * other two mean "something is wrong right now" and would read, sitting in
+     * a toolbar beside the cog, as a warning about the launcher's own state -
+     * which is not what this button is. A bug is the one shape that means
+     * "report a fault" without meaning "there is a fault".
+     *
+     * <p>Wound rather than filled with the even-odd rule, unlike every other
+     * glyph here. This one is a silhouette assembled from overlapping pieces -
+     * the head sits on the body, the legs run under it - and even-odd would
+     * punch a hole out of every overlap. So the outline pieces are all wound
+     * one way and the markings the other, and {@link FillRule#NON_ZERO} fills
+     * the union and empties the markings.
+     */
+    static Group bug() {
+        SVGPath beetle = new SVGPath();
+        beetle.setFillRule(FillRule.NON_ZERO);
+        beetle.setContent(
+                // Body: an ellipse about (12, 14.5), drawn clockwise.
+                "M 12 7.6 A 5.9 6.9 0 0 1 12 21.4 A 5.9 6.9 0 0 1 12 7.6 Z "
+                        // Head, overlapping the body so the two read as one
+                        // silhouette rather than as two shapes that touch.
+                        + "M 12 2.6 A 2.8 2.8 0 0 1 12 8.2 A 2.8 2.8 0 0 1 12 2.6 Z "
+                        // Antennae.
+                        + "M 7.4 1.5 L 10.0 3.7 L 9.2 4.7 L 6.6 2.5 Z "
+                        + "M 17.4 2.5 L 14.8 4.7 L 14.0 3.7 L 16.6 1.5 Z "
+                        // Six legs, each rooted just inside the body edge and
+                        // reaching the frame. Thicker than they look they need
+                        // to be: at sixteen pixels a bar under a unit wide is a
+                        // row of grey specks with gaps in it.
+                        + "M 2.8 7.6 L 8.0 10.3 L 7.4 11.5 L 2.2 8.8 Z "
+                        + "M 2.0 13.9 L 7.8 13.9 L 7.8 15.2 L 2.0 15.2 Z "
+                        + "M 2.2 20.4 L 7.4 17.7 L 8.0 18.9 L 2.8 21.6 Z "
+                        + "M 21.2 8.8 L 16.0 11.5 L 15.4 10.3 L 20.6 7.6 Z "
+                        + "M 22.0 15.2 L 16.2 15.2 L 16.2 13.9 L 22.0 13.9 Z "
+                        + "M 21.8 21.6 L 16.0 18.9 L 16.6 17.7 L 21.2 20.4 Z "
+                        // The seam and two spots, wound the other way so they
+                        // come out of the body rather than adding to it. Two
+                        // rather than the four this was drawn with first: four
+                        // survive the large size and turn the small one to mush.
+                        + "M 11.35 9.4 L 11.35 19.8 L 12.65 19.8 L 12.65 9.4 Z "
+                        + "M 9.2 12.0 A 1.35 1.35 0 0 0 9.2 14.7 A 1.35 1.35 0 0 0 9.2 12.0 Z "
+                        + "M 14.8 12.0 A 1.35 1.35 0 0 0 14.8 14.7 A 1.35 1.35 0 0 0 14.8 12.0 Z");
+        return sized(beetle, 16);
+    }
+
+    /**
      * Scales a path to a height in pixels and wraps it so layout can measure it.
      *
      * <p>Wrapped in a Group because a scaled node still reports its unscaled

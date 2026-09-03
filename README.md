@@ -429,7 +429,7 @@ downloads them from Modrinth instead.
 
 ```
 +--------------------------------------------------------------+
-| H  HexadronLauncher [ search ] [Inventory][Settings] Lang:[v] |
+| H  HexadronLauncher [ search ] [Inventory][Bug][?][Settings]  |
 +---------------------+----------------------------------------+
 | Instances           |  Instance name                          |
 | - Modded set    (2) |  fabric-loader-0.19.3-26.2              |
@@ -638,6 +638,43 @@ and a modal in front of that is a modal in the way of the next click.
 The one thing that grows by itself is a grid with no room for a *new* instance:
 it gets another row, because an instance that exists and cannot be seen cannot be
 launched either.
+
+### Reporting a bug
+
+The beetle on the top bar, between the view switch and the question mark, opens
+a window rather than the issue tracker. The difference is what arrives: a button
+that went straight to the tracker would mostly produce reports reading "it
+crashes", which is not a report but a request for the questions to be asked
+instead, one exchange at a time, across whatever days two people are awake at
+different hours.
+
+So the window asks once, while the fault is still on screen and the reporter
+still remembers what they did:
+
+- what the bug is;
+- how it happened;
+- how to reproduce it;
+- and a screenshot or a short video of it.
+
+**The log is the part that matters and the part nobody attaches**, because they
+do not know the launcher keeps one, or where. So it is not described, it is
+named: the newest log file, the folder it sits in, and a link that opens that
+folder with the file selected - `explorer /select,` on Windows, `open -R` on
+macOS, the folder alone elsewhere. What is left to do is drag it into the issue.
+
+The newest file by modification time, not `launcher.log` by name. They are
+almost always the same file, and the exception is the case that matters most: a
+run that ended badly enough that the next one has already rotated it to
+`launcher-1.log`, or one where logging never started and the newest thing on
+disk is the run before.
+
+Nothing is sent from here. **Send a report** opens
+`https://github.com/SAN4EZDREAMS/HexadronLauncher/issues/new` in the user's own
+browser, and the address is also written out in full in the window - a machine
+with no desktop integration is one of the things worth reporting, and a button
+is not something you can copy out of. A launcher that posted the report itself
+would be a launcher that uploaded a log the user had not read, from a machine
+whose paths, account names and mod list are in it. **Close** does nothing else.
 
 ### Settings
 

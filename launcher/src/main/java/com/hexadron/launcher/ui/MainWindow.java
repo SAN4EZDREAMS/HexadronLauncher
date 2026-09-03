@@ -187,6 +187,8 @@ public final class MainWindow implements ProfileHost {
     private final Button gridSettingsButton = new Button();
     private final Button aboutButton = new Button();
     private final Button gridAboutButton = new Button();
+    private final Button bugButton = new Button();
+    private final Button gridBugButton = new Button();
     private final Button modeButton = new Button();
     private final Button gridModeButton = new Button();
     private final Button newGroupButton = new Button();
@@ -382,13 +384,19 @@ public final class MainWindow implements ProfileHost {
         asIcon(settingsButton, Glyphs.settings(), "settings.open");
         aboutButton.setOnAction(event -> openAbout());
         asIcon(aboutButton, Glyphs.about(), "about.open");
+        bugButton.setOnAction(event -> openBugReport());
+        asIcon(bugButton, Glyphs.bug(), "bug.open");
 
         // No language box here. The setting lives in the settings window, and a
         // setting with two homes is a setting that disagrees with itself; the
         // two buttons left are the two that are pressed often enough to earn the
         // far end of the bar.
+        // The bug sits before the two that were already here, not after the
+        // cog: the cog is the last thing on that bar on every program anybody
+        // has used, and moving it to make room for a new button is a change to
+        // something people no longer look at before clicking.
         HBox header = new HBox(10, mark, brandLabel, searchField, spacer(),
-                modeButton, aboutButton, settingsButton);
+                modeButton, bugButton, aboutButton, settingsButton);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         keepLabels(header);
@@ -465,12 +473,14 @@ public final class MainWindow implements ProfileHost {
         asIcon(gridSettingsButton, Glyphs.settings(), "settings.open");
         gridAboutButton.setOnAction(event -> openAbout());
         asIcon(gridAboutButton, Glyphs.about(), "about.open");
+        gridBugButton.setOnAction(event -> openBugReport());
+        asIcon(gridBugButton, Glyphs.bug(), "bug.open");
 
         gridHint.getStyleClass().add("muted");
 
         HBox bar = new HBox(10, mark, gridTitle, gridSearchField, gridNewButton,
                 gridNewGroupButton, gridSortButton, spacer(), gridHint,
-                gridModeButton, gridAboutButton, gridSettingsButton);
+                gridModeButton, gridBugButton, gridAboutButton, gridSettingsButton);
         bar.getStyleClass().addAll("header", "inventory-bar");
         bar.setAlignment(Pos.CENTER_LEFT);
         keepLabels(bar);
@@ -864,6 +874,18 @@ public final class MainWindow implements ProfileHost {
         new AboutDialog().show(stage);
     }
 
+    /**
+     * The bug window: what a report needs, and where to send it.
+     *
+     * <p>Built fresh each time rather than kept, because the one thing in it
+     * that changes is the one thing that matters - which log file is the newest
+     * - and a window held from the first press would go on naming a file that
+     * has since been rotated away.
+     */
+    private void openBugReport() {
+        new ReportBugDialog(service.dirs()).show(stage);
+    }
+
     private void openModBrowser() {
         Profile profile = selectedProfile;
         if (profile == null) {
@@ -1037,7 +1059,7 @@ public final class MainWindow implements ProfileHost {
         // key, so this loop does not have to know what any of them is.
         for (javafx.scene.control.Button button : new javafx.scene.control.Button[]{
                 settingsButton, gridSettingsButton, aboutButton, gridAboutButton,
-                modeButton, gridModeButton}) {
+                bugButton, gridBugButton, modeButton, gridModeButton}) {
             Object key = button.getProperties().get("hexadron.name");
             if (key == null) {
                 continue;
