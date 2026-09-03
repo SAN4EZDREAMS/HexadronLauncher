@@ -192,6 +192,15 @@ public final class ModBrowserWindow {
     private ModLibrary library;
     private ModPack pack;
     private boolean packAvailable;
+
+    /**
+     * Why the pack cannot be installed here, or null when it can.
+     *
+     * <p>Held rather than derived because the button is drawn again on every
+     * refresh - after an install, after a filter - and the reason must not be
+     * lost between the check that found it and the next repaint.
+     */
+    private String packBlockedReason;
     private volatile boolean busy;
 
     public ModBrowserWindow(LauncherService service, Stage owner, Profile profile, Runnable onChanged) {
@@ -302,14 +311,15 @@ public final class ModBrowserWindow {
         subtitleLabel.getStyleClass().add("detail-subtitle");
         subtitleLabel.setText(profile.minecraftVersion() + "  ·  " + profile.loader().displayName());
 
-        // Hidden, not merely disabled, until the check says the set exists for
-        // this version: an always-failing button is worse than no button.
         packButton.getStyleClass().add("primary");
-        packButton.setVisible(false);
-        packButton.setManaged(false);
+        // Disabled rather than absent, from the first frame. A control that
+        // appears once the answer arrives makes the panel jump; one that is
+        // simply missing on Forge tells the user nothing about why.
+        packButton.setDisable(true);
         packButton.setOnAction(event -> togglePack());
 
         packNote.getStyleClass().add("muted");
+        packNote.setWrapText(true);
         packNote.setVisible(false);
         packNote.setManaged(false);
 
@@ -1338,6 +1348,11 @@ public final class ModBrowserWindow {
             return;
         }
         boolean installed = library != null && library.isPackInstalled(pack.id());
+        // The button is greyed in this state, so this is the second lock rather
+        // than the first - and the one that holds if a keyboard ever reaches it.
+        if (packBlockedReason != null && !installed) {
+            return;
+        }
         if (installed) {
             mutate(I18n.t("mods.task.packRemove"), () -> {
                 int removed = service.removePack(profile, pack.id(), progress);
@@ -1445,12 +1460,15 @@ public final class ModBrowserWindow {
         // than shown until a new one arrives.
         pack = null;
         packAvailable = false;
-        packButton.setVisible(false);
-        packButton.setManaged(false);
-        packNote.setVisible(false);
-        packNote.setManaged(false);
+        packBlockedReason = I18n.t("mods.pack.checking");
+        updatePackButton();
 
+        // Vanilla is answered here rather than on the network. It is not that
+        // the set has no build for this profile; it is that a profile with no
+        // loader cannot load a mod at all, and one lookup would be one too many.
         if (profile.loader() == LoaderType.VANILLA) {
+            packBlockedReason = I18n.t("mods.pack.noLoader");
+            updatePackButton();
             return;
         }
         run(I18n.t("mods.task.packCheck"), false, () -> {
@@ -1459,31 +1477,66 @@ public final class ModBrowserWindow {
             Platform.runLater(() -> {
                 pack = loaded;
                 packAvailable = availability.available();
-                if (!packAvailable) {
-                    packNote.setText(I18n.t("mods.pack.unavailable",
-                            profile.minecraftVersion(), profile.loader().displayName()));
-                    packNote.setVisible(true);
-                    packNote.setManaged(true);
-                }
+                packBlockedReason = packAvailable ? null : reasonFor(loaded, availability);
                 updatePackButton();
                 progress.done(I18n.t("status.ready"));
             });
         });
     }
 
-    private void updatePackButton() {
-        if (pack == null || !packAvailable) {
-            packButton.setVisible(false);
-            packButton.setManaged(false);
-            return;
+    /**
+     * The sentence under a disabled button.
+     *
+     * <p>Two different facts, and a user can act on only one of them. A loader
+     * the set was never written for will not change tomorrow and the answer is
+     * to use a different loader; a Minecraft version the mods have not been
+     * built for yet is a wait, and naming the ones that are missing is what
+     * makes it a wait rather than a mystery.
+     */
+    private String reasonFor(ModPack loaded, ModInstaller.PackAvailability availability) {
+        if (!availability.loaderSupported()) {
+            return I18n.t("mods.pack.wrongLoader",
+                    profile.loader().displayName(), String.join(", ", loaded.loaders()));
         }
-        boolean installed = library != null && library.isPackInstalled(pack.id());
+        String note = I18n.t("mods.pack.unavailable",
+                profile.minecraftVersion(), profile.loader().displayName());
+        if (availability.missing().isEmpty()) {
+            return note;
+        }
+        return note + " " + I18n.t("mods.pack.missing",
+                String.join(", ", availability.missing()));
+    }
+
+    /**
+     * Draws the pack button, and the sentence under it when it is off.
+     *
+     * <p>The button is always there. It used to disappear on a profile the set
+     * has nothing for, which is the one case where the user most needs to be
+     * told something: a control that is absent is indistinguishable from a
+     * launcher that forgot to draw it, and the user's next move is to look for
+     * it rather than to change the profile. So it stays, greyed, with the reason
+     * beside it - and greyed is also what makes it unclickable, which is the
+     * point: nothing here can install a set that will not run.
+     *
+     * <p>The one exception is a set that is already installed. Removing it must
+     * stay possible even when it has become uninstallable - the mods are in the
+     * folder either way, and a profile switched to a loader the set does not
+     * cover would otherwise have no way to take them out again.
+     */
+    private void updatePackButton() {
+        boolean installed = pack != null && library != null && library.isPackInstalled(pack.id());
+        boolean blocked = packBlockedReason != null;
+
         packButton.setText(I18n.t(installed ? "mods.pack.remove" : "mods.pack.install"));
         packButton.getStyleClass().removeAll("primary", "danger");
         packButton.getStyleClass().add(installed ? "danger" : "primary");
-        packButton.setDisable(busy);
+        packButton.setDisable(busy || (blocked && !installed));
         packButton.setVisible(true);
         packButton.setManaged(true);
+
+        packNote.setText(blocked ? packBlockedReason : "");
+        packNote.setVisible(blocked);
+        packNote.setManaged(blocked);
     }
 
     // ---------------------------------------------------------------- plumbing
@@ -1677,7 +1730,9 @@ public final class ModBrowserWindow {
 
     private void setBusy(boolean value) {
         busy = value;
-        packButton.setDisable(value || pack == null);
+        // One place decides whether this button is clickable, and it is the one
+        // that also knows the set is already installed and must stay removable.
+        updatePackButton();
         identifyButton.setDisable(value);
         importButton.setDisable(value);
         resultList.refresh();

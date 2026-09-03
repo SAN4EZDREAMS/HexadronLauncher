@@ -424,8 +424,24 @@ public final class LauncherService {
             throw new IOException("mods need a loader - set this profile to Fabric, Quilt, "
                     + "Forge or NeoForge first");
         }
-        return modInstaller.installPack(pack, profile.minecraftVersion(), profile.loader(),
-                profiles.modsDirectory(profile), progress);
+        ModInstaller.Result result = modInstaller.installPack(pack, profile.minecraftVersion(),
+                profile.loader(), profiles.modsDirectory(profile), progress);
+        settleModCount(profile, result, progress);
+        return result;
+    }
+
+    /**
+     * Makes the number on the title screen mean what a player reads it to mean.
+     *
+     * <p>Only when Mod Menu was one of the files, because Mod Menu is what draws
+     * that number, and only for keys the config does not already have - see
+     * {@link com.hexadron.launcher.mods.ModMenuCount}.
+     */
+    private void settleModCount(Profile profile, ModInstaller.Result result, Progress progress) {
+        if (com.hexadron.launcher.mods.ModMenuCount.isPresentAmong(result.installed())) {
+            com.hexadron.launcher.mods.ModMenuCount.applyTo(
+                    profiles.gameDirectory(profile), progress);
+        }
     }
 
     /** What the launcher installed into this profile, and why. */
@@ -551,8 +567,10 @@ public final class LauncherService {
             throws IOException, InterruptedException {
 
         requireModdedLoader(profile);
-        return modInstaller.installMod(chosen, profile.minecraftVersion(),
+        ModInstaller.Result result = modInstaller.installMod(chosen, profile.minecraftVersion(),
                 profile.loader(), profiles.modsDirectory(profile), progress);
+        settleModCount(profile, result, progress);
+        return result;
     }
 
     /**
@@ -667,7 +685,7 @@ public final class LauncherService {
     public ModInstaller.PackAvailability packAvailability(Profile profile, ModPack pack)
             throws InterruptedException {
         if (profile.loader() == LoaderType.VANILLA) {
-            return new ModInstaller.PackAvailability(false, List.of());
+            return ModInstaller.PackAvailability.unsupportedLoader();
         }
         return modInstaller.checkPack(pack, profile.minecraftVersion(), profile.loader());
     }

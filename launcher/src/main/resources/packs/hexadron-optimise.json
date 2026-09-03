@@ -1,7 +1,12 @@
 {
   "id": "hexadron-optimise",
   "name": "Hexadron Optimise",
-  "description": "The performance set the Hexadron Optimise mod depends on. Project ids are Modrinth project ids, taken from mod/build.gradle so the launcher and the mod stay in step. Edit this file to change the set - no rebuild required.",
+  "description": "The performance set the Hexadron Optimise mod depends on. Project ids are Modrinth project ids. Edit this file to change the set - no rebuild required.",
+
+  "_note_loaders": "The loaders this set can be installed on at all. A profile on any other loader gets a disabled button and this reason, rather than nine failed lookups. Forge is absent on purpose: Sodium, Lithium, Iris, Krypton and Mod Menu publish nothing for it, so a Forge install of this set would be FerriteCore and EntityCulling and nothing else - which is not the set.",
+  "loaders": ["fabric", "quilt", "neoforge"],
+
+  "_note_entryLoaders": "An entry may carry its own \"loaders\": [...]. Without one it belongs to every loader the pack supports. With one it is a project that exists for some and not others - Fabric API on Fabric, Quilted Fabric API on Quilt, Krypton on neither NeoForge nor Forge because it was never ported there.",
 
   "_note_versions": "No versionId is pinned, so the launcher installs the newest build compatible with the profile's Minecraft version and loader. Add \"versionId\" to an entry to pin a specific build.",
 
@@ -12,7 +17,17 @@
       "provider": "MODRINTH",
       "projectId": "P7dR8mSH",
       "label": "Fabric API",
-      "optional": false
+      "optional": false,
+      "loaders": ["fabric"],
+      "_why": "Quilt Loader runs Fabric mods, but not this one: Quilted Fabric API replaces it and the two conflict. So this entry is Fabric's alone and the next one is Quilt's."
+    },
+    {
+      "provider": "MODRINTH",
+      "projectId": "qvIfYCYJ",
+      "label": "Quilted Fabric API",
+      "optional": false,
+      "loaders": ["quilt"],
+      "_why": "The Quilt substitution for Fabric API. Everything else in this set is a Fabric jar that Quilt loads unchanged."
     },
     {
       "provider": "MODRINTH",
@@ -25,11 +40,12 @@
       "projectId": "Orvt0mRa",
       "label": "Indium",
       "optional": true,
+      "loaders": ["fabric", "quilt"],
       "onlyWith": {
         "projectId": "AANobbMI",
         "versionBelow": "0.6.0"
       },
-      "_why": "Indium gives Sodium the Fabric Rendering API. Sodium 0.6 has it built in AND is incompatible with Indium, so this is installed only when the Sodium build that was actually resolved is older than 0.6.0. Keyed on Sodium's version rather than the Minecraft version because Sodium is backported: 1.20.1 gets 0.5.13 and needs this, 1.21.1 gets 0.8.13 and must not have it, even though Indium publishes builds for both.",
+      "_why": "Indium gives Sodium the Fabric Rendering API. Sodium 0.6 has it built in AND is incompatible with Indium, so this is installed only when the Sodium build that was actually resolved is older than 0.6.0. Keyed on Sodium's version rather than the Minecraft version because Sodium is backported: 1.20.1 gets 0.5.13 and needs this, 1.21.1 gets 0.8.13 and must not have it, even though Indium publishes builds for both. It publishes nothing for NeoForge, where the Fabric Rendering API is not the API in use.",
       "optional_note": "Optional so that a Minecraft version with no Indium build is a logged line rather than a failed install."
     },
     {
@@ -48,7 +64,9 @@
       "provider": "MODRINTH",
       "projectId": "fQEb0iXm",
       "label": "Krypton",
-      "optional": false
+      "optional": false,
+      "loaders": ["fabric", "quilt"],
+      "_why": "Fabric only. There is no NeoForge port, and asking for one would fail the whole install on a loader where the rest of the set is fine."
     },
     {
       "provider": "MODRINTH",
@@ -66,7 +84,9 @@
       "provider": "MODRINTH",
       "projectId": "mOgUt4GM",
       "label": "Mod Menu",
-      "optional": false
+      "optional": true,
+      "loaders": ["fabric", "quilt"],
+      "_why": "Fabric and Quilt only; NeoForge has its own mod list built in. Optional because it is a convenience rather than a performance mod, and a Minecraft version it has not been updated for should not be able to fail the whole install."
     }
   ]
 }

@@ -1,7 +1,6 @@
 {
 	"required": true,
 	"package": "com.hexadron.optimise.mixin",
-	"compatibilityLevel": "JAVA_25",
 	"mixins": [],
 	"injectors": {
 		"defaultRequire": 1

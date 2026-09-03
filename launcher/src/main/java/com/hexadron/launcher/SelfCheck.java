@@ -45,6 +45,7 @@ import com.hexadron.launcher.mods.InstalledMod;
 import com.hexadron.launcher.mods.ModFile;
 import com.hexadron.launcher.mods.ModInstaller;
 import com.hexadron.launcher.mods.ModLibrary;
+import com.hexadron.launcher.mods.ModMenuCount;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModPack;
 import com.hexadron.launcher.mods.ModVersions;
@@ -4703,8 +4704,112 @@ public final class SelfCheck {
                     check("a conditional entry is optional by construction", entry.optional());
                 }
             }
+
+            // --- which loaders it is for ------------------------------------
+            //
+            // The set used to be one list with no loader on it, which is a
+            // Fabric list wearing no label: on a Forge profile every lookup
+            // failed one at a time and the button simply vanished.
+            check("the set says which loaders it is for", !pack.loaders().isEmpty());
+            check("Fabric is one of them", pack.supports(LoaderType.FABRIC));
+            check("Quilt is another, because Quilt Loader runs these jars",
+                    pack.supports(LoaderType.QUILT));
+            check("NeoForge is the third", pack.supports(LoaderType.NEOFORGE));
+            check("Forge is not, and says so before asking anybody",
+                    !pack.supports(LoaderType.FORGE));
+            check("and neither is a profile with no loader at all",
+                    !pack.supports(LoaderType.VANILLA));
+
+            // --- what each loader actually gets -----------------------------
+            java.util.function.BiFunction<LoaderType, String, Boolean> has =
+                    (loader, label) -> pack.entriesFor(loader).stream()
+                            .anyMatch(entry -> entry.label().equals(label));
+
+            check("Fabric gets Fabric API", has.apply(LoaderType.FABRIC, "Fabric API"));
+            check("and not the Quilt substitute for it",
+                    !has.apply(LoaderType.FABRIC, "Quilted Fabric API"));
+            check("Quilt gets Quilted Fabric API instead",
+                    has.apply(LoaderType.QUILT, "Quilted Fabric API"));
+            check("and not Fabric API, which conflicts with it",
+                    !has.apply(LoaderType.QUILT, "Fabric API"));
+            check("NeoForge gets neither, and Krypton is not asked of it either",
+                    !has.apply(LoaderType.NEOFORGE, "Fabric API")
+                            && !has.apply(LoaderType.NEOFORGE, "Quilted Fabric API")
+                            && !has.apply(LoaderType.NEOFORGE, "Krypton"));
+            check("Sodium is in every one of them",
+                    has.apply(LoaderType.FABRIC, "Sodium")
+                            && has.apply(LoaderType.QUILT, "Sodium")
+                            && has.apply(LoaderType.NEOFORGE, "Sodium"));
+            check("an entry with no loaders of its own belongs to all of them",
+                    pack.entries().stream()
+                            .filter(entry -> entry.label().equals("Lithium"))
+                            .allMatch(entry -> entry.appliesTo(LoaderType.FABRIC)
+                                    && entry.appliesTo(LoaderType.QUILT)
+                                    && entry.appliesTo(LoaderType.NEOFORGE)));
+            check("no loader is offered an empty set",
+                    !pack.entriesFor(LoaderType.FABRIC).isEmpty()
+                            && !pack.entriesFor(LoaderType.QUILT).isEmpty()
+                            && !pack.entriesFor(LoaderType.NEOFORGE).isEmpty());
         } catch (IOException e) {
             check("the set contains Sodium", false);
+        }
+
+        // --- what a loader can run --------------------------------------
+        //
+        // The reason a Quilt profile used to see an empty browser: one tag was
+        // sent, and almost nobody publishes under it.
+        check("Fabric asks for Fabric files",
+                LoaderType.FABRIC.platformIds().equals(java.util.List.of("fabric")));
+        check("Quilt asks for Quilt files and Fabric ones, in that order",
+                LoaderType.QUILT.platformIds().equals(java.util.List.of("quilt", "fabric")));
+        check("and where only one tag fits, it is the one the files are under",
+                "fabric".equals(LoaderType.QUILT.searchPlatformId()));
+        check("NeoForge is not offered Forge files",
+                !LoaderType.NEOFORGE.platformIds().contains("forge"));
+        check("nor Forge NeoForge ones",
+                !LoaderType.FORGE.platformIds().contains("neoforge"));
+        check("a profile with no loader asks for nothing",
+                LoaderType.VANILLA.platformIds().isEmpty()
+                        && LoaderType.VANILLA.searchPlatformId() == null);
+
+        // --- the number in the corner -----------------------------------
+        try {
+            java.nio.file.Path gameDir = java.nio.file.Files.createTempDirectory("hexadron-modmenu");
+            java.nio.file.Path config = gameDir.resolve("config").resolve("modmenu.json");
+            Progress quiet = Progress.NOOP;
+
+            check("Mod Menu is recognised by its file name", ModMenuCount.isPresentAmong(
+                    java.util.List.of(new ModFile("mOgUt4GM", null, "1", "Mod Menu",
+                            "modmenu-11.0.3.jar", null, null, -1, java.util.List.of(),
+                            ModProvider.Source.MODRINTH))));
+            check("and another mod is not", !ModMenuCount.isPresentAmong(
+                    java.util.List.of(new ModFile("AANobbMI", null, "1", "Sodium",
+                            "sodium-fabric-0.6.13.jar", null, null, -1, java.util.List.of(),
+                            ModProvider.Source.MODRINTH))));
+
+            check("the counting keys are written when there is no config yet",
+                    ModMenuCount.applyTo(gameDir, quiet));
+            Json written = Json.read(config);
+            check("count_children is off - this is the Fabric API fifty",
+                    !written.get("count_children").asBool(true));
+            check("count_libraries is off", !written.get("count_libraries").asBool(true));
+            check("count_hidden_mods is off", !written.get("count_hidden_mods").asBool(true));
+
+            check("a second run changes nothing", !ModMenuCount.applyTo(gameDir, quiet));
+
+            // The player's own answer wins. An installer that overrules a
+            // setting on every run is worse than the number it is correcting.
+            Json chosen = Json.object().put("count_children", true).put("keep_me", "yes");
+            chosen.write(config);
+            ModMenuCount.applyTo(gameDir, quiet);
+            Json after = Json.read(config);
+            check("a key the player set is left alone", after.get("count_children").asBool(false));
+            check("the keys they never touched are still filled in",
+                    !after.get("count_libraries").asBool(true));
+            check("and nothing else in their file is lost",
+                    "yes".equals(after.get("keep_me").asString(null)));
+        } catch (IOException e) {
+            check("Mod Menu's mod count can be settled", false);
         }
     }
 

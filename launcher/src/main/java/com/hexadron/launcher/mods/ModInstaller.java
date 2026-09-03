@@ -60,10 +60,28 @@ public final class ModInstaller {
         }
     }
 
-    /** Whether a pack can be installed for a given version and loader at all. */
-    public record PackAvailability(boolean available, List<String> missing) {
+    /**
+     * Whether a pack can be installed for a given version and loader at all.
+     *
+     * <p>The two ways of failing are kept apart because they are answers to
+     * different questions and deserve different words. A pack that does not
+     * support the loader is a fact about the file, true before anything is
+     * asked and true for ever; a pack whose mods have no build for this
+     * Minecraft version is a fact about today's catalogue, and it will change.
+     *
+     * @param loaderSupported false when the pack does not cover this loader at
+     *                        all - {@code missing} is then empty, because
+     *                        nothing was looked up
+     * @param missing         entries with no build for this version and loader
+     */
+    public record PackAvailability(boolean available, boolean loaderSupported, List<String> missing) {
         public PackAvailability {
             missing = List.copyOf(missing);
+        }
+
+        /** An answer for a loader the pack was never written for. */
+        public static PackAvailability unsupportedLoader() {
+            return new PackAvailability(false, false, List.of());
         }
     }
 
@@ -72,16 +90,27 @@ public final class ModInstaller {
     /**
      * Checks a pack against a version and loader without downloading anything.
      *
-     * <p>The mod browser uses this to decide whether to offer the pack at all.
-     * A button that always fails - because half the set has no build for the
-     * chosen version - reads as a broken launcher rather than as an unsupported
-     * version, so the button is simply absent instead.
+     * <p>The mod browser uses this to decide whether the install button is
+     * clickable. The button stays on screen either way and is greyed when the
+     * answer is no, with the reason beside it: a button that always fails reads
+     * as a broken launcher, and a button that is not there at all reads as one
+     * that forgot to draw itself. Neither says "not for this profile", which is
+     * what is actually true.
+     *
+     * <p>A loader the pack does not cover is answered from the file, before any
+     * lookup: it is a fact the pack states about itself, and finding it out by
+     * asking a platform nine times and failing nine times is nine requests spent
+     * on a conclusion already in hand.
      */
     public PackAvailability checkPack(ModPack pack, String minecraftVersion, LoaderType loader)
             throws InterruptedException {
 
+        if (!pack.supports(loader)) {
+            return PackAvailability.unsupportedLoader();
+        }
+
         List<String> missing = new ArrayList<>();
-        for (ModPack.Entry entry : pack.entries()) {
+        for (ModPack.Entry entry : pack.entriesFor(loader)) {
             // A conditional entry is not part of what makes the set installable:
             // whether it belongs at all depends on the build another entry
             // resolves to, which is not known until the install runs.
@@ -101,7 +130,7 @@ public final class ModInstaller {
                 missing.add(entry.label());
             }
         }
-        return new PackAvailability(missing.isEmpty(), missing);
+        return new PackAvailability(missing.isEmpty(), true, missing);
     }
 
     /**
@@ -115,6 +144,12 @@ public final class ModInstaller {
     public Result installPack(ModPack pack, String minecraftVersion, LoaderType loader,
                               Path modsDir, Progress progress) throws IOException, InterruptedException {
 
+        if (!pack.supports(loader)) {
+            throw new IOException(pack.name() + " is not published for "
+                    + loader.displayName() + "; it covers "
+                    + String.join(", ", pack.loaders()));
+        }
+
         progress.stage("Resolving " + pack.name());
         Files.createDirectories(modsDir);
 
@@ -126,7 +161,7 @@ public final class ModInstaller {
 
         Deque<Pending> queue = new ArrayDeque<>();
         List<ModPack.Entry> conditional = new ArrayList<>();
-        for (ModPack.Entry entry : pack.entries()) {
+        for (ModPack.Entry entry : pack.entriesFor(loader)) {
             if (entry.isConditional()) {
                 // Held back: the condition is about what another entry resolves
                 // to, so it cannot be answered until that one has.

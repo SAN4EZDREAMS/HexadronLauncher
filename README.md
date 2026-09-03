@@ -392,14 +392,28 @@ skipped, and left for you to fetch by hand.
 ## The mod
 
 `mod/` builds `hexadron-optimise`. It does not implement optimisations itself. It
-declares a dependency on a set of proven performance mods, and the launcher
-installs that set.
+names a set of proven performance mods, and the launcher installs that set.
 
 The set is defined in one place that is easy to edit:
 `launcher/src/main/resources/packs/hexadron-optimise.json`. That file is the
 authoritative list; the launcher reads it at runtime, so changing the set needs
 no rebuild. `mod/build.gradle` repeats the same ids only for the development
 environment, behind `-Phexadron.devMods=true`.
+
+**The jar is version-agnostic, and deliberately.** It contains no Minecraft
+code - a logger, a mod id and two empty entrypoints - so there is nothing in it
+a Minecraft update can break. It therefore declares no `minecraft` bound, is
+compiled to Java 17 bytecode rather than 25, and carries no
+`compatibilityLevel` in its mixin configs. Each of those three was previously a
+hard stop on every version but one: a `"minecraft": "~26.2"` bound that asserted
+a limit which does not exist, class files no Java before 25 will load, and a
+mixin compatibility level older Mixin releases cannot parse. One unused
+`net.minecraft.resources.Identifier` import was what made the pin look
+necessary; it is gone.
+
+The performance mods are `recommends`, not `depends`. As hard dependencies they
+turned the normal state of affairs after a Minecraft release - some of the seven
+not ported yet - into a game that refuses to start.
 
 Minecraft 26.1 is the first unobfuscated version. From it on the
 `net.fabricmc.fabric-loom` plugin does no remapping, so `modImplementation`,
@@ -1130,14 +1144,48 @@ ranges a working 1.20.1 pack declares are all admitted.
 
 ### Hexadron Optimise
 
-The pack button lives in this window, not in the main one, and it appears only
-when every mod in the set has a build for the chosen version and loader. A
-button that always fails on an unsupported version reads as a broken launcher
-rather than as an unsupported version, so on those versions there is no button -
-only a line saying why.
+The pack button lives in this window, not in the main one. It is always on
+screen, and it is greyed - not hidden - when the set cannot be installed on the
+profile as it stands, with the reason on the line beneath it. Greyed is what
+makes it unclickable, which is the point: nothing here can install a set that
+will not run. The button used to disappear instead, and a control that is absent
+is indistinguishable from a launcher that forgot to draw it: the user's next move
+was to look for it rather than to change the profile.
+
+There are three ways it is off, and they are different sentences because they
+call for different answers:
+
+| State | What it says |
+| --- | --- |
+| The profile has no loader | Set it to Fabric, Quilt or NeoForge. Answered without asking anybody: a profile with no loader cannot load a mod at all. |
+| The loader is one the set does not cover | Which loaders it does cover. Also answered from the pack file, before any lookup - see below. |
+| The loader is right, the Minecraft version is too new | Which mods have no build yet. This one is a wait, and naming them is what makes it a wait rather than a mystery. |
+
+**Which loaders.** The pack file names them, and each entry may name its own:
+
+- **Fabric** gets the whole set, Fabric API included.
+- **Quilt** gets the same set with **Quilted Fabric API** in place of Fabric API,
+  which is the one Fabric mod Quilt does not simply load. Everything else is a
+  Fabric jar that Quilt Loader runs unchanged - which is also why a Quilt profile
+  now searches Modrinth for `quilt` **or** `fabric`. Searching for `quilt` alone
+  returned a near-empty catalogue and made Quilt look like a loader with no mods.
+- **NeoForge** gets Sodium, Lithium, FerriteCore, EntityCulling and Iris, which
+  all publish NeoForge builds. Fabric API, Quilted Fabric API, Indium, Krypton
+  and Mod Menu are left out because they publish nothing for it.
+- **Forge** is not covered. Most of the set has no Forge build at all, so a Forge
+  install would be two mods out of nine and would not be the set. The button says
+  so rather than half-installing it.
+
+A loader the pack does not cover is decided from the file, not from the network:
+it is a fact the pack states about itself, and asking a platform nine times to
+be told nine times that there is nothing there is nine requests spent on an
+answer already in hand.
 
 Once the set is installed the same button becomes **Remove Hexadron Optimise**,
-and the individual Remove buttons on those mods are disabled. A pack is a set
+and the individual Remove buttons on those mods are disabled. Removal stays
+available even when the set has become uninstallable - a profile switched to a
+loader the set does not cover would otherwise have no way to take the mods out
+again. A pack is a set
 that was chosen and tested together: pulling one mod out leaves something that
 is no longer the pack but still claims to be, and the first symptom is a crash
 nobody connects to the deletion. It goes in whole and comes out whole.
@@ -1148,6 +1196,27 @@ the pack cannot delete a mod the user chose, and removing the pack cannot take
 one with it. Jars the user copied into the folder themselves are not in that
 file at all: they are listed, and they are removed only when the button on their
 own row is pressed. Nothing else in the launcher moves or deletes them.
+
+### The number in the corner
+
+Install eight mods and the title screen used to say sixty-eight. Nothing was
+wrong: the folder held eight jars, and the launcher never wrote that number.
+Mod Menu did, and Mod Menu counts every mod the loader has - which includes the
+roughly fifty modules Fabric API is made of and every library jar-in-jarred
+inside somebody else's mod. Its three counting options all default to on:
+`count_libraries`, `count_hidden_mods` and `count_children`.
+
+So when Mod Menu is one of the files installed, the launcher writes those three
+as `false` into `config/modmenu.json`. The number then means "the mods I
+installed", which is the only reading a player has for it. Nothing else changes:
+Mod Menu's list still shows everything, and every mod still loads - it is a
+display setting.
+
+It writes a key only when the file does not already have one. A player who has
+been into Mod Menu's settings and turned counting back on has said what they
+want, and an installer that overrules that on every run is a worse bug than the
+one it is fixing. Everything else in that file is read, kept and written back
+untouched.
 
 ## Updating itself
 

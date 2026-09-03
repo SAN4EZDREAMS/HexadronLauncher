@@ -3,7 +3,7 @@
 	"id": "hexadron-optimise",
 	"version": "${version}",
 	"name": "Hexadron Optimise",
-	"description": "An umbrella mod for the Hexadron performance set. HexadronLauncher installs the mods listed under \"depends\" from Modrinth.",
+	"description": "An umbrella mod for the Hexadron performance set. HexadronLauncher installs the mods listed under \"recommends\" from Modrinth. This jar contains no game code of its own, which is why it carries no Minecraft version bound: there is nothing in it that a Minecraft update can break.",
 	"authors": [
 		"Hexadron"
 	],
@@ -29,18 +29,20 @@
 		}
 	],
 	"depends": {
-		"fabricloader": ">=0.19.3",
-		"minecraft": "~26.2",
-		"java": ">=25",
-		"fabric-api": "*",
+		"fabricloader": ">=0.14.0"
+	},
+	"recommends": {
 		"sodium": "*",
 		"lithium": "*",
 		"ferritecore": "*",
 		"krypton": "*",
 		"entityculling": "*",
-		"iris": "*"
-	},
-	"recommends": {
+		"iris": "*",
 		"modmenu": "*"
+	},
+	"custom": {
+		"hexadron:why_recommends": "These were \"depends\" and each one was a crash. A hard dependency on seven third-party mods means the game refuses to start when any one of them has no build for the Minecraft version in play - which is the normal state of affairs for the first weeks after a release, and exactly when a player is most likely to be trying versions. The set is what the launcher installs; this jar only names it.",
+		"hexadron:why_no_minecraft_bound": "\"minecraft\": \"~26.2\" pinned this jar to one release. It has no Minecraft code in it, so the pin was asserting a compatibility limit that does not exist and turning every other version into a hard refusal to load.",
+		"hexadron:why_java_14": "fabricloader >=0.14.0 rather than >=0.19.3 for the same reason: nothing here needs a loader feature newer than that, and the higher floor excluded every 1.20 and 1.21 profile."
 	}
 }

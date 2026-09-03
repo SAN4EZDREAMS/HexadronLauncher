@@ -191,18 +191,29 @@ public final class CurseForgeProvider implements ModProvider {
         return keySource;
     }
 
-    /** CurseForge's numeric mod loader ids. */
-    private static Integer loaderTypeId(LoaderType loader) {
-        if (loader == null) {
+    /** CurseForge's numeric mod loader ids, by the platform tag name. */
+    private static Integer loaderTypeId(String platformId) {
+        if (platformId == null) {
             return null;
         }
-        return switch (loader) {
-            case FORGE -> 1;
-            case FABRIC -> 4;
-            case QUILT -> 5;
-            case NEOFORGE -> 6;
-            case VANILLA -> null;
+        return switch (platformId) {
+            case "forge" -> 1;
+            case "fabric" -> 4;
+            case "quilt" -> 5;
+            case "neoforge" -> 6;
+            default -> null;
         };
+    }
+
+    /**
+     * The one id to filter a search by.
+     *
+     * <p>{@code modLoaderType} takes a single number, so a loader that can run
+     * more than one kind of file has to pick; {@link LoaderType#searchPlatformId()}
+     * is where that choice is made and explained.
+     */
+    private static Integer searchLoaderTypeId(LoaderType loader) {
+        return loader == null ? null : loaderTypeId(loader.searchPlatformId());
     }
 
     /**
@@ -255,7 +266,7 @@ public final class CurseForgeProvider implements ModProvider {
         if (minecraftVersion != null && !minecraftVersion.isBlank()) {
             url.append("&gameVersion=").append(encode(minecraftVersion));
         }
-        Integer loaderId = loaderTypeId(loader);
+        Integer loaderId = searchLoaderTypeId(loader);
         if (loaderId != null) {
             url.append("&modLoaderType=").append(loaderId);
         }
@@ -353,12 +364,33 @@ public final class CurseForgeProvider implements ModProvider {
     public Optional<ModFile> resolveLatest(String projectId, String minecraftVersion, LoaderType loader)
             throws IOException, InterruptedException {
 
+        // Every tag this loader can actually run, most specific first. On Quilt
+        // that is the Quilt build when the author published one and the Fabric
+        // build otherwise - which is the file Quilt Loader will load either way.
+        List<String> platformIds = loader == null ? List.of() : loader.platformIds();
+        if (platformIds.isEmpty()) {
+            return resolveLatestFor(projectId, minecraftVersion, null);
+        }
+        for (String platformId : platformIds) {
+            Optional<ModFile> found =
+                    resolveLatestFor(projectId, minecraftVersion, loaderTypeId(platformId));
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** One query, against one of CurseForge's numeric loader ids. */
+    private Optional<ModFile> resolveLatestFor(String projectId, String minecraftVersion,
+                                               Integer loaderId)
+            throws IOException, InterruptedException {
+
         StringBuilder url = new StringBuilder(API + "/mods/").append(encode(projectId)).append("/files")
                 .append("?pageSize=50");
         if (minecraftVersion != null && !minecraftVersion.isBlank()) {
             url.append("&gameVersion=").append(encode(minecraftVersion));
         }
-        Integer loaderId = loaderTypeId(loader);
         if (loaderId != null) {
             url.append("&modLoaderType=").append(loaderId);
         }

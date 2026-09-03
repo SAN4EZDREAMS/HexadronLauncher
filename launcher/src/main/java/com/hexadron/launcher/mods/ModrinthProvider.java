@@ -56,7 +56,13 @@ public final class ModrinthProvider implements ModProvider {
             facetGroups.add("[\"versions:" + minecraftVersion + "\"]");
         }
         if (loader != null && loader.isModded()) {
-            facetGroups.add("[\"categories:" + loader.platformId() + "\"]");
+            // One group, several tags: a Modrinth facet group is an OR, and for
+            // Quilt the honest question is "quilt or fabric", not "quilt".
+            List<String> tags = new ArrayList<>();
+            for (String platformId : loader.platformIds()) {
+                tags.add("\"categories:" + platformId + "\"");
+            }
+            facetGroups.add("[" + String.join(",", tags) + "]");
         }
         // One group each, so they are ANDed: two ticked categories mean "both",
         // which is how the platform's own filter behaves. A single group would
@@ -104,7 +110,14 @@ public final class ModrinthProvider implements ModProvider {
             params.add("game_versions=" + encode("[\"" + minecraftVersion + "\"]"));
         }
         if (loader != null && loader.isModded()) {
-            params.add("loaders=" + encode("[\"" + loader.platformId() + "\"]"));
+            StringBuilder loaders = new StringBuilder("[");
+            for (String platformId : loader.platformIds()) {
+                if (loaders.length() > 1) {
+                    loaders.append(',');
+                }
+                loaders.append('"').append(platformId).append('"');
+            }
+            params.add("loaders=" + encode(loaders.append(']').toString()));
         }
         if (!params.isEmpty()) {
             url.append('?').append(String.join("&", params));
