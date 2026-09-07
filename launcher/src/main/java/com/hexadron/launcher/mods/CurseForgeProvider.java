@@ -240,7 +240,7 @@ public final class CurseForgeProvider implements ModProvider {
     @Override
     public SearchPage search(ContentKind kind, String query, String minecraftVersion,
                              LoaderType loader, ModSort sort, List<ModCategory> categories,
-                             int limit, int offset)
+                             boolean onlyForProfile, int limit, int offset)
             throws IOException, InterruptedException {
 
         // The categories are Modrinth's, and CurseForge files its projects under
@@ -262,10 +262,12 @@ public final class CurseForgeProvider implements ModProvider {
         if (query != null && !query.isBlank()) {
             url.append("&searchFilter=").append(encode(query));
         }
-        if (kind.isFilteredByVersion() && minecraftVersion != null && !minecraftVersion.isBlank()) {
+        if (kind.narrowsByVersion(onlyForProfile)
+                && minecraftVersion != null && !minecraftVersion.isBlank()) {
             url.append("&gameVersion=").append(encode(minecraftVersion));
         }
-        Integer loaderId = kind.isFilteredByLoader() ? searchLoaderTypeId(loader) : null;
+        Integer loaderId = kind.narrowsByLoader(onlyForProfile)
+                ? searchLoaderTypeId(loader) : null;
         if (loaderId != null) {
             url.append("&modLoaderType=").append(loaderId);
         }

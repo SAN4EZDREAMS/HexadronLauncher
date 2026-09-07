@@ -1931,6 +1931,16 @@ public final class SelfCheck {
         check("a mod nothing needs any more can say so",
                 reference.containsKey("mods.dependents.none"));
 
+        // The tick box that narrows the modpack catalogue to this profile, the
+        // sentence that says what it does, and the placeholder for when it
+        // leaves nothing - which has to name the box, or it reads as "no such
+        // pack exists".
+        for (String key : new String[]{"mods.onlyForProfile", "mods.onlyForProfile.tip",
+                "mods.noResults.forProfile", "modpacks.target.warning"}) {
+            check("the modpack catalogue has its words: " + key,
+                    reference.containsKey(key));
+        }
+
         // A jar out of a downloaded modpack. Without these three the row falls
         // back to the launcher's own set - "Hexadron Optimise" on a mod that
         // came out of somebody else's pack - and the panel that says which pack
@@ -4456,6 +4466,30 @@ public final class SelfCheck {
                 ContentKind.MOD.needsLoader()
                         && !ContentKind.MODPACK.needsLoader()
                         && !ContentKind.DATAPACK.needsLoader());
+
+        // Narrowing to the profile's own version and loader is a question with
+        // two honest answers for exactly one kind. A mod is always narrowed; a
+        // data pack is filed under no loader at all, so "data packs for Fabric"
+        // is a request that comes back empty and must not be offerable.
+        check("only a modpack search can be narrowed to the profile",
+                ContentKind.MODPACK.isNarrowableToProfile()
+                        && !ContentKind.MOD.isNarrowableToProfile()
+                        && !ContentKind.DATAPACK.isNarrowableToProfile());
+        check("an unnarrowed modpack search asks the platform for neither",
+                !ContentKind.MODPACK.narrowsByVersion(false)
+                        && !ContentKind.MODPACK.narrowsByLoader(false));
+        check("and a narrowed one asks for both",
+                ContentKind.MODPACK.narrowsByVersion(true)
+                        && ContentKind.MODPACK.narrowsByLoader(true));
+        check("a mod is narrowed either way",
+                ContentKind.MOD.narrowsByVersion(false) && ContentKind.MOD.narrowsByLoader(false)
+                        && ContentKind.MOD.narrowsByVersion(true)
+                        && ContentKind.MOD.narrowsByLoader(true));
+        check("a data pack is narrowed by version either way, and never by loader",
+                ContentKind.DATAPACK.narrowsByVersion(false)
+                        && ContentKind.DATAPACK.narrowsByVersion(true)
+                        && !ContentKind.DATAPACK.narrowsByLoader(false)
+                        && !ContentKind.DATAPACK.narrowsByLoader(true));
 
         // Every kind has a category filter now, and each is offered its own
         // list. It was mods alone while ModCategory held Modrinth's mod

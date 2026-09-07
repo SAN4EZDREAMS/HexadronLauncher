@@ -23,10 +23,12 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -110,6 +112,27 @@ final class CataloguePane {
     private final CategoryFilter categoryFilter;
 
     /**
+     * "Show only what fits this profile."
+     *
+     * <p>On by default, and that is the important half of the decision. A
+     * modpack states its own Minecraft version and loader, so the unnarrowed
+     * catalogue is thousands of packs of which almost none can be installed here
+     * without replacing what the profile is - and a first-time reader has no way
+     * to tell which those are from a row. Narrowed, the list is the packs that
+     * fit, which is what somebody browsing from inside a profile is looking for;
+     * the box is right there for the other question.
+     *
+     * <p>Null for a kind that does not offer the choice - see
+     * {@link ContentKind#isNarrowableToProfile()}. A mod is always narrowed and a
+     * data pack is filed under no loader, so a box for either would be a control
+     * that either does nothing or empties the list.
+     */
+    private final CheckBox onlyForProfile;
+
+    /** Says what the box means, in the one sentence that is worth its space. */
+    private final Tooltip onlyForProfileTip = new Tooltip();
+
+    /**
      * Says out loud when CurseForge is not being searched.
      *
      * <p>Without it the catalogue quietly returns Modrinth results only, and a
@@ -143,6 +166,7 @@ final class CataloguePane {
         this.categoryFilter = kind.hasCategories()
                 ? new CategoryFilter(kind, host::categories, this::search)
                 : null;
+        this.onlyForProfile = kind.isNarrowableToProfile() ? new CheckBox() : null;
         this.pane = build();
     }
 
@@ -195,6 +219,19 @@ final class CataloguePane {
         controls.getChildren().addAll(sourceBox, searchButton);
         controls.setAlignment(Pos.CENTER_LEFT);
 
+        if (onlyForProfile != null) {
+            onlyForProfile.setSelected(true);
+            onlyForProfile.setWrapText(true);
+            onlyForProfile.setTooltip(onlyForProfileTip);
+            // Straight into a fresh search rather than filtering the page in
+            // hand. The narrowing is the platform's own - the request carries
+            // the version and the loader - so a page fetched without it does not
+            // contain the answer to the same question with it: it contains forty
+            // of the wrong packs and a total that counts them.
+            onlyForProfile.selectedProperty().addListener(
+                    (observable, previous, value) -> search());
+        }
+
         curseForgeNote.getStyleClass().add("muted");
         curseForgeNote.setWrapText(true);
         HBox.setHgrow(curseForgeNote, Priority.ALWAYS);
@@ -217,7 +254,10 @@ final class CataloguePane {
         moreButton.setManaged(false);
         moreButton.setOnAction(event -> loadPage(false));
 
-        VBox box = new VBox(10, controls, curseForgeRow, blockedNote, resultList, moreButton);
+        VBox box = onlyForProfile == null
+                ? new VBox(10, controls, curseForgeRow, blockedNote, resultList, moreButton)
+                : new VBox(10, controls, onlyForProfile, curseForgeRow, blockedNote,
+                        resultList, moreButton);
         box.getStyleClass().add("browse-pane");
         applyTexts();
         return box;
@@ -237,6 +277,15 @@ final class CataloguePane {
         SourceChoice source = sourceBox.getValue();
         sourceBox.setValue(null);
         sourceBox.setValue(source);
+        if (onlyForProfile != null) {
+            onlyForProfile.setText(I18n.t("mods.onlyForProfile"));
+            // The profile's own pair is in the sentence, because "fits this
+            // profile" is only checkable by somebody who knows what the profile
+            // is set to - and that is exactly what a pack install changes.
+            onlyForProfileTip.setText(I18n.t("mods.onlyForProfile.tip",
+                    host.profile().minecraftVersion(),
+                    host.profile().loader().displayName()));
+        }
         // Rebuilt rather than relabelled: every name in it changes, and the
         // drawings beside them may have arrived since it was last built. The
         // ticks are kept - the filter holds them, not its boxes.
@@ -289,11 +338,16 @@ final class CataloguePane {
         ModSort sort = sortBox.getValue() == null ? ModSort.POPULAR : sortBox.getValue();
         ModProvider.Source only = sourceBox.getValue() == null ? null : sourceBox.getValue().source();
         List<ModCategory> chosen = categoryFilter == null ? List.of() : categoryFilter.forSearch();
+        boolean forProfile = onlyForProfile != null && onlyForProfile.isSelected();
         int offset = fresh ? 0 : nextOffset;
 
         if (fresh) {
             empty.setText(I18n.t("mods.searching"));
         }
+        // The placeholder after an empty answer depends on the box: "nothing
+        // matches" is a different sentence from "nothing that fits this profile
+        // matches", and the second one names the thing to untick.
+        String nothing = forProfile ? "mods.noResults.forProfile" : "mods.noResults";
         moreButton.setDisable(true);
 
         // A search never pops a dialog. It is the one action the user repeats
@@ -301,7 +355,8 @@ final class CataloguePane {
         // way of the retry.
         host.run(I18n.t("mods.task.search"), empty::setText, () -> {
             ModProvider.SearchPage page = host.service().searchContent(
-                    kind, host.profile(), query, sort, chosen, only, PAGE_SIZE, offset);
+                    kind, host.profile(), query, sort, chosen, forProfile, only,
+                    PAGE_SIZE, offset);
             Platform.runLater(() -> {
                 if (fresh) {
                     results.setAll(page.results());
@@ -310,7 +365,7 @@ final class CataloguePane {
                 }
                 nextOffset = offset + PAGE_SIZE;
                 totalMatches = page.total();
-                empty.setText(I18n.t("mods.noResults"));
+                empty.setText(I18n.t(nothing));
 
                 boolean more = page.hasMore() && !page.results().isEmpty();
                 moreButton.setVisible(more);

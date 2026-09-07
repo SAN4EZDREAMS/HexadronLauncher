@@ -54,7 +54,7 @@ public enum ContentKind {
      * <p>Modrinth files these under {@code project_type:mod}; CurseForge's class
      * 6 is its "Mods" section.
      */
-    MOD("mod", 6, "mods.kind.mod", "mod", true, true, List.of(".jar")),
+    MOD("mod", 6, "mods.kind.mod", "mod", true, true, false, List.of(".jar")),
 
     /**
      * A modpack: a version, a loader and a list of files, in one archive.
@@ -62,7 +62,7 @@ public enum ContentKind {
      * <p>Not filtered by the instance's version or loader, because a pack names
      * its own and the point of the list is to find one to install.
      */
-    MODPACK("modpack", 4471, "mods.kind.modpack", "modpack", false, false,
+    MODPACK("modpack", 4471, "mods.kind.modpack", "modpack", false, false, true,
             List.of(".mrpack", ".zip")),
 
     /**
@@ -72,7 +72,7 @@ public enum ContentKind {
      * written for and the game refuses the wrong pack format - and not by loader,
      * because vanilla Minecraft is what loads it.
      */
-    DATAPACK("datapack", 6945, "mods.kind.datapack", "datapack", true, false,
+    DATAPACK("datapack", 6945, "mods.kind.datapack", "datapack", true, false, false,
             List.of(".zip"));
 
     private final String modrinthProjectType;
@@ -81,17 +81,19 @@ public enum ContentKind {
     private final String modrinthPagePath;
     private final boolean filteredByVersion;
     private final boolean filteredByLoader;
+    private final boolean narrowableToProfile;
     private final List<String> extensions;
 
     ContentKind(String modrinthProjectType, int curseForgeClassId, String key,
                 String modrinthPagePath, boolean filteredByVersion, boolean filteredByLoader,
-                List<String> extensions) {
+                boolean narrowableToProfile, List<String> extensions) {
         this.modrinthProjectType = modrinthProjectType;
         this.curseForgeClassId = curseForgeClassId;
         this.key = key;
         this.modrinthPagePath = modrinthPagePath;
         this.filteredByVersion = filteredByVersion;
         this.filteredByLoader = filteredByLoader;
+        this.narrowableToProfile = narrowableToProfile;
         this.extensions = List.copyOf(extensions);
     }
 
@@ -168,6 +170,45 @@ public enum ContentKind {
      */
     public boolean isFilteredByLoader() {
         return filteredByLoader;
+    }
+
+    /**
+     * True when a search of this kind can be narrowed to the profile's own
+     * Minecraft version and loader <em>on request</em>.
+     *
+     * <h2>Why this is a third flag and not the other two</h2>
+     *
+     * <p>A mod is always narrowed: a build for another version is not worth
+     * listing. A data pack is always narrowed by version and never by loader,
+     * because vanilla Minecraft loads it and the platform files it under no
+     * loader at all - asking for "data packs for Fabric" returns nothing, so
+     * that narrowing must not be offered even as a choice.
+     *
+     * <p>A modpack is the one kind where both are a real question with two
+     * honest answers. A pack <em>states</em> a version and a loader, so the
+     * catalogue is worth browsing unnarrowed - that is how a player finds the
+     * pack they will switch to next - and it is also worth narrowing, because
+     * somebody who wants a pack for the profile they already have does not want
+     * to read about six hundred packs that would replace its version. So the
+     * choice is the user's, and this says which kinds may offer it.
+     */
+    public boolean isNarrowableToProfile() {
+        return narrowableToProfile;
+    }
+
+    /**
+     * Whether a search should be narrowed to the profile's Minecraft version.
+     *
+     * @param onlyForProfile what the user asked for, where they were offered the
+     *                       choice. Ignored for a kind that does not offer it
+     */
+    public boolean narrowsByVersion(boolean onlyForProfile) {
+        return filteredByVersion || (onlyForProfile && narrowableToProfile);
+    }
+
+    /** The same question for the loader. See {@link #narrowsByVersion}. */
+    public boolean narrowsByLoader(boolean onlyForProfile) {
+        return filteredByLoader || (onlyForProfile && narrowableToProfile);
     }
 
     /** True when this kind cannot be installed without a mod loader. */

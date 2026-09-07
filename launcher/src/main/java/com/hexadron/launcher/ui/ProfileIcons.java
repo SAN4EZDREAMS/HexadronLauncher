@@ -23,6 +23,7 @@ import javafx.scene.image.ImageView;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -213,6 +214,115 @@ public final class ProfileIcons {
             Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
         }
         return name;
+    }
+
+    /**
+     * Keeps a picture that arrived over the network, and returns its file name.
+     *
+     * <p>{@link #store} is for a file the user chose in a file chooser: it trusts
+     * the name, because the user typed the path and can see what they picked.
+     * This is for a logo fetched from a platform, where there is no name worth
+     * trusting - a Modrinth logo address ends in {@code .png} whatever the bytes
+     * behind it are - so the format is read out of the first few bytes instead.
+     *
+     * <p>WebP is converted rather than refused. Modrinth serves a good part of
+     * its logos as WebP, JavaFX cannot read one, and a profile whose picture
+     * silently failed to arrive is the bug this method exists to avoid; the
+     * launcher already has a lossless WebP decoder for the mod rows, so the
+     * bitmap it produces is written out as a PNG. The lossy kind cannot be
+     * decoded and is refused like anything else unreadable.
+     *
+     * @param bytes what the platform sent
+     * @param dirs  where the icons folder is
+     * @return the file name to store on the profile
+     * @throws IOException when the bytes are too large, are not a picture this
+     *                     launcher can read, or cannot be written
+     */
+    public static String storeFetched(byte[] bytes, GameDirs dirs) throws IOException {
+        if (bytes == null || bytes.length == 0) {
+            throw new IOException("the logo came back empty");
+        }
+        if (bytes.length > MAXIMUM_BYTES) {
+            throw new IOException("the picture is " + (bytes.length / (1024 * 1024))
+                    + " MB; the limit is " + (MAXIMUM_BYTES / (1024 * 1024)) + " MB");
+        }
+
+        byte[] picture = bytes;
+        String extension = extensionOfBytes(picture);
+        if (extension == null && com.hexadron.launcher.util.Webp.isWebp(picture)) {
+            picture = pngFromWebp(picture);
+            extension = ".png";
+        }
+        if (extension == null) {
+            throw new IOException("the logo is not a picture this launcher reads");
+        }
+
+        // Decoded before it is kept, not after, exactly as for a chosen file: a
+        // profile with an empty square on it is worse than a profile that kept
+        // the loader's mark.
+        Image probe = new Image(new ByteArrayInputStream(picture));
+        if (probe.isError() || probe.getWidth() <= 0) {
+            throw new IOException("the logo could not be read as a picture");
+        }
+
+        Files.createDirectories(dirs.icons());
+        // Named from the content, like a chosen file, so two profiles made from
+        // the same pack share one file rather than two copies of it.
+        String name = Hashes.sha1(picture).substring(0, 16) + extension;
+        Path target = dirs.icons().resolve(name);
+        if (!Files.exists(target)) {
+            Path temporary = target.resolveSibling(name + ".part");
+            Files.write(temporary, picture);
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+        return name;
+    }
+
+    /**
+     * The format these bytes are in, as one of {@link #EXTENSIONS}, or null.
+     *
+     * <p>By signature, not by name. Every one of these is fixed by the format's
+     * own specification and is the first thing in the file.
+     */
+    private static String extensionOfBytes(byte[] bytes) {
+        if (bytes.length >= 8 && (bytes[0] & 0xff) == 0x89 && bytes[1] == 'P'
+                && bytes[2] == 'N' && bytes[3] == 'G') {
+            return ".png";
+        }
+        if (bytes.length >= 3 && (bytes[0] & 0xff) == 0xff && (bytes[1] & 0xff) == 0xd8
+                && (bytes[2] & 0xff) == 0xff) {
+            return ".jpg";
+        }
+        if (bytes.length >= 6 && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') {
+            return ".gif";
+        }
+        if (bytes.length >= 2 && bytes[0] == 'B' && bytes[1] == 'M') {
+            return ".bmp";
+        }
+        return null;
+    }
+
+    /**
+     * A lossless WebP as PNG bytes.
+     *
+     * <p>Through {@code java.awt} and {@code ImageIO}, which are in the JDK: the
+     * launcher's own decoder produces straight ARGB, and writing a PNG is the
+     * one step it does not do. Nothing on screen comes from this - it is a file
+     * being written - so the toolkit it uses is not the interface's.
+     */
+    private static byte[] pngFromWebp(byte[] bytes) throws IOException {
+        com.hexadron.launcher.util.Webp.Bitmap bitmap =
+                com.hexadron.launcher.util.Webp.decode(bytes)
+                        .orElseThrow(() -> new IOException(
+                                "the logo is a WebP this launcher cannot decode"));
+        java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(
+                bitmap.width(), bitmap.height(), java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(0, 0, bitmap.width(), bitmap.height(), bitmap.argb(), 0, bitmap.width());
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        if (!javax.imageio.ImageIO.write(image, "png", out)) {
+            throw new IOException("this Java has no PNG writer");
+        }
+        return out.toByteArray();
     }
 
     /** The accepted extension of a file name, lower case and with the dot, or null. */

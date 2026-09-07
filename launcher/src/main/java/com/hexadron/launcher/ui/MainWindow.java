@@ -916,7 +916,15 @@ public final class MainWindow implements ProfileHost {
             return;
         }
         browsers.computeIfAbsent(profile.id(),
-                        id -> new ContentBrowserWindow(service, stage, profile, () -> refreshModsList(profile)))
+                        id -> new ContentBrowserWindow(service, stage, profile,
+                                () -> refreshModsList(profile),
+                                // A modpack install changes the profile's version
+                                // and loader, or makes a profile of its own. Both
+                                // are the list's business as much as the panel's,
+                                // so this is the full re-read rather than the mods
+                                // count - and it is a separate callback so that
+                                // switching one mod off does not rebuild the grid.
+                                this::refreshProfiles))
                 .show();
     }
 

@@ -251,6 +251,14 @@ final class DatapackSection extends ContentSection {
         catalogue.search();
     }
 
+    @Override
+    void onProfileChanged() {
+        // Data packs are searched for the profile's Minecraft version, and the
+        // worlds belong to a profile a pack has just rebuilt.
+        refresh();
+        catalogue.search();
+    }
+
     /** Rebuilds the catalogue's category menu, after fresh drawings arrived. */
     void refreshCategoryArt() {
         catalogue.refreshCategoryArt();

@@ -710,6 +710,25 @@
     -fx-text-fill: -fx-text-0;
 }
 
+/*
+ * A warning inside a dialog: the paragraph that has to be read before the
+ * buttons are pressed.
+ *
+ * Amber text on a panel of its own, not red and not an icon. Red is for
+ * something that has already gone wrong; this is a consequence of an answer the
+ * user has not given yet. The strip of colour down the left is what separates it
+ * from the description above it at a glance, so the eye finds it without the
+ * dialog shouting.
+ */
+.dialog-warning {
+    -fx-text-fill: -fx-warning-0;
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 8;
+    -fx-border-color: transparent transparent transparent -fx-warning-0;
+    -fx-border-width: 0 0 0 3;
+    -fx-padding: 8 12 8 12;
+}
+
 /* ------------------------------------------------------------------ content window */
 
 .browse-pane {
@@ -792,9 +811,16 @@
 
 /* The row that asks which world. Above the tabs rather than inside them,
    because it applies to both of them: the catalogue installs into that world
-   and the installed list reads it. */
+   and the installed list reads it.
+
+   The sides are the tab pane's own twenty, not zero. This row is the one thing
+   in the panel that sits outside the tabs, so with no inset of its own the word
+   "World" started hard against the rail while every list under it started
+   twenty points in - the label looked like it had fallen out of the panel. The
+   same number on both sides keeps it lined up with the tab strip and off the
+   right edge. */
 .world-row {
-    -fx-padding: 12 0 2 0;
+    -fx-padding: 12 20 2 20;
 }
 
 .tab-pane .tab-header-background {

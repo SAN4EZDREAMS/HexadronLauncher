@@ -97,6 +97,18 @@ public final class ContentBrowserWindow implements ContentSection.Host {
     private final Profile profile;
     private final Runnable onChanged;
 
+    /**
+     * What to call when a profile itself changed, or a new one exists.
+     *
+     * <p>Separate from {@link #onChanged} because the two are different jobs at
+     * the other end: one re-counts the mods in the panel, the other re-reads the
+     * profiles and redraws the list, the grid and the panel. Doing the second on
+     * every mod switched off would rebuild both interfaces for a number that did
+     * not change; doing the first after a modpack install left the launcher
+     * showing the version the profile used to be on.
+     */
+    private final Runnable onProfileChanged;
+
     private final Stage stage = new Stage();
 
     private final Label titleLabel = new Label();
@@ -288,11 +300,13 @@ public final class ContentBrowserWindow implements ContentSection.Host {
     private String packBlockedReason;
     private volatile boolean busy;
 
-    public ContentBrowserWindow(LauncherService service, Stage owner, Profile profile, Runnable onChanged) {
+    public ContentBrowserWindow(LauncherService service, Stage owner, Profile profile,
+                                Runnable onChanged, Runnable onProfileChanged) {
         this.service = service;
         this.owner = owner;
         this.profile = profile;
         this.onChanged = onChanged;
+        this.onProfileChanged = onProfileChanged;
         this.progress = new BrowserProgress(statusLabel, progressBar);
     }
 
@@ -1937,5 +1951,42 @@ public final class ContentBrowserWindow implements ContentSection.Host {
         refreshInstalled();
         modpacks.refresh();
         datapacks.refresh();
+    }
+
+    /**
+     * A profile changed under us, or a new one was made.
+     *
+     * <p>Three things follow, and the first two are this window's own. Its
+     * header names the profile's Minecraft version and loader, and a pack
+     * installed into this profile has just changed both. Its modpack catalogue
+     * can be narrowed to that same pair, so the list on screen was chosen
+     * against the version the profile used to be on - and the tooltip that says
+     * which pair still named it. Then the launcher is told, because its list,
+     * its grid and its panel all describe profiles.
+     */
+    @Override
+    public void profileChanged() {
+        String line = profile.minecraftVersion() + "  ·  " + profile.loader().displayName();
+        // Whether this window's own profile changed, or somebody else's did.
+        // Installing a pack into a new profile is the second: the launcher has a
+        // profile to draw and this window has nothing to redo, and a search
+        // restarted for it would be a request for an answer already on screen.
+        boolean here = !line.equals(subtitleLabel.getText());
+        subtitleLabel.setText(line);
+        titleLabel.setText(profile.name());
+        if (here) {
+            // Every list in this window was chosen against the pair that has
+            // just been replaced: the mod catalogue asked the platforms for that
+            // version and that loader, and the pack button asked whether the
+            // launcher's own set can be installed on it.
+            runSearch();
+            loadPackStateAsync();
+            // The other two sections asked their platforms about the same pair.
+            modpacks.onProfileChanged();
+            datapacks.onProfileChanged();
+        }
+        if (onProfileChanged != null) {
+            onProfileChanged.run();
+        }
     }
 }

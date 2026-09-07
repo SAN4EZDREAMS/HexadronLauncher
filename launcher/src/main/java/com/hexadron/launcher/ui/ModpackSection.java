@@ -63,13 +63,21 @@ import java.util.Optional;
  * in wants - and doing that behind their back would take a version and a loader
  * off them without asking.
  *
- * <h2>The catalogue is not filtered to this instance</h2>
+ * <h2>The catalogue can be filtered to this profile, and is by default</h2>
  *
- * <p>Unlike mods. A pack names its own version and loader, so narrowing the list
- * to the instance's would hide every pack the user might install next - which is
- * all of them, since a pack that already matched would be one there was no reason
- * to install. The line above the list says so, because a list that is not
- * filtered in a window where everything else is needs to say which it is.
+ * <p>Unlike mods, where the narrowing is not a question: a pack names its own
+ * version and loader rather than needing them, so both answers are real. Shown
+ * unnarrowed, the list is every pack there is - which is how somebody finds the
+ * pack they will switch to next. Narrowed, it is the packs that fit the profile
+ * they are browsing from, which is what somebody adding a pack to a profile they
+ * already play is looking for, and it hides the several thousand that would
+ * replace its version.
+ *
+ * <p>So there is a tick box, and it starts ticked. Not because the narrow list is
+ * the more useful one in the abstract, but because the wide one cannot be read
+ * without knowing what each row would do to this profile - and the box is the
+ * one control that says out loud that a pack has a version and a loader of its
+ * own.
  */
 final class ModpackSection extends ContentSection {
 
@@ -192,6 +200,14 @@ final class ModpackSection extends ContentSection {
         }
     }
 
+    @Override
+    void onProfileChanged() {
+        // The tooltip names the profile's version and loader, and the catalogue
+        // may be narrowed to them. Both were just replaced.
+        catalogue.applyTexts();
+        catalogue.search();
+    }
+
     /** Rebuilds the catalogue's category menu, after fresh drawings arrived. */
     void refreshCategoryArt() {
         catalogue.refreshCategoryArt();
@@ -226,7 +242,7 @@ final class ModpackSection extends ContentSection {
     }
 
     /**
-     * Asks which instance, before anything is downloaded.
+     * Asks which profile, before anything is downloaded.
      *
      * <p>Before, and not after, because a pack is hundreds of megabytes and a
      * question asked at the end of a ten-minute download is a question asked when
@@ -246,14 +262,36 @@ final class ModpackSection extends ContentSection {
         body.setWrapText(true);
         body.setMinWidth(0);
 
+        // What the pack is, before what to do with it. A modpack is a
+        // pre-arranged Minecraft - a version, a loader and a set of mods chosen
+        // together - and the one thing a reader has to know before answering is
+        // that laying it over a profile they already play is the answer that
+        // breaks things.
+        Label warning = new Label(I18n.t("modpacks.target.warning"));
+        warning.setWrapText(true);
+        warning.setMinWidth(0);
+        warning.getStyleClass().add("dialog-warning");
+
+        VBox content = new VBox(10, body, warning);
+        content.setMinWidth(0);
+
         Alert ask = new Alert(Alert.AlertType.CONFIRMATION);
         ask.initOwner(host.stage());
         Theme.apply(ask.getDialogPane());
         ask.setTitle(I18n.t("modpacks.target.header"));
         ask.setHeaderText(I18n.t("modpacks.target.header"));
-        ask.getDialogPane().setContent(body);
-        ask.getDialogPane().setPrefWidth(600);
+        ask.getDialogPane().setContent(content);
+        ask.getDialogPane().setPrefWidth(620);
         ask.getButtonTypes().setAll(newProfile, thisProfile, cancel);
+
+        // The recommended answer is the one Enter chooses, and the destructive
+        // one is not. A dialog whose default button is the answer its own
+        // warning argues against is a dialog that recommends one thing and does
+        // another.
+        Button newButton = (Button) ask.getDialogPane().lookupButton(newProfile);
+        newButton.setDefaultButton(true);
+        newButton.getStyleClass().add("primary");
+        ((Button) ask.getDialogPane().lookupButton(thisProfile)).setDefaultButton(false);
 
         Optional<ButtonType> chosen = ask.showAndWait();
         if (chosen.isEmpty() || chosen.get() == cancel) {
@@ -326,8 +364,17 @@ final class ModpackSection extends ContentSection {
         ModpackInstaller.Result result =
                 host.service().installModpack(profile, pack, card, host.progress());
 
+        if (target == Target.NEW_PROFILE) {
+            adoptPackIcon(profile, card);
+        }
+
         Platform.runLater(() -> {
             host.contentChanged();
+            // The profile is not what it was: into this one, its version and its
+            // loader are the pack's now; into a new one, there is a profile the
+            // launcher's list has never seen. Either way the panel and the list
+            // are describing something out of date until they are told.
+            host.profileChanged();
             host.progress().done(target == Target.NEW_PROFILE
                     ? I18n.t("modpacks.installed.new", profile.name(), result.files())
                     : I18n.t("modpacks.installed.here", result.files()));
@@ -337,6 +384,46 @@ final class ModpackSection extends ContentSection {
                                 result.manualDownloads().stream()).toList()));
             }
         });
+    }
+
+    /**
+     * Gives a profile made for a pack the pack's own logo.
+     *
+     * <h2>Why a picture and not only a name</h2>
+     *
+     * <p>The profile is already named after the pack. In a grid of thirty
+     * profiles the name is the small print and the picture is what the eye finds
+     * - and without this every pack-made profile wears the mark of its loader,
+     * so four packs on Fabric are four identical squares that have to be read
+     * one by one. The pack's logo is the picture the player already recognises
+     * from the page they installed it from.
+     *
+     * <p>Quietly, and never at the cost of the install. It runs on the install's
+     * own thread after the files are in place, so a logo that will not download
+     * or will not decode leaves a profile with its loader's mark - which is what
+     * every profile had until now - rather than an install that reports a
+     * failure for a picture.
+     *
+     * @param card the platform's record of the pack, or null for a pack file the
+     *             user opened themselves - which carries no logo to fetch
+     */
+    private void adoptPackIcon(Profile profile, ModProvider.ProjectCard card) {
+        if (card == null || card.iconUrl() == null || card.iconUrl().isBlank()) {
+            return;
+        }
+        try {
+            byte[] logo = host.service().fetchIcon(card.iconUrl());
+            String name = ProfileIcons.storeFetched(logo, host.service().dirs());
+            profile.customIcon(name);
+            host.service().profiles().save();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            // A profile with the loader's mark on it, which is what it would
+            // have had anyway. Logged rather than raised: the pack is installed.
+            host.progress().log("The pack's logo could not be used as the profile picture: %s",
+                    e.getMessage() == null ? e.toString() : e.getMessage());
+        }
     }
 
     /** Lets a pack file be dropped onto the installed list. */

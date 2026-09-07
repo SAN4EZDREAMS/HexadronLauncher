@@ -47,7 +47,7 @@ public final class ModrinthProvider implements ModProvider {
     @Override
     public SearchPage search(ContentKind kind, String query, String minecraftVersion,
                              LoaderType loader, ModSort sort, List<ModCategory> categories,
-                             int limit, int offset)
+                             boolean onlyForProfile, int limit, int offset)
             throws IOException, InterruptedException {
 
         // Modrinth facets are an array of OR-groups that are ANDed together.
@@ -68,10 +68,11 @@ public final class ModrinthProvider implements ModProvider {
         if (kindLoader != null) {
             facetGroups.add("[\"categories:" + kindLoader + "\"]");
         }
-        if (kind.isFilteredByVersion() && minecraftVersion != null && !minecraftVersion.isBlank()) {
+        if (kind.narrowsByVersion(onlyForProfile)
+                && minecraftVersion != null && !minecraftVersion.isBlank()) {
             facetGroups.add("[\"versions:" + minecraftVersion + "\"]");
         }
-        if (kind.isFilteredByLoader() && loader != null && loader.isModded()) {
+        if (kind.narrowsByLoader(onlyForProfile) && loader != null && loader.isModded()) {
             // One group, several tags: a Modrinth facet group is an OR, and for
             // Quilt the honest question is "quilt or fabric", not "quilt".
             List<String> tags = new ArrayList<>();

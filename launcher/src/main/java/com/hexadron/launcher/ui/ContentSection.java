@@ -107,6 +107,26 @@ abstract class ContentSection {
          * mods list holds.
          */
         void contentChanged();
+
+        /**
+         * Says that a profile itself changed, or that there is a new one.
+         *
+         * <h2>Why this is not {@link #contentChanged()}</h2>
+         *
+         * <p>Because they are different facts with different readers. Contents
+         * are what is inside a profile - the mods list, the pack list, the count
+         * on the launcher's panel. This one is the profile: its Minecraft
+         * version, its loader, its picture, and whether it exists at all.
+         *
+         * <p>Installing a modpack is the one action in this window that does the
+         * second. Into this profile, it takes the version and the loader off it
+         * and puts the pack's on; into a new one, it creates a profile that the
+         * launcher's list has never heard of. Reporting either as "the contents
+         * changed" is what left the launcher showing the old version beside a
+         * profile that no longer had it, and a new profile that appeared only
+         * after something else happened to redraw the list.
+         */
+        void profileChanged();
     }
 
     protected final Host host;
@@ -133,5 +153,19 @@ abstract class ContentSection {
 
     /** Called when a mutating task starts or ends anywhere in the window. */
     void onBusyChanged() {
+    }
+
+    /**
+     * Called when this window's profile changed its Minecraft version or loader.
+     *
+     * <p>Which is to say: when every answer this section has on screen was
+     * chosen against a pair that is no longer the profile's. A catalogue narrowed
+     * to the version is showing the wrong catalogue, and a list of worlds belongs
+     * to a profile that has just been rebuilt around a pack. Only a modpack
+     * install does this, and it is the section that does it - which is why this
+     * comes back through the window rather than being handled where it happens:
+     * the other sections have to hear about it too.
+     */
+    void onProfileChanged() {
     }
 }

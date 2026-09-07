@@ -140,16 +140,31 @@ public interface ModProvider {
      * loader at all. The caller passes the instance's pair either way and does
      * not have to know which kinds care.
      *
-     * @param categories the categories the results must all be in, or empty for
-     *                   no restriction. Several narrow rather than widen, which
-     *                   is what the platform's own filter does and therefore what
-     *                   a player who has used it expects
-     * @param limit      page size
-     * @param offset     how many matches to skip, for paging
+     * @param categories     the categories the results must all be in, or empty
+     *                       for no restriction. Several narrow rather than widen,
+     *                       which is what the platform's own filter does and
+     *                       therefore what a player who has used it expects
+     * @param onlyForProfile narrow to the profile's version and loader, for a
+     *                       kind that states its own rather than needing one -
+     *                       see {@link ContentKind#isNarrowableToProfile()}.
+     *                       Ignored for the kinds where the answer is not the
+     *                       user's to give
+     * @param limit          page size
+     * @param offset         how many matches to skip, for paging
      */
     SearchPage search(ContentKind kind, String query, String minecraftVersion, LoaderType loader,
-                      ModSort sort, List<ModCategory> categories, int limit, int offset)
+                      ModSort sort, List<ModCategory> categories, boolean onlyForProfile,
+                      int limit, int offset)
             throws IOException, InterruptedException;
+
+    /** The kind's own narrowing and nothing more, for a caller with no choice to pass. */
+    default SearchPage search(ContentKind kind, String query, String minecraftVersion,
+                              LoaderType loader, ModSort sort, List<ModCategory> categories,
+                              int limit, int offset)
+            throws IOException, InterruptedException {
+        return search(kind, query, minecraftVersion, loader, sort, categories, false,
+                limit, offset);
+    }
 
     /** Mods, for the callers that predate there being anything else. */
     default SearchPage search(String query, String minecraftVersion, LoaderType loader,

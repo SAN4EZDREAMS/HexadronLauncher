@@ -495,6 +495,27 @@ public final class LauncherService {
     private com.hexadron.launcher.mods.CategoryArt categoryArt;
 
     /**
+     * Fetches a project's logo, for a profile that is about to wear it.
+     *
+     * <p>Through {@link com.hexadron.launcher.net.Http} rather than by handing a
+     * URL to the interface, for the same reason every other picture in this
+     * launcher is: a user behind a proxy has one configured here and nowhere
+     * else. HTTPS is required, because this is bytes off the internet that end
+     * up in the data folder.
+     *
+     * <p>Nothing is decoded here. What a picture is and where it may be written
+     * belongs to the interface layer, which is the half of this launcher that
+     * knows how to read one.
+     *
+     * @param url the platform's logo address
+     * @return the bytes, never null
+     */
+    public byte[] fetchIcon(String url) throws IOException, InterruptedException {
+        return com.hexadron.launcher.net.Http.getBytes(
+                com.hexadron.launcher.net.Http.requireHttps(url));
+    }
+
+    /**
      * Fills in what the launcher never recorded about the mods it installed.
      *
      * <p>Each version of the lock file learned to keep a little more - the
@@ -574,7 +595,7 @@ public final class LauncherService {
             throws IOException, InterruptedException {
 
         return searchContent(com.hexadron.launcher.mods.ContentKind.MOD, profile, query, sort,
-                categories, only, limitPerProvider, offset);
+                categories, false, only, limitPerProvider, offset);
     }
 
     /**
@@ -590,6 +611,7 @@ public final class LauncherService {
             com.hexadron.launcher.mods.ContentKind kind,
             Profile profile, String query, com.hexadron.launcher.mods.ModSort sort,
             java.util.List<com.hexadron.launcher.mods.ModCategory> categories,
+            boolean onlyForProfile,
             ModProvider.Source only, int limitPerProvider, int offset)
             throws IOException, InterruptedException {
 
@@ -597,7 +619,7 @@ public final class LauncherService {
             requireModdedLoader(profile);
         }
         return modInstaller.search(kind, query, profile.minecraftVersion(), profile.loader(),
-                sort, categories, limitPerProvider, offset, only);
+                sort, categories, onlyForProfile, limitPerProvider, offset, only);
     }
 
     /** Installs one mod, with its required dependencies, into a profile. */
