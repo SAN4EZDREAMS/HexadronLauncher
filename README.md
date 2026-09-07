@@ -13,7 +13,7 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Loaders | Fabric, Quilt, Forge and NeoForge all install and launch. The version picker offers only versions the chosen loader has builds for |
 | Accounts | Offline accounts work and can be removed. Microsoft sign-in is implemented and needs an approved Azure client ID |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments and Java path |
-| Mods | One content window per instance, with a list of kinds down the left. Mods: search, sort, filter by category, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically, and the launcher asks before you switch off or delete something other mods depend on |
+| Mods | One content window per instance, with a rail of kinds down the left - icons until the pointer is on it, names while it is. Mods: search, sort, filter by category, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically, and the launcher asks before you switch off or delete something other mods depend on |
 | Modpacks | Modrinth `.mrpack` and CurseForge modpack zips, from either platform's catalogue or from a file on disk. The window asks first whether the pack should become a new instance or take over this one, and every file it writes is recorded so removing it deletes exactly those |
 | Data packs | Per world, which is where Minecraft loads them from: the window asks which world, then lists that world's folder - install, switch off, remove, import a zip. The one section that works on an instance with no mod loader |
 | Updating itself | Checks the project's own releases at start-up, on the Release or the Nightly channel, and offers the new version with its notes. Downloads, unpacks and replaces the installed folder, then starts again |
@@ -930,18 +930,19 @@ dialog: choosing what goes into an instance is a long, back-and-forth task, and 
 modal window would hold the launcher hostage for as long as it took.
 
 ```
-+----------------------------------------------------------------------+
-| My world                              [ Install Hexadron Optimise ]  |
-| 26.2 · Fabric                                                        |
-+--------------+-------------------------------------------------------+
-| ⬡ Mods       | [ Browse ] [ Installed (5) ]                          |
-| ▤ Modpacks   |  [ search ..... ] [ Most popular v ] [ Category v ]   |
-| ▢ Data packs | []  Sodium              Modrinth · 40.1M downloads    |
-|              |     A modern rendering engine ...        [ Install ]  |
-|              |  ...                                                  |
-+--------------+-------------------------------------------------------+
-| Searching...                                                         |
-+----------------------------------------------------------------------+
+ shut                                    open (pointer on the rail)
++------------------------------------+  +------------------------------------+
+| My world       [ Install Hexadron ]|  | My world       [ Install Hexadron ]|
+| 26.2 · Fabric                      |  | 26.2 · Fabric                      |
++----+-------------------------------+  +--------------+---------------------+
+| ⬡  | [ Browse ] [ Installed (5) ]  |  | Sections     |] [ Installed (5) ]  |
+| ▤  |  [ search ... ] [ Popular v ] |  | ⬡ Mods       |ch ... ] [ Popular v]|
+| ▢  | []  Sodium      Modrinth      |  | ▤ Modpacks   |dium      Modrinth   |
+|    |     A modern renderer ...     |  | ▢ Data packs |modern renderer ...  |
+|    |  ...                          |  |              | ...                 |
++----+-------------------------------+  +--------------+---------------------+
+| Searching...                       |  | Searching...                       |
++------------------------------------+  +------------------------------------+
 ```
 
 It began as a mod browser and is now the window for everything a player installs
@@ -951,14 +952,54 @@ already there, search again. Three windows for that would be three status lines,
 three ways for two installs to write to one folder at once, and three places to
 fix the next thing that is wrong with a row.
 
-So the kinds are a list down the left and the panel on the right belongs to
-whichever is chosen. A list rather than a second row of tabs: the tabs inside a
+So the kinds are a rail down the left and the panel beside it belongs to
+whichever is chosen. A rail rather than a second row of tabs: the tabs inside a
 section are already **Browse** and **Installed**, and putting kinds on a second
 row above them makes two rows of tabs that look the same and mean different
-things. The list also has room for the kinds that are not here yet, and every
-kind stays on it even on an instance that cannot use it - a row that disappeared
-on an instance with no mod loader would leave somebody looking for it, and a row
-that is there and says why answers the question instead.
+things. Every kind stays on the rail even on an instance that cannot use it - a
+row that disappeared on an instance with no mod loader would leave somebody
+looking for it, and a row that is there and says why answers the question
+instead.
+
+### The rail is shut, and opens over the panel
+
+Three names down the left cost a hundred and ninety pixels of a window whose job
+is lists of mods with buttons at the right-hand end, and they cost it all the
+time to answer a question that is asked when the window opens and then not again.
+So the rail is a column of three icons, fifty-two pixels wide, and it grows into
+a column of three names while the pointer is on it. The filled row says which
+kind is showing, which is the one thing the shut rail still has to answer.
+
+**It opens over the panel, not beside it.** If it took part in the layout,
+opening it would push every list a hundred pixels right and closing it would pull
+them back - so a pointer crossing the left edge on its way to a **Remove** button
+would make the row it was aiming at move out from under it. The panels therefore
+keep the fifty-two pixels for ever and the open rail is drawn on top, with a
+shadow to say it is in front. Nothing reflows, and what it covers while it is
+open is the part of the window nobody is reading.
+
+**The open width is not a number.** "Data packs", "Датапаки" and "Datenpakete"
+are three different widths, and a rail set to a fixed one is either clipping a
+name in German or wasting space in English. Opening it switches each row from
+showing its icon to showing its icon and its name, which makes the row ask for
+the space its own text needs and the box ask for the widest of the three -
+so it is right in five languages with nothing measuring a string. That is also
+why the rail is three buttons in a box rather than a list view: a box computes
+that width from what is in it, and a list view reports a width of its own that
+has nothing to do with its rows.
+
+The keyboard opens it too. Tabbing onto a column of unlabelled icons would be a
+rail that only works for a mouse, so focus opens it and losing focus only shuts
+it when nothing else is holding it open - otherwise tabbing from one row to the
+next would shut the rail under the row that had just taken focus. Each row also
+keeps a tooltip, which shut is the only way to find out what a glyph means
+without opening the rail at all.
+
+One more thing that had to be written down rather than left to the theme: the
+rows paint their own text. They are the only place in the window where the text
+belongs to the control instead of to a label inside it, and a control whose fill
+nobody sets is drawn in the toolkit's own ink - which on this background is very
+nearly the background. Two of the three names were, for a while, invisible.
 
 The status line, the progress bar and the rule that only one install runs at a
 time belong to the window rather than to a section. Two installs at once would
@@ -1580,7 +1621,7 @@ authentication hardening: PKCE against RFC 7636's own test vector, state
 validation, log redaction, the credential split. It also covers the three
 content kinds and their platform constants, both modpack manifest formats, the
 path check that keeps a manifest from writing outside the instance, a world's
-data pack folder and the world list itself. 1407 assertions, and it needs no
+data pack folder and the world list itself. 1410 assertions, and it needs no
 network, no display and no test framework.
 
 ## Sandboxing, and what it is actually for

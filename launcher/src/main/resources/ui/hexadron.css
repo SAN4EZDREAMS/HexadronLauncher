@@ -719,17 +719,70 @@
     -fx-padding: 0;
 }
 
-/* The list of kinds down the left. The gap is for the little drawing beside
-   each name - without it the glyph sits against the text and the row reads as
-   one smudge. Taller rows than a mod list's, because there are three of them
-   and they are the window's own navigation rather than its contents. */
-.kind-list .list-cell {
-    -fx-graphic-text-gap: 10;
-    -fx-padding: 9 10 9 10;
+/* The rail of kinds down the left. Shut it is a column of three icons; the
+   pointer opens it over the panel, so it needs a background of its own and,
+   open, an edge that says it is in front of something. */
+.kind-rail {
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: transparent -fx-base-3 transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 10 8 10 8;
 }
 
-.kind-list .list-cell:filled:selected .glyph {
+/* Open, it is over the panel rather than beside it, and a shadow is the whole
+   of what says so. Without it the names appear to be printed on the list. */
+.kind-rail-open {
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.45), 18, 0.1, 3, 0);
+}
+
+/* A row on the rail. Drawn as a flat row rather than a button: three buttons
+   with borders down the side of a window read as a toolbar, and this is
+   navigation. The text fill is set here and not left to the theme - a cell
+   whose text nobody paints is drawn in modena's ink, which on this background
+   is very nearly the background. That is exactly what it looked like. */
+.kind-row {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-border-width: 0;
+    -fx-padding: 9 10 9 10;
+    -fx-graphic-text-gap: 10;
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 13px;
+}
+
+.kind-row:hover {
+    -fx-background-color: -fx-base-2;
+    -fx-text-fill: -fx-text-0;
+}
+
+/* The kind that is showing. Filled, and its name at full strength, because
+   "which of these am I looking at" is the one question this rail answers when
+   it is shut and only an icon is visible. */
+.kind-row-on {
+    -fx-background-color: -fx-base-3;
+    -fx-text-fill: -fx-text-0;
+    -fx-font-weight: bold;
+}
+
+/* Hovering the row that is already showing must not make it darker than it
+   was. A pseudo-class beats a plain class in JavaFX as it does in CSS, so
+   .kind-row:hover would otherwise win over .kind-row-on and repaint the filled
+   row in the hover colour - which is one step down, not up. */
+.kind-row-on:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+.kind-row-on .glyph {
     -fx-fill: -fx-accent-1;
+}
+
+.kind-row:hover .glyph {
+    -fx-fill: -fx-accent-1;
+}
+
+/* The rail's own heading, which is only on screen while it is open. */
+.kind-rail .section-title {
+    -fx-padding: 2 0 6 12;
 }
 
 /* The row that asks which world. Above the tabs rather than inside them,

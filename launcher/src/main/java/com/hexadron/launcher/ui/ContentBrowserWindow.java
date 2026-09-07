@@ -229,8 +229,32 @@ public final class ContentBrowserWindow implements ContentSection.Host {
         }
     }
 
-    private final ListView<Section> sectionList =
-            new ListView<>(FXCollections.observableArrayList(Section.values()));
+    /**
+     * The width of the rail with nothing but its icons on it.
+     *
+     * <p>Wide enough for a sixteen-pixel glyph with the same padding a button
+     * has, and no wider: this is the state it is in almost all the time, and
+     * every pixel of it is taken from the lists.
+     */
+    private static final double RAIL_WIDTH = 52;
+
+    /**
+     * The rail down the left, and the row for each kind.
+     *
+     * <p>Buttons in a box rather than a {@link ListView}, and that is not a
+     * stylistic preference. The rail has to be exactly as wide as its widest
+     * <em>translated</em> name when it opens - "Data packs", "Датапаки" and
+     * "Datenpakete" are three different widths - and a box of buttons computes
+     * that for itself from the text in them, while a list view reports a width of
+     * its own that has nothing to do with its rows. Three rows is also not a list
+     * worth a list's machinery: no scrolling, no selection model, no cell reuse.
+     */
+    private final VBox rail = new VBox(4);
+    private final java.util.Map<Section, javafx.scene.control.Button> sectionRows =
+            new java.util.EnumMap<>(Section.class);
+
+    /** Which kind is showing. Held because the rail draws the answer on every row. */
+    private Section current = Section.MODS;
 
     /** The panel for each kind. Mods is this class's own; the rest are their own. */
     private final javafx.scene.layout.StackPane sectionPane = new javafx.scene.layout.StackPane();
@@ -322,8 +346,7 @@ public final class ContentBrowserWindow implements ContentSection.Host {
 
         BorderPane root = new BorderPane();
         root.setTop(buildHeader());
-        root.setLeft(buildSidebar());
-        root.setCenter(buildSectionPane());
+        root.setCenter(buildBody());
         root.setBottom(buildFooter());
 
         Scene scene = new Scene(root, 1080, 720);
@@ -334,48 +357,159 @@ public final class ContentBrowserWindow implements ContentSection.Host {
     }
 
     /**
-     * The list of kinds down the left.
+     * The rail and the panels, with the rail over the panels rather than beside
+     * them.
+     *
+     * <h2>Why it is an overlay</h2>
+     *
+     * <p>The rail is a column of three icons that grows into a column of three
+     * names when the pointer is on it. If it took part in the layout, opening it
+     * would push every list in the window a hundred pixels to the right and
+     * closing it would pull them back - so a pointer crossing the left edge on
+     * its way to a Remove button would make the row it was aiming at move. The
+     * panels therefore keep a fixed {@link #RAIL_WIDTH} of space on their left
+     * for ever, and the open rail is drawn over the top of them. Nothing reflows,
+     * and what the rail covers while it is open is the part of the window the
+     * user is not reading.
+     *
+     * <p>It is inside the centre rather than the whole window's left so that the
+     * header and the status line still run the full width. The instance's name
+     * belongs to the window, not to the panel next to the rail.
+     */
+    private javafx.scene.layout.StackPane buildBody() {
+        sectionPane.getChildren().setAll(modsPane, modpacks.node(), datapacks.node());
+        sectionPane.setPadding(new javafx.geometry.Insets(0, 0, 0, RAIL_WIDTH));
+
+        javafx.scene.layout.StackPane body =
+                new javafx.scene.layout.StackPane(sectionPane, buildRail());
+        javafx.scene.layout.StackPane.setAlignment(rail, Pos.TOP_LEFT);
+        showSection(Section.MODS);
+        return body;
+    }
+
+    /**
+     * The rail: one row per kind, icons only until the pointer arrives.
      *
      * <p>Every kind is always on it, including the ones this profile cannot use.
      * A row that disappeared on a profile with no loader would leave the user
      * looking for it; a row that is there and says why is a row that answers the
      * question. What each section does about not being usable is its own - the
      * mods one has always said so in place of its results.
+     *
+     * <p>Each row keeps a tooltip whether the rail is open or shut. Shut, it is
+     * the only way to find out what a glyph means without opening the rail;
+     * open, it costs nothing and is not in the way.
      */
-    private VBox buildSidebar() {
-        sectionList.setCellFactory(view -> new javafx.scene.control.ListCell<>() {
-            @Override
-            protected void updateItem(Section section, boolean empty) {
-                super.updateItem(section, empty);
-                if (empty || section == null) {
-                    setText(null);
-                    setGraphic(null);
-                    return;
-                }
-                setText(section.title());
-                setGraphic(section.glyph());
-            }
-        });
-        sectionList.getSelectionModel().selectedItemProperty().addListener(
-                (observable, previous, value) -> showSection(value));
-        sectionList.getSelectionModel().select(Section.MODS);
-        sectionList.setPrefWidth(196);
-        sectionList.setMinWidth(150);
-        sectionList.getStyleClass().add("kind-list");
+    private VBox buildRail() {
+        for (Section section : Section.values()) {
+            javafx.scene.control.Button row = new javafx.scene.control.Button();
+            row.setGraphic(section.glyph());
+            row.setGraphicTextGap(10);
+            row.setMaxWidth(Double.MAX_VALUE);
+            // Never narrower than its own contents: a row squeezed into the rail
+            // is not a name with less space around it, it is a name with its last
+            // two letters replaced by an ellipsis.
+            row.setMinWidth(Region.USE_PREF_SIZE);
+            row.getStyleClass().add("kind-row");
+            row.setTooltip(new javafx.scene.control.Tooltip());
+            row.setOnAction(event -> showSection(section));
+            // Reached by keyboard as well as by pointer. Tabbing onto a row of
+            // icons with no names is a rail that only works for a mouse.
+            //
+            // Losing focus is not the same question as gaining it. Tabbing from
+            // one row to the next takes focus off the first, and shutting the
+            // rail on that would shut it under the row that just took focus - so
+            // the way out asks whether anything is still holding it open.
+            row.focusedProperty().addListener((observable, previous, focused) ->
+                    setRailOpen(focused || anyRowFocused() || rail.isHover()));
+            sectionRows.put(section, row);
+        }
 
         sectionTitle.getStyleClass().add("section-title");
-        VBox sidebar = new VBox(8, sectionTitle, sectionList);
-        VBox.setVgrow(sectionList, Priority.ALWAYS);
-        sidebar.getStyleClass().add("sidebar");
-        return sidebar;
+        rail.getChildren().setAll(sectionTitle);
+        rail.getChildren().addAll(sectionRows.values());
+        // Not ".sidebar" as well: that class carries a padding of its own, and
+        // two rules setting the same property is a width that depends on which
+        // of them the stylesheet happens to list second. The rail's shut width
+        // is 52 and its padding is part of that arithmetic, so it owns it.
+        rail.getStyleClass().add("kind-rail");
+        rail.setFillWidth(true);
+        // Full height, and only as wide as its state asks for. Without the max
+        // height a box aligned to the top of a stack pane is as tall as its
+        // three rows, and the panel's own background shows under it.
+        rail.setMaxHeight(Double.MAX_VALUE);
+        rail.setOnMouseEntered(event -> setRailOpen(true));
+        rail.setOnMouseExited(event -> setRailOpen(anyRowFocused()));
+        setRailOpen(false);
+        return rail;
     }
 
+    /** True while the keyboard is on one of the rail's rows. */
+    private boolean anyRowFocused() {
+        return sectionRows.values().stream().anyMatch(javafx.scene.Node::isFocused);
+    }
+
+    /** The name of each kind, beside the rail's icons. */
     private final Label sectionTitle = new Label();
 
-    private javafx.scene.layout.StackPane buildSectionPane() {
-        sectionPane.getChildren().setAll(modsPane, modpacks.node(), datapacks.node());
-        showSection(Section.MODS);
-        return sectionPane;
+    /**
+     * Whether the rail is showing its names, or null before it has been set.
+     *
+     * <p>A {@code Boolean} rather than a {@code boolean} so that the first call
+     * is never mistaken for a repeat. The pointer entering and leaving asks this
+     * far more often than the answer changes, and setting three content displays
+     * and three widths to the values they already hold is a layout pass for
+     * nothing.
+     */
+    private Boolean railOpen;
+
+    /**
+     * Opens or shuts the rail.
+     *
+     * <p>Opening is a change of what each row displays, not a change of width
+     * that has to be worked out: switching a row from {@code GRAPHIC_ONLY} to
+     * {@code LEFT} makes it ask for the space its name needs, and the box asks
+     * for the widest of the three. That is what makes it right in five languages
+     * without anything measuring a string.
+     *
+     * <p>Shut, the width is pinned to {@link #RAIL_WIDTH} instead, because a
+     * column of three icons would otherwise be as wide as the widest icon plus
+     * padding - which is right by accident on one theme and wrong on the next.
+     *
+     * <p>No animation. The panels do not move either way, so there is nothing for
+     * the eye to follow from one place to another; a width that slides would only
+     * put the names behind a wait.
+     */
+    private void setRailOpen(boolean open) {
+        if (Boolean.valueOf(open).equals(railOpen)) {
+            return;
+        }
+        railOpen = open;
+
+        sectionTitle.setVisible(open);
+        sectionTitle.setManaged(open);
+        for (javafx.scene.control.Button row : sectionRows.values()) {
+            row.setContentDisplay(open
+                    ? javafx.scene.control.ContentDisplay.LEFT
+                    : javafx.scene.control.ContentDisplay.GRAPHIC_ONLY);
+            // Centred while it is a lone icon, so the column of three reads as a
+            // column; left with the text, so the names line up under each other.
+            row.setAlignment(open ? Pos.CENTER_LEFT : Pos.CENTER);
+        }
+        // Only the preferred width changes; the other two follow it for ever.
+        //
+        // This is the part that has to be right rather than plausible. A stack
+        // pane stretches a child to fill itself unless the child's *maximum*
+        // says otherwise, and USE_COMPUTED_SIZE as a maximum computes to
+        // "unbounded" for a box - so a rail set that way opens across the whole
+        // window instead of to the width of its widest name. USE_PREF_SIZE is
+        // the one that means "no wider than you asked for".
+        rail.setPrefWidth(open ? Region.USE_COMPUTED_SIZE : RAIL_WIDTH);
+        rail.setMinWidth(Region.USE_PREF_SIZE);
+        rail.setMaxWidth(Region.USE_PREF_SIZE);
+        // The shadow is what says the open rail is over the panel rather than
+        // part of it. Shut, it is flush with the edge and has nothing to cast on.
+        ContentRow.styleClass(rail, "kind-rail-open", open);
     }
 
     /**
@@ -387,6 +521,13 @@ public final class ContentBrowserWindow implements ContentSection.Host {
      */
     private void showSection(Section section) {
         Section chosen = section == null ? Section.MODS : section;
+        // Pressing the row that is already showing must not start its search
+        // again. The rail is three buttons and the one under the pointer is the
+        // one most likely to be pressed twice.
+        boolean changed = chosen != current;
+        current = chosen;
+        sectionRows.forEach((kind, row) ->
+                ContentRow.styleClass(row, "kind-row-on", kind == chosen));
         javafx.scene.Node[] panes = {modsPane, modpacks.node(), datapacks.node()};
         Section[] order = {Section.MODS, Section.MODPACKS, Section.DATAPACKS};
         for (int index = 0; index < panes.length; index++) {
@@ -401,7 +542,7 @@ public final class ContentBrowserWindow implements ContentSection.Host {
         packNote.setVisible(mods && packBlockedReason != null);
         packNote.setManaged(mods && packBlockedReason != null);
 
-        if (!built) {
+        if (!built || !changed) {
             return;
         }
         switch (chosen) {
@@ -421,9 +562,13 @@ public final class ContentBrowserWindow implements ContentSection.Host {
     private void applyTexts() {
         stage.setTitle(I18n.t("content.title", profile.name()));
         sectionTitle.setText(I18n.t("content.sections"));
-        // The cells draw their own names from I18n, so refreshing the list is
-        // what makes a language change reach them.
-        sectionList.refresh();
+        // The rows carry their names as text rather than drawing them, so a
+        // language change is written here - and the rail's open width follows,
+        // because it is that text the box measures.
+        sectionRows.forEach((kind, row) -> {
+            row.setText(kind.title());
+            row.getTooltip().setText(kind.title());
+        });
         modpacks.applyTexts();
         datapacks.applyTexts();
         titleLabel.setText(profile.name());

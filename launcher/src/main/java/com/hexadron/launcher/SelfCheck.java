@@ -5402,12 +5402,19 @@ public final class SelfCheck {
         // this the menu's highlight covers all nineteen at once.
         check("the category panel turns off the menu's own highlight",
                 css.contains(".category-item:focused"));
-        // The content window's own two panels. A kind list whose rows have no
-        // gap draws the glyph against the name, and a world picker with no
-        // padding sits against the tab strip under it.
-        check("the list of content kinds is styled",
-                css.contains(".kind-list .list-cell"));
-        check("and the panel each kind occupies is too",
+        // The content window's rail. Its rows are the one place in the window
+        // where the text is the control's own rather than a label inside it, so
+        // a row whose fill nobody paints is drawn in modena's ink - which on
+        // this background is very nearly the background. It was.
+        check("the rail of content kinds is styled",
+                css.contains(".kind-rail"));
+        check("a rail row paints its own text",
+                ruleOf(css, ".kind-row").contains("-fx-text-fill"));
+        check("and the kind that is showing is marked",
+                css.contains(".kind-row-on"));
+        check("the open rail casts a shadow, so it reads as being in front",
+                ruleOf(css, ".kind-rail-open").contains("-fx-effect"));
+        check("the panel each kind occupies is styled",
                 css.contains(".kind-pane"));
         check("the world picker has room above the tabs",
                 css.contains(".world-row"));
