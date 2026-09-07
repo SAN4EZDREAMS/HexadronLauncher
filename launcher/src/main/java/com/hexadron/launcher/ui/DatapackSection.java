@@ -16,6 +16,7 @@ import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.mods.ContentKind;
 import com.hexadron.launcher.mods.DatapackInstaller;
 import com.hexadron.launcher.mods.DatapackScan;
+import com.hexadron.launcher.mods.InstalledMod;
 import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.mods.ModScan;
@@ -96,14 +97,26 @@ final class DatapackSection extends ContentSection {
     DatapackSection(Host host) {
         super(host);
         this.catalogue = new CataloguePane(host, ContentKind.DATAPACK, new CataloguePane.Actions() {
+            /**
+             * Whether this world already has it.
+             *
+             * <p>Answered from the folder as it was read, not from the record
+             * beside it, and that is the fix for a launcher that contradicted
+             * itself: the record said a pack was installed, the world's own list
+             * did not show it, and its pack count did not move - because what
+             * had been written into the folder was the project's mod build,
+             * which Minecraft does not load out of a world and this section
+             * therefore does not list. The record is what the launcher meant to
+             * do; this list is what is actually there, and it is the honest
+             * answer to give a button.
+             */
             @Override
             public boolean isInstalled(ModProvider.SearchResult hit) {
-                WorldSaves.World world = worldBox.getValue();
-                if (world == null) {
+                if (worldBox.getValue() == null) {
                     return false;
                 }
-                return DatapackScan.libraryOf(world.datapacks())
-                        .contains(hit.source(), hit.projectId());
+                String key = InstalledMod.keyOf(hit.source(), hit.projectId());
+                return packsAll.stream().anyMatch(pack -> key.equals(pack.key()));
             }
 
             @Override

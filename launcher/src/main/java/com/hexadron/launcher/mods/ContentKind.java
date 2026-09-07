@@ -74,11 +74,12 @@ public enum ContentKind {
      *
      * <p>And by loader by default, which needs saying because vanilla Minecraft
      * is what loads a data pack. Half the catalogue is published twice over: the
-     * plain pack, and the same pack as a mod loader loads it, which arrives with
-     * a mod that puts it in place. Modrinth's own download asks which of the two
-     * you want, and "just the data pack, no mods" is one of the answers. So the
-     * catalogue is narrowed to the flavour this instance can actually load, and
-     * {@link Narrowing#WITHOUT_MODS} is the box that asks for the other one.
+     * data pack, and a mod build of the same content that a loader applies to
+     * every world. A project's tags carry both, so narrowing by the instance's
+     * loader lists the packs that come with that second build - the ones whose
+     * requirements the launcher may install as mods. What is put into the world
+     * is the data pack either way; see {@link Narrowing#WITHOUT_MODS} for the box
+     * that widens the list and leaves the mods folder alone.
      */
     DATAPACK("datapack", 6945, "mods.kind.datapack", "datapack", true, false,
             Narrowing.WITHOUT_MODS, List.of(".zip"));
@@ -116,10 +117,16 @@ public enum ContentKind {
          *
          * <p>The inverse shape of the one above, and deliberately so: the
          * default is the narrower list, and the box widens it. Unticked, the
-         * catalogue is the packs this instance's loader can load - which is the
-         * flavour that may bring a mod with it. Ticked, the loader stops
-         * mattering and only the Minecraft version does, so what is listed is
-         * data packs and nothing else.
+         * catalogue is the packs published for this instance's loader as well -
+         * the ones that can bring a mod - and installing one fetches the mods
+         * the pack names as requirements. Ticked, the loader stops mattering,
+         * only the Minecraft version does, and nothing is written outside the
+         * world.
+         *
+         * <p>What lands in the world is the data pack in both cases. The box
+         * decides what is listed and whether the mods folder is touched, not
+         * which file the world gets - a world loads a zip or a folder, and a
+         * project's mod build is neither.
          */
         WITHOUT_MODS("datapacks.withoutMods", "datapacks.withoutMods.tip", false);
 

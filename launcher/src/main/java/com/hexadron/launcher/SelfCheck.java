@@ -5022,6 +5022,42 @@ public final class SelfCheck {
             check("and the launcher's logo is preferred over the zip's",
                     recorded.iconUrl() != null);
 
+            // A record whose file is a jar. This is what a build that asked the
+            // platform for the wrong thing left behind: Modrinth publishes much
+            // of this catalogue twice, as a data pack zip and as a mod build of
+            // the same content, and only the first is a thing a world loads.
+            //
+            // The folder is the authority, so the jar is not listed - and that
+            // is exactly why the Install button must be drawn from this list and
+            // not from the record beside it. Reading the record gave a catalogue
+            // that said "installed", a world list that showed nothing and a pack
+            // count that did not move: three answers to one question.
+            writeJar(dir.resolve("dungeons-and-taverns-5.3.2.jar"),
+                    Map.of("fabric.mod.json", "{\"id\":\"dungeons_and_taverns\"}"));
+            ModLibrary withJar = DatapackScan.libraryOf(dir);
+            withJar.put(new InstalledMod("Dungeons and Taverns",
+                    new ModFile("efgh", "dungeons-and-taverns", "v2", "5.3.2+mod",
+                            "dungeons-and-taverns-5.3.2.jar",
+                            "https://example.invalid/dt.jar",
+                            null, 1, List.of(), ModProvider.Source.MODRINTH),
+                    ModOrigin.MANUAL, null));
+            withJar.write();
+            check("a jar recorded as a data pack is not listed",
+                    DatapackScan.scan(dir).stream()
+                            .noneMatch(pack -> pack.fileName().endsWith(".jar")));
+            check("and the record alone still claims it is installed",
+                    DatapackScan.libraryOf(dir)
+                            .contains(ModProvider.Source.MODRINTH, "efgh"));
+            check("a jar is not a data pack file",
+                    !DatapackScan.isDatapackFile(dir.resolve("dungeons-and-taverns-5.3.2.jar")));
+            // The same question the installer asks before it writes anything
+            // into a world, by name alone, which is all a platform's answer
+            // gives it.
+            check("a data pack version's file is a zip",
+                    ContentKind.DATAPACK.matches("Dungeons and Taverns v5.3.2.zip"));
+            check("and a mod build's file is refused",
+                    !ContentKind.DATAPACK.matches("dungeons-and-taverns-5.3.2.jar"));
+
         } catch (IOException e) {
             check("the data pack folder could be read: " + e, false);
         } finally {
