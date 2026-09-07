@@ -13,7 +13,9 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Loaders | Fabric, Quilt, Forge and NeoForge all install and launch. The version picker offers only versions the chosen loader has builds for |
 | Accounts | Offline accounts work and can be removed. Microsoft sign-in is implemented and needs an approved Azure client ID |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments and Java path |
-| Mods | A browser window per instance: search, sort, filter by category, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically, and the launcher asks before you switch off or delete something other mods depend on |
+| Mods | One content window per instance, with a list of kinds down the left. Mods: search, sort, filter by category, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically, and the launcher asks before you switch off or delete something other mods depend on |
+| Modpacks | Modrinth `.mrpack` and CurseForge modpack zips, from either platform's catalogue or from a file on disk. The window asks first whether the pack should become a new instance or take over this one, and every file it writes is recorded so removing it deletes exactly those |
+| Data packs | Per world, which is where Minecraft loads them from: the window asks which world, then lists that world's folder - install, switch off, remove, import a zip. The one section that works on an instance with no mod loader |
 | Updating itself | Checks the project's own releases at start-up, on the Release or the Nightly channel, and offers the new version with its notes. Downloads, unpacks and replaces the installed folder, then starts again |
 | Java | The launcher finds the installed runtimes - PATH, the registry, the vendor folders, the official launcher's own downloads - and picks the one the version asks for. If the machine has none, it offers to download an Eclipse Temurin JRE |
 | Assets | Modern, `virtual` (1.6) and `map_to_resources` (pre-1.6) layouts |
@@ -254,7 +256,15 @@ Libraries, assets and client jars are shared between profiles. Each profile has
 its own folder under `instances/`, so mods and worlds stay separate. Inside a
 profile's `mods/` folder the launcher keeps two files of its own:
 `.hexadron-mods.json`, the record of what it downloaded, and
-`.hexadron-external.json`, what Modrinth said about the jars it did not. Mod
+`.hexadron-external.json`, what Modrinth said about the jars it did not. Two more
+records follow the same rule one level out. `.hexadron-modpacks.json`, in the
+instance folder, lists each installed modpack and every path it wrote - a pack
+writes across `mods`, `config`, `resourcepacks` and sometimes `saves`, and after
+the first launch nothing about the instance says which of those files were the
+pack's, so removing one has to read a list rather than guess. And
+`.hexadron-datapacks.json`, in each world's `datapacks` folder, is the mod lock
+file's rule applied to data packs: what the launcher downloaded, kept beside the
+packs so a world copied to another instance carries it along. Mod
 logos are cached under `cache/mod-icons`, keyed by the digest of their address,
 and that folder is bounded: thirty-two megabytes by default, least recently used
 thrown away. The size is a setting - Downloads and mods, 8 MB to 1 GB - because
@@ -441,7 +451,7 @@ downloads them from Modrinth instead.
 |                     |  | Last played 16 Aug 2026, 14:47   |   |
 |                     |  | Folder      ...\instances\1-027f96|  |
 |                     |  +----------------------------------+   |
-| [New][Edit][Remove] |  [Edit] [Install] [Mods...] [Folder]    |
+| [New][Edit][Remove] |  [Edit] [Install] [Content...] [Folder]    |
 | [New group][Sort]   |                                         |
 |                     |  Mods (5)                               |
 |                     |   Sodium        [Hexadron Optimise]     |
@@ -913,26 +923,58 @@ where the format requires a map, `47.1.82` is listed without its version prefix.
 Those are left out of the picker by name. Offering them means offering a
 failure.
 
-## The mod browser
+## The content window
 
-`Mods...` opens a window of its own for the selected instance. It is not a
-dialog: choosing mods is a long, back-and-forth task, and a modal window would
-hold the launcher hostage for as long as it took.
+`Content...` opens a window of its own for the selected instance. It is not a
+dialog: choosing what goes into an instance is a long, back-and-forth task, and a
+modal window would hold the launcher hostage for as long as it took.
 
 ```
-+--------------------------------------------------------------+
-| My world                          [ Install Hexadron Optimise]|
-| 26.2 · Fabric                                                 |
-+--------------------------------------------------------------+
-| [ Browse ] [ Installed (5) ]                                  |
-|  [ search ...... ] [ Most popular v ] [ Category v ] [ All v ]|
-| []  Sodium                 Modrinth · 40.1M downloads         |
-|     A modern rendering engine ...                 [ Install ] |
-|  ...                                                          |
-+--------------------------------------------------------------+
-| Searching...                                                  |
-+--------------------------------------------------------------+
++----------------------------------------------------------------------+
+| My world                              [ Install Hexadron Optimise ]  |
+| 26.2 · Fabric                                                        |
++--------------+-------------------------------------------------------+
+| ⬡ Mods       | [ Browse ] [ Installed (5) ]                          |
+| ▤ Modpacks   |  [ search ..... ] [ Most popular v ] [ Category v ]   |
+| ▢ Data packs | []  Sodium              Modrinth · 40.1M downloads    |
+|              |     A modern rendering engine ...        [ Install ]  |
+|              |  ...                                                  |
++--------------+-------------------------------------------------------+
+| Searching...                                                         |
++----------------------------------------------------------------------+
 ```
+
+It began as a mod browser and is now the window for everything a player installs
+into an instance, because it is the same task performed against the same
+instance: search a platform, read about something, install it, look at what is
+already there, search again. Three windows for that would be three status lines,
+three ways for two installs to write to one folder at once, and three places to
+fix the next thing that is wrong with a row.
+
+So the kinds are a list down the left and the panel on the right belongs to
+whichever is chosen. A list rather than a second row of tabs: the tabs inside a
+section are already **Browse** and **Installed**, and putting kinds on a second
+row above them makes two rows of tabs that look the same and mean different
+things. The list also has room for the kinds that are not here yet, and every
+kind stays on it even on an instance that cannot use it - a row that disappeared
+on an instance with no mod loader would leave somebody looking for it, and a row
+that is there and says why answers the question instead.
+
+The status line, the progress bar and the rule that only one install runs at a
+time belong to the window rather than to a section. Two installs at once would
+interleave writes to the same folders and the same record files, and the loser
+would leave a file on disk that nothing records; a section with its own status
+line would give a download somewhere to report to that nobody is looking at.
+`ContentSection.Host` is the whole of what a section is lent, which is also the
+whole of what it can use to get in another section's way.
+
+The three constants that separate one kind from another - Modrinth's
+`project_type`, CurseForge's `classId`, whether the instance's version and loader
+narrow the search - live in `ContentKind`. Everything else about a catalogue is
+the same job whatever is being searched for, so adding a kind is that one file
+plus a folder reader, not a second browser that drifts from the first.
+
+### Mods
 
 Every result is already filtered to the instance's Minecraft version and
 loader, so anything listed is a build that will actually load. That is the
@@ -1255,6 +1297,131 @@ want, and an installer that overrules that on every run is a worse bug than the
 one it is fixing. Everything else in that file is read, kept and written back
 untouched.
 
+### Modpacks
+
+A modpack is not a big mod. It **is** an instance: a Minecraft version, a loader
+at a pinned version, a set of files, and a folder of configuration to lay over
+the top. Installing one is therefore not an addition but a decision about an
+instance, and there are only two honest answers to "which instance" - a new one
+shaped by the pack, or this one, changed to match it.
+
+So the window asks, every time, and before anything is downloaded. It asks
+rather than choosing because both are ordinary things to want: a new instance is
+what somebody trying a pack out wants and is the safe answer, since nothing they
+have is touched, and installing into this one is what somebody rebuilding an
+instance they already have worlds and settings in wants. Doing either behind
+their back would be taking a version and a loader off them without asking. It
+asks first rather than last because a pack is hundreds of megabytes, and a
+question asked at the end of a ten-minute download is a question asked when the
+answer can no longer be "neither".
+
+The catalogue is deliberately **not** filtered to the instance, unlike the mods
+one. A pack names its own version and loader, so narrowing the list to the
+instance's would hide every pack somebody might install next - which is all of
+them, since a pack that already matched is one there was no reason to install.
+The line above the list says so, because a list that is not filtered in a window
+where everything else is has to say which it is.
+
+Both formats are read, and `PackArchive` ends the difference between them:
+
+- Modrinth's `.mrpack` holds `modrinth.index.json`, in which every file is a path
+  plus a list of addresses plus a SHA-1, and the loader is a dependency such as
+  `fabric-loader: 0.16.9`. Nothing has to be looked up - the pack carries the
+  addresses.
+- CurseForge's zip holds `manifest.json`, in which every file is a pair of
+  numbers, project id and file id, and the loader is a string such as
+  `fabric-0.16.9`. Nothing can be downloaded until each pair has been resolved
+  through the API, which needs a key. A pack may list several loaders and mark
+  one primary; the primary one is the pack's own answer, not the first in the
+  list.
+
+A pack carries both sides of a multiplayer install, so a file the manifest marks
+`client: unsupported` is left out. That is the pack being followed rather than an
+omission. A CurseForge file whose author has switched off third-party downloads
+goes the same way a mod does: Modrinth is asked whether it has a file with that
+SHA-1, a hit is the same bytes by definition, and otherwise the pack says so and
+names the file to fetch by hand.
+
+Then the pack's `overrides` are copied over the instance - configs, keybindings,
+shader presets, resource packs, everything that makes the set behave the way its
+author tested it. Nothing in them is edited on the way through: a pack ships its
+overrides because its author decided what they should say.
+
+**Every path is checked.** A manifest is a file from the internet and a path in
+it is untrusted input: `../../../.ssh/authorized_keys` is a valid string in a
+JSON document, and a launcher that resolves it against the instance folder and
+writes there has handed a stranger the user's home directory. Absolute paths,
+Windows drives, network locations and `..` segments are refused, and so is
+anything that still resolves outside the instance after normalisation - the last
+check being the one that catches what the first three miss. A refused path is
+reported rather than silently dropped.
+
+Removal deletes exactly the paths that were recorded, deepest first, and removes
+a folder only when it is empty: `config` holding one file of the pack's and one
+of the player's is a folder that stays. The jars a pack owns are marked as its
+own in the mods list, so a row for one of them says which pack it belongs to and
+its Remove button is off - a pack is a set that was tested together, and pulling
+one mod out of it leaves something that is no longer the pack but still claims to
+be. A mod the player had already installed by hand is never converted into a
+pack-owned one, because removing the pack must not take that mod with it.
+
+Local files work too, through **Open file...** or by dropping one on the list.
+That is the way in for a pack that is on neither platform, for one whose author
+has disabled third-party downloads, and for one somebody built themselves.
+
+### Data packs
+
+Minecraft loads data packs from `saves/<world>/datapacks`, per world. There is no
+instance-wide folder, and that is not an oversight: a data pack changes recipes,
+loot tables and world generation, which are properties of a world rather than of
+a game.
+
+Launchers that pretend otherwise keep a folder of their own and copy out of it
+into worlds, and then the two disagree - a pack removed from a world is still
+"installed", a pack added to the folder after a world was made is not in it, and
+the list is a list of intentions rather than of facts. So this section asks which
+world first and lists that world's folder. What it shows is what the game will
+load.
+
+The consequence is worth stating plainly rather than hiding: an instance that has
+never been launched has no worlds, there is nowhere for a data pack to go, and
+the section says so and greys the buttons instead of offering an install that
+would have to invent a destination. The picker starts on the most recently played
+world, because that is the one somebody is in and therefore the one they mean.
+
+This is also the one section that works on a plain instance. Data packs are
+loaded by vanilla Minecraft, so nothing here asks about Fabric or Forge - which
+is why `Content...` is no longer refused on an instance with no mod loader. It
+used to be, and that was right while the window was only about mods.
+
+The folder is read the same way the mods folder is: the folder is the authority,
+a pack the launcher did not download is listed rather than hidden, and nothing
+the launcher did not record is ever treated as the launcher's to delete. Three
+things differ.
+
+A data pack may be a **zip or a folder**, because Minecraft accepts both and
+players unzip packs to edit them. Both are listed, and only the zip can be
+switched off - that is done by renaming the file so the game no longer sees a
+`.zip`, and a folder renamed the same way still has a `pack.mcmeta` inside it and
+is still loaded. So the button is off on a folder row with the reason on it,
+rather than being a button that does nothing.
+
+There is **no version to check**. A mod jar says which Minecraft versions it
+needs, so the launcher can say in advance that it will not load; a data pack says
+`pack_format`, one number, and turning that into "works on 1.21.4" needs a table
+of every release which changes with every release. The launcher does not keep one
+and therefore does not claim to know: the number is shown as the pack states it,
+and the verdict is `UNKNOWN`. Minecraft itself says "incompatible" beside the
+pack when it opens the world, which is the answer from the only thing that has
+the table.
+
+And **`pack.mcmeta` is not optional**, unlike a mod's descriptor. A mod jar
+without one is still a mod - the descriptor may be in a dialect this reader does
+not parse - but Minecraft refuses a data pack that has no `pack.mcmeta`, so a zip
+without one is refused on import too. The launcher agreeing with the game is the
+point. The description in that file may be a string, a text component or a list
+of them; all three say the same sentence, and the row wants the sentence.
+
 ## Updating itself
 
 The launcher checks its own repository for a newer build while the start-up
@@ -1387,16 +1554,19 @@ install/loader/forge/
 auth/     accounts, offline UUIDs, Microsoft sign-in (PKCE + device code),
           credential stores (DPAPI / Keychain / Secret Service / encrypted file)
 profile/  profiles and their isolated game folders
-mods/     Modrinth and CurseForge providers, pack and single-mod installer,
-          ownership records, jar descriptors, categories, the dependency graph
+mods/     Modrinth and CurseForge providers; the kinds of installable thing
+          and the three constants that separate them (ContentKind); the mod,
+          modpack and data pack installers; both modpack manifest formats;
+          ownership records; jar and pack descriptors; the world list;
+          categories; the dependency graph
 update/   the launcher's own releases: channels, version comparison, download,
           and the second process that replaces the installed folder
 skin/     skins and capes: the viewer, the sheet layouts, the service
 about/    the credits shown in the About window
 launch/   Java locator, command builder, process control
 core/     settings and the application service
-ui/       JavaFX window, mod browser, instance dialog, theme, tray -
-          no launch logic
+ui/       JavaFX window, the content window and its sections, instance
+          dialog, theme, tray - no launch logic
 cli/      headless entry point
 ```
 
@@ -1407,7 +1577,10 @@ the CurseForge key chain and where that key is allowed to be sent, the update
 machinery - version ordering, channel filtering, which published file belongs to
 which operating system, and the three application-image layouts - and the
 authentication hardening: PKCE against RFC 7636's own test vector, state
-validation, log redaction, the credential split. 1213 assertions, and it needs no
+validation, log redaction, the credential split. It also covers the three
+content kinds and their platform constants, both modpack manifest formats, the
+path check that keeps a manifest from writing outside the instance, a world's
+data pack folder and the world list itself. 1407 assertions, and it needs no
 network, no display and no test framework.
 
 ## Sandboxing, and what it is actually for
@@ -1529,7 +1702,14 @@ field is for `mangohud`-style tools, not for isolation.
 
 ## Not done yet
 
-- Import and export of Modrinth `.mrpack` and CurseForge modpack files.
+- Export of a working instance as a Modrinth `.mrpack` or a CurseForge modpack.
+  Reading both and installing from them is done - see **Modpacks** above - and
+  writing one is the other half: it means deciding which of an instance's files
+  are the set and which are the player's, which is a question the launcher can
+  only answer for the files it recorded.
+- Resource packs and shaders. Both are one folder per instance and a file
+  extension, so both are a `ContentKind` and a folder reader rather than
+  anything new; they are simply not written yet.
 - A sandbox the launcher turns on by itself. What exists instead is the
   wrapper command below, and the reason is in the next section: a sandbox
   cannot do the thing this line used to claim it did.

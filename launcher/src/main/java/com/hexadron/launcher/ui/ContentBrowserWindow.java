@@ -60,20 +60,37 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * The mod browser: one window per profile, opened from the main window.
+ * The content window: one per profile, opened from the main window.
+ *
+ * <h2>One window, several kinds of thing</h2>
+ *
+ * <p>It began as a mod browser and is now the window for everything a player
+ * installs into an instance - mods, modpacks, data packs - because they are the
+ * same task performed against the same instance: search a platform, read about
+ * something, install it, look at what is already there, search again. Three
+ * windows for that would be three status lines, three ways for two installs to
+ * write to one folder at once, and three places to fix the next thing that is
+ * wrong with a row.
+ *
+ * <p>So the kinds are a list down the left and the panel on the right belongs to
+ * whichever is chosen. A list rather than a second row of tabs: the tabs inside a
+ * section are already {@code Browse} and {@code Installed}, and putting kinds on
+ * a second row above them makes two rows of tabs that look the same and mean
+ * different things. The list also has room for the kinds that are not here yet.
  *
  * <p>It is a separate stage rather than a panel or a modal dialog on purpose.
- * Choosing mods is a long, exploratory task - search, read, install, look at
- * what is already there, search again - and it happens against one fixed pair of
- * Minecraft version and loader. A separate window can be left open beside the
- * launcher and closed whenever; a modal one would block the launcher for as long
- * as the user was browsing.
+ * Choosing mods is a long, exploratory task, and a separate window can be left
+ * open beside the launcher and closed whenever; a modal one would block the
+ * launcher for as long as the user was browsing.
  *
- * <p>Everything shown is already filtered by the profile's version and loader,
- * so a result in the list is a build that will actually load. That is the whole
- * value of browsing from inside a launcher rather than on a website.
+ * <h2>What is shared, and why it is shared here</h2>
+ *
+ * <p>The status line, the progress bar, the rule that only one install runs at a
+ * time, and the alert dialogs. All four belong to the window rather than to a
+ * section, and {@link ContentSection.Host} is how a section reaches them - see
+ * that interface for what each one is for.
  */
-public final class ModBrowserWindow {
+public final class ContentBrowserWindow implements ContentSection.Host {
 
     /** Results asked of each platform per search. Enough to scroll, small enough to stay quick. */
     private static final int PAGE_SIZE = 40;
@@ -181,6 +198,46 @@ public final class ModBrowserWindow {
     private final Tab installedTab = new Tab();
     private final TabPane tabs = new TabPane(browseTab, installedTab);
 
+    /**
+     * The kinds of thing this window covers, in the order they are offered.
+     *
+     * <p>Mods first because it is what almost every visit is for. The rest in the
+     * order of how much of an instance they decide: a modpack decides all of it,
+     * a data pack decides one world.
+     */
+    private enum Section {
+        MODS("mods.kind.mod"),
+        MODPACKS("mods.kind.modpack"),
+        DATAPACKS("mods.kind.datapack");
+
+        private final String key;
+
+        Section(String key) {
+            this.key = key;
+        }
+
+        String title() {
+            return I18n.t(key);
+        }
+
+        javafx.scene.Node glyph() {
+            return switch (this) {
+                case MODS -> Glyphs.module();
+                case MODPACKS -> Glyphs.crate();
+                case DATAPACKS -> Glyphs.page();
+            };
+        }
+    }
+
+    private final ListView<Section> sectionList =
+            new ListView<>(FXCollections.observableArrayList(Section.values()));
+
+    /** The panel for each kind. Mods is this class's own; the rest are their own. */
+    private final javafx.scene.layout.StackPane sectionPane = new javafx.scene.layout.StackPane();
+    private ModpackSection modpacks;
+    private DatapackSection datapacks;
+    private javafx.scene.Node modsPane;
+
     private final Label statusLabel = new Label();
     private final ProgressBar progressBar = new ProgressBar(0);
     private final BrowserProgress progress;
@@ -203,7 +260,7 @@ public final class ModBrowserWindow {
     private String packBlockedReason;
     private volatile boolean busy;
 
-    public ModBrowserWindow(LauncherService service, Stage owner, Profile profile, Runnable onChanged) {
+    public ContentBrowserWindow(LauncherService service, Stage owner, Profile profile, Runnable onChanged) {
         this.service = service;
         this.owner = owner;
         this.profile = profile;
@@ -239,6 +296,8 @@ public final class ModBrowserWindow {
         // can have changed with it.
         applyTexts();
         refreshInstalled();
+        modpacks.refresh();
+        datapacks.refresh();
         loadPackStateAsync();
         nextOffset = 0;
         totalMatches = -1;
@@ -257,16 +316,99 @@ public final class ModBrowserWindow {
         stage.initModality(Modality.NONE);
         stage.getIcons().addAll(owner.getIcons());
 
+        modpacks = new ModpackSection(this);
+        datapacks = new DatapackSection(this);
+        modsPane = buildTabs();
+
         BorderPane root = new BorderPane();
         root.setTop(buildHeader());
-        root.setCenter(buildTabs());
+        root.setLeft(buildSidebar());
+        root.setCenter(buildSectionPane());
         root.setBottom(buildFooter());
 
-        Scene scene = new Scene(root, 980, 700);
+        Scene scene = new Scene(root, 1080, 720);
         Theme.apply(scene);
         stage.setScene(scene);
-        stage.setMinWidth(760);
-        stage.setMinHeight(520);
+        stage.setMinWidth(860);
+        stage.setMinHeight(540);
+    }
+
+    /**
+     * The list of kinds down the left.
+     *
+     * <p>Every kind is always on it, including the ones this profile cannot use.
+     * A row that disappeared on a profile with no loader would leave the user
+     * looking for it; a row that is there and says why is a row that answers the
+     * question. What each section does about not being usable is its own - the
+     * mods one has always said so in place of its results.
+     */
+    private VBox buildSidebar() {
+        sectionList.setCellFactory(view -> new javafx.scene.control.ListCell<>() {
+            @Override
+            protected void updateItem(Section section, boolean empty) {
+                super.updateItem(section, empty);
+                if (empty || section == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+                setText(section.title());
+                setGraphic(section.glyph());
+            }
+        });
+        sectionList.getSelectionModel().selectedItemProperty().addListener(
+                (observable, previous, value) -> showSection(value));
+        sectionList.getSelectionModel().select(Section.MODS);
+        sectionList.setPrefWidth(196);
+        sectionList.setMinWidth(150);
+        sectionList.getStyleClass().add("kind-list");
+
+        sectionTitle.getStyleClass().add("section-title");
+        VBox sidebar = new VBox(8, sectionTitle, sectionList);
+        VBox.setVgrow(sectionList, Priority.ALWAYS);
+        sidebar.getStyleClass().add("sidebar");
+        return sidebar;
+    }
+
+    private final Label sectionTitle = new Label();
+
+    private javafx.scene.layout.StackPane buildSectionPane() {
+        sectionPane.getChildren().setAll(modsPane, modpacks.node(), datapacks.node());
+        showSection(Section.MODS);
+        return sectionPane;
+    }
+
+    /**
+     * Brings one section's panel forward.
+     *
+     * <p>Managed as well as hidden. A hidden panel that is still managed is still
+     * measured, and three tab panes taking part in one layout is three times the
+     * work on every resize for two panels nobody can see.
+     */
+    private void showSection(Section section) {
+        Section chosen = section == null ? Section.MODS : section;
+        javafx.scene.Node[] panes = {modsPane, modpacks.node(), datapacks.node()};
+        Section[] order = {Section.MODS, Section.MODPACKS, Section.DATAPACKS};
+        for (int index = 0; index < panes.length; index++) {
+            boolean visible = order[index] == chosen;
+            panes[index].setVisible(visible);
+            panes[index].setManaged(visible);
+        }
+        // The pack button belongs to the mods section: it installs a set of mods.
+        boolean mods = chosen == Section.MODS;
+        packButton.setVisible(mods);
+        packButton.setManaged(mods);
+        packNote.setVisible(mods && packBlockedReason != null);
+        packNote.setManaged(mods && packBlockedReason != null);
+
+        if (!built) {
+            return;
+        }
+        switch (chosen) {
+            case MODPACKS -> modpacks.onShown();
+            case DATAPACKS -> datapacks.onShown();
+            case MODS -> { }
+        }
     }
 
     /**
@@ -277,7 +419,13 @@ public final class ModBrowserWindow {
      * is already visible here and must be shown, not remembered.
      */
     private void applyTexts() {
-        stage.setTitle(I18n.t("mods.title", profile.name()));
+        stage.setTitle(I18n.t("content.title", profile.name()));
+        sectionTitle.setText(I18n.t("content.sections"));
+        // The cells draw their own names from I18n, so refreshing the list is
+        // what makes a language change reach them.
+        sectionList.refresh();
+        modpacks.applyTexts();
+        datapacks.applyTexts();
         titleLabel.setText(profile.name());
         subtitleLabel.setText(profile.minecraftVersion() + "  ·  " + profile.loader().displayName());
         searchField.setPromptText(I18n.t("mods.search.prompt"));
@@ -662,223 +810,18 @@ public final class ModBrowserWindow {
 
     // ---------------------------------------------------------------- cells
 
-    /**
-     * The parts every mod row is built from, and the sizing rules that keep it
-     * in one piece.
-     *
-     * <h2>Why this is shared</h2>
-     *
-     * <p>A search hit and an installed mod are the same object to the person
-     * reading the list - a mod, with a logo, a name, a line about it and
-     * something to press - so they are laid out by the same code. When they were
-     * two hand-built rows they drifted: only one of them had the link to the
-     * mod's page, and only one of them survived a long name.
-     *
-     * <h2>The sizing rules, which are the whole point</h2>
-     *
-     * <p>A row is a horizontal box in a list cell, and a list cell clips. So
-     * every part of it has to say explicitly whether it may grow, whether it may
-     * shrink, and what it does when the text is longer than the space:
-     *
-     * <ul>
-     *   <li>the text column is the only part that grows, and it is allowed to
-     *       shrink to nothing ({@code setMinWidth(0)}). Without that, a long
-     *       description sets a minimum width for the whole row, the buttons are
-     *       pushed past the right edge of the cell, and they are simply not
-     *       there any more - which is exactly what a mod with a long name or a
-     *       long summary did;</li>
-     *   <li>every line of that column is a single line that ends in an ellipsis
-     *       rather than wrapping. A wrapped label's height depends on its width,
-     *       which in a cell that is itself being measured is a layout that
-     *       argues with itself;</li>
-     *   <li>the badge and the buttons never shrink
-     *       ({@code USE_PREF_SIZE} as a minimum). They are the part of the row
-     *       that has to be reachable, so they are the part that keeps its size
-     *       and the text gives way instead;</li>
-     *   <li>the cell asks for no width of its own, so the list never grows a
-     *       horizontal scroll bar to fit its longest row.</li>
-     * </ul>
-     */
-    private abstract class ModRow<T> extends ListCell<T> {
-
-        /** The height of the category line, empty or not. See {@link #tags}. */
-        private static final double TAG_HEIGHT = 18;
-
-        protected final ModIcons.Tile icon = new ModIcons.Tile(40);
-        protected final Label name = new Label();
-        protected final Label meta = new Label();
-        protected final Label description = new Label();
-
-        /**
-         * The link to the mod's page.
-         *
-         * <p>Under the text and set small, rather than out beside the buttons.
-         * It opens something outside the launcher, so it is the one thing in the
-         * row that must not be hit by accident on the way to Remove - and a
-         * quiet line of small text under a description is read as a link and
-         * not as a target.
-         */
-        protected final Hyperlink page = new Hyperlink();
-
-        /**
-         * What the mod is for, as the platform files it.
-         *
-         * <p>Its own line, and always the same height whether or not there is
-         * anything on it. A row that grew a line when a mod happened to have
-         * categories would put the list back to the ladder of uneven heights it
-         * was before.
-         */
-        protected final TagFlow tags = new TagFlow(TAG_HEIGHT, 11);
-
-        private final VBox text = new VBox(1, name, meta, description, tags, page);
-        private final HBox row;
-
-        /** Everything to the right of the text: set by the subclass, never shrunk. */
-        protected final HBox actions = new HBox(6);
-
-        ModRow() {
-            name.getStyleClass().add("instance-name");
-            meta.getStyleClass().add("instance-subtitle");
-            description.getStyleClass().add("instance-subtitle");
-            page.getStyleClass().add("mod-link");
-
-            // Filling the column is what makes the ellipsis appear: a label only
-            // shortens its text when something has told it how wide it is.
-            for (Label label : new Label[]{name, meta, description}) {
-                label.setWrapText(false);
-                label.setMaxWidth(Double.MAX_VALUE);
-                label.setMinWidth(0);
-            }
-            // The link is the exception, and deliberately so. Stretched to the
-            // column it would be a full-width click target sitting directly
-            // above Remove; left at its own width it is only clickable where the
-            // words are.
-            page.setMaxWidth(Region.USE_PREF_SIZE);
-            page.setAlignment(Pos.CENTER_LEFT);
-
-
-            text.setFillWidth(true);
-            text.setMinWidth(0);
-            text.setAlignment(Pos.CENTER_LEFT);
-            HBox.setHgrow(text, Priority.ALWAYS);
-
-            actions.setAlignment(Pos.CENTER_RIGHT);
-            actions.setMinWidth(Region.USE_PREF_SIZE);
-
-            row = new HBox(12, icon, text, actions);
-            row.setAlignment(Pos.CENTER_LEFT);
-
-            // No preferred width of its own: the cell is as wide as the list,
-            // and anything longer is the text column's problem to ellipsise.
-            setPrefWidth(0);
-        }
-
-        /**
-         * Writes one line, and keeps its space whether or not there is one.
-         *
-         * <p>Hidden rather than unmanaged, and that is the whole of the "the
-         * list goes uneven" bug. A row whose mod published no description, or no
-         * page, used to be one line shorter than the row above it, so a list of
-         * forty mods was a ladder of four different row heights that changed
-         * again as logos arrived. Every row now reserves the same four lines and
-         * leaves the ones it has nothing for blank.
-         */
-        protected static void line(Label label, String value) {
-            boolean present = value != null && !value.isBlank();
-            label.setText(present ? value : "");
-            label.setVisible(present);
-        }
-
-        /**
-         * Writes the category line.
-         *
-         * <p>All of them, in the order the reader is most likely to be looking
-         * for. Whatever they ticked in the filter comes first: somebody who has
-         * narrowed a search to two categories is scanning for those two, and
-         * finding them behind a count that has to be hovered would answer the
-         * question they asked with an extra step.
-         */
-        protected void tags(java.util.List<ModCategory> shown) {
-            tags.show(ModCategory.chosenFirst(shown, chosenCategories), categories);
-        }
-
-        /** Points the link at a page, or leaves its line blank. */
-        protected void link(String url, Runnable action) {
-            boolean present = SystemBrowser.isWebPage(url);
-            page.setText(present ? I18n.t("mods.details") : "");
-            page.setVisible(present);
-            page.setOnAction(event -> action.run());
-        }
-
-        /**
-         * Adds or removes a style class, and only when it is not already right.
-         *
-         * <p>The unconditional {@code removeAll} then {@code add} that used to be
-         * here is what made the badge and the buttons jump for one frame every
-         * time the selection moved. {@link javafx.scene.control.ListCell#updateItem}
-         * is called from the list's own layout pass - after CSS has been applied
-         * for that frame - so a style class changed there is not resolved until
-         * the next one. The row is therefore measured once with the old padding,
-         * border and weight, drawn in the wrong place, and corrected a frame
-         * later. {@code .badge-off} adds a one-pixel border and
-         * {@code .badge-wrong} makes the text bold, so "the old values" really
-         * are a different width.
-         *
-         * <p>Checking first makes the common case - scrolling or clicking
-         * through rows whose badges are the same kind - touch nothing at all,
-         * and there is nothing to resolve late.
-         */
-        protected static void styleClass(javafx.scene.Node node, String name, boolean wanted) {
-            if (node.getStyleClass().contains(name) == wanted) {
-                return;
-            }
-            if (wanted) {
-                node.getStyleClass().add(name);
-            } else {
-                node.getStyleClass().remove(name);
-            }
-        }
-
-        /**
-         * Points a control at its tooltip, or takes it away.
-         *
-         * <p>One tooltip per cell, reused. A fresh one on every update is a node
-         * and a listener allocated for every row the eye passes over, thrown
-         * away unread.
-         */
-        protected static void tooltip(javafx.scene.control.Control control,
-                                      javafx.scene.control.Tooltip tip, String text) {
-            if (text == null) {
-                if (control.getTooltip() != null) {
-                    control.setTooltip(null);
-                }
-                return;
-            }
-            if (!text.equals(tip.getText())) {
-                tip.setText(text);
-            }
-            if (control.getTooltip() != tip) {
-                control.setTooltip(tip);
-            }
-        }
-
-        /** Puts the assembled row on screen. Called at the end of every update. */
-        protected void showRow() {
-            setGraphic(row);
-        }
-
-        protected void clearRow() {
-            setGraphic(null);
-            setText(null);
-        }
-    }
+    // The row itself is ContentRow: the same layout and the same sizing rules
+    // for every list in this window, in every section. What is left here is the
+    // two cells that are the mods section's own.
 
     /** A search hit: name, author and downloads, description, page, and one action. */
-    private final class ResultCell extends ModRow<ModProvider.SearchResult> {
+    private final class ResultCell extends ContentRow<ModProvider.SearchResult> {
 
         private final Button action = new Button();
 
         ResultCell() {
+            super(ContentBrowserWindow.this::categories,
+                    ContentBrowserWindow.this::highlightedCategories);
             actions.getChildren().add(action);
         }
 
@@ -921,7 +864,7 @@ public final class ModBrowserWindow {
      * same thing - a mod that is installed. What differs is the badge, and which
      * of the buttons are live.
      */
-    private final class InstalledCell extends ModRow<ModEntry> {
+    private final class InstalledCell extends ContentRow<ModEntry> {
 
         private final Label badge = new Label();
         private final Button toggle = new Button();
@@ -937,6 +880,8 @@ public final class ModBrowserWindow {
         private boolean neededExplains;
 
         InstalledCell() {
+            super(ContentBrowserWindow.this::categories,
+                    ContentBrowserWindow.this::highlightedCategories);
             badge.getStyleClass().add("badge");
             badge.setMinWidth(Region.USE_PREF_SIZE);
             // Set once, on a badge that is reused. A panel with nothing in it
@@ -1094,7 +1039,7 @@ public final class ModBrowserWindow {
         // A search never pops a dialog. It is the one action the user repeats
         // constantly, and a modal error for a dropped connection would be in the
         // way of the retry.
-        run(I18n.t("mods.task.search"), false, () -> {
+        run(I18n.t("mods.task.search"), browseEmpty::setText, () -> {
             ModProvider.SearchPage page =
                     service.searchMods(profile, query, sort, chosen, only, PAGE_SIZE, offset);
             Platform.runLater(() -> {
@@ -1471,7 +1416,7 @@ public final class ModBrowserWindow {
             updatePackButton();
             return;
         }
-        run(I18n.t("mods.task.packCheck"), false, () -> {
+        run(I18n.t("mods.task.packCheck"), browseEmpty::setText, () -> {
             ModPack loaded = ModPack.hexadronOptimise();
             ModInstaller.PackAvailability availability = service.packAvailability(profile, loaded);
             Platform.runLater(() -> {
@@ -1541,11 +1486,6 @@ public final class ModBrowserWindow {
 
     // ---------------------------------------------------------------- plumbing
 
-    @FunctionalInterface
-    private interface Task {
-        void run() throws Exception;
-    }
-
     /**
      * Runs a mutating action - install, remove - one at a time.
      *
@@ -1554,13 +1494,14 @@ public final class ModBrowserWindow {
      * records. Searching is not affected: it changes nothing, so it is never
      * blocked by a download and never blocks one.
      */
-    private void mutate(String name, Task task) {
+    @Override
+    public void mutate(String name, Task task) {
         if (busy) {
             progress.log(I18n.t("status.busy", name));
             return;
         }
         setBusy(true);
-        run(name, true, () -> {
+        run(name, null, () -> {
             try {
                 task.run();
             } finally {
@@ -1569,7 +1510,8 @@ public final class ModBrowserWindow {
         });
     }
 
-    private void run(String name, boolean alerting, Task task) {
+    @Override
+    public void run(String name, java.util.function.Consumer<String> onFailure, Task task) {
         progress.stage(name);
         Thread thread = new Thread(() -> {
             try {
@@ -1580,14 +1522,14 @@ public final class ModBrowserWindow {
                 String detail = e.getMessage() == null ? e.toString() : e.getMessage();
                 Platform.runLater(() -> {
                     progress.failed(detail);
-                    if (alerting) {
+                    if (onFailure == null) {
                         warn(I18n.t("status.failed", name), detail);
                     } else {
-                        browseEmpty.setText(detail);
+                        onFailure.accept(detail);
                     }
                 });
             }
-        }, "hexadron-mods");
+        }, "hexadron-content");
         thread.setDaemon(true);
         thread.start();
     }
@@ -1693,7 +1635,7 @@ public final class ModBrowserWindow {
                 // be worked out with a file manager.
                 if (!result.skipped().isEmpty()) {
                     warn(I18n.t("mods.import.skipped.header"),
-                            result.skipped().stream().map(ModBrowserWindow::reasonFor)
+                            result.skipped().stream().map(ContentBrowserWindow::reasonFor)
                                     .collect(java.util.stream.Collectors.joining("\n")));
                 }
             });
@@ -1730,6 +1672,8 @@ public final class ModBrowserWindow {
 
     private void setBusy(boolean value) {
         busy = value;
+        modpacks.onBusyChanged();
+        datapacks.onBusyChanged();
         // One place decides whether this button is clickable, and it is the one
         // that also knows the set is already installed and must stay removable.
         updatePackButton();
@@ -1739,7 +1683,7 @@ public final class ModBrowserWindow {
         installedList.refresh();
     }
 
-    private void warn(String header, String message) {
+    private void warnDialog(String header, String message) {
         Alert alert = new Alert(Alert.AlertType.WARNING, message);
         alert.initOwner(stage);
         Theme.apply(alert.getDialogPane());
@@ -1749,87 +1693,71 @@ public final class ModBrowserWindow {
         alert.showAndWait();
     }
 
-    /** 1234567 -> "1.2M". Exact counts are noise at this scale. */
-    private static String formatCount(long value) {
-        if (value >= 1_000_000) {
-            return String.format(Locale.ROOT, "%.1fM", value / 1_000_000.0);
-        }
-        if (value >= 1_000) {
-            return String.format(Locale.ROOT, "%.1fk", value / 1_000.0);
-        }
-        return Long.toString(value);
+    // ---------------------------------------------------------------- the host
+
+    // What the sections are lent. The window owns all of it, which is the point:
+    // one status line, one progress bar, one rule about installs running one at a
+    // time, and one place that raises a dialog.
+
+    @Override
+    public LauncherService service() {
+        return service;
     }
 
-    /** The source filter, including "every platform". */
-    private enum SourceChoice {
-        ALL(null),
-        MODRINTH(ModProvider.Source.MODRINTH),
-        CURSEFORGE(ModProvider.Source.CURSEFORGE);
+    @Override
+    public Stage stage() {
+        return stage;
+    }
 
-        private final ModProvider.Source source;
+    @Override
+    public Profile profile() {
+        return profile;
+    }
 
-        SourceChoice(ModProvider.Source source) {
-            this.source = source;
-        }
+    @Override
+    public BrowserProgress progress() {
+        return progress;
+    }
 
-        ModProvider.Source source() {
-            return source;
-        }
-
-        String label() {
-            return source == null ? I18n.t("mods.source.all") : source.displayName();
-        }
+    @Override
+    public Categories categories() {
+        return categories;
     }
 
     /**
-     * Progress for this window's own status line.
+     * The categories ticked in the mods filter.
      *
-     * <p>Separate from the launcher's log pane: a download started here belongs
-     * on this window, not appended to a log the user cannot see from it.
+     * <p>Shared with the other sections on purpose. Nothing else offers the
+     * filter - it is Modrinth's nineteen and it files mods - but a row anywhere
+     * in the window puts a ticked category first, and a reader who has narrowed a
+     * mod search to two things is scanning for those two wherever they appear.
      */
-    private static final class BrowserProgress implements com.hexadron.launcher.core.Progress {
-        private final Label label;
-        private final ProgressBar bar;
+    @Override
+    public java.util.Set<ModCategory> highlightedCategories() {
+        return chosenCategories;
+    }
 
-        BrowserProgress(Label label, ProgressBar bar) {
-            this.label = label;
-            this.bar = bar;
-        }
+    @Override
+    public boolean isBusy() {
+        return busy;
+    }
 
-        @Override
-        public void stage(String name) {
-            Platform.runLater(() -> {
-                label.setText(name);
-                bar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-            });
-        }
+    @Override
+    public void warn(String header, String message) {
+        warnDialog(header, message);
+    }
 
-        @Override
-        public void bytes(long completed, long total) {
-        }
-
-        @Override
-        public void items(int completed, int total) {
-            if (total <= 0) {
-                return;
-            }
-            double fraction = (double) completed / total;
-            Platform.runLater(() -> bar.setProgress(fraction));
-        }
-
-        @Override
-        public void log(String message) {
-            Platform.runLater(() -> label.setText(message));
-        }
-
-        void done(String message) {
-            label.setText(message);
-            bar.setProgress(1);
-        }
-
-        void failed(String message) {
-            label.setText(message);
-            bar.setProgress(0);
-        }
+    /**
+     * Something in this instance changed.
+     *
+     * <p>Every section that changes anything calls it, and it refreshes all of
+     * them rather than only the caller: installing a modpack writes jars into the
+     * mods folder, so the mods list is stale the moment a pack lands.
+     */
+    @Override
+    public void contentChanged() {
+        refreshInstalled();
+        modpacks.refresh();
+        datapacks.refresh();
     }
 }

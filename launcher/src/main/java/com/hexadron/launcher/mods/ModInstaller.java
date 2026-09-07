@@ -503,7 +503,7 @@ public final class ModInstaller {
      * failure is only raised when every provider failed and there is nothing to
      * show.
      */
-    public ModProvider.SearchPage search(String query, String minecraftVersion,
+    public ModProvider.SearchPage search(ContentKind kind, String query, String minecraftVersion,
                                          LoaderType loader, ModSort sort,
                                          List<ModCategory> categories,
                                          int limitPerProvider, int offset,
@@ -525,7 +525,7 @@ public final class ModInstaller {
             }
             try {
                 ModProvider.SearchPage page = provider.search(
-                        query, minecraftVersion, loader, sort, categories,
+                        kind, query, minecraftVersion, loader, sort, categories,
                         limitPerProvider, offset);
                 results.addAll(page.results());
                 if (page.total() >= 0) {
@@ -555,6 +555,28 @@ public final class ModInstaller {
         }
         return new ModProvider.SearchPage(
                 results, totalKnown ? total : -1, offset, unavailable);
+    }
+
+    /** Mods, for the callers that predate there being anything else to search. */
+    public ModProvider.SearchPage search(String query, String minecraftVersion,
+                                         LoaderType loader, ModSort sort,
+                                         List<ModCategory> categories,
+                                         int limitPerProvider, int offset,
+                                         ModProvider.Source only)
+            throws IOException, InterruptedException {
+        return search(ContentKind.MOD, query, minecraftVersion, loader, sort, categories,
+                limitPerProvider, offset, only);
+    }
+
+    /** The provider for a platform, or empty when this build has none configured. */
+    public Optional<ModProvider> provider(ModProvider.Source source) {
+        ModProvider provider = providers.get(source);
+        return provider != null && provider.isAvailable() ? Optional.of(provider) : Optional.empty();
+    }
+
+    /** The downloader this installer uses, so a pack install can share it. */
+    public Downloader downloader() {
+        return downloader;
     }
 
     /**

@@ -66,8 +66,6 @@ public final class CurseForgeProvider implements ModProvider {
 
     /** CurseForge's game id for Minecraft. */
     private static final int GAME_MINECRAFT = 432;
-    /** CurseForge's class id for the "Mods" category. */
-    private static final int CLASS_MODS = 6;
 
     /**
      * The key the host-header rule reads.
@@ -240,8 +238,9 @@ public final class CurseForgeProvider implements ModProvider {
     }
 
     @Override
-    public SearchPage search(String query, String minecraftVersion, LoaderType loader,
-                             ModSort sort, List<ModCategory> categories, int limit, int offset)
+    public SearchPage search(ContentKind kind, String query, String minecraftVersion,
+                             LoaderType loader, ModSort sort, List<ModCategory> categories,
+                             int limit, int offset)
             throws IOException, InterruptedException {
 
         // The categories are Modrinth's, and CurseForge files its projects under
@@ -254,7 +253,7 @@ public final class CurseForgeProvider implements ModProvider {
 
         StringBuilder url = new StringBuilder(API + "/mods/search")
                 .append("?gameId=").append(GAME_MINECRAFT)
-                .append("&classId=").append(CLASS_MODS)
+                .append("&classId=").append(kind.curseForgeClassId())
                 .append("&pageSize=").append(Math.max(1, Math.min(limit, 50)))
                 .append("&index=").append(Math.max(0, offset))
                 .append("&sortField=").append((sort == null ? ModSort.RELEVANCE : sort).curseForgeSortField())
@@ -263,10 +262,10 @@ public final class CurseForgeProvider implements ModProvider {
         if (query != null && !query.isBlank()) {
             url.append("&searchFilter=").append(encode(query));
         }
-        if (minecraftVersion != null && !minecraftVersion.isBlank()) {
+        if (kind.isFilteredByVersion() && minecraftVersion != null && !minecraftVersion.isBlank()) {
             url.append("&gameVersion=").append(encode(minecraftVersion));
         }
-        Integer loaderId = searchLoaderTypeId(loader);
+        Integer loaderId = kind.isFilteredByLoader() ? searchLoaderTypeId(loader) : null;
         if (loaderId != null) {
             url.append("&modLoaderType=").append(loaderId);
         }
@@ -361,24 +360,53 @@ public final class CurseForgeProvider implements ModProvider {
     }
 
     @Override
-    public Optional<ModFile> resolveLatest(String projectId, String minecraftVersion, LoaderType loader)
+    public Optional<ModFile> resolveFile(ContentKind kind, String projectId,
+                                         String minecraftVersion, LoaderType loader)
             throws IOException, InterruptedException {
+
+        String version = kind.isFilteredByVersion() ? minecraftVersion : null;
 
         // Every tag this loader can actually run, most specific first. On Quilt
         // that is the Quilt build when the author published one and the Fabric
         // build otherwise - which is the file Quilt Loader will load either way.
-        List<String> platformIds = loader == null ? List.of() : loader.platformIds();
+        List<String> platformIds = kind.isFilteredByLoader() && loader != null
+                ? loader.platformIds() : List.of();
         if (platformIds.isEmpty()) {
-            return resolveLatestFor(projectId, minecraftVersion, null);
+            return resolveLatestFor(projectId, version, null);
         }
         for (String platformId : platformIds) {
             Optional<ModFile> found =
-                    resolveLatestFor(projectId, minecraftVersion, loaderTypeId(platformId));
+                    resolveLatestFor(projectId, version, loaderTypeId(platformId));
             if (found.isPresent()) {
                 return found;
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * One exact file, by its own id.
+     *
+     * <p>What a CurseForge modpack's manifest is written in: a list of project
+     * and file ids, with no versions and no names. Nothing else can answer it -
+     * "the newest file" is not what the pack pinned, and installing that instead
+     * is how a pack that was tested together stops being the pack.
+     */
+    public Optional<ModFile> resolveExact(String projectId, String fileId)
+            throws IOException, InterruptedException {
+        try {
+            Json file = Http.getJson(API + "/mods/" + encode(projectId)
+                    + "/files/" + encode(fileId), headers()).get("data");
+            if (file.get("id").asLong(0) == 0) {
+                return Optional.empty();
+            }
+            return Optional.of(toModFile(projectId, file));
+        } catch (Http.HttpStatusException e) {
+            if (e.statusCode() == 404) {
+                return Optional.empty();
+            }
+            throw e;
+        }
     }
 
     /** One query, against one of CurseForge's numeric loader ids. */
@@ -419,26 +447,30 @@ public final class CurseForgeProvider implements ModProvider {
         if (chosen == null) {
             return Optional.empty();
         }
+        return Optional.of(toModFile(projectId, chosen));
+    }
 
+    /** One of CurseForge's file objects, as the launcher's own record of it. */
+    private static ModFile toModFile(String projectId, Json file) {
         List<String> dependencies = new ArrayList<>();
-        for (Json dependency : chosen.get("dependencies").elements()) {
+        for (Json dependency : file.get("dependencies").elements()) {
             // relationType 3 = required dependency.
             if (dependency.get("relationType").asInt(0) == 3) {
                 dependencies.add(String.valueOf(dependency.get("modId").asLong(0)));
             }
         }
 
-        return Optional.of(new ModFile(
+        return new ModFile(
                 projectId,
                 null,
-                String.valueOf(chosen.get("id").asLong(0)),
-                chosen.get("displayName").asString(""),
-                chosen.get("fileName").asString(""),
-                chosen.get("downloadUrl").asString(null),
-                sha1Of(chosen),
-                chosen.get("fileLength").asLong(-1),
+                String.valueOf(file.get("id").asLong(0)),
+                file.get("displayName").asString(""),
+                file.get("fileName").asString(""),
+                file.get("downloadUrl").asString(null),
+                sha1Of(file),
+                file.get("fileLength").asLong(-1),
                 dependencies,
-                Source.CURSEFORGE));
+                Source.CURSEFORGE);
     }
 
     /** CurseForge reports hashes as a list with algo 1 = SHA-1, 2 = MD5. */

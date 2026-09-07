@@ -230,8 +230,8 @@ public final class MainWindow implements ProfileHost {
     /** Cached so a language switch can re-render the summary without touching disk. */
     private Profile shown;
 
-    /** One browser window per profile, reused so a second click focuses it. */
-    private final java.util.Map<String, ModBrowserWindow> browsers = new java.util.HashMap<>();
+    /** One content window per profile, reused so a second click focuses it. */
+    private final java.util.Map<String, ContentBrowserWindow> browsers = new java.util.HashMap<>();
 
     public MainWindow(LauncherService service, Stage stage) {
         this.service = service;
@@ -886,17 +886,22 @@ public final class MainWindow implements ProfileHost {
         new ReportBugDialog(service.dirs()).show(stage);
     }
 
+    /**
+     * Opens the content window for the selected instance.
+     *
+     * <p>No longer refused on an instance with no mod loader. It used to be, and
+     * that was right while the window was only about mods; it is wrong now that
+     * the same window covers data packs, which vanilla Minecraft loads, and
+     * modpacks, which bring a loader with them. The one section that does need a
+     * loader says so in place of its own results, where the user is looking.
+     */
     private void openModBrowser() {
         Profile profile = selectedProfile;
         if (profile == null) {
             return;
         }
-        if (profile.loader() == LoaderType.VANILLA) {
-            showWarning(I18n.t("mods.vanilla.header"), I18n.t("mods.vanilla"));
-            return;
-        }
         browsers.computeIfAbsent(profile.id(),
-                        id -> new ModBrowserWindow(service, stage, profile, () -> refreshModsList(profile)))
+                        id -> new ContentBrowserWindow(service, stage, profile, () -> refreshModsList(profile)))
                 .show();
     }
 
@@ -1238,7 +1243,7 @@ public final class MainWindow implements ProfileHost {
     }
 
     private void closeBrowser(String profileId) {
-        ModBrowserWindow browser = browsers.remove(profileId);
+        ContentBrowserWindow browser = browsers.remove(profileId);
         if (browser != null) {
             browser.close();
         }

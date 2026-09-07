@@ -84,6 +84,19 @@ public final class LauncherService {
     private final ModInstaller modInstaller;
 
     /**
+     * The two installers that are not the mod installer.
+     *
+     * <p>Separate classes rather than more methods on {@link ModInstaller},
+     * because what they do differs in the parts that matter: a modpack is a
+     * version, a loader and a set of files written across a whole instance, and a
+     * data pack goes into one world's folder and has no dependencies to follow.
+     * Only the search is genuinely shared, and that is where they meet - in
+     * {@link com.hexadron.launcher.mods.ContentKind}.
+     */
+    private final com.hexadron.launcher.mods.ModpackInstaller modpackInstaller;
+    private final com.hexadron.launcher.mods.DatapackInstaller datapackInstaller;
+
+    /**
      * Named stages of start-up, in the order they run.
      *
      * <p>Reported as identifiers rather than sentences: this class has no
@@ -151,6 +164,10 @@ public final class LauncherService {
         step.accept("platforms");
         this.curseForge = CurseForgeProvider.fromEnvironment(settings.curseForgeApiKey());
         this.modInstaller = new ModInstaller(downloader, modrinth, curseForge);
+        this.modpackInstaller =
+                new com.hexadron.launcher.mods.ModpackInstaller(downloader, modrinth, curseForge);
+        this.datapackInstaller =
+                new com.hexadron.launcher.mods.DatapackInstaller(downloader, modrinth, curseForge);
     }
 
     /** Builds a service rooted at the default location. */
@@ -556,8 +573,30 @@ public final class LauncherService {
             ModProvider.Source only, int limitPerProvider, int offset)
             throws IOException, InterruptedException {
 
-        requireModdedLoader(profile);
-        return modInstaller.search(query, profile.minecraftVersion(), profile.loader(),
+        return searchContent(com.hexadron.launcher.mods.ContentKind.MOD, profile, query, sort,
+                categories, only, limitPerProvider, offset);
+    }
+
+    /**
+     * Searches the platforms for one kind of thing.
+     *
+     * <p>The loader is required for the kinds that need one and not for the rest,
+     * which is the whole reason the check is here rather than in every caller: a
+     * data pack is loaded by vanilla Minecraft, and a modpack brings its own
+     * loader with it, so refusing either on a profile with no loader would be
+     * refusing something that works.
+     */
+    public ModProvider.SearchPage searchContent(
+            com.hexadron.launcher.mods.ContentKind kind,
+            Profile profile, String query, com.hexadron.launcher.mods.ModSort sort,
+            java.util.List<com.hexadron.launcher.mods.ModCategory> categories,
+            ModProvider.Source only, int limitPerProvider, int offset)
+            throws IOException, InterruptedException {
+
+        if (kind.needsLoader()) {
+            requireModdedLoader(profile);
+        }
+        return modInstaller.search(kind, query, profile.minecraftVersion(), profile.loader(),
                 sort, categories, limitPerProvider, offset, only);
     }
 
@@ -688,6 +727,188 @@ public final class LauncherService {
             return ModInstaller.PackAvailability.unsupportedLoader();
         }
         return modInstaller.checkPack(pack, profile.minecraftVersion(), profile.loader());
+    }
+
+    // ---------------------------------------------------------------- modpacks
+
+    /**
+     * The pack archive published for a project, ready to download.
+     *
+     * <p>Not filtered by this profile's version or loader: a pack states its own,
+     * and asking for "the build for Fabric 26.2" would come back empty for every
+     * pack that is not exactly that - which is every pack.
+     */
+    public java.util.Optional<com.hexadron.launcher.mods.ModFile> resolveModpack(
+            ModProvider.ProjectCard card) throws IOException, InterruptedException {
+
+        for (ModProvider provider : modProviders()) {
+            if (provider.source() != card.source() || !provider.isAvailable()) {
+                continue;
+            }
+            return provider.resolveFile(com.hexadron.launcher.mods.ContentKind.MODPACK,
+                    card.projectId(), profiles.selected().map(Profile::minecraftVersion).orElse(null),
+                    LoaderType.VANILLA);
+        }
+        throw new IOException(card.source().displayName() + " is not configured");
+    }
+
+    /**
+     * Downloads a pack archive into the cache.
+     *
+     * <p>The cache and not an instance: the archive is the input to an install
+     * rather than part of its result, and a 300 MB zip left in an instance folder
+     * is 300 MB the user cannot account for. It stays in the cache so that
+     * re-installing the same pack does not fetch it twice.
+     */
+    public Path fetchModpack(com.hexadron.launcher.mods.ModFile file, Progress progress)
+            throws IOException, InterruptedException {
+        return modpackInstaller.fetch(file, dirs.cache().resolve("modpacks"), progress);
+    }
+
+    /** Reads a pack file - either format - without installing anything. */
+    public com.hexadron.launcher.mods.PackArchive readModpack(Path archive) throws IOException {
+        return com.hexadron.launcher.mods.PackArchive.read(archive);
+    }
+
+    /**
+     * A new profile shaped by a pack: its name, its Minecraft version, its
+     * loader and the loader version it pins.
+     *
+     * <p>Created and saved before anything is downloaded, so that a pack whose
+     * install fails half-way leaves an instance the user can see, retry into, or
+     * delete - rather than a folder under an id that nothing in the launcher
+     * mentions.
+     */
+    public Profile createProfileForModpack(com.hexadron.launcher.mods.PackArchive pack)
+            throws IOException {
+
+        String name = freeProfileName(pack.instanceName());
+        Profile profile = Profile.create(name, pack.minecraftVersion(), pack.loader());
+        if (pack.loaderVersion() != null && !pack.loaderVersion().isBlank()) {
+            profile.loaderVersion(pack.loaderVersion().trim());
+        }
+        profiles.add(profile);
+        profiles.save();
+        return profile;
+    }
+
+    /**
+     * A name no existing profile has.
+     *
+     * <p>Profile ids are made from the name, and two instances of the same
+     * modpack is an ordinary thing to want - one to play and one to test a mod
+     * in. Without this the second one would be filed under the first one's id and
+     * would replace it in the list while sharing its folder.
+     */
+    private String freeProfileName(String wanted) {
+        String base = wanted == null || wanted.isBlank() ? "Modpack" : wanted.trim();
+        java.util.Set<String> taken = new java.util.HashSet<>();
+        profiles.all().forEach(profile -> taken.add(profile.name().toLowerCase(java.util.Locale.ROOT)));
+        if (!taken.contains(base.toLowerCase(java.util.Locale.ROOT))) {
+            return base;
+        }
+        for (int suffix = 2; suffix < 1000; suffix++) {
+            String candidate = base + " (" + suffix + ")";
+            if (!taken.contains(candidate.toLowerCase(java.util.Locale.ROOT))) {
+                return candidate;
+            }
+        }
+        return base + " (" + System.currentTimeMillis() + ")";
+    }
+
+    /**
+     * Installs a pack into a profile.
+     *
+     * <p>The profile's version and loader are set to the pack's. That is not a
+     * courtesy: a pack's mods are built for one pair, and installing them into an
+     * instance set to another produces a folder of jars that cannot load and a
+     * crash the user has no way to connect to this button.
+     */
+    public com.hexadron.launcher.mods.ModpackInstaller.Result installModpack(
+            Profile profile, com.hexadron.launcher.mods.PackArchive pack,
+            ModProvider.ProjectCard card, Progress progress)
+            throws IOException, InterruptedException {
+
+        profile.minecraftVersion(pack.minecraftVersion());
+        profile.loader(pack.loader());
+        profile.loaderVersion(pack.loaderVersion() == null || pack.loaderVersion().isBlank()
+                ? null : pack.loaderVersion().trim());
+        profiles.save();
+
+        // Nothing is done to the pack's own configuration here, deliberately. A
+        // pack ships its overrides because its author decided what they should
+        // say, and a launcher that edited one of those files after unpacking it
+        // would be changing a set the player asked for by name.
+        return modpackInstaller.install(pack, card, profiles.gameDirectory(profile), progress);
+    }
+
+    /** The modpacks installed in a profile, newest first. */
+    public java.util.List<com.hexadron.launcher.mods.InstalledModpack> modpacksIn(Profile profile) {
+        return com.hexadron.launcher.mods.ModpackLibrary
+                .read(profiles.gameDirectory(profile)).all();
+    }
+
+    /** True when this project is already installed in this profile. */
+    public boolean hasModpack(Profile profile, ModProvider.Source source, String projectId) {
+        return com.hexadron.launcher.mods.ModpackLibrary
+                .read(profiles.gameDirectory(profile)).contains(source, projectId);
+    }
+
+    /** Removes a modpack: exactly the files it wrote, and nothing else. */
+    public int removeModpack(Profile profile, String id, Progress progress) throws IOException {
+        return modpackInstaller.remove(id, profiles.gameDirectory(profile), progress);
+    }
+
+    // ---------------------------------------------------------------- data packs
+
+    /** The worlds in a profile, most recently played first. */
+    public java.util.List<com.hexadron.launcher.mods.WorldSaves.World> worldsIn(Profile profile) {
+        return com.hexadron.launcher.mods.WorldSaves.of(profiles.gameDirectory(profile));
+    }
+
+    /** Everything in one world's data pack folder, whoever put it there. */
+    public java.util.List<com.hexadron.launcher.mods.ModEntry> datapacksIn(
+            com.hexadron.launcher.mods.WorldSaves.World world) {
+        return com.hexadron.launcher.mods.DatapackScan.scan(world.datapacks());
+    }
+
+    /** Installs one data pack into one world. */
+    public com.hexadron.launcher.mods.DatapackInstaller.Result installDatapack(
+            Profile profile, com.hexadron.launcher.mods.WorldSaves.World world,
+            ModProvider.ProjectCard chosen, Progress progress)
+            throws IOException, InterruptedException {
+
+        return datapackInstaller.install(chosen, profile.minecraftVersion(),
+                world.datapacks(), progress);
+    }
+
+    /** Removes one data pack the launcher installed. */
+    public void removeDatapack(com.hexadron.launcher.mods.WorldSaves.World world,
+                               String key, Progress progress) throws IOException {
+        datapackInstaller.remove(key, world.datapacks(), progress);
+    }
+
+    /** Sends a data pack the launcher did not install to the recycle bin. */
+    public void discardExternalDatapack(com.hexadron.launcher.mods.WorldSaves.World world,
+                                        com.hexadron.launcher.mods.ModEntry entry,
+                                        Progress progress) throws IOException {
+        com.hexadron.launcher.mods.DatapackScan.discard(world.datapacks(), entry, progress);
+    }
+
+    /** Turns one data pack on or off by renaming it. */
+    public Path setDatapackEnabled(com.hexadron.launcher.mods.WorldSaves.World world,
+                                   com.hexadron.launcher.mods.ModEntry entry, boolean enabled)
+            throws IOException {
+        return com.hexadron.launcher.mods.DatapackScan.setEnabled(
+                world.datapacks(), entry, enabled);
+    }
+
+    /** Copies data pack zips the player chose into one world's folder. */
+    public com.hexadron.launcher.mods.ModScan.Imported importDatapacks(
+            com.hexadron.launcher.mods.WorldSaves.World world,
+            java.util.List<Path> files, Progress progress) throws IOException {
+        return com.hexadron.launcher.mods.DatapackScan.importPacks(
+                world.datapacks(), files, progress);
     }
 
     private void requireModdedLoader(Profile profile) throws IOException {

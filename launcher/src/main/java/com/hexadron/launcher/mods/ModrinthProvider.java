@@ -45,17 +45,33 @@ public final class ModrinthProvider implements ModProvider {
     }
 
     @Override
-    public SearchPage search(String query, String minecraftVersion, LoaderType loader,
-                             ModSort sort, List<ModCategory> categories, int limit, int offset)
+    public SearchPage search(ContentKind kind, String query, String minecraftVersion,
+                             LoaderType loader, ModSort sort, List<ModCategory> categories,
+                             int limit, int offset)
             throws IOException, InterruptedException {
 
         // Modrinth facets are an array of OR-groups that are ANDed together.
         List<String> facetGroups = new ArrayList<>();
-        facetGroups.add("[\"project_type:mod\"]");
-        if (minecraftVersion != null && !minecraftVersion.isBlank()) {
+
+        // One group, so the two spellings of "data pack" are an OR. See
+        // ContentKind.modrinthTypeFacets for why there are two.
+        List<String> types = new ArrayList<>();
+        for (String type : kind.modrinthTypeFacets()) {
+            types.add("\"project_type:" + type + "\"");
+        }
+        facetGroups.add("[" + String.join(",", types) + "]");
+
+        // The kind's own loader tag, where it has one. For a data pack this is
+        // what separates it from a mod in the half of the catalogue that is still
+        // filed as project_type:mod.
+        String kindLoader = kind.modrinthLoaderTag();
+        if (kindLoader != null) {
+            facetGroups.add("[\"categories:" + kindLoader + "\"]");
+        }
+        if (kind.isFilteredByVersion() && minecraftVersion != null && !minecraftVersion.isBlank()) {
             facetGroups.add("[\"versions:" + minecraftVersion + "\"]");
         }
-        if (loader != null && loader.isModded()) {
+        if (kind.isFilteredByLoader() && loader != null && loader.isModded()) {
             // One group, several tags: a Modrinth facet group is an OR, and for
             // Quilt the honest question is "quilt or fabric", not "quilt".
             List<String> tags = new ArrayList<>();
@@ -91,7 +107,12 @@ public final class ModrinthProvider implements ModProvider {
                     hit.get("author").asString(""),
                     hit.get("downloads").asLong(0),
                     hit.get("icon_url").asString(null),
-                    pageUrl(slug),
+                    // The hit's own project_type where it has one, because that
+                    // is what the website addresses it by, and the kind asked
+                    // for otherwise. They differ for exactly the data packs
+                    // still filed as mods, and a link built from the wrong one
+                    // is a link to a page that is not there.
+                    pageUrl(slug, hit.get("project_type").asString(kind.modrinthPagePath())),
                     categoriesOf(hit.get("categories")),
                     Source.MODRINTH));
         }
@@ -100,16 +121,17 @@ public final class ModrinthProvider implements ModProvider {
     }
 
     @Override
-    public Optional<ModFile> resolveLatest(String projectId, String minecraftVersion, LoaderType loader)
+    public Optional<ModFile> resolveFile(ContentKind kind, String projectId,
+                                         String minecraftVersion, LoaderType loader)
             throws IOException, InterruptedException {
 
         StringBuilder url = new StringBuilder(API)
                 .append("/project/").append(encode(projectId)).append("/version");
         List<String> params = new ArrayList<>();
-        if (minecraftVersion != null && !minecraftVersion.isBlank()) {
+        if (kind.isFilteredByVersion() && minecraftVersion != null && !minecraftVersion.isBlank()) {
             params.add("game_versions=" + encode("[\"" + minecraftVersion + "\"]"));
         }
-        if (loader != null && loader.isModded()) {
+        if (kind.isFilteredByLoader() && loader != null && loader.isModded()) {
             StringBuilder loaders = new StringBuilder("[");
             for (String platformId : loader.platformIds()) {
                 if (loaders.length() > 1) {
@@ -165,7 +187,8 @@ public final class ModrinthProvider implements ModProvider {
             String slug = project.get("slug").asString(projectId);
             return Optional.of(new ProjectCard(Source.MODRINTH,
                     project.get("id").asString(projectId), slug, title,
-                    project.get("icon_url").asString(null), pageUrl(slug),
+                    project.get("icon_url").asString(null),
+                    pageUrl(slug, project.get("project_type").asString("mod")),
                     categoriesOf(project.get("categories"))));
         } catch (Http.HttpStatusException e) {
             if (e.statusCode() == 404) {
@@ -222,16 +245,28 @@ public final class ModrinthProvider implements ModProvider {
     }
 
     /**
-     * The page a user reads about this mod on.
+     * The page a user reads about this project on.
      *
      * <p>Built rather than fetched. Modrinth's search returns no link, the shape
-     * {@code modrinth.com/mod/<slug>} is what the site itself publishes, and one
-     * extra request per row to be told that is not a trade worth making.
+     * {@code modrinth.com/<type>/<slug>} is what the site itself publishes, and
+     * one extra request per row to be told that is not a trade worth making.
+     *
+     * @param projectType the platform's own name for what this is - {@code mod},
+     *                    {@code modpack}, {@code datapack}. It is part of the
+     *                    address rather than decoration, so it is taken from the
+     *                    response that named the project rather than assumed
      */
+    public static String pageUrl(String slug, String projectType) {
+        if (slug == null || slug.isBlank()) {
+            return null;
+        }
+        String type = projectType == null || projectType.isBlank() ? "mod" : projectType;
+        return "https://modrinth.com/" + encode(type) + "/" + encode(slug);
+    }
+
+    /** A mod's page, for the callers that only ever ask about mods. */
     public static String pageUrl(String slug) {
-        return slug == null || slug.isBlank()
-                ? null
-                : "https://modrinth.com/mod/" + encode(slug);
+        return pageUrl(slug, "mod");
     }
 
     /** Resolves one exact version id, used when a pack pins a build. */
@@ -343,7 +378,8 @@ public final class ModrinthProvider implements ModProvider {
             String slug = project.get("slug").asString(id);
             cards.add(new ProjectCard(Source.MODRINTH, id, slug,
                     project.get("title").asString(slug),
-                    project.get("icon_url").asString(null), pageUrl(slug),
+                    project.get("icon_url").asString(null),
+                    pageUrl(slug, project.get("project_type").asString("mod")),
                     categoriesOf(project.get("categories"))));
         }
         return cards;

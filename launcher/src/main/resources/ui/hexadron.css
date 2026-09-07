@@ -705,10 +705,38 @@
     -fx-text-fill: -fx-text-0;
 }
 
-/* ------------------------------------------------------------------ mod browser */
+/* ------------------------------------------------------------------ content window */
 
 .browse-pane {
     -fx-padding: 14 0 0 0;
+}
+
+/* The panel a kind of content occupies, between the sidebar and the footer.
+   No padding of its own: the tab pane inside it draws its own edge, and a
+   second one around it would make the content window's lists start further in
+   than the launcher's. */
+.kind-pane {
+    -fx-padding: 0;
+}
+
+/* The list of kinds down the left. The gap is for the little drawing beside
+   each name - without it the glyph sits against the text and the row reads as
+   one smudge. Taller rows than a mod list's, because there are three of them
+   and they are the window's own navigation rather than its contents. */
+.kind-list .list-cell {
+    -fx-graphic-text-gap: 10;
+    -fx-padding: 9 10 9 10;
+}
+
+.kind-list .list-cell:filled:selected .glyph {
+    -fx-fill: -fx-accent-1;
+}
+
+/* The row that asks which world. Above the tabs rather than inside them,
+   because it applies to both of them: the catalogue installs into that world
+   and the installed list reads it. */
+.world-row {
+    -fx-padding: 12 0 2 0;
 }
 
 .tab-pane .tab-header-background {

@@ -199,6 +199,71 @@ final class Glyphs {
     }
 
     /**
+     * A hexagonal ring: one module.
+     *
+     * <p>The content window's list of kinds needs three shapes that are told
+     * apart at sixteen pixels, and told apart by outline rather than by detail -
+     * anything finer than a stroke is mush at that size. A hexagon, a crate and a
+     * page are three silhouettes with nothing in common, which is the whole
+     * requirement.
+     *
+     * <p>Drawn as a ring: two hexagons wound the same way, with the even-odd rule
+     * punching the smaller one out. Filled, it would be a blob.
+     */
+    static Group module() {
+        SVGPath hexagon = new SVGPath();
+        hexagon.setFillRule(FillRule.EVEN_ODD);
+        hexagon.setContent(
+                "M12 2 L20.7 7 L20.7 17 L12 22 L3.3 17 L3.3 7 Z "
+                        + "M12 6.5 L16.8 9.25 L16.8 14.75 L12 17.5 L7.2 14.75 L7.2 9.25 Z");
+        return sized(hexagon, 16);
+    }
+
+    /**
+     * A crate: a set that travels as one thing.
+     *
+     * <p>Assembled from bars rather than punched out of a rectangle, and wound
+     * one way with {@link FillRule#NON_ZERO}, so the band across the middle joins
+     * the frame instead of cutting a hole in it - which is what even-odd would do
+     * where the two overlap.
+     */
+    static Group crate() {
+        SVGPath crate = new SVGPath();
+        crate.setFillRule(FillRule.NON_ZERO);
+        crate.setContent(
+                // The frame, as four bars.
+                "M3 4.5 H21 V6.7 H3 Z "
+                        + "M3 17.3 H21 V19.5 H3 Z "
+                        + "M3 4.5 H5.2 V19.5 H3 Z "
+                        + "M18.8 4.5 H21 V19.5 H18.8 Z "
+                        // The band, and the latch on it.
+                        + "M3 10.4 H21 V12.6 H3 Z "
+                        + "M10.3 12.6 H13.7 V16 H10.3 Z");
+        return sized(crate, 16);
+    }
+
+    /**
+     * A page with writing on it: data.
+     *
+     * <p>Three lines, the last one short, because that is what makes a rectangle
+     * with bars in it read as a page of text rather than as a list. Wound one way
+     * for the same reason as the crate.
+     */
+    static Group page() {
+        SVGPath page = new SVGPath();
+        page.setFillRule(FillRule.NON_ZERO);
+        page.setContent(
+                "M5 2 H19 V4.1 H5 Z "
+                        + "M5 19.9 H19 V22 H5 Z "
+                        + "M5 2 H7.1 V22 H5 Z "
+                        + "M16.9 2 H19 V22 H16.9 Z "
+                        + "M8.7 6.6 H15.3 V8.4 H8.7 Z "
+                        + "M8.7 11.1 H15.3 V12.9 H8.7 Z "
+                        + "M8.7 15.6 H12.8 V17.4 H8.7 Z");
+        return sized(page, 16);
+    }
+
+    /**
      * Scales a path to a height in pixels and wraps it so layout can measure it.
      *
      * <p>Wrapped in a Group because a scaled node still reports its unscaled
