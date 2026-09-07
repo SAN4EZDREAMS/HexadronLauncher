@@ -470,14 +470,167 @@ public final class ModInstaller {
     }
 
     /**
+     * Installs the mods something outside the mods folder requires.
+     *
+     * <h2>What this is for</h2>
+     *
+     * <p>A data pack taken in its loader flavour names a mod as a required
+     * dependency - the mod that puts the pack in place. That jar has to go into
+     * the instance's mods folder, and it is neither the player's choice nor
+     * another mod's dependency, so it is recorded against the pack that needs it
+     * and removed with that pack. See {@link ModOrigin#DATAPACK}.
+     *
+     * <h2>Why it never throws</h2>
+     *
+     * <p>Whatever needed these is already installed by the time this runs. A
+     * requirement that cannot be resolved is therefore a note on the status line
+     * and a pack that may not load, not a reason to fail an install that has
+     * already written a file - and certainly not a reason to leave the folder
+     * half-written.
+     *
+     * @param projectIds the required projects, as the version listed them
+     * @param owner      the data pack these belong to
+     */
+    public Result installRequirements(ModProvider.Source source, List<String> projectIds,
+                                      String minecraftVersion, LoaderType loader, Path modsDir,
+                                      DatapackOwner owner, Progress progress)
+            throws IOException, InterruptedException {
+
+        ModProvider provider = providers.get(source);
+        if (projectIds.isEmpty() || provider == null || !provider.isAvailable()
+                || loader == null || !loader.isModded()) {
+            return new Result(List.of(), List.of(), List.of());
+        }
+        Files.createDirectories(modsDir);
+        ModLibrary library = ModLibrary.read(modsDir);
+
+        Map<String, ModFile> resolved = new LinkedHashMap<>();
+        Map<String, ModProvider.ProjectCard> cards = new LinkedHashMap<>();
+        List<String> skipped = new ArrayList<>();
+        List<String> manual = new ArrayList<>();
+        Set<String> visited = new LinkedHashSet<>();
+
+        Deque<Pending> queue = new ArrayDeque<>();
+        for (String projectId : projectIds) {
+            queue.add(new Pending(source, projectId, null, projectId, false, 0, owner.label()));
+        }
+
+        while (!queue.isEmpty()) {
+            Pending pending = queue.poll();
+            String key = InstalledMod.keyOf(pending.provider(), pending.projectId());
+            if (!visited.add(key)) {
+                continue;
+            }
+            if (pending.depth() > MAX_DEPENDENCY_DEPTH) {
+                skipped.add(pending.label() + " (dependency chain too deep)");
+                continue;
+            }
+            // Already in the folder, from a pack or from the player's own
+            // choosing. Left exactly as it is, ownership included: a mod the
+            // player installed themselves must not start belonging to a data
+            // pack, or removing the pack would take their mod with it.
+            if (library.contains(key)) {
+                continue;
+            }
+
+            Optional<ModFile> file =
+                    provider.resolveLatest(pending.projectId(), minecraftVersion, loader);
+            if (file.isEmpty()) {
+                skipped.add(pending.label() + " (no build for Minecraft " + minecraftVersion
+                        + " on " + loader.displayName() + ")");
+                continue;
+            }
+            ModFile modFile = file.get();
+            if (!modFile.isDownloadable()) {
+                Optional<ModFile> mirrored = mirrorOnModrinth(modFile);
+                if (mirrored.isEmpty()) {
+                    manual.add(pending.label() + " - " + modFile.fileName()
+                            + " (the author has disabled third-party downloads)");
+                    continue;
+                }
+                modFile = mirrored.get();
+            }
+
+            cards.put(key, cardFor(provider, pending, modFile));
+            resolved.put(key, modFile);
+            progress.log("%s is required by the data pack %s",
+                    cards.get(key).title(), owner.label());
+
+            for (String dependency : modFile.dependencies()) {
+                queue.add(new Pending(pending.provider(), dependency, null,
+                        dependency, false, pending.depth() + 1, pending.label()));
+            }
+        }
+
+        if (!resolved.isEmpty()) {
+            List<DownloadTask> tasks = new ArrayList<>();
+            for (ModFile modFile : resolved.values()) {
+                tasks.add(DownloadTask.of(modFile.url(), modsDir.resolve(modFile.fileName()),
+                        modFile.sha1(), modFile.size(), modFile.fileName()));
+            }
+            progress.stage("Downloading " + tasks.size() + " mod(s) the data pack needs");
+            downloader.run(tasks, progress);
+
+            resolved.forEach((key, modFile) -> library.put(InstalledMod.of(
+                    cardOrFileName(cards, key, modFile), modFile,
+                    ModOrigin.DATAPACK, null, owner)));
+            library.write();
+        }
+
+        for (String note : skipped) {
+            progress.log("Skipped: %s", note);
+        }
+        for (String note : manual) {
+            progress.log("Manual download required: %s", note);
+        }
+        return new Result(List.copyOf(resolved.values()), List.copyOf(skipped), List.copyOf(manual));
+    }
+
+    /**
+     * Removes the mods a data pack brought with it.
+     *
+     * <p>Only the ones recorded against that pack, which is why the record
+     * exists. A jar the player installed themselves is never claimed by a pack -
+     * see {@link #installRequirements} - so it is never taken away by one.
+     *
+     * @return how many were removed
+     */
+    public int removeDatapackMods(String world, String datapackKey, Path modsDir,
+                                  Progress progress) throws IOException {
+        ModLibrary library = ModLibrary.read(modsDir);
+        List<InstalledMod> owned = library.ofDatapack(world, datapackKey);
+        if (owned.isEmpty()) {
+            return 0;
+        }
+        for (InstalledMod mod : owned) {
+            String name = mod.file().fileName();
+            // Both names: the player may have switched the mod off since it was
+            // installed, and a rename is all that is.
+            if (Files.deleteIfExists(modsDir.resolve(name))
+                    || Files.deleteIfExists(modsDir.resolve(name + ModScan.DISABLED_SUFFIX))) {
+                progress.log("Removed %s, which %s needed", name, mod.datapack().label());
+            }
+            library.forget(mod.key());
+        }
+        library.write();
+        return owned.size();
+    }
+
+    /**
      * Removes one mod.
      *
-     * @throws IOException when the entry belongs to a pack, which is removed whole
+     * @throws IOException when the entry belongs to a pack or to a data pack,
+     *                     either of which is removed whole
      */
     public void removeMod(String key, Path modsDir, Progress progress) throws IOException {
         ModLibrary library = ModLibrary.read(modsDir);
         InstalledMod mod = library.get(key).orElseThrow(
                 () -> new IOException("no managed mod with key " + key));
+        if (mod.origin() == ModOrigin.DATAPACK) {
+            throw new IOException(mod.title() + " is needed by the data pack "
+                    + (mod.datapack() == null ? "it was installed for" : mod.datapack().label())
+                    + " and is removed with it, not on its own");
+        }
         if (!mod.origin().isRemovableAlone()) {
             throw new IOException(mod.title() + " belongs to the " + mod.packId()
                     + " pack and is removed with it, not on its own");
@@ -505,7 +658,7 @@ public final class ModInstaller {
      */
     public ModProvider.SearchPage search(ContentKind kind, String query, String minecraftVersion,
                                          LoaderType loader, ModSort sort,
-                                         List<ModCategory> categories, boolean onlyForProfile,
+                                         List<ModCategory> categories, boolean narrowingChosen,
                                          int limitPerProvider, int offset,
                                          ModProvider.Source only)
             throws IOException, InterruptedException {
@@ -525,7 +678,7 @@ public final class ModInstaller {
             }
             try {
                 ModProvider.SearchPage page = provider.search(
-                        kind, query, minecraftVersion, loader, sort, categories, onlyForProfile,
+                        kind, query, minecraftVersion, loader, sort, categories, narrowingChosen,
                         limitPerProvider, offset);
                 results.addAll(page.results());
                 if (page.total() >= 0) {

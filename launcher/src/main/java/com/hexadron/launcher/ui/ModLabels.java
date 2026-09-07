@@ -72,6 +72,11 @@ public final class ModLabels {
         return switch (mod.origin()) {
             case PACK -> I18n.t(fromModpack ? "mods.origin.modpack" : "mods.origin.pack");
             case DEPENDENCY -> I18n.t("mods.origin.dependency");
+            // A jar that came with a data pack, not one the player chose. Which
+            // pack it was is on the panel behind the badge, because that is the
+            // only place the answer is - a data pack is in a world's folder and
+            // this list is the instance's.
+            case DATAPACK -> I18n.t("mods.origin.datapack");
             case MANUAL -> I18n.t("mods.origin.manual");
             case EXTERNAL -> I18n.t("mods.origin.external");
         };

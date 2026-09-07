@@ -253,10 +253,48 @@ final class DatapackSection extends ContentSection {
 
     @Override
     void onProfileChanged() {
-        // Data packs are searched for the profile's Minecraft version, and the
-        // worlds belong to a profile a pack has just rebuilt.
+        // Data packs are searched for the profile's Minecraft version and its
+        // loader, and the worlds belong to a profile a pack has just rebuilt.
+        // The catalogue's texts go first: the "without mods" box names the
+        // profile's pair in its tooltip, and on an instance with no loader it is
+        // the box's own state that changes rather than only its words.
+        catalogue.applyTexts();
         refresh();
         catalogue.search();
+    }
+
+    /**
+     * Goes to one data pack's row, choosing its world on the way.
+     *
+     * <p>How a mod that a data pack brought with it answers "which pack is
+     * this". The world has to be chosen first because a data pack's row does not
+     * exist until its world is the one being shown - which is the same reason
+     * the section has a world picker at all.
+     */
+    void reveal(String world, String key) {
+        if (worlds.isEmpty()) {
+            refresh();
+        }
+        for (WorldSaves.World candidate : worlds) {
+            if (candidate.folder().equals(world)) {
+                // Setting it re-reads that world's folder, so the list below is
+                // the one this pack is in by the time it is searched.
+                worldBox.setValue(candidate);
+                break;
+            }
+        }
+        tabs.getSelectionModel().select(installedTab);
+        List<ModEntry> shown = installedList.getItems();
+        for (int index = 0; index < shown.size(); index++) {
+            if (shown.get(index).key().equals(key)) {
+                installedList.getSelectionModel().clearAndSelect(index);
+                // One row above the target, so it does not land against the top
+                // edge with no context above it.
+                installedList.scrollTo(Math.max(0, index - 1));
+                installedList.requestFocus();
+                return;
+            }
+        }
     }
 
     /** Rebuilds the catalogue's category menu, after fresh drawings arrived. */
@@ -323,18 +361,35 @@ final class DatapackSection extends ContentSection {
             return;
         }
         ModProvider.ProjectCard card = hit.card();
+        // Read on the interface thread, before the install starts: it is the
+        // state of a tick box, and the box is the user's to change while a
+        // download runs.
+        boolean withoutMods = catalogue.narrowingChosen();
         host.mutate(I18n.t("mods.task.install", hit.title()), () -> {
-            DatapackInstaller.Result result =
-                    host.service().installDatapack(host.profile(), world, card, host.progress());
+            DatapackInstaller.Result result = host.service().installDatapack(
+                    host.profile(), world, card, withoutMods, host.progress());
             Platform.runLater(() -> {
                 refresh();
                 catalogue.refreshRows();
-                host.progress().done(I18n.t("datapacks.installed",
-                        result.installed().size(), world.folder()));
+                // The mods are named separately because they went somewhere
+                // else: into this instance's mods folder, not into the world.
+                // A player who asked for a data pack and got a mod is owed the
+                // sentence that says so.
+                host.progress().done(result.mods().isEmpty()
+                        ? I18n.t("datapacks.installed",
+                                result.installed().size(), world.folder())
+                        : I18n.t("datapacks.installed.withMods",
+                                result.installed().size(), world.folder(),
+                                result.mods().size()));
                 if (!result.isClean()) {
                     host.warn(I18n.t("mods.attention.header"),
                             String.join("\n", result.manualDownloads()));
                 }
+                // The mods list is a different section and has just gained a
+                // row. Without this the jar appears only after the window is
+                // reopened, which reads as the launcher having installed
+                // something it did not mention.
+                host.contentChanged();
             });
         });
     }
@@ -366,16 +421,24 @@ final class DatapackSection extends ContentSection {
             return;
         }
         host.mutate(I18n.t("mods.task.remove", pack.title()), () -> {
+            int mods = 0;
             if (pack.isManaged()) {
-                host.service().removeDatapack(world, pack.key(), host.progress());
+                mods = host.service().removeDatapack(
+                        host.profile(), world, pack.key(), host.progress());
             } else {
                 host.service().discardExternalDatapack(world, pack, host.progress());
             }
+            int removedMods = mods;
             Platform.runLater(() -> {
                 refresh();
                 catalogue.refreshRows();
-                host.progress().done(I18n.t(
-                        pack.isManaged() ? "mods.removed" : "mods.discarded", pack.title()));
+                host.progress().done(removedMods > 0
+                        ? I18n.t("datapacks.removed.withMods", pack.title(), removedMods)
+                        : I18n.t(pack.isManaged() ? "mods.removed" : "mods.discarded",
+                                pack.title()));
+                if (removedMods > 0) {
+                    host.contentChanged();
+                }
             });
         });
     }

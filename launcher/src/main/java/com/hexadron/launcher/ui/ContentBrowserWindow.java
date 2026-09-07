@@ -988,6 +988,9 @@ public final class ContentBrowserWindow implements ContentSection.Host {
         /** The modpack the panel was last built for, so an unchanged row is left alone. */
         private String neededPack;
 
+        /** The data pack it was last built for, for the same reason. */
+        private String neededDatapack;
+
         InstalledCell() {
             super(ContentBrowserWindow.this::categories,
                     ContentBrowserWindow.this::highlightedCategories);
@@ -1028,6 +1031,12 @@ public final class ContentBrowserWindow implements ContentSection.Host {
             // downloaded pack from claiming to be Hexadron Optimise.
             com.hexadron.launcher.mods.InstalledModpack owner = modpackOf(mod);
 
+            // And which data pack needed it, for the jars a data pack brought
+            // with it. The same question one folder over: a data pack lives in a
+            // world, so the answer is not in this list and the row has to carry
+            // it.
+            com.hexadron.launcher.mods.DatapackOwner datapack = datapackOf(mod);
+
             badge.setText(ModLabels.badge(mod, owner != null));
             boolean live = mod.enabled() && !mod.isWrongVersion();
             styleClass(badge, "badge-off", !mod.enabled());
@@ -1036,6 +1045,7 @@ public final class ContentBrowserWindow implements ContentSection.Host {
             styleClass(badge, "badge-pack",
                     live && owner == null && mod.origin() == ModOrigin.PACK);
             styleClass(badge, "badge-dependency", live && mod.origin() == ModOrigin.DEPENDENCY);
+            styleClass(badge, "badge-datapack", live && mod.origin() == ModOrigin.DATAPACK);
 
             // What would break if this one went away. Rebuilt only when the
             // answer differs from the row this cell drew last.
@@ -1046,16 +1056,20 @@ public final class ContentBrowserWindow implements ContentSection.Host {
             // that is the difference between a badge that says nothing and a
             // badge that says this one can go. A mod out of a modpack always is:
             // "which pack is this" is the question the badge raises.
+            String datapackKey = datapack == null ? null : datapack.key();
             boolean explains = !needs.isEmpty()
                     || mod.origin() == ModOrigin.DEPENDENCY
-                    || owner != null;
+                    || owner != null
+                    || datapack != null;
             styleClass(badge, "badge-linked", explains);
             if (!needs.equals(neededShows) || explains != neededExplains
-                    || !java.util.Objects.equals(packId, neededPack)) {
+                    || !java.util.Objects.equals(packId, neededPack)
+                    || !java.util.Objects.equals(datapackKey, neededDatapack)) {
                 neededShows = needs;
                 neededExplains = explains;
                 neededPack = packId;
-                fillNeeded(owner, needs, explains);
+                neededDatapack = datapackKey;
+                fillNeeded(owner, datapack, needs, explains);
             }
 
             // One thing at a time under the pointer: a row whose badge already
@@ -1071,10 +1085,13 @@ public final class ContentBrowserWindow implements ContentSection.Host {
             toggle.setOnAction(event -> toggleMod(mod));
 
             remove.setText(I18n.t("mods.remove"));
-            // A pack goes out whole, through its own button in the header.
+            // A pack goes out whole, through its own button in the header; a
+            // data pack's mod goes out with the data pack, which is a button in
+            // another section - so the two locked rows say different things.
             remove.setDisable(!mod.isRemovable() || busy);
-            tooltip(remove, removeTip,
-                    mod.isRemovable() ? null : I18n.t("mods.remove.packLocked"));
+            tooltip(remove, removeTip, mod.isRemovable() ? null
+                    : I18n.t(mod.origin() == ModOrigin.DATAPACK
+                            ? "mods.remove.datapackLocked" : "mods.remove.packLocked"));
             remove.setOnAction(event -> removeMod(mod));
             showRow();
         }
@@ -1091,11 +1108,31 @@ public final class ContentBrowserWindow implements ContentSection.Host {
          * shape: the pack's name, and pressing it goes to the pack.
          */
         private void fillNeeded(com.hexadron.launcher.mods.InstalledModpack owner,
+                                com.hexadron.launcher.mods.DatapackOwner datapack,
                                 java.util.List<ModEntry> needs, boolean explains) {
             needed.content().clear();
             if (!explains) {
                 needed.hide();
                 return;
+            }
+            if (datapack != null) {
+                Label title = new Label(I18n.t("mods.datapack.title"));
+                title.getStyleClass().add("hover-title");
+                needed.content().add(title);
+
+                Hyperlink link = new Hyperlink(datapack.label());
+                link.getStyleClass().add("hover-link");
+                link.setOnAction(event -> {
+                    needed.hide();
+                    jumpToDatapack(datapack);
+                });
+                needed.content().add(link);
+
+                Label hint = new Label(I18n.t("mods.datapack.hint"));
+                hint.setWrapText(true);
+                hint.setMaxWidth(280);
+                hint.getStyleClass().add("muted");
+                needed.content().add(hint);
             }
             if (owner != null) {
                 Label title = new Label(I18n.t("mods.modpack.title"));
@@ -1117,7 +1154,7 @@ public final class ContentBrowserWindow implements ContentSection.Host {
                 needed.content().add(hint);
             }
             if (needs.isEmpty()) {
-                if (owner == null) {
+                if (owner == null && datapack == null) {
                     // Installed as somebody else's requirement, and nothing that
                     // is in the folder now asks for it. Said plainly, because the
                     // badge on its own reads as "something needs this" and the
@@ -1399,6 +1436,24 @@ public final class ContentBrowserWindow implements ContentSection.Host {
         return modpacksById.get(mod.packId());
     }
 
+    /**
+     * Which data pack a mod was installed for, when one was.
+     *
+     * <p>Out of the lock file rather than out of the row, because that is where
+     * it is written: the world and the pack's key are recorded against the mod
+     * at install time precisely so that this question can be answered from the
+     * instance's own folder, with no connection and without reading a lock file
+     * out of every world the instance has.
+     */
+    private com.hexadron.launcher.mods.DatapackOwner datapackOf(ModEntry mod) {
+        if (mod.origin() != ModOrigin.DATAPACK || library == null) {
+            return null;
+        }
+        return library.get(mod.key())
+                .map(com.hexadron.launcher.mods.InstalledMod::datapack)
+                .orElse(null);
+    }
+
     /** What to call a pack in a link. Its own name, or its id when it has none. */
     private static String nameOf(com.hexadron.launcher.mods.InstalledModpack pack) {
         return pack.name() == null || pack.name().isBlank() ? pack.id() : pack.name();
@@ -1415,6 +1470,18 @@ public final class ContentBrowserWindow implements ContentSection.Host {
     private void jumpToModpack(com.hexadron.launcher.mods.InstalledModpack pack) {
         showSection(Section.MODPACKS);
         modpacks.reveal(pack.id());
+    }
+
+    /**
+     * Goes from a mod to the data pack that needed it.
+     *
+     * <p>The same move as {@link #jumpToModpack}, one section over, and it
+     * carries a world as well as a key: a data pack's row does not exist until
+     * its world is the one on screen.
+     */
+    private void jumpToDatapack(com.hexadron.launcher.mods.DatapackOwner owner) {
+        showSection(Section.DATAPACKS);
+        datapacks.reveal(owner.world(), owner.key());
     }
 
     private void jumpToMod(ModEntry target) {

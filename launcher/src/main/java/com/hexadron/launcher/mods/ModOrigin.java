@@ -33,6 +33,23 @@ public enum ModOrigin {
     DEPENDENCY,
 
     /**
+     * Installed because a data pack needs it. Removed with that data pack.
+     *
+     * <p>Not {@link #DEPENDENCY}, although it arrives the same way. A dependency
+     * is required by another mod, which is in the same folder and in the same
+     * list, so "what needs this" is answerable from the list itself and the
+     * player can weigh removing it. This one is required by a zip in one world's
+     * folder that the mods list knows nothing about, and taking it away leaves a
+     * data pack the player installed silently not loading.
+     *
+     * <p>So it follows the {@link #PACK} rule rather than the dependency one: it
+     * goes out when the thing that brought it goes out. The row says which pack,
+     * and pressing that takes the player to it - which is where the button that
+     * removes both of them is.
+     */
+    DATAPACK,
+
+    /**
      * Put there by the user, outside the launcher.
      *
      * <p>Never written to the lock file - the lock file is the record of what
@@ -49,7 +66,7 @@ public enum ModOrigin {
 
     /** True when this entry may be removed by itself. */
     public boolean isRemovableAlone() {
-        return this != PACK;
+        return this != PACK && this != DATAPACK;
     }
 
     public static ModOrigin parse(String value) {

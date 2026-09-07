@@ -42,12 +42,12 @@ public final class ModLibrary {
 
     public static final String LOCK_FILE = ".hexadron-mods.json";
     /**
-     * Version 3 added the project's logo and page to each entry, and version 4
-     * its categories. Both are readable by an older build - the extra fields are
-     * simply ignored - so the number records when they appeared rather than
-     * gating anything.
+     * Version 3 added the project's logo and page to each entry, version 4 its
+     * categories, and version 5 the data pack a mod was installed for. All of
+     * them are readable by an older build - the extra fields are simply ignored -
+     * so the number records when they appeared rather than gating anything.
      */
-    private static final int FORMAT_VERSION = 4;
+    private static final int FORMAT_VERSION = 5;
 
     /** The pack that wrote every version-1 lock file. */
     private static final String LEGACY_PACK_ID = "hexadron-optimise";
@@ -144,6 +144,21 @@ public final class ModLibrary {
 
     public boolean isPackInstalled(String packId) {
         return mods.values().stream().anyMatch(mod -> mod.belongsTo(packId));
+    }
+
+    /**
+     * Entries a data pack brought with it.
+     *
+     * <p>Asked when that pack is removed, so that the jar it needed goes with
+     * it rather than staying behind as a mod nobody can account for.
+     *
+     * @param world the world the pack is in, or null to match on the key alone
+     */
+    public List<InstalledMod> ofDatapack(String world, String key) {
+        List<InstalledMod> owned = new ArrayList<>();
+        mods.values().stream().filter(mod -> mod.belongsToDatapack(world, key))
+                .forEach(owned::add);
+        return List.copyOf(owned);
     }
 
     /** Titles for the profile summary, in a stable order. */

@@ -144,26 +144,32 @@ public interface ModProvider {
      *                       for no restriction. Several narrow rather than widen,
      *                       which is what the platform's own filter does and
      *                       therefore what a player who has used it expects
-     * @param onlyForProfile narrow to the profile's version and loader, for a
-     *                       kind that states its own rather than needing one -
-     *                       see {@link ContentKind#isNarrowableToProfile()}.
-     *                       Ignored for the kinds where the answer is not the
-     *                       user's to give
+     * @param narrowingChosen the user's answer to the one narrowing question
+     *                       this kind offers - see {@link ContentKind#narrowing()}.
+     *                       It means a different thing per kind, and nothing at
+     *                       all for a kind that offers none, which is why it is
+     *                       one answer rather than a flag per platform facet
      * @param limit          page size
      * @param offset         how many matches to skip, for paging
      */
     SearchPage search(ContentKind kind, String query, String minecraftVersion, LoaderType loader,
-                      ModSort sort, List<ModCategory> categories, boolean onlyForProfile,
+                      ModSort sort, List<ModCategory> categories, boolean narrowingChosen,
                       int limit, int offset)
             throws IOException, InterruptedException;
 
-    /** The kind's own narrowing and nothing more, for a caller with no choice to pass. */
+    /**
+     * The kind's own default narrowing, for a caller with no choice to pass.
+     *
+     * <p>The default rather than "no narrowing": each kind's box starts in the
+     * state that answers the question the user is most likely asking, and a
+     * caller that draws no box should search the list the box would have.
+     */
     default SearchPage search(ContentKind kind, String query, String minecraftVersion,
                               LoaderType loader, ModSort sort, List<ModCategory> categories,
                               int limit, int offset)
             throws IOException, InterruptedException {
-        return search(kind, query, minecraftVersion, loader, sort, categories, false,
-                limit, offset);
+        return search(kind, query, minecraftVersion, loader, sort, categories,
+                kind.narrowing().isChosenByDefault(), limit, offset);
     }
 
     /** Mods, for the callers that predate there being anything else. */

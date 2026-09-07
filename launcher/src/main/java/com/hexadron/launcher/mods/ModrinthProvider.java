@@ -47,7 +47,7 @@ public final class ModrinthProvider implements ModProvider {
     @Override
     public SearchPage search(ContentKind kind, String query, String minecraftVersion,
                              LoaderType loader, ModSort sort, List<ModCategory> categories,
-                             boolean onlyForProfile, int limit, int offset)
+                             boolean narrowingChosen, int limit, int offset)
             throws IOException, InterruptedException {
 
         // Modrinth facets are an array of OR-groups that are ANDed together.
@@ -68,11 +68,15 @@ public final class ModrinthProvider implements ModProvider {
         if (kindLoader != null) {
             facetGroups.add("[\"categories:" + kindLoader + "\"]");
         }
-        if (kind.narrowsByVersion(onlyForProfile)
+        if (kind.narrowsByVersion(narrowingChosen)
                 && minecraftVersion != null && !minecraftVersion.isBlank()) {
             facetGroups.add("[\"versions:" + minecraftVersion + "\"]");
         }
-        if (kind.narrowsByLoader(onlyForProfile) && loader != null && loader.isModded()) {
+        // ANDed with the kind's own tag above, which is what makes this mean
+        // "data packs this loader can load" rather than "mods for this loader".
+        // A vanilla instance has no tags to ask for and is therefore offered the
+        // plain packs, which is all it can load.
+        if (kind.narrowsByLoader(narrowingChosen) && loader != null && loader.isModded()) {
             // One group, several tags: a Modrinth facet group is an OR, and for
             // Quilt the honest question is "quilt or fabric", not "quilt".
             List<String> tags = new ArrayList<>();
@@ -132,9 +136,10 @@ public final class ModrinthProvider implements ModProvider {
         if (kind.isFilteredByVersion() && minecraftVersion != null && !minecraftVersion.isBlank()) {
             params.add("game_versions=" + encode("[\"" + minecraftVersion + "\"]"));
         }
-        if (kind.isFilteredByLoader() && loader != null && loader.isModded()) {
+        List<String> loaderTags = fileLoaderTags(kind, loader);
+        if (!loaderTags.isEmpty()) {
             StringBuilder loaders = new StringBuilder("[");
-            for (String platformId : loader.platformIds()) {
+            for (String platformId : loaderTags) {
                 if (loaders.length() > 1) {
                     loaders.append(',');
                 }
@@ -172,6 +177,34 @@ public final class ModrinthProvider implements ModProvider {
             return Optional.empty();
         }
         return Optional.of(toModFile(projectId, chosen));
+    }
+
+    /**
+     * Which loader tags a request for one file should ask the platform for.
+     *
+     * <h2>Why a data pack has any</h2>
+     *
+     * <p>A data pack project publishes its versions twice over: the plain pack,
+     * which vanilla Minecraft loads out of a world folder, and the same pack for
+     * a mod loader, whose version names the mod that puts it in place as a
+     * required dependency. They are two different versions of one project, and
+     * asking for neither returns whichever was uploaded last - so an instance
+     * with Fabric could be handed the plain pack, and a request for "no mods,
+     * please" could be answered with the version that brings one.
+     *
+     * <p>So the tag is always asked for: the loader's own when there is a loader
+     * to load the pack through, and {@code datapack} when there is not - which
+     * is both a vanilla instance and somebody who ticked the box.
+     *
+     * @param loader the loader to ask for, or {@link LoaderType#VANILLA} for the
+     *               plain pack
+     */
+    private static List<String> fileLoaderTags(ContentKind kind, LoaderType loader) {
+        boolean modded = loader != null && loader.isModded();
+        if (kind == ContentKind.DATAPACK) {
+            return modded ? loader.platformIds() : List.of(kind.modrinthLoaderTag());
+        }
+        return kind.isFilteredByLoader() && modded ? loader.platformIds() : List.of();
     }
 
     @Override

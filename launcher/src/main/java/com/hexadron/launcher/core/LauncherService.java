@@ -166,8 +166,8 @@ public final class LauncherService {
         this.modInstaller = new ModInstaller(downloader, modrinth, curseForge);
         this.modpackInstaller =
                 new com.hexadron.launcher.mods.ModpackInstaller(downloader, modrinth, curseForge);
-        this.datapackInstaller =
-                new com.hexadron.launcher.mods.DatapackInstaller(downloader, modrinth, curseForge);
+        this.datapackInstaller = new com.hexadron.launcher.mods.DatapackInstaller(
+                downloader, modInstaller, modrinth, curseForge);
     }
 
     /** Builds a service rooted at the default location. */
@@ -611,7 +611,7 @@ public final class LauncherService {
             com.hexadron.launcher.mods.ContentKind kind,
             Profile profile, String query, com.hexadron.launcher.mods.ModSort sort,
             java.util.List<com.hexadron.launcher.mods.ModCategory> categories,
-            boolean onlyForProfile,
+            boolean narrowingChosen,
             ModProvider.Source only, int limitPerProvider, int offset)
             throws IOException, InterruptedException {
 
@@ -619,7 +619,7 @@ public final class LauncherService {
             requireModdedLoader(profile);
         }
         return modInstaller.search(kind, query, profile.minecraftVersion(), profile.loader(),
-                sort, categories, onlyForProfile, limitPerProvider, offset, only);
+                sort, categories, narrowingChosen, limitPerProvider, offset, only);
     }
 
     /** Installs one mod, with its required dependencies, into a profile. */
@@ -894,20 +894,34 @@ public final class LauncherService {
         return com.hexadron.launcher.mods.DatapackScan.scan(world.datapacks());
     }
 
-    /** Installs one data pack into one world. */
+    /**
+     * Installs one data pack into one world.
+     *
+     * <p>The profile's loader is passed rather than assumed, because a data pack
+     * taken in its loader flavour brings a mod with it and that mod goes into
+     * this profile's mods folder. {@code withoutMods} is the user's answer to
+     * the box that decides which flavour is asked for.
+     */
     public com.hexadron.launcher.mods.DatapackInstaller.Result installDatapack(
             Profile profile, com.hexadron.launcher.mods.WorldSaves.World world,
-            ModProvider.ProjectCard chosen, Progress progress)
+            ModProvider.ProjectCard chosen, boolean withoutMods, Progress progress)
             throws IOException, InterruptedException {
 
-        return datapackInstaller.install(chosen, profile.minecraftVersion(),
-                world.datapacks(), progress);
+        return datapackInstaller.install(chosen, profile.minecraftVersion(), profile.loader(),
+                withoutMods, world.datapacks(), profiles.modsDirectory(profile),
+                world.folder(), progress);
     }
 
-    /** Removes one data pack the launcher installed. */
-    public void removeDatapack(com.hexadron.launcher.mods.WorldSaves.World world,
-                               String key, Progress progress) throws IOException {
-        datapackInstaller.remove(key, world.datapacks(), progress);
+    /**
+     * Removes one data pack the launcher installed, and the mods it needed.
+     *
+     * @return how many mods went with it
+     */
+    public int removeDatapack(Profile profile,
+                              com.hexadron.launcher.mods.WorldSaves.World world,
+                              String key, Progress progress) throws IOException {
+        return datapackInstaller.remove(key, world.datapacks(),
+                profiles.modsDirectory(profile), world.folder(), progress);
     }
 
     /** Sends a data pack the launcher did not install to the recycle bin. */

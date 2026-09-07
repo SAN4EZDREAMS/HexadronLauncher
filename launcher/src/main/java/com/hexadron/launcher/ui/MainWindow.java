@@ -835,6 +835,11 @@ public final class MainWindow implements ProfileHost {
                     live && !fromModpack && mod.origin() == ModOrigin.PACK);
             setBadgeClass(badge, "badge-dependency", live
                     && mod.origin() == ModOrigin.DEPENDENCY);
+            // A jar a data pack brought with it. Named here as well as in the
+            // content window, because this panel is the list most players read
+            // first and a mod nobody chose is exactly the row they ask about.
+            setBadgeClass(badge, "badge-datapack", live
+                    && mod.origin() == ModOrigin.DATAPACK);
             setGraphic(box);
         }
     }

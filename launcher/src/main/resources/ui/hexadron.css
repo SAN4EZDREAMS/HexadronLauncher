@@ -45,6 +45,13 @@
        about the instance, and violet is the one hue left in this palette that
        carries a meaning of its own without claiming to be a warning. */
     -fx-modpack-0: #7a5cc4;
+    /* A data pack. Blue, because it is the fourth thing a badge can mean and
+       the three taken hues already mean "the launcher's own set" (green), "deal
+       with this" (amber, red) and "a modpack" (violet). A mod that came in with
+       a data pack obeys the modpack rule - in whole, out whole - so it is drawn
+       as a sibling of that badge rather than as a variant of it: the same shape
+       and weight, another hue, because it is another owner. */
+    -fx-datapack-0: #2e83b8;
 
     /* Overridden per cell by the view, from the cell's group. Declared here so
        that a cell in no group still resolves it instead of raising a CSS error. */
@@ -908,6 +915,21 @@
 .badge-modpack {
     -fx-background-color: -fx-modpack-0;
     -fx-border-color: derive(-fx-modpack-0, -20%);
+    -fx-text-fill: white;
+}
+
+/*
+ * A mod that came in with a data pack, and a data pack's own row.
+ *
+ * Blue, and filled like the modpack badge, because it says the same kind of
+ * thing: this jar belongs to something else, and the something else is what
+ * removes it. Hovering it names that pack and takes the reader to it, which is
+ * the only place in the launcher where the answer is - the pack is in a world's
+ * folder, and this is the instance's mod list.
+ */
+.badge-datapack {
+    -fx-background-color: -fx-datapack-0;
+    -fx-border-color: derive(-fx-datapack-0, -20%);
     -fx-text-fill: white;
 }
 

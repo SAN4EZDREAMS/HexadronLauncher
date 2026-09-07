@@ -40,17 +40,38 @@ import java.util.Optional;
  * folder in the order the player chooses. There is no graph to walk, and
  * inventing one would mean guessing.
  *
- * <p><b>No loader.</b> A data pack is loaded by vanilla Minecraft. A profile with
- * no mod loader can install one, which is the one thing in this window that works
- * on a plain instance - so nothing here asks about loaders.
+ * <p><b>No loader is needed.</b> A data pack is loaded by vanilla Minecraft, so
+ * a profile with no mod loader can install one - the one thing in this window
+ * that works on a plain instance.
+ *
+ * <p>A loader can still be <em>used</em>, and that is the part that is easy to
+ * get wrong. Modrinth publishes much of its data pack catalogue twice: the plain
+ * pack, and the same pack for a mod loader, whose version names as a required
+ * dependency the mod that puts the pack in place. Which of the two is installed
+ * is the user's answer to "without mods", and it decides both the file that is
+ * downloaded and whether anything goes into {@code mods/} at all - see
+ * {@link ContentKind.Narrowing#WITHOUT_MODS}.
  */
 public final class DatapackInstaller {
 
     private final Map<ModProvider.Source, ModProvider> providers = new LinkedHashMap<>();
     private final Downloader downloader;
 
-    public DatapackInstaller(Downloader downloader, ModProvider... providers) {
+    /**
+     * Where the mods a pack needs are installed.
+     *
+     * <p>Not this class's own job: a jar in {@code mods/} is recorded in the
+     * instance's lock file, resolved against the instance's loader and may pull
+     * dependencies of its own, and all of that is {@link ModInstaller}. This one
+     * hands over the project ids the pack's version named and the pack they
+     * belong to.
+     */
+    private final ModInstaller mods;
+
+    public DatapackInstaller(Downloader downloader, ModInstaller mods,
+                             ModProvider... providers) {
         this.downloader = downloader;
+        this.mods = mods;
         for (ModProvider provider : providers) {
             this.providers.put(provider.source(), provider);
         }
@@ -59,14 +80,26 @@ public final class DatapackInstaller {
     /**
      * What came of an install.
      *
-     * @param manualDownloads the one refusal worth a sentence: an author who has
-     *                        turned off third-party downloads on CurseForge
+     * @param installed       the pack files that went into the world
+     * @param mods            the jars the pack needed, which went into the
+     *                        instance's mods folder rather than into the world
+     * @param manualDownloads what could not be fetched and is worth a sentence:
+     *                        an author who has turned off third-party downloads
+     *                        on CurseForge, or a required mod with no build for
+     *                        this instance
      */
-    public record Result(List<ModFile> installed, List<String> manualDownloads) {
+    public record Result(List<ModFile> installed, List<ModFile> mods,
+                         List<String> manualDownloads) {
 
         public Result {
             installed = List.copyOf(installed);
+            mods = List.copyOf(mods);
             manualDownloads = List.copyOf(manualDownloads);
+        }
+
+        /** A pack that needed nothing else. */
+        public Result(List<ModFile> installed, List<String> manualDownloads) {
+            this(installed, List.of(), manualDownloads);
         }
 
         public boolean isClean() {
@@ -75,15 +108,27 @@ public final class DatapackInstaller {
     }
 
     /**
-     * Installs one data pack into one world.
+     * Installs one data pack into one world, and whatever it needs to be loaded.
      *
      * @param minecraftVersion the instance's version, used to pick the build -
      *                         a data pack does declare which versions it is for
+     * @param loader           the instance's loader, used to pick which flavour
+     *                         of the pack to take when {@code withoutMods} is
+     *                         false
+     * @param withoutMods      the user's answer to "without mods": true takes
+     *                         the plain pack and touches nothing outside the
+     *                         world, false takes the flavour this loader loads
+     *                         and installs the mod that version requires
      * @param datapacksDir     that world's {@code datapacks} folder, created if
      *                         it is not there yet
+     * @param modsDir          the instance's mods folder, for the pack's own
+     *                         requirements
+     * @param world            which world this is, recorded against those mods
+     *                         so that removing the pack can find them again
      */
     public Result install(ModProvider.ProjectCard chosen, String minecraftVersion,
-                          Path datapacksDir, Progress progress)
+                          LoaderType loader, boolean withoutMods,
+                          Path datapacksDir, Path modsDir, String world, Progress progress)
             throws IOException, InterruptedException {
 
         ModProvider provider = providers.get(chosen.source());
@@ -91,10 +136,20 @@ public final class DatapackInstaller {
             throw new IOException(chosen.source().displayName() + " is not configured");
         }
 
+        // Vanilla stands for "as a plain data pack" here rather than for an
+        // instance with no loader: it is what the request asks the platform for
+        // when the answer to "without mods" is yes, whatever the instance runs.
+        LoaderType wanted = withoutMods || loader == null || !loader.isModded()
+                ? LoaderType.VANILLA : loader;
+
         Optional<ModFile> found = provider.resolveFile(
-                ContentKind.DATAPACK, chosen.projectId(), minecraftVersion, LoaderType.VANILLA);
+                ContentKind.DATAPACK, chosen.projectId(), minecraftVersion, wanted);
         if (found.isEmpty()) {
-            throw new IOException(chosen.title() + ": no build for Minecraft " + minecraftVersion);
+            throw new IOException(chosen.title() + ": no build for Minecraft " + minecraftVersion
+                    + (wanted.isModded()
+                            ? " on " + wanted.displayName()
+                                    + " - try it without mods instead"
+                            : " as a plain data pack"));
         }
 
         ModFile file = found.get();
@@ -121,7 +176,25 @@ public final class DatapackInstaller {
         library.put(InstalledMod.of(chosen, file, ModOrigin.MANUAL, null));
         library.write();
 
-        return new Result(List.of(file), manual);
+        // The pack is in the world before anything is asked about mods. If the
+        // mod cannot be fetched the player has a pack that will not load and a
+        // line saying why, which is recoverable; the other order would leave a
+        // jar in the folder for a pack that is not there.
+        List<ModFile> needed = List.of();
+        if (!withoutMods && wanted.isModded() && !file.dependencies().isEmpty()
+                && mods != null && modsDir != null) {
+
+            DatapackOwner owner = new DatapackOwner(world,
+                    InstalledMod.keyOf(chosen.source(), chosen.projectId()), chosen.title());
+            ModInstaller.Result result = mods.installRequirements(chosen.source(),
+                    file.dependencies(), minecraftVersion, wanted, modsDir, owner, progress);
+            needed = result.installed();
+            manual = new ArrayList<>(manual);
+            manual.addAll(result.manualDownloads());
+            manual.addAll(result.skipped());
+        }
+
+        return new Result(List.of(file), needed, manual);
     }
 
     /**
@@ -131,7 +204,9 @@ public final class DatapackInstaller {
      * where it came from and it can be installed again - the same distinction
      * {@link ModScan#discard} draws for the packs the launcher did not download.
      */
-    public void remove(String key, Path datapacksDir, Progress progress) throws IOException {
+    public int remove(String key, Path datapacksDir, Path modsDir, String world,
+                      Progress progress) throws IOException {
+
         ModLibrary library = DatapackScan.libraryOf(datapacksDir);
         InstalledMod pack = library.get(key).orElseThrow(
                 () -> new IOException("no data pack recorded under " + key));
@@ -142,6 +217,12 @@ public final class DatapackInstaller {
         }
         library.forget(key);
         library.write();
+
+        // And the jar it needed, which is in the instance's folder rather than
+        // in the world's. Left behind it would be a mod nobody can account for:
+        // the pack that explains it is gone, and its row would have said so.
+        return mods == null || modsDir == null
+                ? 0 : mods.removeDatapackMods(world, key, modsDir, progress);
     }
 
     private Optional<ModFile> mirrorOnModrinth(ModFile file) throws InterruptedException {

@@ -35,8 +35,9 @@ import java.util.Locale;
  * instance's Minecraft version and loader, and that filter is the whole reason to
  * browse from inside a launcher. A modpack is the opposite: it <em>states</em> a
  * version and a loader, so narrowing the catalogue by the instance's own would
- * hide every pack the player might want to install next. A data pack has a
- * version and no loader - vanilla Minecraft loads it.
+ * hide every pack the player might want to install next. A data pack is narrowed
+ * by version always, and by loader by default - see {@link Narrowing} for why a
+ * thing vanilla Minecraft loads has anything to do with a loader at all.
  *
  * <p><b>Where it goes.</b> Mods go in one folder per instance. Data packs go in
  * one folder per <em>world</em>, which is why that section asks which world
@@ -54,7 +55,7 @@ public enum ContentKind {
      * <p>Modrinth files these under {@code project_type:mod}; CurseForge's class
      * 6 is its "Mods" section.
      */
-    MOD("mod", 6, "mods.kind.mod", "mod", true, true, false, List.of(".jar")),
+    MOD("mod", 6, "mods.kind.mod", "mod", true, true, Narrowing.NONE, List.of(".jar")),
 
     /**
      * A modpack: a version, a loader and a list of files, in one archive.
@@ -62,18 +63,110 @@ public enum ContentKind {
      * <p>Not filtered by the instance's version or loader, because a pack names
      * its own and the point of the list is to find one to install.
      */
-    MODPACK("modpack", 4471, "mods.kind.modpack", "modpack", false, false, true,
-            List.of(".mrpack", ".zip")),
+    MODPACK("modpack", 4471, "mods.kind.modpack", "modpack", false, false,
+            Narrowing.ONLY_FOR_PROFILE, List.of(".mrpack", ".zip")),
 
     /**
      * A data pack: a zip in one world's {@code datapacks/} folder.
      *
-     * <p>Filtered by Minecraft version - a data pack declares which ones it is
-     * written for and the game refuses the wrong pack format - and not by loader,
-     * because vanilla Minecraft is what loads it.
+     * <p>Filtered by Minecraft version always - a data pack declares which ones
+     * it is written for and the game refuses the wrong pack format.
+     *
+     * <p>And by loader by default, which needs saying because vanilla Minecraft
+     * is what loads a data pack. Half the catalogue is published twice over: the
+     * plain pack, and the same pack as a mod loader loads it, which arrives with
+     * a mod that puts it in place. Modrinth's own download asks which of the two
+     * you want, and "just the data pack, no mods" is one of the answers. So the
+     * catalogue is narrowed to the flavour this instance can actually load, and
+     * {@link Narrowing#WITHOUT_MODS} is the box that asks for the other one.
      */
-    DATAPACK("datapack", 6945, "mods.kind.datapack", "datapack", true, false, false,
-            List.of(".zip"));
+    DATAPACK("datapack", 6945, "mods.kind.datapack", "datapack", true, false,
+            Narrowing.WITHOUT_MODS, List.of(".zip"));
+
+    /**
+     * The one narrowing question a kind puts to the user, if it has one.
+     *
+     * <h2>Why one question and not two flags</h2>
+     *
+     * <p>Every kind has exactly one thing worth asking about, and it is a
+     * different thing per kind - so it is one answer travelling through the
+     * search, read by whichever kind asked. A second boolean beside it would be
+     * a parameter that is meaningless for two kinds out of three, and every
+     * layer between the tick box and the request would have to carry both.
+     *
+     * <p>Each value also owns its own words and its own default, because those
+     * are part of the question rather than of the panel that draws it.
+     */
+    public enum Narrowing {
+
+        /** Nothing to ask. A mod is narrowed to the instance, always. */
+        NONE(null, null, false),
+
+        /**
+         * "Show only modpacks that fit this profile", ticked to begin with.
+         *
+         * <p>A pack states its own version and loader, so the unnarrowed
+         * catalogue is thousands of packs almost none of which can be installed
+         * without replacing what the instance is.
+         */
+        ONLY_FOR_PROFILE("mods.onlyForProfile", "mods.onlyForProfile.tip", true),
+
+        /**
+         * "Show data packs without mods", unticked to begin with.
+         *
+         * <p>The inverse shape of the one above, and deliberately so: the
+         * default is the narrower list, and the box widens it. Unticked, the
+         * catalogue is the packs this instance's loader can load - which is the
+         * flavour that may bring a mod with it. Ticked, the loader stops
+         * mattering and only the Minecraft version does, so what is listed is
+         * data packs and nothing else.
+         */
+        WITHOUT_MODS("datapacks.withoutMods", "datapacks.withoutMods.tip", false);
+
+        private final String key;
+        private final String tipKey;
+        private final boolean chosenByDefault;
+
+        Narrowing(String key, String tipKey, boolean chosenByDefault) {
+            this.key = key;
+            this.tipKey = tipKey;
+            this.chosenByDefault = chosenByDefault;
+        }
+
+        /** True when there is a box to draw. */
+        public boolean isOffered() {
+            return this != NONE;
+        }
+
+        /** The translation key for the box's label. Null for {@link #NONE}. */
+        public String key() {
+            return key;
+        }
+
+        /** The translation key for the sentence that says what it does. */
+        public String tipKey() {
+            return tipKey;
+        }
+
+        /** How the box starts out. */
+        public boolean isChosenByDefault() {
+            return chosenByDefault;
+        }
+
+        /**
+         * What an empty answer says.
+         *
+         * <p>It has to name the box whenever the box is what emptied the list,
+         * or "nothing matches" reads as "no such thing exists for your version".
+         */
+        public String emptyKey(boolean chosen) {
+            return switch (this) {
+                case NONE -> "mods.noResults";
+                case ONLY_FOR_PROFILE -> chosen ? "mods.noResults.forProfile" : "mods.noResults";
+                case WITHOUT_MODS -> chosen ? "mods.noResults" : "datapacks.noResults.forProfile";
+            };
+        }
+    }
 
     private final String modrinthProjectType;
     private final int curseForgeClassId;
@@ -81,19 +174,19 @@ public enum ContentKind {
     private final String modrinthPagePath;
     private final boolean filteredByVersion;
     private final boolean filteredByLoader;
-    private final boolean narrowableToProfile;
+    private final Narrowing narrowing;
     private final List<String> extensions;
 
     ContentKind(String modrinthProjectType, int curseForgeClassId, String key,
                 String modrinthPagePath, boolean filteredByVersion, boolean filteredByLoader,
-                boolean narrowableToProfile, List<String> extensions) {
+                Narrowing narrowing, List<String> extensions) {
         this.modrinthProjectType = modrinthProjectType;
         this.curseForgeClassId = curseForgeClassId;
         this.key = key;
         this.modrinthPagePath = modrinthPagePath;
         this.filteredByVersion = filteredByVersion;
         this.filteredByLoader = filteredByLoader;
-        this.narrowableToProfile = narrowableToProfile;
+        this.narrowing = narrowing;
         this.extensions = List.copyOf(extensions);
     }
 
@@ -172,43 +265,58 @@ public enum ContentKind {
         return filteredByLoader;
     }
 
+    /** The one narrowing question this kind offers, or {@link Narrowing#NONE}. */
+    public Narrowing narrowing() {
+        return narrowing;
+    }
+
     /**
      * True when a search of this kind can be narrowed to the profile's own
      * Minecraft version and loader <em>on request</em>.
      *
-     * <h2>Why this is a third flag and not the other two</h2>
+     * <h2>Why the question is per kind</h2>
      *
      * <p>A mod is always narrowed: a build for another version is not worth
-     * listing. A data pack is always narrowed by version and never by loader,
-     * because vanilla Minecraft loads it and the platform files it under no
-     * loader at all - asking for "data packs for Fabric" returns nothing, so
-     * that narrowing must not be offered even as a choice.
+     * listing, so there is nothing to ask.
      *
-     * <p>A modpack is the one kind where both are a real question with two
-     * honest answers. A pack <em>states</em> a version and a loader, so the
-     * catalogue is worth browsing unnarrowed - that is how a player finds the
-     * pack they will switch to next - and it is also worth narrowing, because
-     * somebody who wants a pack for the profile they already have does not want
-     * to read about six hundred packs that would replace its version. So the
-     * choice is the user's, and this says which kinds may offer it.
+     * <p>A modpack is the one kind where narrowing to the instance is a real
+     * question with two honest answers. A pack <em>states</em> a version and a
+     * loader, so the catalogue is worth browsing unnarrowed - that is how a
+     * player finds the pack they will switch to next - and it is also worth
+     * narrowing, because somebody who wants a pack for the profile they already
+     * have does not want to read about six hundred packs that would replace its
+     * version.
+     *
+     * <p>A data pack's question is not this one and is the other way round -
+     * see {@link Narrowing#WITHOUT_MODS} - which is why this stays a question
+     * about modpacks rather than becoming a flag three kinds share.
      */
     public boolean isNarrowableToProfile() {
-        return narrowableToProfile;
+        return narrowing == Narrowing.ONLY_FOR_PROFILE;
     }
 
     /**
      * Whether a search should be narrowed to the profile's Minecraft version.
      *
-     * @param onlyForProfile what the user asked for, where they were offered the
-     *                       choice. Ignored for a kind that does not offer it
+     * @param chosen the user's answer to {@link #narrowing()}, where they were
+     *               offered it. Ignored for a kind that offers nothing
      */
-    public boolean narrowsByVersion(boolean onlyForProfile) {
-        return filteredByVersion || (onlyForProfile && narrowableToProfile);
+    public boolean narrowsByVersion(boolean chosen) {
+        return filteredByVersion || (narrowing == Narrowing.ONLY_FOR_PROFILE && chosen);
     }
 
-    /** The same question for the loader. See {@link #narrowsByVersion}. */
-    public boolean narrowsByLoader(boolean onlyForProfile) {
-        return filteredByLoader || (onlyForProfile && narrowableToProfile);
+    /**
+     * The same question for the loader.
+     *
+     * <p>Note the third clause, which is the data pack one and reads backwards
+     * on purpose: {@link Narrowing#WITHOUT_MODS} unticked is the narrowed list.
+     * The loader still only reaches a request when the instance has one - a
+     * vanilla instance is offered plain data packs, which is all it can load.
+     */
+    public boolean narrowsByLoader(boolean chosen) {
+        return filteredByLoader
+                || (narrowing == Narrowing.ONLY_FOR_PROFILE && chosen)
+                || (narrowing == Narrowing.WITHOUT_MODS && !chosen);
     }
 
     /** True when this kind cannot be installed without a mod loader. */

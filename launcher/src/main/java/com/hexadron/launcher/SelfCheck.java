@@ -1951,6 +1951,27 @@ public final class SelfCheck {
                     reference.containsKey(key));
         }
 
+        // The same three for a jar a data pack brought with it, plus the
+        // sentence on its Remove button - which is locked, and locked for a
+        // different reason than a modpack's mod, so it cannot borrow that one.
+        for (String key : new String[]{"mods.origin.datapack", "mods.datapack.title",
+                "mods.datapack.hint", "mods.remove.datapackLocked"}) {
+            check("a mod from a data pack can say which one: " + key,
+                    reference.containsKey(key));
+        }
+
+        // The box that decides whether a data pack arrives with a mod, the
+        // sentence that says what it does, the one for an instance that has no
+        // loader to argue about, the placeholder for when it leaves nothing, and
+        // the two messages for an install and a removal that moved a jar as well
+        // as a pack.
+        for (String key : new String[]{"datapacks.withoutMods", "datapacks.withoutMods.tip",
+                "datapacks.withoutMods.vanilla", "datapacks.noResults.forProfile",
+                "datapacks.installed.withMods", "datapacks.removed.withMods"}) {
+            check("the data pack catalogue has its words: " + key,
+                    reference.containsKey(key));
+        }
+
         // Every category the filter offers needs a name in the reference
         // bundle, including the six that only modpacks are filed under. A
         // missing one is a tick box labelled !mods.category.quests!.
@@ -2208,6 +2229,14 @@ public final class SelfCheck {
         check("a pack mod cannot be removed alone", !ModOrigin.PACK.isRemovableAlone());
         check("a chosen mod can", ModOrigin.MANUAL.isRemovableAlone());
         check("a dependency can", ModOrigin.DEPENDENCY.isRemovableAlone());
+        // A jar a data pack brought with it follows the pack rule rather than
+        // the dependency one: what needs it is a zip in a world folder that this
+        // list knows nothing about, so removing it on its own leaves a data pack
+        // the player installed silently not loading.
+        check("a data pack's mod cannot be removed alone",
+                !ModOrigin.DATAPACK.isRemovableAlone());
+        check("a data pack origin survives a read",
+                ModOrigin.parse("DATAPACK") == ModOrigin.DATAPACK);
         check("an unknown origin reads as the user's",
                 ModOrigin.parse("something-else") == ModOrigin.MANUAL);
         check("a null origin reads as the user's", ModOrigin.parse(null) == ModOrigin.MANUAL);
@@ -3478,6 +3507,8 @@ public final class SelfCheck {
     private static void modCategories() {
         section("Mod categories");
 
+        categoryArtCache();
+
         check("a category is recognised by its identifier",
                 ModCategory.byId("worldgen").orElseThrow() == ModCategory.WORLDGEN);
         check("a hyphenated identifier is recognised",
@@ -3645,6 +3676,104 @@ public final class SelfCheck {
             }
         }
         check("no malformed markup throws", survived == rubbish.length);
+    }
+
+    /**
+     * The kept category drawings, and the one question the cache did not ask.
+     *
+     * <p>The drawings are fetched once and kept for a month, which is right -
+     * the platform's category list changes about as often as this launcher's
+     * does. What was wrong is what "kept" meant: the file held the pictures and
+     * a timestamp, and the launcher asked it two questions - is it empty, and is
+     * it old. Neither is true of a file written last week, so the six
+     * modpack-only categories added to {@link ModCategory} after it was written
+     * had a name in the filter, a blank where the picture goes, and no way of
+     * ever getting one until the month ran out.
+     *
+     * <p>So the file now records which categories were <em>asked</em> about, and
+     * a category this launcher offers that was never asked about makes the set
+     * stale on its own. Asked rather than answered, because a category the
+     * platform publishes no drawing for would otherwise be re-asked on every
+     * opening of the browser for ever.
+     */
+    private static void categoryArtCache() {
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-category-art");
+
+            check("nothing kept yet is stale",
+                    com.hexadron.launcher.mods.CategoryArt.read(dir).isStale());
+            check("and empty", com.hexadron.launcher.mods.CategoryArt.read(dir).isEmpty());
+
+            // A file written when the enum was shorter: every drawing it holds
+            // is fresh, and it is still missing the ones nobody has asked for.
+            StringBuilder icons = new StringBuilder();
+            for (ModCategory category : ModCategory.forKind(ContentKind.MOD)) {
+                if (icons.length() > 0) {
+                    icons.append(',');
+                }
+                icons.append('"').append(category.id()).append("\":\"<svg/>\"");
+            }
+            java.nio.file.Files.writeString(
+                    dir.resolve(com.hexadron.launcher.mods.CategoryArt.FILE),
+                    "{\"version\":1,\"fetched\":" + System.currentTimeMillis()
+                            + ",\"icons\":{" + icons + "}}");
+
+            com.hexadron.launcher.mods.CategoryArt older =
+                    com.hexadron.launcher.mods.CategoryArt.read(dir);
+            check("a kept set written this minute is still read", !older.isEmpty());
+            check("a category with a drawing has one",
+                    older.of(ModCategory.MAGIC).isPresent());
+            // The whole point. Modpack-only categories are the ones that were
+            // added last, so they are the ones this file cannot have.
+            check("a category added since is missing its drawing",
+                    older.of(ModCategory.KITCHEN_SINK).isEmpty());
+            check("and the set says so", older.isIncomplete());
+            check("a set missing a category this launcher offers is stale",
+                    older.isStale());
+
+            // The same file with every category recorded as asked about. Nothing
+            // is missing that was ever asked for, so it is not stale - which is
+            // what stops the launcher fetching twenty-five pictures on every
+            // opening of the browser.
+            StringBuilder asked = new StringBuilder();
+            for (ModCategory category : ModCategory.values()) {
+                if (asked.length() > 0) {
+                    asked.append(',');
+                }
+                asked.append('"').append(category.id()).append('"');
+            }
+            java.nio.file.Files.writeString(
+                    dir.resolve(com.hexadron.launcher.mods.CategoryArt.FILE),
+                    "{\"version\":2,\"fetched\":" + System.currentTimeMillis()
+                            + ",\"asked\":[" + asked + "],\"icons\":{" + icons + "}}");
+
+            com.hexadron.launcher.mods.CategoryArt complete =
+                    com.hexadron.launcher.mods.CategoryArt.read(dir);
+            check("a set that asked about everything is not stale",
+                    !complete.isStale());
+            // Still incomplete, and that is a different fact: those categories
+            // have been asked about, and the platform published nothing for
+            // them. A category with no picture is a category with a name.
+            check("even though the platform answered for only some",
+                    complete.isIncomplete());
+
+            java.nio.file.Files.writeString(
+                    dir.resolve(com.hexadron.launcher.mods.CategoryArt.FILE),
+                    "{\"version\":2,\"fetched\":0,\"asked\":[" + asked
+                            + "],\"icons\":{" + icons + "}}");
+            check("and a set from long enough ago is stale whatever it holds",
+                    com.hexadron.launcher.mods.CategoryArt.read(dir).isStale());
+
+            java.nio.file.Files.writeString(
+                    dir.resolve(com.hexadron.launcher.mods.CategoryArt.FILE), "not json");
+            check("an unreadable file is an empty set rather than a failure",
+                    com.hexadron.launcher.mods.CategoryArt.read(dir).isEmpty());
+        } catch (IOException e) {
+            check("category art checks ran (" + e.getMessage() + ")", false);
+        } finally {
+            deleteRecursively(dir);
+        }
     }
 
     /**
@@ -4460,7 +4589,12 @@ public final class SelfCheck {
                         && !ContentKind.MODPACK.isFilteredByLoader());
         check("a data pack search is narrowed by version",
                 ContentKind.DATAPACK.isFilteredByVersion());
-        check("and not by loader, because vanilla loads it",
+        // Not unconditionally, which is the distinction: a data pack is loaded
+        // by vanilla Minecraft, so it must be installable with no loader at all.
+        // The loader still narrows the catalogue by default, because half of it
+        // is published a second time as "the pack plus the mod that loads it" -
+        // and that is a choice rather than a requirement.
+        check("and not by loader unconditionally, because vanilla loads it",
                 !ContentKind.DATAPACK.isFilteredByLoader());
         check("only mods need a loader to install",
                 ContentKind.MOD.needsLoader()
@@ -4485,11 +4619,45 @@ public final class SelfCheck {
                 ContentKind.MOD.narrowsByVersion(false) && ContentKind.MOD.narrowsByLoader(false)
                         && ContentKind.MOD.narrowsByVersion(true)
                         && ContentKind.MOD.narrowsByLoader(true));
-        check("a data pack is narrowed by version either way, and never by loader",
+        check("a data pack is narrowed by version either way",
                 ContentKind.DATAPACK.narrowsByVersion(false)
-                        && ContentKind.DATAPACK.narrowsByVersion(true)
-                        && !ContentKind.DATAPACK.narrowsByLoader(false)
+                        && ContentKind.DATAPACK.narrowsByVersion(true));
+        // Backwards on purpose, and this is the check that says so out loud.
+        // The box reads "without mods": unticked - the default - the catalogue
+        // is the flavour this instance's loader can load, and ticked the loader
+        // stops mattering. Getting this the wrong way round offers a player with
+        // Fabric a list of packs their instance cannot load, and calls it the
+        // narrow one.
+        check("a data pack is narrowed by loader until the box is ticked",
+                ContentKind.DATAPACK.narrowsByLoader(false)
                         && !ContentKind.DATAPACK.narrowsByLoader(true));
+
+        // Each kind's one question, its words and where it starts.
+        check("only a data pack asks about mods",
+                ContentKind.DATAPACK.narrowing() == ContentKind.Narrowing.WITHOUT_MODS
+                        && ContentKind.MODPACK.narrowing()
+                                == ContentKind.Narrowing.ONLY_FOR_PROFILE
+                        && ContentKind.MOD.narrowing() == ContentKind.Narrowing.NONE);
+        check("a mod has no box to draw", !ContentKind.MOD.narrowing().isOffered());
+        check("the other two have one",
+                ContentKind.MODPACK.narrowing().isOffered()
+                        && ContentKind.DATAPACK.narrowing().isOffered());
+        check("a modpack's box starts ticked and a data pack's does not",
+                ContentKind.MODPACK.narrowing().isChosenByDefault()
+                        && !ContentKind.DATAPACK.narrowing().isChosenByDefault());
+        // An empty answer has to name the box that emptied it, or it reads as
+        // "no such thing exists for your version".
+        check("an empty narrowed list names the box: modpacks",
+                "mods.noResults.forProfile".equals(
+                        ContentKind.Narrowing.ONLY_FOR_PROFILE.emptyKey(true)));
+        check("an empty narrowed list names the box: data packs",
+                "datapacks.noResults.forProfile".equals(
+                        ContentKind.Narrowing.WITHOUT_MODS.emptyKey(false)));
+        check("and an unnarrowed empty list does not",
+                "mods.noResults".equals(ContentKind.Narrowing.WITHOUT_MODS.emptyKey(true))
+                        && "mods.noResults".equals(
+                                ContentKind.Narrowing.ONLY_FOR_PROFILE.emptyKey(false))
+                        && "mods.noResults".equals(ContentKind.Narrowing.NONE.emptyKey(true)));
 
         // Every kind has a category filter now, and each is offered its own
         // list. It was mods alone while ModCategory held Modrinth's mod
