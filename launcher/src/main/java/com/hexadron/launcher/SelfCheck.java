@@ -1960,13 +1960,12 @@ public final class SelfCheck {
                     reference.containsKey(key));
         }
 
-        // The box that decides whether a data pack arrives with a mod, the
-        // sentence that says what it does, the one for an instance that has no
-        // loader to argue about, the placeholder for when it leaves nothing, and
-        // the two messages for an install and a removal that moved a jar as well
-        // as a pack.
+        // The box that decides whether the mods a data pack requires are
+        // fetched, the sentence that says what it does, the one for an instance
+        // with no loader to put a mod into, and the two messages for an install
+        // and a removal that moved a jar as well as a pack.
         for (String key : new String[]{"datapacks.withoutMods", "datapacks.withoutMods.tip",
-                "datapacks.withoutMods.vanilla", "datapacks.noResults.forProfile",
+                "datapacks.withoutMods.vanilla",
                 "datapacks.installed.withMods", "datapacks.removed.withMods"}) {
             check("the data pack catalogue has its words: " + key,
                     reference.containsKey(key));
@@ -4622,42 +4621,53 @@ public final class SelfCheck {
         check("a data pack is narrowed by version either way",
                 ContentKind.DATAPACK.narrowsByVersion(false)
                         && ContentKind.DATAPACK.narrowsByVersion(true));
-        // Backwards on purpose, and this is the check that says so out loud.
-        // The box reads "without mods": unticked - the default - the catalogue
-        // is the flavour this instance's loader can load, and ticked the loader
-        // stops mattering. Getting this the wrong way round offers a player with
-        // Fabric a list of packs their instance cannot load, and calls it the
-        // narrow one.
-        check("a data pack is narrowed by loader until the box is ticked",
-                ContentKind.DATAPACK.narrowsByLoader(false)
+        // And never by loader, whatever the box says. Vanilla Minecraft loads a
+        // data pack, so every pack for the right version installs and works on
+        // every instance - a loader filter here is a list made shorter by
+        // something the world folder does not care about. The tags are on those
+        // projects, which is what made this look reasonable: much of the
+        // catalogue is published twice, as a data pack and as a mod build of the
+        // same content, and filtering by loader left only the ones with the
+        // second build.
+        check("a data pack is never narrowed by loader",
+                !ContentKind.DATAPACK.narrowsByLoader(false)
                         && !ContentKind.DATAPACK.narrowsByLoader(true));
 
-        // Each kind's one question, its words and where it starts.
+        // Each kind's one question, its words, where it starts, and whether the
+        // answer belongs to the search or to the install.
         check("only a data pack asks about mods",
-                ContentKind.DATAPACK.narrowing() == ContentKind.Narrowing.WITHOUT_MODS
-                        && ContentKind.MODPACK.narrowing()
-                                == ContentKind.Narrowing.ONLY_FOR_PROFILE
-                        && ContentKind.MOD.narrowing() == ContentKind.Narrowing.NONE);
-        check("a mod has no box to draw", !ContentKind.MOD.narrowing().isOffered());
+                ContentKind.DATAPACK.choice() == ContentKind.Choice.WITHOUT_MODS
+                        && ContentKind.MODPACK.choice()
+                                == ContentKind.Choice.ONLY_FOR_PROFILE
+                        && ContentKind.MOD.choice() == ContentKind.Choice.NONE);
+        check("a mod has no box to draw", !ContentKind.MOD.choice().isOffered());
         check("the other two have one",
-                ContentKind.MODPACK.narrowing().isOffered()
-                        && ContentKind.DATAPACK.narrowing().isOffered());
+                ContentKind.MODPACK.choice().isOffered()
+                        && ContentKind.DATAPACK.choice().isOffered());
         check("a modpack's box starts ticked and a data pack's does not",
-                ContentKind.MODPACK.narrowing().isChosenByDefault()
-                        && !ContentKind.DATAPACK.narrowing().isChosenByDefault());
+                ContentKind.MODPACK.choice().isChosenByDefault()
+                        && !ContentKind.DATAPACK.choice().isChosenByDefault());
+        // Only one of them is a search term. A box that cannot change the list
+        // must not re-run the request: the page in hand is already the answer.
+        check("a modpack's box narrows the search",
+                ContentKind.MODPACK.choice().affectsSearch());
+        check("and a data pack's box does not",
+                !ContentKind.DATAPACK.choice().affectsSearch()
+                        && !ContentKind.MOD.choice().affectsSearch());
         // An empty answer has to name the box that emptied it, or it reads as
-        // "no such thing exists for your version".
-        check("an empty narrowed list names the box: modpacks",
+        // "no such thing exists for your version" - and must not name one that
+        // could not have emptied anything.
+        check("an empty narrowed list names the box",
                 "mods.noResults.forProfile".equals(
-                        ContentKind.Narrowing.ONLY_FOR_PROFILE.emptyKey(true)));
-        check("an empty narrowed list names the box: data packs",
-                "datapacks.noResults.forProfile".equals(
-                        ContentKind.Narrowing.WITHOUT_MODS.emptyKey(false)));
-        check("and an unnarrowed empty list does not",
-                "mods.noResults".equals(ContentKind.Narrowing.WITHOUT_MODS.emptyKey(true))
+                        ContentKind.Choice.ONLY_FOR_PROFILE.emptyKey(true)));
+        check("an unnarrowed empty list does not",
+                "mods.noResults".equals(
+                        ContentKind.Choice.ONLY_FOR_PROFILE.emptyKey(false))
+                        && "mods.noResults".equals(ContentKind.Choice.NONE.emptyKey(true)));
+        check("and a box that narrows nothing is never blamed",
+                "mods.noResults".equals(ContentKind.Choice.WITHOUT_MODS.emptyKey(true))
                         && "mods.noResults".equals(
-                                ContentKind.Narrowing.ONLY_FOR_PROFILE.emptyKey(false))
-                        && "mods.noResults".equals(ContentKind.Narrowing.NONE.emptyKey(true)));
+                                ContentKind.Choice.WITHOUT_MODS.emptyKey(false)));
 
         // Every kind has a category filter now, and each is offered its own
         // list. It was mods alone while ModCategory held Modrinth's mod

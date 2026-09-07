@@ -112,32 +112,33 @@ final class CataloguePane {
     private final CategoryFilter categoryFilter;
 
     /**
-     * The one narrowing question this kind puts to the user.
+     * The one thing this kind asks the user.
      *
      * <p>One box, not a box per kind, because each kind has exactly one such
      * question and it is a different question - which is why the label, the
-     * sentence under the pointer and the starting state all come from
-     * {@link ContentKind.Narrowing} rather than being written here. A modpack
-     * asks "only the packs that fit this profile", ticked to begin with; a data
-     * pack asks "without mods", unticked, because for a data pack the narrower
-     * list is the default and the box widens it.
+     * sentence under the pointer, the starting state and whether the answer
+     * belongs to the search all come from {@link ContentKind.Choice} rather than
+     * being written here. A modpack asks "only the packs that fit this profile",
+     * which narrows the request; a data pack asks "without mods", which narrows
+     * nothing and is read when something is installed.
      *
      * <p>Null for a mod, which is always narrowed to the instance and therefore
      * has nothing to ask.
      */
-    private final CheckBox narrowingBox;
+    private final CheckBox optionBox;
 
     /** Says what the box means, in the one sentence that is worth its space. */
-    private final Tooltip narrowingTip = new Tooltip();
+    private final Tooltip optionTip = new Tooltip();
 
     /**
      * Whether the box was last drawn stuck on.
      *
      * <p>Held so that leaving that state can put the box back where it started.
-     * A data pack box is forced on for an instance with no loader, and forced is
-     * not chosen: somebody who then sets the instance to Fabric has said nothing
-     * about wanting the wider list, and leaving the box ticked would answer a
-     * question they were never asked.
+     * The data pack box is forced on for an instance with no loader - there is
+     * nowhere for a mod to go - and forced is not chosen: somebody who then sets
+     * the instance to Fabric has said nothing about wanting their mods folder
+     * left alone, and leaving the box ticked would answer a question they were
+     * never asked.
      */
     private boolean lockedOn;
 
@@ -175,7 +176,7 @@ final class CataloguePane {
         this.categoryFilter = kind.hasCategories()
                 ? new CategoryFilter(kind, host::categories, this::search)
                 : null;
-        this.narrowingBox = kind.narrowing().isOffered() ? new CheckBox() : null;
+        this.optionBox = kind.choice().isOffered() ? new CheckBox() : null;
         this.pane = build();
     }
 
@@ -228,22 +229,28 @@ final class CataloguePane {
         controls.getChildren().addAll(sourceBox, searchButton);
         controls.setAlignment(Pos.CENTER_LEFT);
 
-        if (narrowingBox != null) {
+        if (optionBox != null) {
             // Set before the listener is attached, so that a box which starts
             // out ticked - or is forced ticked because this instance has no
             // loader - does not fire a search from inside the constructor of a
             // window that has not been shown yet.
             lockedOn = isLockedOn();
-            narrowingBox.setSelected(kind.narrowing().isChosenByDefault() || lockedOn);
-            narrowingBox.setWrapText(true);
-            narrowingBox.setTooltip(narrowingTip);
-            // Straight into a fresh search rather than filtering the page in
-            // hand. The narrowing is the platform's own - the request carries
-            // the version and the loader - so a page fetched without it does not
-            // contain the answer to the same question with it: it contains forty
-            // of the wrong rows and a total that counts them.
-            narrowingBox.selectedProperty().addListener(
-                    (observable, previous, value) -> search());
+            optionBox.setSelected(kind.choice().isChosenByDefault() || lockedOn);
+            optionBox.setWrapText(true);
+            optionBox.setTooltip(optionTip);
+            if (kind.choice().affectsSearch()) {
+                // Straight into a fresh search rather than filtering the page in
+                // hand. The narrowing is the platform's own - the request carries
+                // the version and the loader - so a page fetched without it does
+                // not contain the answer to the same question with it: it
+                // contains forty of the wrong rows and a total that counts them.
+                optionBox.selectedProperty().addListener(
+                        (observable, previous, value) -> search());
+            }
+            // And no listener at all for a box that only decides what an install
+            // does. The rows on screen are the same rows either way, so asking
+            // the platform again would cost a spinner and the reader's place in
+            // the list to be handed back what they are already looking at.
         }
 
         curseForgeNote.getStyleClass().add("muted");
@@ -268,9 +275,9 @@ final class CataloguePane {
         moreButton.setManaged(false);
         moreButton.setOnAction(event -> loadPage(false));
 
-        VBox box = narrowingBox == null
+        VBox box = optionBox == null
                 ? new VBox(10, controls, curseForgeRow, blockedNote, resultList, moreButton)
-                : new VBox(10, controls, narrowingBox, curseForgeRow, blockedNote,
+                : new VBox(10, controls, optionBox, curseForgeRow, blockedNote,
                         resultList, moreButton);
         box.getStyleClass().add("browse-pane");
         applyTexts();
@@ -291,30 +298,28 @@ final class CataloguePane {
         SourceChoice source = sourceBox.getValue();
         sourceBox.setValue(null);
         sourceBox.setValue(source);
-        if (narrowingBox != null) {
-            narrowingBox.setText(I18n.t(kind.narrowing().key()));
+        if (optionBox != null) {
+            optionBox.setText(I18n.t(kind.choice().key()));
             boolean locked = isLockedOn();
             // The profile's own pair is in the sentence, because "fits this
             // profile" is only checkable by somebody who knows what the profile
             // is set to - and that is exactly what a pack install changes.
-            narrowingTip.setText(locked
+            optionTip.setText(locked
                     ? I18n.t("datapacks.withoutMods.vanilla")
-                    : I18n.t(kind.narrowing().tipKey(),
+                    : I18n.t(kind.choice().tipKey(),
                             host.profile().minecraftVersion(),
                             host.profile().loader().displayName()));
-            narrowingBox.setDisable(locked);
+            optionBox.setDisable(locked);
             // Forced on rather than merely greyed: an instance with no loader
-            // can load nothing but a plain data pack, so the state the box is
-            // stuck in has to be the state the search actually runs in. Set only
-            // when it differs, because setting it fires a fresh search - which
-            // is the right thing when a profile has just become vanilla, and
-            // pointless churn otherwise.
-            if (locked && !narrowingBox.isSelected()) {
-                narrowingBox.setSelected(true);
+            // has nowhere to put a mod, so the state the box is stuck in has to
+            // be the state an install actually runs in. Set only when it
+            // differs, so that nothing is touched on the common path.
+            if (locked && !optionBox.isSelected()) {
+                optionBox.setSelected(true);
             } else if (!locked && lockedOn) {
                 // Out of the stuck state: back to the default rather than
                 // wherever being stuck left it.
-                narrowingBox.setSelected(kind.narrowing().isChosenByDefault());
+                optionBox.setSelected(kind.choice().isChosenByDefault());
             }
             lockedOn = locked;
         }
@@ -332,25 +337,27 @@ final class CataloguePane {
      * True when this kind's box cannot be unticked on this instance.
      *
      * <p>One case: data packs on an instance with no mod loader. The box means
-     * "without mods", and without a loader there is nothing else on offer - a
-     * list narrowed to a loader the instance has not got is an empty list, and
-     * an empty list reads as "nothing has been published for your version".
+     * "without mods", and an instance with no loader has nowhere for a mod to
+     * go, so unticking it would promise a requirement the launcher cannot
+     * install. The pack itself still installs - this section working on a plain
+     * instance is the whole point of it.
      */
     private boolean isLockedOn() {
-        return kind.narrowing() == ContentKind.Narrowing.WITHOUT_MODS
+        return kind.choice() == ContentKind.Choice.WITHOUT_MODS
                 && !host.profile().loader().isModded();
     }
 
     /**
-     * The user's answer to this kind's narrowing question.
+     * The user's answer to this kind's one question.
      *
-     * <p>Read by the section as well as by the search: for data packs it decides
-     * what an install downloads, not only what the list shows.
+     * <p>Read by the section as well as by the search: for data packs it is not
+     * a search term at all, it is what an install does about the mods a pack
+     * says it requires.
      */
-    boolean narrowingChosen() {
-        return narrowingBox == null
-                ? kind.narrowing().isChosenByDefault()
-                : narrowingBox.isSelected();
+    boolean chosenOption() {
+        return optionBox == null
+                ? kind.choice().isChosenByDefault()
+                : optionBox.isSelected();
     }
 
     /** Starts a new search from the first page. */
@@ -396,7 +403,7 @@ final class CataloguePane {
         ModProvider.Source only = sourceBox.getValue() == null ? null : sourceBox.getValue().source();
         List<ModCategory> categoriesChosen =
                 categoryFilter == null ? List.of() : categoryFilter.forSearch();
-        boolean chosen = narrowingChosen();
+        boolean chosen = chosenOption();
         int offset = fresh ? 0 : nextOffset;
 
         if (fresh) {
@@ -405,7 +412,7 @@ final class CataloguePane {
         // The placeholder after an empty answer depends on the box: "nothing
         // matches" is a different sentence from "nothing that fits this profile
         // matches", and the second one names the thing to tick or untick.
-        String nothing = kind.narrowing().emptyKey(chosen);
+        String nothing = kind.choice().emptyKey(chosen);
         moreButton.setDisable(true);
 
         // A search never pops a dialog. It is the one action the user repeats
@@ -413,7 +420,12 @@ final class CataloguePane {
         // way of the retry.
         host.run(I18n.t("mods.task.search"), empty::setText, () -> {
             ModProvider.SearchPage page = host.service().searchContent(
-                    kind, host.profile(), query, sort, categoriesChosen, chosen, only,
+                    kind, host.profile(), query, sort, categoriesChosen,
+                    // Only a box that narrows reaches the request. A data pack's
+                    // answer means something to an install and nothing to a
+                    // search, and passing it as a narrowing would be handing the
+                    // platform an answer to a question it was not asked.
+                    kind.choice().affectsSearch() && chosen, only,
                     PAGE_SIZE, offset);
             Platform.runLater(() -> {
                 if (fresh) {

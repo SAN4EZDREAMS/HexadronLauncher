@@ -658,7 +658,7 @@ public final class ModInstaller {
      */
     public ModProvider.SearchPage search(ContentKind kind, String query, String minecraftVersion,
                                          LoaderType loader, ModSort sort,
-                                         List<ModCategory> categories, boolean narrowingChosen,
+                                         List<ModCategory> categories, boolean onlyForProfile,
                                          int limitPerProvider, int offset,
                                          ModProvider.Source only)
             throws IOException, InterruptedException {
@@ -678,7 +678,7 @@ public final class ModInstaller {
             }
             try {
                 ModProvider.SearchPage page = provider.search(
-                        kind, query, minecraftVersion, loader, sort, categories, narrowingChosen,
+                        kind, query, minecraftVersion, loader, sort, categories, onlyForProfile,
                         limitPerProvider, offset);
                 results.addAll(page.results());
                 if (page.total() >= 0) {

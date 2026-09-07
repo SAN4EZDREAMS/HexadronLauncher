@@ -144,32 +144,34 @@ public interface ModProvider {
      *                       for no restriction. Several narrow rather than widen,
      *                       which is what the platform's own filter does and
      *                       therefore what a player who has used it expects
-     * @param narrowingChosen the user's answer to the one narrowing question
-     *                       this kind offers - see {@link ContentKind#narrowing()}.
-     *                       It means a different thing per kind, and nothing at
-     *                       all for a kind that offers none, which is why it is
-     *                       one answer rather than a flag per platform facet
+     * @param onlyForProfile narrow to the profile's version and loader, for the
+     *                       one kind that states its own rather than needing one
+     *                       - see {@link ContentKind.Choice#ONLY_FOR_PROFILE}.
+     *                       Ignored for the kinds where the search asks no such
+     *                       question
      * @param limit          page size
      * @param offset         how many matches to skip, for paging
      */
     SearchPage search(ContentKind kind, String query, String minecraftVersion, LoaderType loader,
-                      ModSort sort, List<ModCategory> categories, boolean narrowingChosen,
+                      ModSort sort, List<ModCategory> categories, boolean onlyForProfile,
                       int limit, int offset)
             throws IOException, InterruptedException;
 
     /**
-     * The kind's own default narrowing, for a caller with no choice to pass.
+     * The kind's own default, for a caller with no choice to pass.
      *
-     * <p>The default rather than "no narrowing": each kind's box starts in the
-     * state that answers the question the user is most likely asking, and a
-     * caller that draws no box should search the list the box would have.
+     * <p>The default rather than "no narrowing": the box starts in the state
+     * that answers the question the user is most likely asking, and a caller
+     * that draws no box should search the list the box would have. Only a box
+     * that narrows counts here - see {@link ContentKind.Choice#affectsSearch()}.
      */
     default SearchPage search(ContentKind kind, String query, String minecraftVersion,
                               LoaderType loader, ModSort sort, List<ModCategory> categories,
                               int limit, int offset)
             throws IOException, InterruptedException {
         return search(kind, query, minecraftVersion, loader, sort, categories,
-                kind.narrowing().isChosenByDefault(), limit, offset);
+                kind.choice().affectsSearch() && kind.choice().isChosenByDefault(),
+                limit, offset);
     }
 
     /** Mods, for the callers that predate there being anything else. */

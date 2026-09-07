@@ -71,7 +71,7 @@ import java.util.Optional;
  * global packs, a library - and those are named as required dependencies of the
  * data pack version. They go into the instance's {@code mods} folder, recorded
  * against this pack, and "without mods" is the answer that says not to fetch
- * them. See {@link ContentKind.Narrowing#WITHOUT_MODS}.
+ * them. See {@link ContentKind.Choice#WITHOUT_MODS}.
  */
 public final class DatapackInstaller {
 

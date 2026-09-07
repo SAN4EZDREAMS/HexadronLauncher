@@ -611,7 +611,7 @@ public final class LauncherService {
             com.hexadron.launcher.mods.ContentKind kind,
             Profile profile, String query, com.hexadron.launcher.mods.ModSort sort,
             java.util.List<com.hexadron.launcher.mods.ModCategory> categories,
-            boolean narrowingChosen,
+            boolean onlyForProfile,
             ModProvider.Source only, int limitPerProvider, int offset)
             throws IOException, InterruptedException {
 
@@ -619,7 +619,7 @@ public final class LauncherService {
             requireModdedLoader(profile);
         }
         return modInstaller.search(kind, query, profile.minecraftVersion(), profile.loader(),
-                sort, categories, narrowingChosen, limitPerProvider, offset, only);
+                sort, categories, onlyForProfile, limitPerProvider, offset, only);
     }
 
     /** Installs one mod, with its required dependencies, into a profile. */

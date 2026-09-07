@@ -240,7 +240,7 @@ public final class CurseForgeProvider implements ModProvider {
     @Override
     public SearchPage search(ContentKind kind, String query, String minecraftVersion,
                              LoaderType loader, ModSort sort, List<ModCategory> categories,
-                             boolean narrowingChosen, int limit, int offset)
+                             boolean onlyForProfile, int limit, int offset)
             throws IOException, InterruptedException {
 
         // The categories are Modrinth's, and CurseForge files its projects under
@@ -262,18 +262,11 @@ public final class CurseForgeProvider implements ModProvider {
         if (query != null && !query.isBlank()) {
             url.append("&searchFilter=").append(encode(query));
         }
-        if (kind.narrowsByVersion(narrowingChosen)
+        if (kind.narrowsByVersion(onlyForProfile)
                 && minecraftVersion != null && !minecraftVersion.isBlank()) {
             url.append("&gameVersion=").append(encode(minecraftVersion));
         }
-        // Data packs are the exception, and it is CurseForge's own doing. Its
-        // "Data Packs" class holds data packs and nothing else - there is no
-        // second, loader-flavoured copy of a pack here the way Modrinth
-        // publishes one - so a data pack search has no loader to narrow by, and
-        // sending one narrows a class of projects that carry no loader tag down
-        // to nothing. A shorter list with no explanation reads as "there are no
-        // data packs for your version", so the filter is simply not sent.
-        Integer loaderId = kind != ContentKind.DATAPACK && kind.narrowsByLoader(narrowingChosen)
+        Integer loaderId = kind.narrowsByLoader(onlyForProfile)
                 ? searchLoaderTypeId(loader) : null;
         if (loaderId != null) {
             url.append("&modLoaderType=").append(loaderId);

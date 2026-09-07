@@ -47,7 +47,7 @@ public final class ModrinthProvider implements ModProvider {
     @Override
     public SearchPage search(ContentKind kind, String query, String minecraftVersion,
                              LoaderType loader, ModSort sort, List<ModCategory> categories,
-                             boolean narrowingChosen, int limit, int offset)
+                             boolean onlyForProfile, int limit, int offset)
             throws IOException, InterruptedException {
 
         // Modrinth facets are an array of OR-groups that are ANDed together.
@@ -68,15 +68,11 @@ public final class ModrinthProvider implements ModProvider {
         if (kindLoader != null) {
             facetGroups.add("[\"categories:" + kindLoader + "\"]");
         }
-        if (kind.narrowsByVersion(narrowingChosen)
+        if (kind.narrowsByVersion(onlyForProfile)
                 && minecraftVersion != null && !minecraftVersion.isBlank()) {
             facetGroups.add("[\"versions:" + minecraftVersion + "\"]");
         }
-        // ANDed with the kind's own tag above, which is what makes this mean
-        // "data packs this loader can load" rather than "mods for this loader".
-        // A vanilla instance has no tags to ask for and is therefore offered the
-        // plain packs, which is all it can load.
-        if (kind.narrowsByLoader(narrowingChosen) && loader != null && loader.isModded()) {
+        if (kind.narrowsByLoader(onlyForProfile) && loader != null && loader.isModded()) {
             // One group, several tags: a Modrinth facet group is an OR, and for
             // Quilt the honest question is "quilt or fabric", not "quilt".
             List<String> tags = new ArrayList<>();

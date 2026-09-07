@@ -377,7 +377,7 @@ final class DatapackSection extends ContentSection {
         // Read on the interface thread, before the install starts: it is the
         // state of a tick box, and the box is the user's to change while a
         // download runs.
-        boolean withoutMods = catalogue.narrowingChosen();
+        boolean withoutMods = catalogue.chosenOption();
         host.mutate(I18n.t("mods.task.install", hit.title()), () -> {
             DatapackInstaller.Result result = host.service().installDatapack(
                     host.profile(), world, card, withoutMods, host.progress());
