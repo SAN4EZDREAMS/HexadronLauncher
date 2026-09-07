@@ -37,6 +37,30 @@ public final class ModLabels {
      * to find out.
      */
     public static String badge(ModEntry mod) {
+        return badge(mod, false);
+    }
+
+    /**
+     * The same, for a list that knows whether the owning pack is a modpack.
+     *
+     * <h2>Why the caller has to tell us</h2>
+     *
+     * <p>{@link com.hexadron.launcher.mods.ModOrigin#PACK} means two different
+     * things that happen to obey the same rule. One is the launcher's own set,
+     * Hexadron Optimise, installed from the button in the header; the other is a
+     * modpack somebody installed from the catalogue, which brought a Minecraft
+     * version and a loader with it. Both go in and come out whole, which is why
+     * they share an origin - but they are not the same thing to read about, and
+     * a jar out of a downloaded pack that says "Hexadron Optimise" is simply
+     * wrong.
+     *
+     * <p>Which of the two it is cannot be decided from the row: it is
+     * {@code packId} looked up in the instance's modpack record, and that record
+     * belongs to the window. So the window looks it up and says so here.
+     *
+     * @param fromModpack true when this mod's pack is an installed modpack
+     */
+    public static String badge(ModEntry mod, boolean fromModpack) {
         if (!mod.enabled()) {
             return I18n.t("mods.origin.disabled");
         }
@@ -46,7 +70,7 @@ public final class ModLabels {
             return I18n.t("mods.origin.wrongVersion");
         }
         return switch (mod.origin()) {
-            case PACK -> I18n.t("mods.origin.pack");
+            case PACK -> I18n.t(fromModpack ? "mods.origin.modpack" : "mods.origin.pack");
             case DEPENDENCY -> I18n.t("mods.origin.dependency");
             case MANUAL -> I18n.t("mods.origin.manual");
             case EXTERNAL -> I18n.t("mods.origin.external");

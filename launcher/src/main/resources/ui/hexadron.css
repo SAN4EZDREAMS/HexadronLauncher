@@ -40,6 +40,11 @@
        broken yet, and this is the one badge whose whole job is to be noticed
        before a button is pressed rather than after. */
     -fx-warning-0: #d8a13c;
+    /* A modpack. Not the accent green, which is the launcher's own set of mods,
+       and not amber or red, which both mean "deal with this": a pack is a fact
+       about the instance, and violet is the one hue left in this palette that
+       carries a meaning of its own without claiming to be a warning. */
+    -fx-modpack-0: #7a5cc4;
 
     /* Overridden per cell by the view, from the cell's group. Declared here so
        that a cell in no group still resolves it instead of raising a CSS error. */
@@ -862,6 +867,21 @@
 
 .badge-pack {
     -fx-background-color: -fx-accent-0;
+    -fx-text-fill: white;
+}
+
+/*
+ * A mod that came in with a modpack, and a modpack's own row.
+ *
+ * Violet rather than the accent green, because green is the launcher's own set
+ * of mods - Hexadron Optimise - and the two obey the same rule (in whole, out
+ * whole) while being different things. A jar out of a downloaded pack drawn in
+ * the launcher's colour, with the launcher's set named on it, is not a shade too
+ * close: it is the wrong answer to "where did this come from".
+ */
+.badge-modpack {
+    -fx-background-color: -fx-modpack-0;
+    -fx-border-color: derive(-fx-modpack-0, -20%);
     -fx-text-fill: white;
 }
 

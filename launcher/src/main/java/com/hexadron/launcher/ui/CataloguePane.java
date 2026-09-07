@@ -14,6 +14,7 @@ package com.hexadron.launcher.ui;
 
 import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.mods.ContentKind;
+import com.hexadron.launcher.mods.ModCategory;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.mods.ModSort;
 
@@ -32,6 +33,7 @@ import javafx.scene.layout.VBox;
 import javafx.util.StringConverter;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * A searchable catalogue of one kind of thing.
@@ -52,10 +54,14 @@ import java.util.List;
  * so that is what {@link Actions} is for and the only thing a section has to
  * supply.
  *
- * <p>The mods section is not built on this. It has a category filter, which is
- * Modrinth's nineteen and applies to nothing else, and folding that in would mean
- * a class carrying a filter that three quarters of its users must remember to
- * switch off.
+ * <p>The category filter is here rather than per section for the same reason.
+ * Every kind has one - a different list each, which {@link ModCategory} knows -
+ * so what used to be "the mods panel has a filter and the others do not" is now
+ * one {@link CategoryFilter} told which kind it is narrowing.
+ *
+ * <p>The mods section is still not built on this: it has the pack button, the
+ * identify pass and the installed-mods filter, none of which mean anything for a
+ * modpack or a data pack. It shares the filter widget rather than the pane.
  */
 final class CataloguePane {
 
@@ -94,6 +100,16 @@ final class CataloguePane {
     private final Button searchButton = new Button();
 
     /**
+     * What the thing is for, as this platform files this kind.
+     *
+     * <p>Null only for a kind the platform files under nothing at all, which is
+     * a case that does not exist today and is cheaper to allow for than to
+     * assume away: a filter offering an empty menu is a control that cannot do
+     * anything.
+     */
+    private final CategoryFilter categoryFilter;
+
+    /**
      * Says out loud when CurseForge is not being searched.
      *
      * <p>Without it the catalogue quietly returns Modrinth results only, and a
@@ -124,6 +140,9 @@ final class CataloguePane {
         this.host = host;
         this.kind = kind;
         this.hooks = actions;
+        this.categoryFilter = kind.hasCategories()
+                ? new CategoryFilter(kind, host::categories, this::search)
+                : null;
         this.pane = build();
     }
 
@@ -169,7 +188,11 @@ final class CataloguePane {
 
         searchButton.setOnAction(event -> search());
 
-        HBox controls = new HBox(8, searchField, sortBox, sourceBox, searchButton);
+        HBox controls = new HBox(8, searchField, sortBox);
+        if (categoryFilter != null) {
+            controls.getChildren().add(categoryFilter.node());
+        }
+        controls.getChildren().addAll(sourceBox, searchButton);
         controls.setAlignment(Pos.CENTER_LEFT);
 
         curseForgeNote.getStyleClass().add("muted");
@@ -214,6 +237,12 @@ final class CataloguePane {
         SourceChoice source = sourceBox.getValue();
         sourceBox.setValue(null);
         sourceBox.setValue(source);
+        // Rebuilt rather than relabelled: every name in it changes, and the
+        // drawings beside them may have arrived since it was last built. The
+        // ticks are kept - the filter holds them, not its boxes.
+        if (categoryFilter != null) {
+            categoryFilter.build();
+        }
         refreshCurseForgeState();
         refreshBlocked();
     }
@@ -229,6 +258,24 @@ final class CataloguePane {
         resultList.refresh();
     }
 
+    /**
+     * The categories ticked here, so a row can put those first.
+     *
+     * <p>This pane's own, not the window's. Somebody who has narrowed a modpack
+     * search to "quests" is scanning modpack rows for "quests", and the ticks in
+     * the mods panel are a different question they asked earlier.
+     */
+    Set<ModCategory> highlighted() {
+        return categoryFilter == null ? Set.of() : categoryFilter.chosen();
+    }
+
+    /** Rebuilds the category menu, after fresh drawings arrived. */
+    void refreshCategoryArt() {
+        if (categoryFilter != null) {
+            categoryFilter.build();
+        }
+    }
+
     /** Writes the "nothing can be installed" line, and greys the buttons with it. */
     private void refreshBlocked() {
         String reason = hooks.blockedReason();
@@ -241,6 +288,7 @@ final class CataloguePane {
         String query = searchField.getText() == null ? "" : searchField.getText().trim();
         ModSort sort = sortBox.getValue() == null ? ModSort.POPULAR : sortBox.getValue();
         ModProvider.Source only = sourceBox.getValue() == null ? null : sourceBox.getValue().source();
+        List<ModCategory> chosen = categoryFilter == null ? List.of() : categoryFilter.forSearch();
         int offset = fresh ? 0 : nextOffset;
 
         if (fresh) {
@@ -253,7 +301,7 @@ final class CataloguePane {
         // way of the retry.
         host.run(I18n.t("mods.task.search"), empty::setText, () -> {
             ModProvider.SearchPage page = host.service().searchContent(
-                    kind, host.profile(), query, sort, List.of(), only, PAGE_SIZE, offset);
+                    kind, host.profile(), query, sort, chosen, only, PAGE_SIZE, offset);
             Platform.runLater(() -> {
                 if (fresh) {
                     results.setAll(page.results());
@@ -335,7 +383,7 @@ final class CataloguePane {
         private final Button action = new Button();
 
         HitCell() {
-            super(host::categories, host::highlightedCategories);
+            super(host::categories, CataloguePane.this::highlighted);
             actions.getChildren().add(action);
         }
 

@@ -1931,6 +1931,24 @@ public final class SelfCheck {
         check("a mod nothing needs any more can say so",
                 reference.containsKey("mods.dependents.none"));
 
+        // A jar out of a downloaded modpack. Without these three the row falls
+        // back to the launcher's own set - "Hexadron Optimise" on a mod that
+        // came out of somebody else's pack - and the panel that says which pack
+        // it was has nothing to put in it.
+        for (String key : new String[]{"mods.origin.modpack", "mods.modpack.title",
+                "mods.modpack.hint"}) {
+            check("a mod from a modpack can say which one: " + key,
+                    reference.containsKey(key));
+        }
+
+        // Every category the filter offers needs a name in the reference
+        // bundle, including the six that only modpacks are filed under. A
+        // missing one is a tick box labelled !mods.category.quests!.
+        for (ModCategory category : ModCategory.values()) {
+            check("a category is named: " + category.id(),
+                    reference.containsKey(category.key()));
+        }
+
         // The bug window asks for four things and says where to send them. A
         // missing key here is a line of the report form replaced by !bug.how!,
         // which is worse than the question not being asked at all.
@@ -3504,6 +3522,48 @@ public final class SelfCheck {
                 ModCategory.chosenFirst(List.of(ModCategory.MAGIC), Set.of(ModCategory.MAGIC))
                         .equals(List.of(ModCategory.MAGIC)));
 
+        // --- one list per kind
+        //
+        // The platform keeps a category list per project type, and they are not
+        // the same list. Offering a mod's categories against a modpack search
+        // returns nothing at all, and nothing at all reads as "no pack like that
+        // exists for your version" rather than as a filter that cannot match.
+        List<ModCategory> mods = ModCategory.forKind(ContentKind.MOD);
+        List<ModCategory> packs = ModCategory.forKind(ContentKind.MODPACK);
+        List<ModCategory> datapacks = ModCategory.forKind(ContentKind.DATAPACK);
+        check("mods have Modrinth's nineteen", mods.size() == 19);
+        check("modpacks have their own ten", packs.size() == 10);
+        check("a data pack is filed as a mod, so it has the mod list",
+                datapacks.equals(mods));
+        check("the four that are on both lists are on both",
+                packs.contains(ModCategory.ADVENTURE) && packs.contains(ModCategory.MAGIC)
+                        && packs.contains(ModCategory.OPTIMIZATION)
+                        && packs.contains(ModCategory.TECHNOLOGY));
+        check("the six that describe a whole instance are the pack's alone",
+                packs.containsAll(List.of(ModCategory.CHALLENGING, ModCategory.COMBAT,
+                        ModCategory.KITCHEN_SINK, ModCategory.LIGHTWEIGHT,
+                        ModCategory.MULTIPLAYER, ModCategory.QUESTS))
+                        && mods.stream().noneMatch(category ->
+                                category == ModCategory.KITCHEN_SINK
+                                        || category == ModCategory.QUESTS));
+        check("a mod category is not offered for a pack",
+                !packs.contains(ModCategory.WORLDGEN)
+                        && !ModCategory.WORLDGEN.appliesTo(ContentKind.MODPACK));
+        check("and a pack category is not offered for a mod",
+                !ModCategory.QUESTS.appliesTo(ContentKind.MOD)
+                        && !ModCategory.QUESTS.appliesTo(ContentKind.DATAPACK));
+        check("every category files something",
+                java.util.Arrays.stream(ModCategory.values())
+                        .allMatch(category -> !category.kinds().isEmpty()));
+        check("nothing is offered for a kind twice",
+                packs.size() == Set.copyOf(packs).size()
+                        && mods.size() == Set.copyOf(mods).size());
+        // The identifiers still come back whatever kind published them: this is
+        // what reads a project's own list, not what draws a filter.
+        check("a pack's own category is still recognised by its identifier",
+                ModCategory.byId("kitchen-sink").orElseThrow() == ModCategory.KITCHEN_SINK
+                        && ModCategory.byId("quests").orElseThrow() == ModCategory.QUESTS);
+
         // --- the drawings
         check("nothing is read out of nothing", SvgPaths.read(null).isEmpty());
         check("nor out of an empty string", SvgPaths.read("  ").isEmpty());
@@ -3604,7 +3664,8 @@ public final class SelfCheck {
                 ukrainian.contains("Економіка, Ігрові механіки, Їжа, Керування"));
         check("Ukrainian ends at Ч", ukrainian.endsWith("Технології, Чаклунство"));
         check("nothing is lost or repeated by the sort",
-                ukrainian.split(", ").length == ModCategory.values().length);
+                ukrainian.split(", ").length
+                        == ModCategory.forKind(ContentKind.MOD).size());
 
         // Polish: ł sorts inside L, and ś inside S.
         String polish = orderIn(byCode("pl"));
@@ -3622,18 +3683,41 @@ public final class SelfCheck {
         check("Russian is in Russian order", russian.startsWith("Библиотека, Взаимодействие"));
 
         for (Language language : Language.all()) {
-            check("every category is offered in " + language.code(),
-                    ModCategory.inReadingOrder(language.locale(),
-                            category -> I18n.bundle(language).get(category.key()))
-                            .size() == ModCategory.values().length);
+            for (ContentKind kind : ContentKind.values()) {
+                check("every " + kind.name().toLowerCase(java.util.Locale.ROOT)
+                                + " category is offered in " + language.code(),
+                        ModCategory.inReadingOrder(kind, language.locale(),
+                                category -> I18n.bundle(language).get(category.key()))
+                                .size() == ModCategory.forKind(kind).size());
+            }
         }
+
+        // The modpack list is its own, and it is sorted the same way. Ten names,
+        // six of which no mod has, so a menu built from the mod list would have
+        // been ten wrong names rather than an empty menu.
+        String packsEnglish = orderIn(Language.ENGLISH, ContentKind.MODPACK);
+        check("the modpack menu is ten long",
+                packsEnglish.split(", ").length == 10);
+        check("English modpack order starts at A",
+                packsEnglish.startsWith("Adventure, Challenging, Combat"));
+        check("and ends at T", packsEnglish.endsWith("Quests, Technology"));
+
+        String packsUkrainian = orderIn(byCode("uk"), ContentKind.MODPACK);
+        check("Ukrainian modpack order starts at Б",
+                packsUkrainian.startsWith("Бої, Все в одному, Квести"));
+        check("and ends at Ч", packsUkrainian.endsWith("Технології, Чаклунство"));
     }
 
-    /** The category names of one language, in the order the menu would offer them. */
+    /** The mod category names of one language, in the order the menu offers them. */
     private static String orderIn(Language language) {
+        return orderIn(language, ContentKind.MOD);
+    }
+
+    /** One kind's category names, in the order that kind's menu offers them. */
+    private static String orderIn(Language language, ContentKind kind) {
         Map<String, String> bundle = I18n.bundle(language);
         List<String> names = new ArrayList<>();
-        for (ModCategory category : ModCategory.inReadingOrder(language.locale(),
+        for (ModCategory category : ModCategory.inReadingOrder(kind, language.locale(),
                 category -> bundle.getOrDefault(category.key(), category.id()))) {
             names.add(bundle.getOrDefault(category.key(), category.id()));
         }
@@ -4373,12 +4457,18 @@ public final class SelfCheck {
                         && !ContentKind.MODPACK.needsLoader()
                         && !ContentKind.DATAPACK.needsLoader());
 
-        // The category filter is Modrinth's nineteen, and it files mods. Offered
-        // against anything else it returns a confidently empty list.
-        check("only mods have categories",
+        // Every kind has a category filter now, and each is offered its own
+        // list. It was mods alone while ModCategory held Modrinth's mod
+        // categories and nothing else - offered against a modpack, those return
+        // a confidently empty list.
+        check("every kind has categories",
                 ContentKind.MOD.hasCategories()
-                        && !ContentKind.MODPACK.hasCategories()
-                        && !ContentKind.DATAPACK.hasCategories());
+                        && ContentKind.MODPACK.hasCategories()
+                        && ContentKind.DATAPACK.hasCategories());
+        check("and each kind is offered its own list",
+                !ContentKind.MOD.categories().equals(ContentKind.MODPACK.categories())
+                        && ContentKind.DATAPACK.categories()
+                                .equals(ContentKind.MOD.categories()));
 
         check("a mod is a jar", ContentKind.MOD.matches("sodium-0.6.13.jar"));
         check("a mod is not a zip", !ContentKind.MOD.matches("pack.zip"));

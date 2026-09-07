@@ -251,6 +251,12 @@ final class DatapackSection extends ContentSection {
         catalogue.search();
     }
 
+    /** Rebuilds the catalogue's category menu, after fresh drawings arrived. */
+    void refreshCategoryArt() {
+        catalogue.refreshCategoryArt();
+        installedList.refresh();
+    }
+
     @Override
     void onBusyChanged() {
         importButton.setDisable(host.isBusy() || worldBox.getValue() == null);
@@ -468,7 +474,7 @@ final class DatapackSection extends ContentSection {
         private final Tooltip toggleTip = new Tooltip();
 
         PackCell() {
-            super(host::categories, host::highlightedCategories);
+            super(host::categories, catalogue::highlighted);
             badge.getStyleClass().add("badge");
             badge.setMinWidth(Region.USE_PREF_SIZE);
             remove.getStyleClass().add("danger");

@@ -206,14 +206,27 @@ public enum ContentKind {
     }
 
     /**
+     * The categories the platform files this kind under.
+     *
+     * <p>Not one list for the whole window. Mods have Modrinth's nineteen; a
+     * modpack has ten, six of them its own; a data pack is filed as a mod and
+     * carries the mod list. Asking for the wrong one is a filter that cannot
+     * match, and a search that cannot match looks exactly like a version nothing
+     * has been published for.
+     */
+    public List<ModCategory> categories() {
+        return ModCategory.forKind(this);
+    }
+
+    /**
      * True when the category filter means anything for this kind.
      *
-     * <p>{@link ModCategory} is the nineteen Modrinth files <em>mods</em> under.
-     * A modpack and a data pack are filed under different sets, and offering a
-     * mod's categories against them would return a confidently empty list rather
-     * than an honest one - so the filter is not offered there at all.
+     * <p>True for all three now that each kind is offered its own list. It was
+     * once true for mods alone, because {@link ModCategory} held Modrinth's mod
+     * categories and nothing else, and offering those against a modpack returned
+     * a confidently empty list.
      */
     public boolean hasCategories() {
-        return this == MOD;
+        return !categories().isEmpty();
     }
 }

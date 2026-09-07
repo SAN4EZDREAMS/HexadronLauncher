@@ -14,6 +14,8 @@ package com.hexadron.launcher.mods;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -48,30 +50,76 @@ import java.util.Set;
  */
 public enum ModCategory {
 
-    ADVENTURE("adventure"),
-    CURSED("cursed"),
-    DECORATION("decoration"),
-    ECONOMY("economy"),
-    EQUIPMENT("equipment"),
-    FOOD("food"),
-    GAME_MECHANICS("game-mechanics"),
-    LIBRARY("library"),
-    MAGIC("magic"),
-    MANAGEMENT("management"),
-    MINIGAME("minigame"),
-    MOBS("mobs"),
-    OPTIMIZATION("optimization"),
-    SOCIAL("social"),
-    STORAGE("storage"),
-    TECHNOLOGY("technology"),
-    TRANSPORTATION("transportation"),
-    UTILITY("utility"),
-    WORLDGEN("worldgen");
+    ADVENTURE("adventure", ContentKind.MOD, ContentKind.DATAPACK, ContentKind.MODPACK),
+    CHALLENGING("challenging", ContentKind.MODPACK),
+    COMBAT("combat", ContentKind.MODPACK),
+    CURSED("cursed", ContentKind.MOD, ContentKind.DATAPACK),
+    DECORATION("decoration", ContentKind.MOD, ContentKind.DATAPACK),
+    ECONOMY("economy", ContentKind.MOD, ContentKind.DATAPACK),
+    EQUIPMENT("equipment", ContentKind.MOD, ContentKind.DATAPACK),
+    FOOD("food", ContentKind.MOD, ContentKind.DATAPACK),
+    GAME_MECHANICS("game-mechanics", ContentKind.MOD, ContentKind.DATAPACK),
+    KITCHEN_SINK("kitchen-sink", ContentKind.MODPACK),
+    LIBRARY("library", ContentKind.MOD, ContentKind.DATAPACK),
+    LIGHTWEIGHT("lightweight", ContentKind.MODPACK),
+    MAGIC("magic", ContentKind.MOD, ContentKind.DATAPACK, ContentKind.MODPACK),
+    MANAGEMENT("management", ContentKind.MOD, ContentKind.DATAPACK),
+    MINIGAME("minigame", ContentKind.MOD, ContentKind.DATAPACK),
+    MOBS("mobs", ContentKind.MOD, ContentKind.DATAPACK),
+    MULTIPLAYER("multiplayer", ContentKind.MODPACK),
+    OPTIMIZATION("optimization", ContentKind.MOD, ContentKind.DATAPACK, ContentKind.MODPACK),
+    QUESTS("quests", ContentKind.MODPACK),
+    SOCIAL("social", ContentKind.MOD, ContentKind.DATAPACK),
+    STORAGE("storage", ContentKind.MOD, ContentKind.DATAPACK),
+    TECHNOLOGY("technology", ContentKind.MOD, ContentKind.DATAPACK, ContentKind.MODPACK),
+    TRANSPORTATION("transportation", ContentKind.MOD, ContentKind.DATAPACK),
+    UTILITY("utility", ContentKind.MOD, ContentKind.DATAPACK),
+    WORLDGEN("worldgen", ContentKind.MOD, ContentKind.DATAPACK);
 
     private final String id;
 
-    ModCategory(String id) {
+    /**
+     * The kinds of thing this category files.
+     *
+     * <p>The platform keeps one list per project type, and they are not the same
+     * list. Mods have nineteen; a modpack is filed under ten, six of which
+     * ({@code challenging}, {@code combat}, {@code kitchen-sink},
+     * {@code lightweight}, {@code multiplayer}, {@code quests}) exist for packs
+     * alone - they describe a whole instance, which is what a pack is, and there
+     * is no single mod that is "a kitchen sink". Data packs are the half of the
+     * catalogue that is still filed as mods, so they carry the mod list.
+     *
+     * <p>Offering the wrong list is not a cosmetic fault: a search narrowed to a
+     * category the platform does not file this kind under comes back empty, and
+     * an empty list reads as "there is nothing like that for your version"
+     * rather than as a filter that cannot match.
+     */
+    private final Set<ContentKind> kinds;
+
+    ModCategory(String id, ContentKind... kinds) {
         this.id = id;
+        this.kinds = Collections.unmodifiableSet(EnumSet.copyOf(List.of(kinds)));
+    }
+
+    /** The kinds this category is offered for. */
+    public Set<ContentKind> kinds() {
+        return kinds;
+    }
+
+    /** True when the platform files this kind of thing under this category. */
+    public boolean appliesTo(ContentKind kind) {
+        return kind != null && kinds.contains(kind);
+    }
+
+    /** The categories offered for one kind, in declaration order. */
+    public static List<ModCategory> forKind(ContentKind kind) {
+        List<ModCategory> found = new ArrayList<>();
+        for (ModCategory category : values()) {
+            if (category.appliesTo(kind)) {
+                found.add(category);
+            }
+        }
+        return List.copyOf(found);
     }
 
     /** What the platform calls it, and what goes into a search. */
@@ -129,17 +177,19 @@ public enum ModCategory {
      * every one of them would be wrong the same way. A collator is the thing
      * that knows where a letter belongs in the alphabet somebody actually reads.
      *
+     * @param kind   which kind's categories to offer
      * @param locale the language the names are in
      * @param nameOf what each category is called in it
      */
     public static List<ModCategory> inReadingOrder(
-            java.util.Locale locale, java.util.function.Function<ModCategory, String> nameOf) {
+            ContentKind kind, java.util.Locale locale,
+            java.util.function.Function<ModCategory, String> nameOf) {
 
         java.text.Collator collator = java.text.Collator.getInstance(locale);
         // Case is not a distinction worth making in a list of names, and an
         // accent is: "Ó" belongs beside "O", not at the end of the alphabet.
         collator.setStrength(java.text.Collator.SECONDARY);
-        List<ModCategory> ordered = new ArrayList<>(List.of(values()));
+        List<ModCategory> ordered = new ArrayList<>(forKind(kind));
         ordered.sort(java.util.Comparator.comparing(nameOf, collator));
         return List.copyOf(ordered);
     }

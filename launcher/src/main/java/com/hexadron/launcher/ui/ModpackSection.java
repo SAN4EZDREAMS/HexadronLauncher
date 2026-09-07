@@ -164,6 +164,40 @@ final class ModpackSection extends ContentSection {
         catalogue.refreshRows();
     }
 
+    /**
+     * Brings one installed pack into view, and selects it.
+     *
+     * <p>What a mod row's modpack badge leads to. A launcher that answered
+     * "which pack is this jar from" with a name and nothing else would leave the
+     * reader to find that name in a list themselves; this is the same move the
+     * dependency panel makes for a mod, one level up.
+     *
+     * @param packId {@link InstalledModpack#id()} of the pack to show
+     */
+    void reveal(String packId) {
+        if (installed.isEmpty()) {
+            refresh();
+        }
+        tabs.getSelectionModel().select(installedTab);
+        List<InstalledModpack> shown = installedList.getItems();
+        for (int index = 0; index < shown.size(); index++) {
+            if (shown.get(index).id().equals(packId)) {
+                installedList.getSelectionModel().clearAndSelect(index);
+                // One row above the target, so it does not land against the top
+                // edge with no context above it.
+                installedList.scrollTo(Math.max(0, index - 1));
+                installedList.requestFocus();
+                return;
+            }
+        }
+    }
+
+    /** Rebuilds the catalogue's category menu, after fresh drawings arrived. */
+    void refreshCategoryArt() {
+        catalogue.refreshCategoryArt();
+        installedList.refresh();
+    }
+
     @Override
     void onShown() {
         if (catalogue.node().getScene() != null && installed.isEmpty()) {
@@ -368,8 +402,11 @@ final class ModpackSection extends ContentSection {
         private final Button remove = new Button();
 
         PackCell() {
-            super(host::categories, host::highlightedCategories);
-            badge.getStyleClass().addAll("badge", "badge-pack");
+            super(host::categories, catalogue::highlighted);
+            // Purple, and the same purple a mod row's modpack badge is drawn in.
+            // The two say the same word about the same thing from two lists, and
+            // a colour that changed between them would read as two meanings.
+            badge.getStyleClass().addAll("badge", "badge-modpack");
             badge.setMinWidth(Region.USE_PREF_SIZE);
             remove.getStyleClass().add("danger");
             actions.getChildren().addAll(badge, remove);

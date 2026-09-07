@@ -729,7 +729,7 @@ public final class MainWindow implements ProfileHost {
         actions.setAlignment(Pos.CENTER_LEFT);
 
         modsTitle.getStyleClass().add("section-title");
-        modsList.setCellFactory(view -> new ModCell());
+        modsList.setCellFactory(view -> new ModCell(() -> modpackIds));
         modsList.setPlaceholder(modsEmpty);
         modsList.setPrefHeight(150);
         modsList.setFocusTraversable(false);
@@ -779,7 +779,18 @@ public final class MainWindow implements ProfileHost {
         private final Label badge = new Label();
         private final HBox box = new HBox(10, icon, name, version, badge);
 
-        ModCell() {
+        /**
+         * Which pack ids in this instance are modpacks.
+         *
+         * <p>A supplier rather than a value: the cells are built once and the
+         * record is re-read whenever the instance changes. It is what tells the
+         * two meanings of one origin apart - a jar out of the launcher's own set,
+         * and a jar out of a modpack somebody installed.
+         */
+        private final java.util.function.Supplier<java.util.Set<String>> modpackIds;
+
+        ModCell(java.util.function.Supplier<java.util.Set<String>> modpackIds) {
+            this.modpackIds = modpackIds;
             name.getStyleClass().add("summary-value");
             version.getStyleClass().add("instance-subtitle");
             badge.getStyleClass().add("badge");
@@ -808,7 +819,10 @@ public final class MainWindow implements ProfileHost {
             icon.show(mod);
             name.setText(mod.title());
             version.setText(mod.version() == null ? "" : mod.version());
-            badge.setText(ModLabels.badge(mod));
+            boolean fromModpack = mod.origin() == ModOrigin.PACK && mod.packId() != null
+                    && modpackIds.get().contains(mod.packId());
+            badge.setText(ModLabels.badge(mod, fromModpack));
+            boolean live = mod.enabled() && !mod.isWrongVersion();
             // Only when it actually differs. A style class changed from inside a
             // list cell's update is resolved a frame late - the cell is updated
             // during the list's layout, after CSS has run - so touching one for
@@ -816,9 +830,10 @@ public final class MainWindow implements ProfileHost {
             // and corrected afterwards.
             setBadgeClass(badge, "badge-off", !mod.enabled());
             setBadgeClass(badge, "badge-wrong", mod.enabled() && mod.isWrongVersion());
-            setBadgeClass(badge, "badge-pack", mod.enabled() && !mod.isWrongVersion()
-                    && mod.origin() == ModOrigin.PACK);
-            setBadgeClass(badge, "badge-dependency", mod.enabled() && !mod.isWrongVersion()
+            setBadgeClass(badge, "badge-modpack", live && fromModpack);
+            setBadgeClass(badge, "badge-pack",
+                    live && !fromModpack && mod.origin() == ModOrigin.PACK);
+            setBadgeClass(badge, "badge-dependency", live
                     && mod.origin() == ModOrigin.DEPENDENCY);
             setGraphic(box);
         }
@@ -918,6 +933,16 @@ public final class MainWindow implements ProfileHost {
     }
 
     /**
+     * The ids of the modpacks installed in the instance being shown.
+     *
+     * <p>Held rather than looked up per row, and re-read with the mods list. It
+     * is the difference between a row that says "Hexadron Optimise" and one that
+     * says "modpack", and getting it wrong tells the reader their instance
+     * contains a set they never installed.
+     */
+    private java.util.Set<String> modpackIds = java.util.Set.of();
+
+    /**
      * Re-reads the mods folder for the summary list.
      *
      * <p>More than the lock file, now that the list includes what the player put
@@ -927,10 +952,16 @@ public final class MainWindow implements ProfileHost {
      */
     private void refreshModsList(Profile profile) {
         if (profile == null) {
+            modpackIds = java.util.Set.of();
             modsList.setItems(FXCollections.observableArrayList());
             modsTitle.setText(I18n.t("instance.mods", 0));
             return;
         }
+        // Read with the list, not per row: a badge is drawn again on every
+        // repaint, and this is a file in the instance folder.
+        java.util.Set<String> packs = new java.util.LinkedHashSet<>();
+        service.modpacksIn(profile).forEach(pack -> packs.add(pack.id()));
+        modpackIds = java.util.Set.copyOf(packs);
         java.util.List<ModEntry> installed = service.modsIn(profile);
         modsList.setItems(FXCollections.observableArrayList(installed));
         modsTitle.setText(I18n.t("instance.mods", installed.size()));

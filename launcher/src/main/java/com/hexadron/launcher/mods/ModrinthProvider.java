@@ -224,21 +224,31 @@ public final class ModrinthProvider implements ModProvider {
     /**
      * The line drawings the platform publishes beside its category names.
      *
-     * <p>The same endpoint carries the categories of resource packs, plugins and
-     * servers, so only the ones filed under a mod are kept.
+     * <p>The same endpoint carries the categories of resource packs, shaders and
+     * servers, so only the ones filed under a mod or a modpack are kept - the two
+     * lists this launcher offers as filters.
+     *
+     * <p>Mods first, then modpacks, and never over the top of a drawing already
+     * taken. A handful of identifiers appear under more than one project type
+     * with a different drawing each time ({@code combat} is one), and the mod
+     * list is the one nineteen of the twenty-five categories come from, so it is
+     * the one that wins a collision.
      *
      * @return category identifier to the markup of its drawing
      */
     public java.util.Map<String, String> categoryArt() throws IOException, InterruptedException {
+        java.util.List<Json> tags = Http.getJson(API + "/tag/category").elements();
         java.util.Map<String, String> art = new java.util.LinkedHashMap<>();
-        for (Json tag : Http.getJson(API + "/tag/category").elements()) {
-            if (!"mod".equals(tag.get("project_type").asString(""))) {
-                continue;
-            }
-            String name = tag.get("name").asString(null);
-            String icon = tag.get("icon").asString(null);
-            if (name != null && icon != null && !icon.isBlank()) {
-                art.putIfAbsent(name, icon);
+        for (String type : java.util.List.of("mod", "modpack")) {
+            for (Json tag : tags) {
+                if (!type.equals(tag.get("project_type").asString(""))) {
+                    continue;
+                }
+                String name = tag.get("name").asString(null);
+                String icon = tag.get("icon").asString(null);
+                if (name != null && icon != null && !icon.isBlank()) {
+                    art.putIfAbsent(name, icon);
+                }
             }
         }
         return art;

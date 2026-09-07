@@ -56,16 +56,19 @@ final class Categories {
     }
 
     /**
-     * The categories in the order they should be offered.
+     * One kind's categories, in the order they should be offered.
      *
      * <p>By the name the player reads, not by the identifier underneath it: a
      * list sorted by {@code game-mechanics} and {@code worldgen} is not sorted
      * at all to somebody reading "Ігрові механіки" and "Генерація світу". The
      * ordering itself lives in {@link ModCategory}, where it can be checked
      * without a display.
+     *
+     * <p>Per kind, because the platform files each kind under its own list and a
+     * modpack's is not a mod's - see {@link ModCategory#forKind}.
      */
-    static List<ModCategory> inReadingOrder() {
-        return ModCategory.inReadingOrder(I18n.current().locale(), Categories::name);
+    static List<ModCategory> inReadingOrder(com.hexadron.launcher.mods.ContentKind kind) {
+        return ModCategory.inReadingOrder(kind, I18n.current().locale(), Categories::name);
     }
 
     /**
