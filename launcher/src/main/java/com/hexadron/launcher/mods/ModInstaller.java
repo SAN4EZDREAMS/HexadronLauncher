@@ -757,8 +757,12 @@ public final class ModInstaller {
      * @param source the platform that failed, or null when it is not known
      */
     public static String reasonFor(ModProvider.Source source, IOException failure) {
-        if (failure instanceof CurseForgeProvider.UnsupportedCategoriesException) {
-            return "the chosen categories are Modrinth's own and have no equivalent here";
+        if (failure instanceof CurseForgeProvider.UnsupportedCategoriesException unsupported) {
+            // Named, not counted. Most categories are paired with CurseForge's
+            // own now, so the ones that are not are a short list and the reader
+            // can untick exactly those and have their search back.
+            return "no equivalent here for "
+                    + String.join(", ", ModCategory.idsOf(unsupported.categories()));
         }
         if (failure instanceof CurseForgeProvider.KeyRejectedException refused) {
             // Already a whole sentence, and already naming the platform - which

@@ -443,12 +443,23 @@ public final class CurseForgeProvider implements ModProvider {
                              boolean onlyForProfile, int limit, int offset)
             throws IOException, InterruptedException {
 
-        // The categories are Modrinth's, and CurseForge files its projects under
-        // a different set of its own. Guessing a mapping would quietly return
-        // the wrong mods; saying so is the honest answer, and the browser has a
-        // line for exactly this.
-        if (!categories.isEmpty()) {
-            throw new UnsupportedCategoriesException();
+        // The categories are Modrinth's; CurseForge files its projects under a
+        // set of its own. The two are paired by meaning in
+        // CurseForgeCategories, so most of a narrowed search can be put to this
+        // platform - and the part that cannot is named rather than guessed at.
+        List<ModCategory> chosen = categories == null ? List.of() : categories;
+        List<ModCategory> unsupported = CurseForgeCategories.unexpressible(kind, chosen);
+        if (!unsupported.isEmpty()) {
+            throw new UnsupportedCategoriesException(unsupported);
+        }
+        List<Integer> categoryIds = categoryIdsFor(kind, chosen);
+        if (!chosen.isEmpty() && categoryIds.isEmpty()) {
+            // The pairing says these can be asked for and the platform did not
+            // give a number for any of them, which leaves only one honest
+            // answer. Running the search unnarrowed would hand back a full page
+            // of mods that do not match the ticked boxes, and nothing on screen
+            // would say the filter had been dropped.
+            throw new UnsupportedCategoriesException(chosen);
         }
 
         StringBuilder url = new StringBuilder(API + "/mods/search")
@@ -471,6 +482,16 @@ public final class CurseForgeProvider implements ModProvider {
         if (loaderId != null) {
             url.append("&modLoaderType=").append(loaderId);
         }
+        if (!categoryIds.isEmpty()) {
+            // The platform takes at most ten, and a JSON array is the shape it
+            // takes them in. One of ours can be several of theirs - worldgen is
+            // four - so the ten is reached by a filter of three or four ticks,
+            // not ten, which is why the list is trimmed rather than assumed
+            // short.
+            List<String> ids = new ArrayList<>();
+            categoryIds.stream().limit(MAX_CATEGORY_IDS).forEach(id -> ids.add(String.valueOf(id)));
+            url.append("&categoryIds=").append(encode("[" + String.join(",", ids) + "]"));
+        }
 
         Json response = get(url.toString());
         List<SearchResult> results = new ArrayList<>();
@@ -485,13 +506,104 @@ public final class CurseForgeProvider implements ModProvider {
                     mod.get("downloadCount").asLong(0),
                     mod.get("logo").get("thumbnailUrl").asString(null),
                     pageUrl(mod, slug),
-                    categoriesOf(mod),
+                    categoriesOf(kind, mod),
                     Source.CURSEFORGE));
         }
-        return new SearchPage(results,
-                response.get("pagination").get("totalCount").asInt(-1),
-                Math.max(0, offset));
+        int total = response.get("pagination").get("totalCount").asInt(-1);
+
+        // Ticked categories mean "all of them", here as on Modrinth.
+        //
+        // CurseForge's categoryIds does not document whether it means all of
+        // them or any of them, and the two are a different search. Rather than
+        // depend on the answer, the page is narrowed here to the rows that carry
+        // every ticked category. Where the platform already meant "all", nothing
+        // is removed and its own count still stands; where it did not, the rows
+        // are right and the count is no longer this search's, so it is not
+        // reported as one.
+        if (!chosen.isEmpty()) {
+            List<SearchResult> both = new ArrayList<>();
+            for (SearchResult result : results) {
+                if (result.categories().containsAll(chosen)) {
+                    both.add(result);
+                }
+            }
+            if (both.size() != results.size()) {
+                results = both;
+                total = -1;
+            }
+        }
+        return new SearchPage(results, total, Math.max(0, offset));
     }
+
+    /** CurseForge's own cap on how many category ids one search may name. */
+    private static final int MAX_CATEGORY_IDS = 10;
+
+    /**
+     * The platform's numeric ids for the chosen categories.
+     *
+     * <p>CurseForge filters by number and publishes the numbers alongside the
+     * names, so they are asked for rather than written down: a number in this
+     * repository is a number that goes wrong silently the day the platform
+     * renumbers a section, and no reader can check it. The pairing that is
+     * written down is by slug, in {@link CurseForgeCategories}, where it can be
+     * read and argued with.
+     */
+    private List<Integer> categoryIdsFor(ContentKind kind, List<ModCategory> chosen)
+            throws IOException, InterruptedException {
+
+        if (chosen.isEmpty()) {
+            return List.of();
+        }
+        Map<String, Integer> ids = categoryIds(kind);
+        List<Integer> found = new ArrayList<>();
+        for (ModCategory category : chosen) {
+            for (String slug : CurseForgeCategories.slugsFor(kind, category)) {
+                Integer id = ids.get(slug);
+                if (id != null && !found.contains(id)) {
+                    found.add(id);
+                }
+            }
+        }
+        return List.copyOf(found);
+    }
+
+    /**
+     * Every category of one kind, by slug, as the platform numbers them.
+     *
+     * <p>Asked for once per kind per run and then held. This changes about as
+     * often as CurseForge adds a section, the answer is a few kilobytes, and a
+     * search must not spend a second request on it every time a box is ticked.
+     */
+    private Map<String, Integer> categoryIds(ContentKind kind)
+            throws IOException, InterruptedException {
+
+        Map<String, Integer> known = categoryIdsByKind.get(kind);
+        if (known != null) {
+            return known;
+        }
+        Map<String, Integer> ids = new java.util.LinkedHashMap<>();
+        Json response = get(API + "/categories?gameId=" + GAME_MINECRAFT
+                + "&classId=" + kind.curseForgeClassId());
+        for (Json category : response.get("data").elements()) {
+            String slug = category.get("slug").asString(null);
+            int id = category.get("id").asInt(0);
+            if (slug != null && !slug.isBlank() && id > 0) {
+                ids.put(slug.trim().toLowerCase(Locale.ROOT), id);
+            }
+        }
+        Map<String, Integer> settled = Map.copyOf(ids);
+        // Only a real answer is kept: an empty one is a request that failed in a
+        // way that returned 200, and keeping it would mean an unfiltered search
+        // for the rest of the run.
+        if (!settled.isEmpty()) {
+            categoryIdsByKind.put(kind, settled);
+        }
+        return settled;
+    }
+
+    /** Held per run, filled on the first search that narrows by category. */
+    private final Map<ContentKind, Map<String, Integer>> categoryIdsByKind =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     @Override
     public Optional<ProjectCard> project(String projectId) throws IOException, InterruptedException {
@@ -502,10 +614,19 @@ public final class CurseForgeProvider implements ModProvider {
                 return Optional.empty();
             }
             String slug = mod.get("slug").asString("");
+            // Which of the platform's category lists this project's categories
+            // are from is decided by the class it is in, and the response says
+            // which that is. Without it the same slug would be read against the
+            // wrong list - "fantasy" is a data pack category here and a shader
+            // category on Modrinth.
+            ContentKind kind = ContentKind
+                    .byCurseForgeClassId(mod.get("classId").asInt(0))
+                    .orElse(null);
             return Optional.of(new ProjectCard(Source.CURSEFORGE,
                     String.valueOf(mod.get("id").asLong(0)), slug, name,
                     mod.get("logo").get("thumbnailUrl").asString(null),
-                    pageUrl(mod, slug)));
+                    pageUrl(mod, slug),
+                    categoriesOf(kind, mod)));
         } catch (Http.HttpStatusException e) {
             if (e.statusCode() == 404) {
                 return Optional.empty();
@@ -515,30 +636,53 @@ public final class CurseForgeProvider implements ModProvider {
     }
 
     /**
-     * Whichever of a CurseForge project's own categories this launcher has a
-     * name for.
+     * A CurseForge project's own categories, said in this launcher's words.
      *
-     * <p>The two platforms file mods under different sets, and only a handful of
-     * names coincide - magic, technology, food, storage, mobs. Those are shown;
-     * the rest are left off rather than translated by guesswork into something
-     * the project's author did not say.
+     * <p>The two platforms file projects under different sets, and this used to
+     * read CurseForge's slugs as though they were Modrinth's - so a row showed
+     * whichever handful happened to be spelled the same and nothing for the
+     * rest, and a data pack filed under CurseForge's {@code fantasy} was marked
+     * with Modrinth's, which is a shader's look. The pairing is written down by
+     * meaning and per kind in {@link CurseForgeCategories}.
+     *
+     * @param kind the platform's list these slugs are from; null when the
+     *             response did not say, in which case nothing is claimed
      */
-    private static List<ModCategory> categoriesOf(Json mod) {
-        List<String> ids = new ArrayList<>();
+    private static List<ModCategory> categoriesOf(ContentKind kind, Json mod) {
+        if (kind == null) {
+            return List.of();
+        }
+        List<String> slugs = new ArrayList<>();
         for (Json category : mod.get("categories").elements()) {
             String slug = category.get("slug").asString(null);
             if (slug != null) {
-                ids.add(slug);
+                slugs.add(slug);
             }
         }
-        return ModCategory.parse(ids);
+        return CurseForgeCategories.of(kind, slugs);
     }
 
-    /** Raised when a search asks for categories this platform cannot express. */
+    /**
+     * Raised when a search asks for categories this platform cannot express.
+     *
+     * <p>Most of them it can, now that the two vocabularies are paired. The ones
+     * left are Modrinth's alone - a shader's effects, and how much of a machine
+     * it asks for - and the message names them, because "your categories do not
+     * exist here" does not tell anybody which box to untick.
+     */
     public static final class UnsupportedCategoriesException extends IOException {
 
-        UnsupportedCategoriesException() {
-            super("categories are Modrinth's and do not map onto CurseForge's own");
+        private final List<ModCategory> categories;
+
+        UnsupportedCategoriesException(List<ModCategory> categories) {
+            super("CurseForge does not file anything under "
+                    + String.join(", ", ModCategory.idsOf(categories)));
+            this.categories = List.copyOf(categories);
+        }
+
+        /** The categories that have no equivalent here. */
+        public List<ModCategory> categories() {
+            return categories;
         }
     }
 

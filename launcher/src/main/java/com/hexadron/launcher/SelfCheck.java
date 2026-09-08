@@ -41,6 +41,7 @@ import com.hexadron.launcher.meta.Rule;
 import com.hexadron.launcher.meta.VersionJson;
 import com.hexadron.launcher.meta.VersionManifest;
 import com.hexadron.launcher.mods.ContentKind;
+import com.hexadron.launcher.mods.CurseForgeCategories;
 import com.hexadron.launcher.mods.CurseForgeProvider;
 import com.hexadron.launcher.mods.DatapackScan;
 import com.hexadron.launcher.mods.PackArchive;
@@ -156,6 +157,7 @@ public final class SelfCheck {
         launcherUpdates();
         deltaUpdates();
         modCategories();
+        curseForgeCategories();
         categoryOrder();
         loaderCompatibility();
         forgeInstallerProfiles();
@@ -4092,6 +4094,161 @@ public final class SelfCheck {
             }
         }
         check("no malformed markup throws", survived == rubbish.length);
+
+        // --- the grid a drawing is actually on
+        //
+        // Almost every icon in the set is on a twenty-four unit grid, and the
+        // code that draws them scaled by a constant twenty-four. Modrinth's
+        // "potato" shader category is on a 512 unit grid, so the constant drew
+        // it twenty-one times too big - across the rows above it, which then
+        // could not be ticked, because a parent is asked whether a point is
+        // inside it by being asked of every child. The size has to be read.
+        check("a drawing with no viewBox is on the twenty-four unit grid",
+                SvgPaths.of("<path d=\"M1 1 L2 2\"/>").extent() == SvgPaths.GRID);
+        check("and one with a viewBox is on that one",
+                SvgPaths.of("<svg viewBox=\"0 0 512 512\" fill=\"currentColor\">"
+                        + "<circle cx=\"256\" cy=\"256\" r=\"200\"/></svg>").extent() == 512);
+        check("a viewBox that is not four numbers is not believed",
+                SvgPaths.of("<svg viewBox=\"0 0 512\"><path d=\"M1 1 L2 2\"/></svg>")
+                        .extent() == SvgPaths.GRID);
+        check("nor is one with no area, which would scale a drawing to nothing",
+                SvgPaths.of("<svg viewBox=\"0 0 0 0\"><path d=\"M1 1 L2 2\"/></svg>")
+                        .extent() == SvgPaths.GRID);
+        check("a viewBox that does not start at the origin keeps its corner",
+                SvgPaths.of("<svg viewBox=\"-8 -4 32 32\"><path d=\"M1 1 L2 2\"/></svg>")
+                        .minX() == -8);
+        check("commas separate a viewBox as well as spaces",
+                SvgPaths.of("<svg viewBox=\"0,0,48,48\"><path d=\"M1 1 L2 2\"/></svg>")
+                        .extent() == 48);
+
+        // --- filled or stroked, as the markup asks
+        SvgPaths.Drawing outline = SvgPaths.of(
+                "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\""
+                        + " stroke-width=\"3\"><path d=\"M2 20h.01\"/></svg>");
+        check("a line drawing is stroked and not filled",
+                outline.stroked() && !outline.filled());
+        check("and is stroked as widely as it says", outline.strokeWidth() == 3);
+
+        SvgPaths.Drawing solid = SvgPaths.of(
+                "<svg viewBox=\"0 0 512 512\" fill=\"currentColor\" stroke=\"currentColor\">"
+                        + "<circle cx=\"256\" cy=\"256\" r=\"200\"/></svg>");
+        check("a solid drawing is filled", solid.filled());
+
+        check("markup that names no paint is the outline the rest of the set is",
+                SvgPaths.of("<path d=\"M1 1 L2 2\"/>").stroked()
+                        && !SvgPaths.of("<path d=\"M1 1 L2 2\"/>").filled()
+                        && SvgPaths.of("<path d=\"M1 1 L2 2\"/>").strokeWidth() == 2);
+        SvgPaths.Drawing neither = SvgPaths.of(
+                "<svg viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M1 1 L2 2\"/></svg>");
+        check("a drawing that asks for neither is still drawn",
+                neither.stroked() || neither.filled());
+        check("an empty drawing is empty and still has a grid",
+                SvgPaths.of("  ").isEmpty() && SvgPaths.of("  ").extent() == SvgPaths.GRID);
+        check("reading paths alone still answers the same list",
+                SvgPaths.read("<path d=\"M1 1 L2 2\"/>")
+                        .equals(SvgPaths.of("<path d=\"M1 1 L2 2\"/>").paths()));
+    }
+
+    /**
+     * The two platforms' vocabularies, and the pairing between them.
+     *
+     * <p>CurseForge's categories used to be read as though they were Modrinth's:
+     * a row showed whichever handful happened to be spelled the same and nothing
+     * for the rest, and a data pack filed under CurseForge's {@code fantasy} was
+     * marked with Modrinth's, which is a shader's look. What is checked here is
+     * that the pairing is by meaning and per kind, and that it reads both ways -
+     * forwards for the marks on a row, backwards for a search.
+     */
+    private static void curseForgeCategories() {
+        section("CurseForge categories");
+
+        check("what CurseForge splits, one mark joins",
+                CurseForgeCategories.of(ContentKind.MOD,
+                        List.of("technology-automation", "technology-energy",
+                                "technology-processing"))
+                        .equals(List.of(ModCategory.TECHNOLOGY)));
+        check("four ways of generating a world are one category",
+                CurseForgeCategories.of(ContentKind.MOD,
+                        List.of("world-biomes", "world-dimensions", "world-structures",
+                                "world-ores-resources"))
+                        .equals(List.of(ModCategory.WORLDGEN)));
+        check("and mobs are not one of them",
+                CurseForgeCategories.of(ContentKind.MOD, List.of("world-mobs"))
+                        .equals(List.of(ModCategory.MOBS)));
+        check("a category that is honestly two is two",
+                CurseForgeCategories.of(ContentKind.MOD,
+                        List.of("technology-item-fluid-energy-transport"))
+                        .equals(List.of(ModCategory.TECHNOLOGY, ModCategory.TRANSPORTATION)));
+        check("a name spelled differently still pairs",
+                CurseForgeCategories.of(ContentKind.MOD, List.of("mc-food"))
+                        .equals(List.of(ModCategory.FOOD))
+                        && CurseForgeCategories.of(ContentKind.MOD, List.of("library-api"))
+                                .equals(List.of(ModCategory.LIBRARY))
+                        && CurseForgeCategories.of(ContentKind.RESOURCEPACK,
+                                List.of("sixty-four-x"))
+                                .equals(List.of(ModCategory.RESOLUTION_64X)));
+        check("a category naming the mod it extends is left off",
+                CurseForgeCategories.of(ContentKind.MOD,
+                        List.of("create", "kubejs", "applied-energistics-2")).isEmpty());
+        check("and so is one naming a jam it was made for",
+                CurseForgeCategories.of(ContentKind.MOD, List.of("modjam-2025")).isEmpty());
+        check("case and spacing are not a different slug",
+                CurseForgeCategories.of(ContentKind.MOD, List.of(" MC-Food "))
+                        .equals(List.of(ModCategory.FOOD)));
+        check("nothing is claimed for a kind that was not named",
+                CurseForgeCategories.of(null, List.of("magic")).isEmpty());
+
+        // The fault that reading by identifier could not see: the same word is
+        // two different categories on two different lists.
+        check("a data pack's fantasy is not a shader's",
+                CurseForgeCategories.of(ContentKind.DATAPACK, List.of("fantasy")).isEmpty()
+                        && CurseForgeCategories.of(ContentKind.SHADER, List.of("fantasy"))
+                                .equals(List.of(ModCategory.FANTASY)));
+        check("a resource pack's traditional is Modrinth's vanilla-like",
+                CurseForgeCategories.of(ContentKind.RESOURCEPACK, List.of("traditional"))
+                        .equals(List.of(ModCategory.VANILLA_LIKE)));
+        check("and a shader's vanilla is too",
+                CurseForgeCategories.of(ContentKind.SHADER, List.of("vanilla"))
+                        .equals(List.of(ModCategory.VANILLA_LIKE)));
+
+        // Backwards, which is what lets a ticked box narrow a CurseForge search
+        // instead of refusing it.
+        check("asking for worldgen asks for all four",
+                Set.copyOf(CurseForgeCategories.slugsFor(ContentKind.MOD, ModCategory.WORLDGEN))
+                        .equals(Set.of("world-biomes", "world-dimensions", "world-structures",
+                                "world-ores-resources")));
+        check("asking for a category this platform has no word for asks for nothing",
+                CurseForgeCategories.slugsFor(ContentKind.SHADER, ModCategory.LOW).isEmpty()
+                        && !CurseForgeCategories.canExpress(ContentKind.SHADER, ModCategory.PBR));
+        check("the three shader categories it does have are expressible",
+                CurseForgeCategories.canExpress(ContentKind.SHADER, ModCategory.REALISTIC)
+                        && CurseForgeCategories.canExpress(ContentKind.SHADER, ModCategory.FANTASY)
+                        && CurseForgeCategories.canExpress(ContentKind.SHADER,
+                                ModCategory.VANILLA_LIKE));
+        check("a search is refused by naming what cannot be asked for",
+                CurseForgeCategories.unexpressible(ContentKind.SHADER,
+                        List.of(ModCategory.REALISTIC, ModCategory.LOW, ModCategory.PBR))
+                        .equals(List.of(ModCategory.LOW, ModCategory.PBR)));
+        check("and a search of things it can express is not refused",
+                CurseForgeCategories.unexpressible(ContentKind.MOD,
+                        List.of(ModCategory.TECHNOLOGY, ModCategory.WORLDGEN)).isEmpty());
+
+        // Every pairing has to be one the platform offers for that kind, or the
+        // mark is one no filter can ever match.
+        for (ContentKind kind : ContentKind.values()) {
+            for (String slug : CurseForgeCategories.slugsFor(kind)) {
+                for (ModCategory category : CurseForgeCategories.of(kind, List.of(slug))) {
+                    check("a " + kind.name().toLowerCase(java.util.Locale.ROOT)
+                                    + "'s " + slug + " pairs with a category of its own kind",
+                            category.appliesTo(kind));
+                }
+            }
+        }
+
+        check("a class the platform numbers is a kind this launcher knows",
+                ContentKind.byCurseForgeClassId(ContentKind.SHADER.curseForgeClassId())
+                        .orElseThrow() == ContentKind.SHADER
+                        && ContentKind.byCurseForgeClassId(0).isEmpty());
     }
 
     /**

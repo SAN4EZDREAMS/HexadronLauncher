@@ -36,15 +36,15 @@ import java.util.Map;
  */
 final class Categories {
 
-    /** Path data, read once per drawing rather than once per row that shows it. */
-    private final Map<ModCategory, List<String>> drawings = new EnumMap<>(ModCategory.class);
+    /** Read once per drawing rather than once per row that shows it. */
+    private final Map<ModCategory, SvgPaths.Drawing> drawings = new EnumMap<>(ModCategory.class);
 
     Categories(CategoryArt art) {
         for (ModCategory category : ModCategory.values()) {
             art.of(category).ifPresent(markup -> {
-                List<String> paths = SvgPaths.read(markup);
-                if (!paths.isEmpty()) {
-                    drawings.put(category, paths);
+                SvgPaths.Drawing drawing = SvgPaths.of(markup);
+                if (!drawing.isEmpty()) {
+                    drawings.put(category, drawing);
                 }
             });
         }

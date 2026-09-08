@@ -967,6 +967,20 @@
 }
 
 /*
+ * The other kind, for the drawings that are one.
+ *
+ * Not every icon in the set is an outline: a few are published as solid shapes
+ * with a fill and no stroke, and drawn hollow like the rest they come out as a
+ * wire frame of themselves. Which of the two a drawing is comes from its own
+ * markup - see SvgPaths.Drawing - and both take the same colour, so a filled
+ * icon and a stroked one sit beside each other without either standing out.
+ */
+.svg-icon-filled {
+    -fx-fill: -fx-text-1;
+    -fx-stroke: transparent;
+}
+
+/*
  * What a mod is filed under, on the row.
  *
  * Quiet on purpose. It is context for the name above it, not something to press:

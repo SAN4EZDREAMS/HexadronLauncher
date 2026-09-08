@@ -51,8 +51,73 @@ import java.util.regex.Pattern;
  */
 public final class SvgPaths {
 
-    /** The grid these are drawn on. Everything below is in its units. */
+    /**
+     * The grid to assume when the markup names none.
+     *
+     * <p>A drawing with no {@code viewBox} is one whose author took the default,
+     * and for this kind of icon set the default is twenty-four. It is a fallback
+     * and nothing more: the grid a drawing is actually on is read from the
+     * drawing, because they are not all on the same one - see {@link #of}.
+     */
     public static final double GRID = 24;
+
+    /**
+     * A drawing, with the two things a caller needs besides its shapes.
+     *
+     * <h2>The grid, because it is not always twenty-four</h2>
+     *
+     * <p>This used to hand back shapes alone and the code that drew them scaled
+     * by a constant twenty-four. That is right for almost every icon in the set
+     * and wrong for the ones that are not: Modrinth's {@code potato} shader
+     * category is published on a 512 grid, so a constant of twenty-four drew it
+     * twenty-one times too big - a drawing the width of the whole filter panel,
+     * over the rows above it.
+     *
+     * <p>That is not only ugly. A drawing that spills out of its box widens the
+     * box's parent as far as anything asking "is this point inside you" is
+     * concerned, and a tick box the width of the panel answers yes for the rows
+     * above it - so two categories could not be ticked at all. The size an icon
+     * is drawn at has to come from the drawing.
+     *
+     * <h2>Filled or stroked, because it is not always stroked</h2>
+     *
+     * <p>Most of the set is a line drawing: no fill, a stroke of two units. The
+     * 512-grid one is the other kind - a solid shape with {@code fill} and no
+     * meaningful stroke - and drawing it stroked-and-hollow like the rest turns
+     * a potato into a wire outline of a potato. What the markup asks for is
+     * carried here and honoured.
+     *
+     * @param paths       one entry per shape, in the order they were written
+     * @param minX        left edge of the grid the shapes are placed on
+     * @param minY        top edge of it
+     * @param width       its width, always above zero
+     * @param height      its height, always above zero
+     * @param filled      true when the shapes are solid
+     * @param stroked     true when the shapes are outlined
+     * @param strokeWidth the outline's width, in the grid's own units
+     */
+    public record Drawing(List<String> paths, double minX, double minY,
+                          double width, double height,
+                          boolean filled, boolean stroked, double strokeWidth) {
+
+        public Drawing {
+            paths = List.copyOf(paths);
+        }
+
+        /** Nothing readable was in the markup. */
+        public static Drawing empty() {
+            return new Drawing(List.of(), 0, 0, GRID, GRID, false, true, 2);
+        }
+
+        public boolean isEmpty() {
+            return paths.isEmpty();
+        }
+
+        /** The longer side of the grid: what a square box has to fit. */
+        public double extent() {
+            return Math.max(width, height);
+        }
+    }
 
     /** Deliberately narrow: these files have no quoting tricks in them. */
     private static final Pattern ELEMENT =
@@ -60,6 +125,13 @@ public final class SvgPaths {
                     Pattern.CASE_INSENSITIVE);
     private static final Pattern ATTRIBUTE =
             Pattern.compile("([\\w-]+)\\s*=\\s*\"([^\"]*)\"");
+
+    /** The opening tag, which is where the grid and the paint are written. */
+    private static final Pattern ROOT =
+            Pattern.compile("<\\s*svg\\b([^>]*)>", Pattern.CASE_INSENSITIVE);
+
+    /** Everything that is not a number is a separator. Same rule as points. */
+    private static final Pattern SEPARATOR = Pattern.compile("[\\s,]+");
 
     private SvgPaths() {
     }
@@ -76,10 +148,111 @@ public final class SvgPaths {
      *         there was nothing readable
      */
     public static List<String> read(String markup) {
+        return of(markup).paths();
+    }
+
+    /**
+     * Reads the markup into a drawing: its shapes, the grid they are on, and
+     * whether they are filled, stroked or both.
+     *
+     * <p>The whole of what a caller needs to put this on screen at a size of its
+     * choosing. See {@link Drawing} for why the last two are not assumed.
+     *
+     * @return an empty drawing when there was nothing readable; never null
+     */
+    public static Drawing of(String markup) {
         if (markup == null || markup.isBlank()) {
-            return List.of();
+            return Drawing.empty();
         }
-        return List.copyOf(pathsOf(markup));
+        List<String> paths = pathsOf(markup);
+        if (paths.isEmpty()) {
+            return Drawing.empty();
+        }
+        java.util.Map<String, String> root = rootAttributes(markup);
+        double[] box = viewBox(root.get("viewbox"));
+
+        // What the markup asks to be painted with. A drawing that says neither
+        // is the shape the rest of this set is - an outline, two units wide -
+        // because that is what it was drawn as before any of this was read, and
+        // a silent change of appearance is not an improvement.
+        boolean declared = root.get("fill") != null || root.get("stroke") != null;
+        boolean filled = paint(root.get("fill")) != null;
+        boolean stroked = paint(root.get("stroke")) != null;
+        // A drawing that asks for neither would be invisible, and a drawing that
+        // asks for nothing at all is the outline the rest of this set is.
+        if (!filled && !stroked) {
+            stroked = true;
+        }
+        double strokeWidth = strokeWidth(root.get("stroke-width"), declared);
+
+        return new Drawing(paths, box[0], box[1], box[2], box[3], filled, stroked, strokeWidth);
+    }
+
+    /** The attributes of the opening tag, or none when there is no such tag. */
+    private static java.util.Map<String, String> rootAttributes(String markup) {
+        Matcher matcher = ROOT.matcher(markup);
+        return matcher.find() ? attributesOf(matcher.group(1)) : java.util.Map.of();
+    }
+
+    /**
+     * The grid, as {@code minX minY width height}.
+     *
+     * <p>Falls back to the twenty-four unit square for anything unreadable, and
+     * for a box with no area - a drawing scaled by zero is a drawing that is not
+     * there, which is worse than one drawn on the wrong grid.
+     */
+    private static double[] viewBox(String value) {
+        double[] fallback = {0, 0, GRID, GRID};
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        String[] parts = SEPARATOR.split(value.trim());
+        if (parts.length != 4) {
+            return fallback;
+        }
+        double[] box = new double[4];
+        for (int i = 0; i < 4; i++) {
+            try {
+                box[i] = Double.parseDouble(parts[i]);
+            } catch (NumberFormatException e) {
+                return fallback;
+            }
+        }
+        if (!(box[2] > 0) || !(box[3] > 0)) {
+            return fallback;
+        }
+        return box;
+    }
+
+    /** A colour, or null for "none" and for an attribute that is not there. */
+    private static String paint(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() || trimmed.equalsIgnoreCase("none") ? null : trimmed;
+    }
+
+    /**
+     * The outline's width in grid units.
+     *
+     * <p>Unwritten means one, which is what SVG itself means by it - not the two
+     * this used to hard-code. Two is kept as the answer for markup that names no
+     * paint at all, which is how this reads a fragment rather than a whole file;
+     * those were drawn two units wide before any of this was read, and a silent
+     * change of appearance is not an improvement.
+     */
+    private static double strokeWidth(String value, boolean declared) {
+        double fallback = declared ? 1 : 2;
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            double width = Double.parseDouble(value.trim());
+            return width > 0 ? width : fallback;
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
     /** Every element of the markup, as path data. */

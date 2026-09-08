@@ -14,6 +14,7 @@ package com.hexadron.launcher.mods;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * A kind of thing a player installs into an instance.
@@ -369,6 +370,23 @@ public enum ContentKind {
      */
     public int curseForgeClassId() {
         return curseForgeClassId;
+    }
+
+    /**
+     * The kind a CurseForge {@code classId} names, if this launcher offers it.
+     *
+     * <p>The way back from a number the platform put in a response. A project
+     * fetched by id says which class it is in and nothing else about its kind,
+     * and the kind is what decides which of CurseForge's category lists its
+     * categories are from - see {@link CurseForgeCategories}.
+     */
+    public static Optional<ContentKind> byCurseForgeClassId(int classId) {
+        for (ContentKind kind : values()) {
+            if (kind.curseForgeClassId == classId) {
+                return Optional.of(kind);
+            }
+        }
+        return Optional.empty();
     }
 
     /** The path Modrinth publishes a project of this kind under. */
