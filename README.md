@@ -768,12 +768,56 @@ version wins, and after that the lowest version that still qualifies. Both rules
 point the same way: run each version on the runtime its own era was built
 against.
 
+The **exact** major is what launching asks for, not merely the lowest that
+qualifies. This is not a preference: "new enough" is a `>=` test, and a machine
+holding only Java 21 satisfied a 1.12.2 profile's requirement of 8, ran it on
+21, and crashed inside Forge's own bootstrap - while never downloading the Java
+8 that would have worked, because something already "fitted". Nothing else
+covered it either: Forge for 1.12.2 has no installer processors, so the one code
+path that did insist on the exact major was never reached for exactly the packs
+that need it most. Mojang names one major per version and the loaders compile
+against that one; a newer JVM is a different environment, not a better one.
+
+An explicit Java path set on a profile still wins over all of this, because it
+is a deliberate choice - but a path that no longer resolves is now reported and
+set aside rather than ending the launch, so a field set against a JDK since
+uninstalled no longer bricks the profile.
+
+### Asking before the pack, not after it
+
+A modpack's Java requirement is settled when the pack is installed, before its
+mods are downloaded - see `LauncherService.settleJava`. It used to surface at
+the end of the chain: install the pack, wait for four hundred mods, press Play,
+and only then be told the machine has no Java 8. The version manifest that names
+the requirement is a few kilobytes, so asking early costs nothing and answers
+before the download that matters begins.
+
+It reports rather than refuses. A declined download or an unreachable Adoptium
+is not a reason to abandon a pack that is otherwise installing correctly; the
+same question is asked again, with the same dialog, when the game is started.
+
+### Giving one back
+
+Runtimes are shared by major version - one Java 21 under `java/` serves every
+profile that asks for Java 21 - so removing a profile asks "is anything still
+asking for this one", not "which runtime was that profile's".
+`LauncherService.javaMajorsInUse` answers it from what each profile recorded,
+and refuses to answer at all when any profile's requirement is unknown: an
+incomplete answer there deletes the runtime a working profile launches on, and
+nothing notices until the next Play.
+
+Only folders carrying the launcher's own `.hexadron-runtime.json` marker are
+ever removed. A Java the user installed themselves is not the launcher's to
+delete, whatever the profile list says.
+
 ### Downloading one
 
 When nothing fits, the launcher offers to fetch a JRE. Three answers: download,
-not now, or never ask again - and "download" is remembered, so the question is
-asked once rather than once per version. `javaDownloadPolicy` in `launcher.json`
-is the same switch.
+not now, or never ask again. "Download" means this download; handing the
+decision over permanently is the checkbox beside it, because saying yes to 45 MB
+is not the same as saying yes to every future 45 MB - and it used to rewrite
+`javaDownloadPolicy` to `always` without mentioning it. `javaDownloadPolicy` in
+`launcher.json` is the same switch.
 
 The runtime comes from **Eclipse Temurin**, through Eclipse Adoptium's public
 download API, and lands in the launcher's own data folder. Nothing outside that
@@ -795,10 +839,22 @@ unpacked, it is unpacked into a scratch directory and moved into place only afte
 it has been shown to start and to report the version it was fetched for, and the
 licence files that ship inside the archive are kept rather than discarded.
 
-The Forge and NeoForge installers get the same treatment, with one difference:
-there the exact major version is insisted on rather than merely preferred. Those
-processors are third-party programs built against one Java generation - see
-`ProcessorRunner` - and "new enough" is not the same property.
+The Forge and NeoForge installers go through the same resolver, and insist on
+the exact major for the same reason: those processors are third-party programs
+built against one Java generation - see `ProcessorRunner` - and "new enough" is
+not the same property.
+
+Two smaller things live in that path, and both were sources of the intermittent
+kind of failure - the kind that looks like the launcher having worked yesterday
+and not today. A runtime that failed to answer `java -version` - an antivirus
+holding the file, a machine too loaded to spawn a process inside fifteen seconds
+- used to be remembered as unusable for the rest of the run; only a runtime that
+actually answered is cached that way now. And unpacking replaces the old tree by
+moving it aside rather than deleting it first, so a runtime the game is still
+running on either replaces cleanly or does not change at all, instead of leaving
+a directory that exists and no longer works. Installs of one major version are
+serialised, so two of them can no longer share a staging directory whose first
+act was to delete itself.
 
 ### The packaged clients
 

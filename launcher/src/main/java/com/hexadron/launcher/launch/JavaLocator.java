@@ -112,6 +112,17 @@ public final class JavaLocator {
      */
     private static final Map<String, Integer> PROBE_CACHE = new ConcurrentHashMap<>();
 
+    /**
+     * The registry answer, computed once.
+     *
+     * <p>The javadoc on {@link #windowsRegistryJavaHomes()} always claimed this
+     * was cached and it was not, so every {@code discover()} - one per launch,
+     * one per install, one per pack - spawned ten {@code reg query /s} processes
+     * and waited up to five seconds for each. Vendors do not install Java while
+     * the launcher is open, so once per run is the right number of times to ask.
+     */
+    private static volatile List<Path> registryHomes;
+
     private final GameDirs dirs;
 
     public JavaLocator(GameDirs dirs) {
@@ -395,15 +406,19 @@ public final class JavaLocator {
      * <p>Every vendor installer writes one, and it is the only source that finds
      * a runtime the user installed to a folder of their own choosing. Reading it
      * means spawning {@code reg}, so the result is computed once per launcher
-     * run and cached.
+     * run and cached - see {@link #registryHomes}.
      */
     private static List<Path> windowsRegistryJavaHomes() {
         if (!Platform.isWindows()) {
             return List.of();
         }
+        List<Path> cached = registryHomes;
+        if (cached != null) {
+            return cached;
+        }
         List<Path> homes = new ArrayList<>();
         for (String key : WINDOWS_REGISTRY_KEYS) {
-            for (String line : runAndRead(List.of("reg", "query", key, "/s"), 5)) {
+            for (String line : runAndRead(List.of("reg", "query", key, "/s"), 5).lines()) {
                 Matcher matcher = REGISTRY_HOME.matcher(line);
                 if (!matcher.matches()) {
                     continue;
@@ -415,7 +430,9 @@ public final class JavaLocator {
                 }
             }
         }
-        return homes;
+        List<Path> result = List.copyOf(homes);
+        registryHomes = result;
+        return result;
     }
 
     /** Turns a java home or a java executable path into an executable path. */
@@ -463,14 +480,31 @@ public final class JavaLocator {
         if (executable == null || !Files.isRegularFile(executable)) {
             return null;
         }
-        Integer major = PROBE_CACHE.computeIfAbsent(cacheKey(executable), key -> {
-            Integer fromRelease = majorFromReleaseFile(executable);
-            Integer resolved = fromRelease != null ? fromRelease : majorFromVersionOutput(executable);
-            // ConcurrentHashMap will not store null, and a runtime that cannot be
-            // identified should not be probed again on the next launch either.
-            return resolved == null ? -1 : resolved;
-        });
-        return (major == null || major < 0) ? null : new JavaRuntime(executable, major, source);
+        String key = cacheKey(executable);
+        Integer cached = PROBE_CACHE.get(key);
+        if (cached != null) {
+            return cached < 0 ? null : new JavaRuntime(executable, cached, source);
+        }
+
+        Integer fromRelease = majorFromReleaseFile(executable);
+        if (fromRelease != null) {
+            PROBE_CACHE.put(key, fromRelease);
+            return new JavaRuntime(executable, fromRelease, source);
+        }
+
+        // Only a runtime that actually answered is allowed to be remembered as
+        // unusable. This used to cache -1 for every failure, and the failures
+        // that matter are not the runtime's: an antivirus holding the file, a
+        // machine so loaded that the fifteen-second wait ran out, a process
+        // table that was momentarily full. One of those used to make a perfectly
+        // good Java invisible for the rest of the launcher's run - which is one
+        // of the ways "it worked yesterday" happens.
+        CommandOutput output = runAndRead(List.of(executable.toString(), "-version"), 15);
+        Integer major = output.ran() ? majorFrom(output.lines()) : null;
+        if (output.ran()) {
+            PROBE_CACHE.put(key, major == null ? -1 : major);
+        }
+        return major == null ? null : new JavaRuntime(executable, major, source);
     }
 
     private static String cacheKey(Path executable) {
@@ -485,6 +519,13 @@ public final class JavaLocator {
     /** Forgets every probe result. For the self-check, and after an install. */
     public static void clearProbeCache() {
         PROBE_CACHE.clear();
+        registryHomes = null;
+    }
+
+    /** Whether {@code executable} has already been probed and found unusable. */
+    public static boolean isKnownUnusable(Path executable) {
+        Integer cached = executable == null ? null : PROBE_CACHE.get(cacheKey(executable));
+        return cached != null && cached < 0;
     }
 
     private static Integer majorFromReleaseFile(Path executable) {
@@ -514,8 +555,9 @@ public final class JavaLocator {
         return null;
     }
 
-    private static Integer majorFromVersionOutput(Path executable) {
-        for (String line : runAndRead(List.of(executable.toString(), "-version"), 15)) {
+    /** The major version named anywhere in {@code java -version}'s output. */
+    private static Integer majorFrom(List<String> lines) {
+        for (String line : lines) {
             Matcher matcher = VERSION_LINE.matcher(line);
             if (matcher.find()) {
                 try {
@@ -528,8 +570,24 @@ public final class JavaLocator {
         return null;
     }
 
-    /** Runs a command and returns its output lines, or nothing if it fails. */
-    private static List<String> runAndRead(List<String> command, int timeoutSeconds) {
+    /**
+     * What a command said, and whether it got as far as saying anything.
+     *
+     * <p>The two used to be indistinguishable - both came back as an empty list -
+     * and they call for opposite decisions. A program that ran and printed
+     * something unrecognisable has told us what it is. A program that never
+     * started has told us nothing, and treating that as an answer is how a
+     * transient fault gets remembered as a fact.
+     */
+    private record CommandOutput(boolean ran, List<String> lines) {
+
+        static CommandOutput failed() {
+            return new CommandOutput(false, List.of());
+        }
+    }
+
+    /** Runs a command and returns its output lines. */
+    private static CommandOutput runAndRead(List<String> command, int timeoutSeconds) {
         Process process = null;
         try {
             process = new ProcessBuilder(command).redirectErrorStream(true).start();
@@ -539,17 +597,17 @@ public final class JavaLocator {
             }
             if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
-                return List.of();
+                return CommandOutput.failed();
             }
-            return List.of(output.split("\\R"));
+            return new CommandOutput(true, List.of(output.split("\\R")));
         } catch (IOException | RuntimeException e) {
-            return List.of();
+            return CommandOutput.failed();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             if (process != null) {
                 process.destroyForcibly();
             }
-            return List.of();
+            return CommandOutput.failed();
         }
     }
 

@@ -136,6 +136,7 @@ public final class SelfCheck {
         securityHardening();
         javaVersionParsing();
         javaRuntimeSelection();
+        javaRuntimeHousekeeping();
         archiveExtraction();
         applicationIcons();
         versionManifestParsing();
@@ -1003,6 +1004,83 @@ public final class SelfCheck {
                 List.of("windows", "mac", "linux").contains(JavaProvisioner.adoptiumOs()));
         check("this host maps to an Adoptium architecture",
                 List.of("x64", "x32", "aarch64", "arm").contains(JavaProvisioner.adoptiumArch()));
+    }
+
+    /**
+     * Owning a downloaded runtime: recognising it, and giving it back.
+     *
+     * <p>The launcher deletes directories here, which is the reason this exists.
+     * Two properties have to hold and both fail silently: only a folder the
+     * launcher itself downloaded may be removed - a Java the user installed is
+     * not the launcher's to touch, however the profile list looks - and a
+     * version any remaining profile still asks for has to survive. Getting the
+     * second one wrong deletes the runtime a working profile launches on, and
+     * nothing notices until the next Play.
+     */
+    private static void javaRuntimeHousekeeping() {
+        section("Java runtime housekeeping");
+
+        // What a profile remembers, since that is what the decision rests on.
+        Profile profile = Profile.create("Pack", "1.12.2", LoaderType.FORGE);
+        check("a fresh profile remembers no java version", profile.javaMajor() == null);
+        profile.javaMajor(8);
+        check("the java version survives a round trip through json",
+                Integer.valueOf(8).equals(Profile.fromJson(profile.toJson()).javaMajor()));
+        profile.javaMajor(0);
+        check("a nonsense java version is not stored", profile.javaMajor() == null);
+        profile.javaMajor(null);
+        check("clearing the java version is allowed", profile.javaMajor() == null);
+
+        java.nio.file.Path work = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-java-check");
+            GameDirs dirs = new GameDirs(work);
+            JavaLocator locator = new JavaLocator(dirs);
+            JavaProvisioner provisioner = new JavaProvisioner(dirs, locator);
+
+            // Three folders: two the launcher would have written, one it would
+            // not. Only the marker tells them apart.
+            java.nio.file.Path eight = dirs.javaRuntime(provisioner.component(8));
+            java.nio.file.Path twentyOne = dirs.javaRuntime(provisioner.component(21));
+            java.nio.file.Path strangers = dirs.javaRuntime(
+                    provisioner.component(17));
+            for (java.nio.file.Path home : List.of(eight, twentyOne, strangers)) {
+                java.nio.file.Files.createDirectories(home.resolve("bin"));
+                java.nio.file.Files.writeString(home.resolve("bin").resolve("placeholder"), "x");
+            }
+            java.nio.file.Files.writeString(
+                    eight.resolve(".hexadron-runtime.json"), "{\"majorVersion\":8}");
+            java.nio.file.Files.writeString(
+                    twentyOne.resolve(".hexadron-runtime.json"), "{\"majorVersion\":21}");
+
+            List<Integer> managed = provisioner.installedMajors();
+            check("a downloaded runtime is recognised", managed.contains(8) && managed.contains(21));
+            check("a runtime without the marker is not claimed", !managed.contains(17));
+
+            JavaRuntimes runtimes = new JavaRuntimes(dirs, locator,
+                    () -> JavaRuntimes.DownloadPolicy.NEVER, policy -> { });
+            List<Integer> deleted = runtimes.prune(java.util.Set.of(21), Progress.NOOP);
+
+            check("a runtime nothing asks for is deleted", deleted.equals(List.of(8)));
+            check("the deleted runtime is gone", !java.nio.file.Files.exists(eight));
+            check("a runtime still in use is kept", java.nio.file.Files.isDirectory(twentyOne));
+            check("a runtime the launcher did not install is left alone",
+                    java.nio.file.Files.isDirectory(strangers));
+
+            boolean refused = false;
+            try {
+                provisioner.uninstall(17);
+            } catch (java.io.IOException expected) {
+                refused = true;
+            }
+            check("deleting an unmarked runtime is refused outright", refused);
+        } catch (java.io.IOException e) {
+            check("java housekeeping ran: " + e, false);
+        } finally {
+            if (work != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(work);
+            }
+        }
     }
 
     /**

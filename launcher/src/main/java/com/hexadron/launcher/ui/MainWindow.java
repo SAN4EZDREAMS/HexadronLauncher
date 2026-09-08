@@ -39,6 +39,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -264,17 +265,23 @@ public final class MainWindow implements ProfileHost {
      * who has their own reason to manage Java themselves should be able to say
      * so once, and get a message telling them what to install instead of the
      * same dialog before every launch.
+     *
+     * <p>"Download" means this download. It used to also mean "and never ask
+     * again", because saying yes once rewrote {@code javaDownloadPolicy} to
+     * {@code always} - a setting change nobody asked for, made by a button that
+     * did not mention it. Handing over the decision permanently is now the
+     * checkbox, which is a thing the reader can see and choose.
      */
-    private boolean askAboutJavaDownload(JavaProvisioner.Candidate candidate) {
+    private JavaRuntimes.Answer askAboutJavaDownload(JavaProvisioner.Candidate candidate) {
         if (Platform.isFxApplicationThread()) {
             // Not expected - launches run on a worker - but blocking the FX
             // thread on itself would deadlock, so answer without asking.
-            return false;
+            return JavaRuntimes.Answer.NO;
         }
 
         java.util.concurrent.CountDownLatch answered = new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.atomic.AtomicBoolean allowed =
-                new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.concurrent.atomic.AtomicReference<JavaRuntimes.Answer> answer =
+                new java.util.concurrent.atomic.AtomicReference<>(JavaRuntimes.Answer.NO);
 
         Platform.runLater(() -> {
             try {
@@ -298,9 +305,18 @@ public final class MainWindow implements ProfileHost {
                 alert.setHeaderText(I18n.t("java.download.header", candidate.major()));
                 alert.getDialogPane().setPrefWidth(620);
 
+                CheckBox remember = new CheckBox(I18n.t("java.download.remember"));
+                remember.setWrapText(true);
+                alert.getDialogPane().setExpandableContent(null);
+                alert.getDialogPane().setContent(buildJavaDialogBody(
+                        alert.getContentText(), remember));
+
                 ButtonType chosen = alert.showAndWait().orElse(notNow);
-                allowed.set(chosen == download);
-                if (chosen == never) {
+                if (chosen == download) {
+                    answer.set(remember.isSelected()
+                            ? JavaRuntimes.Answer.ALWAYS
+                            : JavaRuntimes.Answer.ONCE);
+                } else if (chosen == never) {
                     service.settings().javaDownloadPolicy(JavaRuntimes.DownloadPolicy.NEVER);
                     saveSettingsQuietly();
                 }
@@ -313,9 +329,24 @@ public final class MainWindow implements ProfileHost {
             answered.await();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return false;
+            return JavaRuntimes.Answer.NO;
         }
-        return allowed.get();
+        return answer.get();
+    }
+
+    /**
+     * The dialog's body: the explanation, then the checkbox under it.
+     *
+     * <p>Replacing the content also replaces the label an {@code Alert} builds
+     * from its content text, so that label is rebuilt here rather than lost.
+     */
+    private static VBox buildJavaDialogBody(String message, CheckBox remember) {
+        Label body = new Label(message);
+        body.setWrapText(true);
+        body.setMinWidth(0);
+        VBox content = new VBox(14, body, remember);
+        content.setMinWidth(0);
+        return content;
     }
 
     public Scene build() {
@@ -1264,9 +1295,14 @@ public final class MainWindow implements ProfileHost {
         }
 
         closeBrowser(profile.id());
-        if (answer.get() == deleteFiles) {
-            try {
-                List<Path> undeleted = service.profiles().removeWithFiles(profile);
+        // Through the service rather than the store, because removing a profile
+        // is also the moment to give back a downloaded Java runtime that nothing
+        // asks for any more - and only the service can see the whole profile
+        // list to know whether anything still does.
+        try {
+            List<Path> undeleted =
+                    service.deleteProfile(profile, answer.get() == deleteFiles, progress);
+            if (answer.get() == deleteFiles) {
                 if (undeleted.isEmpty()) {
                     progress.log(I18n.t("profiles.remove.deleted", profile.name()));
                 } else {
@@ -1276,11 +1312,9 @@ public final class MainWindow implements ProfileHost {
                     progress.log(I18n.t("profiles.remove.deleteFailed", undeleted.size()));
                     undeleted.stream().limit(10).forEach(path -> progress.log("  " + path));
                 }
-            } catch (IOException e) {
-                showError(I18n.t("profiles.remove.header"), e);
             }
-        } else {
-            service.profiles().remove(profile);
+        } catch (IOException e) {
+            showError(I18n.t("profiles.remove.header"), e);
         }
         saveProfilesQuietly();
         refreshProfiles();

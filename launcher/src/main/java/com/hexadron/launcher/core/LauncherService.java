@@ -46,7 +46,9 @@ import com.hexadron.launcher.skin.SkinStore;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 
@@ -400,6 +402,10 @@ public final class LauncherService {
 
         VersionJson version = versionInstaller.install(versionId, gameDir, progress);
         profile.versionId(versionId);
+        // Noted here because this is the first point at which it is known for
+        // certain, and because the profile has to carry it for its own removal
+        // to be able to tell whether the runtime is still wanted.
+        profile.javaMajor(version.requiredJavaMajor());
         profiles.save();
         return version;
     }
@@ -857,11 +863,158 @@ public final class LauncherService {
                 ? null : pack.loaderVersion().trim());
         profiles.save();
 
+        // Before the mods, not after. See settleJava: this is the point at which
+        // the pack's Minecraft version is known and nothing large has been
+        // fetched yet, which makes it the only place the question can be asked
+        // early enough to be worth asking.
+        settleJava(profile, pack.minecraftVersion(), progress);
+
         // Nothing is done to the pack's own configuration here, deliberately. A
         // pack ships its overrides because its author decided what they should
         // say, and a launcher that edited one of those files after unpacking it
         // would be changing a set the player asked for by name.
         return modpackInstaller.install(pack, card, profiles.gameDirectory(profile), progress);
+    }
+
+    /**
+     * The major Java version a Minecraft version asks for.
+     *
+     * <p>Fetches the vanilla manifest if it is not on disk - a few kilobytes -
+     * because the number has to be known before a pack is installed and a
+     * profile that has never been launched has nothing local to read. Loader
+     * manifests inherit the block, so the vanilla version is the right thing to
+     * ask.
+     */
+    public int requiredJavaFor(String minecraftVersion, Progress progress)
+            throws IOException, InterruptedException {
+
+        if (minecraftVersion == null || minecraftVersion.isBlank()) {
+            throw new IOException("no Minecraft version to look up a Java requirement for");
+        }
+        if (!versionInstaller.resolver().isInstalled(minecraftVersion)) {
+            versionInstaller.ensureVanillaVersionJson(
+                    minecraftVersion, minecraftVersions(), progress);
+        }
+        return versionInstaller.resolver().resolve(minecraftVersion).requiredJavaMajor();
+    }
+
+    /**
+     * Settles the Java question for a profile before anything large is
+     * downloaded for it.
+     *
+     * <p>The whole point of the timing. A pack's Java requirement used to
+     * surface at the end of the chain - install the pack, wait for four hundred
+     * mods, press Play, and only then be told the machine has no Java 8 - and by
+     * then the person has spent twenty minutes on something that was never going
+     * to start. Asked here, the answer costs one small manifest fetch and
+     * arrives before the mods do.
+     *
+     * <p>Reports rather than throws. A declined download, an unreachable
+     * Adoptium or a version whose manifest cannot be read are all reasons to
+     * carry on installing: the pack itself is fine, and {@link #launch} asks the
+     * same question again with the same dialog when the time comes.
+     *
+     * @return the major version the profile needs, or 0 when it could not be
+     *         determined
+     */
+    public int settleJava(Profile profile, String minecraftVersion, Progress progress)
+            throws InterruptedException {
+
+        int required;
+        try {
+            required = requiredJavaFor(minecraftVersion, progress);
+        } catch (IOException e) {
+            progress.log("Could not work out which Java Minecraft %s needs (%s). It will be "
+                    + "settled when the game is started.", minecraftVersion, e.getMessage());
+            return 0;
+        }
+
+        profile.javaMajor(required);
+        try {
+            profiles.save();
+        } catch (IOException e) {
+            progress.log("Could not store this profile's Java version: %s", e.getMessage());
+        }
+
+        if (profile.javaPath() != null) {
+            // The profile names its own runtime. Asking about a download would
+            // be asking about something this profile will not use.
+            progress.log("This profile is pinned to the Java at %s; Minecraft %s asks for "
+                    + "Java %d.", profile.javaPath(), minecraftVersion, required);
+            return required;
+        }
+
+        progress.log("Minecraft %s needs Java %d.", minecraftVersion, required);
+        javaRuntimes.ensure(required, progress).ifPresentOrElse(
+                runtime -> progress.log("Java %d is ready: %s", required, runtime),
+                () -> progress.log("Java %d is not installed. The pack will install, and the "
+                        + "launcher will ask again when the game is started - but it will not "
+                        + "start until Java %d is there.", required, required));
+        return required;
+    }
+
+    /**
+     * Removes a profile, and with it any runtime the launcher downloaded that
+     * nothing else asks for.
+     *
+     * <p>Runtimes are shared by major version, so one Java 21 serves every
+     * profile that wants Java 21 and the question at removal time is never
+     * "which runtime was this profile's" but "is anything still asking for this
+     * one". {@link #javaMajorsInUse} answers it, and refuses to answer when it
+     * cannot answer completely.
+     *
+     * @param deleteFiles whether the profile's game folder goes too
+     * @return the paths that could not be deleted, empty when everything went
+     */
+    public List<Path> deleteProfile(Profile profile, boolean deleteFiles, Progress progress)
+            throws IOException {
+
+        List<Path> undeleted = List.of();
+        if (deleteFiles) {
+            undeleted = profiles.removeWithFiles(profile);
+        } else {
+            profiles.remove(profile);
+        }
+        profiles.save();
+
+        Set<Integer> stillWanted = javaMajorsInUse();
+        if (stillWanted == null) {
+            progress.log("Leaving the downloaded Java runtimes alone: at least one remaining "
+                    + "profile has no recorded Java version, so it cannot be said which "
+                    + "runtimes are still needed.");
+            return undeleted;
+        }
+        javaRuntimes.prune(stillWanted, progress);
+        return undeleted;
+    }
+
+    /**
+     * The major Java versions the remaining profiles need.
+     *
+     * <p>Null - not an empty set - when any profile's requirement is unknown.
+     * The difference matters: an empty set means "nothing needs anything, delete
+     * it all", and returning that because one profile had not been launched yet
+     * would delete a runtime it is about to need. Unknown is a reason to do
+     * nothing, and the caller treats it as one.
+     */
+    public Set<Integer> javaMajorsInUse() {
+        Set<Integer> majors = new LinkedHashSet<>();
+        for (Profile profile : profiles.all()) {
+            Integer recorded = profile.javaMajor();
+            if (recorded != null) {
+                majors.add(recorded);
+                continue;
+            }
+            // Not recorded, so try to derive it from what is already on disk.
+            // No network here: this runs while a dialog is closing.
+            String versionId = profile.effectiveVersionId();
+            try {
+                majors.add(versionInstaller.resolver().resolve(versionId).requiredJavaMajor());
+            } catch (IOException | RuntimeException e) {
+                return null;
+            }
+        }
+        return majors;
     }
 
     /** The modpacks installed in a profile, newest first. */
@@ -1114,8 +1267,18 @@ public final class LauncherService {
         Path assetsDir = versionInstaller.assets().assetsDirFor(index);
 
         int requiredJava = version.requiredJavaMajor();
+        // exactWanted, and this is the change that stops "the modpack will not
+        // start". It used to be false, which meant "anything at least this new",
+        // and satisfies() is a >= test - so a machine holding only Java 21 ran a
+        // 1.12.2 pack on Java 21, crashed inside Forge's own bootstrap, and
+        // never downloaded the Java 8 it needed. Nothing else would have fetched
+        // it either: Forge for 1.12.2 has no processors, so the installer path
+        // that does insist on the exact major is never reached for exactly the
+        // packs that need it most. Mojang names one major per version and the
+        // loaders compile against that one; a newer JVM is a different
+        // environment, not a better one.
         JavaLocator.JavaRuntime java =
-                javaRuntimes.resolve(profile.javaPath(), requiredJava, false, progress);
+                javaRuntimes.resolve(profile.javaPath(), requiredJava, true, progress);
         progress.log("Using %s (this version requires Java %d)", java, requiredJava);
 
         // Null when the setting is off or the wrapper jar is missing from this
