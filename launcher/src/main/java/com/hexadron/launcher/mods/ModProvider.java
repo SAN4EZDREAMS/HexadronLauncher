@@ -203,6 +203,34 @@ public interface ModProvider {
             throws IOException, InterruptedException;
 
     /**
+     * The same, for a kind whose loader is not the profile's.
+     *
+     * <h2>Why there is a second axis at all</h2>
+     *
+     * <p>{@link LoaderType} is the mod loader: Fabric, Forge, NeoForge, Quilt.
+     * It answers "what runs a jar", and for a mod that is the only question
+     * there is. A shader pack is loaded by Iris, OptiFine or Canvas - three
+     * programs that are themselves mods - and a project publishes a version per
+     * one of them. Neither name is a {@code LoaderType} and neither is derivable
+     * from the profile: it depends on which of the three the player has
+     * installed, which is a folder read rather than a setting.
+     *
+     * <p>So the tags come in from the caller. Empty means "whatever the kind
+     * decides", which is what every existing caller wants and is why this is a
+     * default rather than a change to the method above.
+     *
+     * @param loaderTags platform loader names to accept, most wanted first, or
+     *                   empty to leave the choice to the kind. See
+     *                   {@link ShaderLoaders}
+     */
+    default Optional<ModFile> resolveFile(ContentKind kind, String projectId,
+                                          String minecraftVersion, LoaderType loader,
+                                          List<String> loaderTags)
+            throws IOException, InterruptedException {
+        return resolveFile(kind, projectId, minecraftVersion, loader);
+    }
+
+    /**
      * The newest mod file of {@code projectId} compatible with the given version
      * and loader, or empty when the project has none.
      */

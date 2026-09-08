@@ -100,6 +100,20 @@ abstract class ContentSection {
         void warn(String header, String message);
 
         /**
+         * Switches to the mods panel and searches it for {@code query}.
+         *
+         * <p>For a section whose answer is in another section. A shader pack
+         * needs Iris, Iris is a mod, and the useful thing to do about that is
+         * not a sentence telling the player to go and look - it is the button
+         * that takes them there with the search already run.
+         *
+         * <p>The window's rather than the section's, because switching panels
+         * and driving the mod search are both the window's: it owns the rail,
+         * and the mods panel is its own.
+         */
+        void searchInMods(String query);
+
+        /**
          * Says that this instance's contents changed.
          *
          * <p>The window passes it on to the launcher, whose instance panel counts

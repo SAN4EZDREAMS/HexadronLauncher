@@ -264,6 +264,44 @@ final class Glyphs {
     }
 
     /**
+     * Resource packs: a stack of tiles, which is what a texture pack is.
+     *
+     * <p>Drawn as three offset squares rather than a picture frame, because the
+     * rail is sixteen pixels and a frame at that size is a rectangle with a
+     * smaller rectangle in it - indistinguishable from the modpack crate.
+     */
+    static Group palette() {
+        SVGPath tiles = new SVGPath();
+        tiles.setFillRule(FillRule.NON_ZERO);
+        tiles.setContent(
+                "M3 3 H10.4 V10.4 H3 Z "
+                        + "M13.6 3 H21 V10.4 H13.6 Z "
+                        + "M3 13.6 H10.4 V21 H3 Z "
+                        + "M13.6 13.6 H21 V16.3 H13.6 Z "
+                        + "M13.6 18.3 H21 V21 H13.6 Z");
+        return sized(tiles, 16);
+    }
+
+    /**
+     * Shaders: a sun over a horizon.
+     *
+     * <p>What a shader pack changes is the light, and the light is the one thing
+     * a sixteen-pixel glyph can say about it.
+     */
+    static Group sun() {
+        SVGPath sun = new SVGPath();
+        sun.setFillRule(FillRule.NON_ZERO);
+        sun.setContent(
+                "M11.1 2 H12.9 V5.2 H11.1 Z "
+                        + "M17.9 4.8 L19.2 6.1 L16.9 8.4 L15.6 7.1 Z "
+                        + "M4.8 6.1 L6.1 4.8 L8.4 7.1 L7.1 8.4 Z "
+                        + "M12 8 A4 4 0 1 1 11.99 8 Z "
+                        + "M2 15.1 H22 V16.9 H2 Z "
+                        + "M5 19.1 H19 V20.9 H5 Z");
+        return sized(sun, 16);
+    }
+
+    /**
      * Scales a path to a height in pixels and wraps it so layout can measure it.
      *
      * <p>Wrapped in a Group because a scaled node still reports its unscaled

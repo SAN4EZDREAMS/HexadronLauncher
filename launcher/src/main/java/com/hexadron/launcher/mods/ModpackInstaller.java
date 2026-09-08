@@ -26,7 +26,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -269,13 +268,14 @@ public final class ModpackInstaller {
         library.put(record);
         library.write();
 
-        // The jars this pack owns, marked as its own in the mods list.
+        // The files this pack owns, marked as its own in each list that shows
+        // them: mods, resource packs, shaders.
         //
         // Only the ones whose project is known - the CurseForge files, and the
-        // Modrinth files whose address carries the project id. A jar the pack
-        // fetched from somewhere else is left listed as a file the launcher did
-        // not install, which is the truth: there is no project to record.
-        recordOwnedMods(root, record, tasks, pinned, written, progress);
+        // Modrinth files whose address carries the project id. A file the pack
+        // fetched from somewhere else is left listed as one the launcher did not
+        // install, which is the truth: there is no project to record.
+        recordOwnedFiles(root, record, tasks, pinned, written, progress);
 
         for (String note : skipped) {
             progress.log("Skipped: %s", note);
@@ -336,13 +336,20 @@ public final class ModpackInstaller {
             }
         }
 
-        // And the mods list's own record of the jars, so the folder and the
-        // record cannot disagree about what is installed.
-        ModLibrary mods = ModLibrary.read(root.resolve("mods"));
-        for (InstalledMod mod : mods.ofPack(pack.id())) {
-            mods.forget(mod.key());
+        // And each list's own record of the files, so a folder and the record
+        // beside it cannot disagree about what is installed. Every kind the pack
+        // could have written into, not only mods: a pack that shipped a resource
+        // pack used to leave its row behind, labelled as belonging to a modpack
+        // that was no longer there.
+        for (ContentKind kind : PACK_OWNED_KINDS) {
+            ModLibrary owner = ModLibrary.read(root.resolve(kind.instanceFolder()), kind.lockFile());
+            List<InstalledMod> owned = owner.ofPack(pack.id());
+            if (owned.isEmpty()) {
+                continue;
+            }
+            owned.forEach(entry -> owner.forget(entry.key()));
+            owner.write();
         }
-        mods.write();
 
         library.forget(id);
         library.write();
@@ -397,16 +404,46 @@ public final class ModpackInstaller {
      * mod out of it leaves something that is no longer the pack but still claims
      * to be. Removing the pack is what takes them out.
      */
-    private static void recordOwnedMods(Path root, InstalledModpack pack,
-                                        Map<String, DownloadTask> tasks,
-                                        Map<String, ModFile> pinned,
-                                        Set<String> written, Progress progress) {
-        Path modsDir = root.resolve("mods");
-        ModLibrary library = ModLibrary.read(modsDir);
+    private static void recordOwnedFiles(Path root, InstalledModpack pack,
+                                         Map<String, DownloadTask> tasks,
+                                         Map<String, ModFile> pinned,
+                                         Set<String> written, Progress progress) {
+        for (ContentKind kind : PACK_OWNED_KINDS) {
+            recordOwned(kind, root, pack, tasks, pinned, written, progress);
+        }
+    }
+
+    /**
+     * The kinds a pack can put files into that have a list of their own.
+     *
+     * <p>Mods, resource packs and shaders: three folders of the instance, each
+     * with a section that lists what is in it. A pack routinely ships all three -
+     * its mods, the resource pack that retextures them, the shader it was tuned
+     * with - and until this was per kind only the jars were claimed. The rest
+     * showed up as files the player had put there themselves, offered a Remove
+     * button that would quietly take one file out of a tested set, and survived
+     * the pack being removed.
+     *
+     * <p>Not data packs. Those go into a world rather than into the instance, a
+     * pack that ships one writes it into {@code saves/<world>/datapacks} as part
+     * of its overrides, and the record for that folder belongs to the world - so
+     * it is the one case where "which folder does this path start with" is not
+     * enough to know whose it is.
+     */
+    private static final List<ContentKind> PACK_OWNED_KINDS =
+            List.of(ContentKind.MOD, ContentKind.RESOURCEPACK, ContentKind.SHADER);
+
+    private static void recordOwned(ContentKind kind, Path root, InstalledModpack pack,
+                                    Map<String, DownloadTask> tasks,
+                                    Map<String, ModFile> pinned,
+                                    Set<String> written, Progress progress) {
+        String prefix = kind.instanceFolder() + "/";
+        Path folder = root.resolve(kind.instanceFolder());
+        ModLibrary library = ModLibrary.read(folder, kind.lockFile());
         boolean any = false;
 
         for (String relative : written) {
-            if (!relative.startsWith("mods/") || !relative.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+            if (!relative.startsWith(prefix) || !kind.matches(relative)) {
                 continue;
             }
             ModFile file = pinned.get(relative);
@@ -417,10 +454,10 @@ public final class ModpackInstaller {
             if (file == null) {
                 continue;
             }
-            // Not over the top of a mod the user installed themselves. Removing
-            // the pack must not take that one with it.
+            // Not over the top of something the user installed themselves.
+            // Removing the pack must not take that one with it.
             if (library.get(InstalledMod.keyOf(file.source(), file.projectId()))
-                    .map(mod -> mod.origin() == ModOrigin.MANUAL).orElse(false)) {
+                    .map(entry -> entry.origin() == ModOrigin.MANUAL).orElse(false)) {
                 continue;
             }
             library.put(new InstalledMod(
@@ -435,8 +472,8 @@ public final class ModpackInstaller {
             library.write();
         } catch (IOException e) {
             // The pack is installed and its own record is written; this one only
-            // decides what the mods list says about the jars.
-            progress.log("The mods list could not be updated: %s",
+            // decides what a list says about the files.
+            progress.log("The %s list could not be updated: %s", kind.instanceFolder(),
                     e.getMessage() == null ? e.toString() : e.getMessage());
         }
     }

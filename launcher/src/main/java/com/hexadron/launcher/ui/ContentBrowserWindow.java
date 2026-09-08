@@ -217,14 +217,18 @@ public final class ContentBrowserWindow implements ContentSection.Host {
     /**
      * The kinds of thing this window covers, in the order they are offered.
      *
-     * <p>Mods first because it is what almost every visit is for. The rest in the
-     * order of how much of an instance they decide: a modpack decides all of it,
-     * a data pack decides one world.
+     * <p>Mods first because it is what almost every visit is for. Then the
+     * modpack, which decides a whole instance. Then the three that change one
+     * part of one: what the world runs on, what it looks like, and how it is
+     * lit. Data packs before the two look-and-feel kinds because a data pack
+     * changes the game rather than the picture of it.
      */
     private enum Section {
         MODS("mods.kind.mod"),
         MODPACKS("mods.kind.modpack"),
-        DATAPACKS("mods.kind.datapack");
+        DATAPACKS("mods.kind.datapack"),
+        RESOURCEPACKS("mods.kind.resourcepack"),
+        SHADERS("mods.kind.shader");
 
         private final String key;
 
@@ -241,6 +245,8 @@ public final class ContentBrowserWindow implements ContentSection.Host {
                 case MODS -> Glyphs.module();
                 case MODPACKS -> Glyphs.crate();
                 case DATAPACKS -> Glyphs.page();
+                case RESOURCEPACKS -> Glyphs.palette();
+                case SHADERS -> Glyphs.sun();
             };
         }
     }
@@ -276,7 +282,20 @@ public final class ContentBrowserWindow implements ContentSection.Host {
     private final javafx.scene.layout.StackPane sectionPane = new javafx.scene.layout.StackPane();
     private ModpackSection modpacks;
     private DatapackSection datapacks;
+    private PackSection resourcePacks;
+    private PackSection shaders;
     private javafx.scene.Node modsPane;
+
+    /**
+     * Every section but the mods one, in the order the rail offers them.
+     *
+     * <p>Built once and then iterated, because almost everything this window
+     * does to a section it does to all of them: re-read the folder, re-read the
+     * strings, tell them an install started, tell them the profile changed. A
+     * list is one line per such job; five named fields is five lines each, and
+     * the section somebody forgets to add is the one that shows stale rows.
+     */
+    private java.util.List<ContentSection> sections = java.util.List.of();
 
     private final Label statusLabel = new Label();
     private final ProgressBar progressBar = new ProgressBar(0);
@@ -338,8 +357,7 @@ public final class ContentBrowserWindow implements ContentSection.Host {
         // can have changed with it.
         applyTexts();
         refreshInstalled();
-        modpacks.refresh();
-        datapacks.refresh();
+        sections.forEach(ContentSection::refresh);
         loadPackStateAsync();
         nextOffset = 0;
         totalMatches = -1;
@@ -360,6 +378,9 @@ public final class ContentBrowserWindow implements ContentSection.Host {
 
         modpacks = new ModpackSection(this);
         datapacks = new DatapackSection(this);
+        resourcePacks = new PackSection(this, com.hexadron.launcher.mods.ContentKind.RESOURCEPACK);
+        shaders = new PackSection(this, com.hexadron.launcher.mods.ContentKind.SHADER);
+        sections = java.util.List.of(modpacks, datapacks, resourcePacks, shaders);
         modsPane = buildTabs();
 
         BorderPane root = new BorderPane();
@@ -395,7 +416,8 @@ public final class ContentBrowserWindow implements ContentSection.Host {
      * belongs to the window, not to the panel next to the rail.
      */
     private javafx.scene.layout.StackPane buildBody() {
-        sectionPane.getChildren().setAll(modsPane, modpacks.node(), datapacks.node());
+        sectionPane.getChildren().setAll(modsPane, modpacks.node(), datapacks.node(),
+                resourcePacks.node(), shaders.node());
         sectionPane.setPadding(new javafx.geometry.Insets(0, 0, 0, RAIL_WIDTH));
 
         javafx.scene.layout.StackPane body =
@@ -589,8 +611,10 @@ public final class ContentBrowserWindow implements ContentSection.Host {
         current = chosen;
         sectionRows.forEach((kind, row) ->
                 ContentRow.styleClass(row, "kind-row-on", kind == chosen));
-        javafx.scene.Node[] panes = {modsPane, modpacks.node(), datapacks.node()};
-        Section[] order = {Section.MODS, Section.MODPACKS, Section.DATAPACKS};
+        javafx.scene.Node[] panes = {modsPane, modpacks.node(), datapacks.node(),
+                resourcePacks.node(), shaders.node()};
+        Section[] order = {Section.MODS, Section.MODPACKS, Section.DATAPACKS,
+                Section.RESOURCEPACKS, Section.SHADERS};
         for (int index = 0; index < panes.length; index++) {
             boolean visible = order[index] == chosen;
             panes[index].setVisible(visible);
@@ -609,6 +633,8 @@ public final class ContentBrowserWindow implements ContentSection.Host {
         switch (chosen) {
             case MODPACKS -> modpacks.onShown();
             case DATAPACKS -> datapacks.onShown();
+            case RESOURCEPACKS -> resourcePacks.onShown();
+            case SHADERS -> shaders.onShown();
             case MODS -> { }
         }
     }
@@ -630,8 +656,7 @@ public final class ContentBrowserWindow implements ContentSection.Host {
             row.setText(kind.title());
             row.getTooltip().setText(kind.title());
         });
-        modpacks.applyTexts();
-        datapacks.applyTexts();
+        sections.forEach(ContentSection::applyTexts);
         titleLabel.setText(profile.name());
         subtitleLabel.setText(profile.minecraftVersion() + "  ·  " + profile.loader().displayName());
         searchField.setPromptText(I18n.t("mods.search.prompt"));
@@ -1619,10 +1644,12 @@ public final class ContentBrowserWindow implements ContentSection.Host {
                     Platform.runLater(() -> {
                         categories = new Categories(service.categoryArt());
                         categoryFilter.build();
-                        // The other two sections draw the same pictures in their
+                        // The other sections draw the same pictures in their
                         // own menus and rows, and they arrived for all of them.
                         modpacks.refreshCategoryArt();
                         datapacks.refreshCategoryArt();
+                        resourcePacks.refreshCategoryArt();
+                        shaders.refreshCategoryArt();
                         resultList.refresh();
                         installedList.refresh();
                     });
@@ -1930,8 +1957,7 @@ public final class ContentBrowserWindow implements ContentSection.Host {
 
     private void setBusy(boolean value) {
         busy = value;
-        modpacks.onBusyChanged();
-        datapacks.onBusyChanged();
+        sections.forEach(ContentSection::onBusyChanged);
         // One place decides whether this button is clickable, and it is the one
         // that also knows the set is already installed and must stay removable.
         updatePackButton();
@@ -2016,8 +2042,24 @@ public final class ContentBrowserWindow implements ContentSection.Host {
     @Override
     public void contentChanged() {
         refreshInstalled();
-        modpacks.refresh();
-        datapacks.refresh();
+        sections.forEach(ContentSection::refresh);
+    }
+
+    /**
+     * Takes the user to the mods panel with a search already run.
+     *
+     * <p>Used by the shaders panel, whose answer to "nothing here will load" is
+     * a mod. Typed into the field rather than searched behind the scenes, so
+     * that what happened is visible and the word can be changed.
+     */
+    @Override
+    public void searchInMods(String query) {
+        showSection(Section.MODS);
+        tabs.getSelectionModel().select(browseTab);
+        searchField.setText(query == null ? "" : query);
+        searchField.requestFocus();
+        searchField.end();
+        runSearch();
     }
 
     /**
@@ -2048,9 +2090,8 @@ public final class ContentBrowserWindow implements ContentSection.Host {
             // launcher's own set can be installed on it.
             runSearch();
             loadPackStateAsync();
-            // The other two sections asked their platforms about the same pair.
-            modpacks.onProfileChanged();
-            datapacks.onProfileChanged();
+            // The other sections asked their platforms about the same pair.
+            sections.forEach(ContentSection::onProfileChanged);
         }
         if (onProfileChanged != null) {
             onProfileChanged.run();

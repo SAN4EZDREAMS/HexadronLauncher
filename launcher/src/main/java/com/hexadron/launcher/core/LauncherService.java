@@ -97,6 +97,8 @@ public final class LauncherService {
      */
     private final com.hexadron.launcher.mods.ModpackInstaller modpackInstaller;
     private final com.hexadron.launcher.mods.DatapackInstaller datapackInstaller;
+    private final com.hexadron.launcher.mods.PackInstaller resourcePackInstaller;
+    private final com.hexadron.launcher.mods.PackInstaller shaderInstaller;
 
     /**
      * Named stages of start-up, in the order they run.
@@ -170,6 +172,13 @@ public final class LauncherService {
                 new com.hexadron.launcher.mods.ModpackInstaller(downloader, modrinth, curseForge);
         this.datapackInstaller = new com.hexadron.launcher.mods.DatapackInstaller(
                 downloader, modInstaller, modrinth, curseForge);
+        // One per kind, because the folder and the record file are the kind's.
+        this.resourcePackInstaller = new com.hexadron.launcher.mods.PackInstaller(
+                com.hexadron.launcher.mods.ContentKind.RESOURCEPACK,
+                downloader, modrinth, curseForge);
+        this.shaderInstaller = new com.hexadron.launcher.mods.PackInstaller(
+                com.hexadron.launcher.mods.ContentKind.SHADER,
+                downloader, modrinth, curseForge);
     }
 
     /** Builds a service rooted at the default location. */
@@ -1032,6 +1041,103 @@ public final class LauncherService {
     /** Removes a modpack: exactly the files it wrote, and nothing else. */
     public int removeModpack(Profile profile, String id, Progress progress) throws IOException {
         return modpackInstaller.remove(id, profiles.gameDirectory(profile), progress);
+    }
+
+    // ------------------------------------------------- resource packs, shaders
+
+    /**
+     * Everything in a profile's folder for one kind, whoever put it there.
+     *
+     * <p>{@link ContentKind#RESOURCEPACK} and {@link ContentKind#SHADER}. Mods
+     * have {@link #modsIn} and data packs {@link #datapacksIn}, because those
+     * two answer a different question - one is judged against the profile's
+     * Minecraft version, the other belongs to a world.
+     */
+    public java.util.List<com.hexadron.launcher.mods.ModEntry> packsIn(
+            Profile profile, com.hexadron.launcher.mods.ContentKind kind) {
+        return com.hexadron.launcher.mods.PackScan.of(kind)
+                .scan(profiles.contentDirectory(profile, kind));
+    }
+
+    /**
+     * Which programs in this instance can load a shader pack.
+     *
+     * <p>Read from the mods folder, because that is where they are: Iris,
+     * OptiFine and Canvas are mods. Answered before a shader is installed - to
+     * pick the build this instance can actually use - and shown in the panel,
+     * because a shaderpacks folder on an instance with none of them is a folder
+     * the game never opens.
+     */
+    public java.util.List<com.hexadron.launcher.mods.ShaderLoaders.ShaderLoader>
+            shaderLoadersIn(Profile profile) {
+        return com.hexadron.launcher.mods.ShaderLoaders.detect(modsIn(profile));
+    }
+
+    /**
+     * Installs one resource pack or shader pack, and any pack of the same kind
+     * it requires.
+     *
+     * <p>The shader loaders installed here are passed for a shader, because a
+     * shader project publishes a version per program that loads it and the one
+     * to ask for is the one the instance has. Nothing is passed for a resource
+     * pack: the game loads those.
+     */
+    public com.hexadron.launcher.mods.PackInstaller.Result installPackFile(
+            Profile profile, com.hexadron.launcher.mods.ContentKind kind,
+            ModProvider.ProjectCard chosen, Progress progress)
+            throws IOException, InterruptedException {
+
+        java.util.List<String> loaderTags =
+                kind == com.hexadron.launcher.mods.ContentKind.SHADER
+                        ? com.hexadron.launcher.mods.ShaderLoaders.tagsOf(shaderLoadersIn(profile))
+                        : java.util.List.of();
+        return installerFor(kind).install(chosen, profile.minecraftVersion(), loaderTags,
+                profiles.contentDirectory(profile, kind), progress);
+    }
+
+    /**
+     * Removes one pack the launcher installed, and the packs it brought with it
+     * that nothing else needs.
+     *
+     * @return how many files were deleted
+     */
+    public int removePackFile(Profile profile, com.hexadron.launcher.mods.ContentKind kind,
+                              String key, Progress progress) throws IOException {
+        return installerFor(kind).remove(key, profiles.contentDirectory(profile, kind), progress);
+    }
+
+    /** Sends a pack the launcher did not install to the recycle bin. */
+    public void discardExternalPack(Profile profile, com.hexadron.launcher.mods.ContentKind kind,
+                                    com.hexadron.launcher.mods.ModEntry entry, Progress progress)
+            throws IOException {
+        com.hexadron.launcher.mods.PackScan.of(kind)
+                .discard(profiles.contentDirectory(profile, kind), entry, progress);
+    }
+
+    /** Turns one pack on or off by renaming it. */
+    public Path setPackEnabled(Profile profile, com.hexadron.launcher.mods.ContentKind kind,
+                               com.hexadron.launcher.mods.ModEntry entry, boolean enabled)
+            throws IOException {
+        return com.hexadron.launcher.mods.PackScan.of(kind)
+                .setEnabled(profiles.contentDirectory(profile, kind), entry, enabled);
+    }
+
+    /** Copies pack files the player chose into a profile's folder for that kind. */
+    public com.hexadron.launcher.mods.ModScan.Imported importPackFiles(
+            Profile profile, com.hexadron.launcher.mods.ContentKind kind,
+            java.util.List<Path> files, Progress progress) throws IOException {
+        return com.hexadron.launcher.mods.PackScan.of(kind)
+                .importPacks(profiles.contentDirectory(profile, kind), files, progress);
+    }
+
+    private com.hexadron.launcher.mods.PackInstaller installerFor(
+            com.hexadron.launcher.mods.ContentKind kind) {
+        return switch (kind) {
+            case RESOURCEPACK -> resourcePackInstaller;
+            case SHADER -> shaderInstaller;
+            default -> throw new IllegalArgumentException(
+                    kind + " is not installed into a folder of the instance's own");
+        };
     }
 
     // ---------------------------------------------------------------- data packs

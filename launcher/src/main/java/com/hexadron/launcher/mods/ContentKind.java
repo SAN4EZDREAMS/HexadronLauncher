@@ -55,7 +55,8 @@ public enum ContentKind {
      * <p>Modrinth files these under {@code project_type:mod}; CurseForge's class
      * 6 is its "Mods" section.
      */
-    MOD("mod", 6, "mods.kind.mod", "mod", true, true, Choice.NONE, List.of(".jar")),
+    MOD("mod", 6, "mods.kind.mod", "mod", true, true, Choice.NONE, List.of(".jar"),
+            "mods", null),
 
     /**
      * A modpack: a version, a loader and a list of files, in one archive.
@@ -64,7 +65,7 @@ public enum ContentKind {
      * its own and the point of the list is to find one to install.
      */
     MODPACK("modpack", 4471, "mods.kind.modpack", "modpack", false, false,
-            Choice.ONLY_FOR_PROFILE, List.of(".mrpack", ".zip")),
+            Choice.ONLY_FOR_PROFILE, List.of(".mrpack", ".zip"), null, null),
 
     /**
      * A data pack: a zip in one world's {@code datapacks/} folder.
@@ -84,7 +85,49 @@ public enum ContentKind {
      * What goes into a world is the data pack, always.
      */
     DATAPACK("datapack", 6945, "mods.kind.datapack", "datapack", true, false,
-            Choice.WITHOUT_MODS, List.of(".zip"));
+            Choice.WITHOUT_MODS, List.of(".zip"), null, "datapack"),
+
+    /**
+     * A resource pack: a zip in the instance's {@code resourcepacks} folder.
+     *
+     * <p>Filtered by Minecraft version and never by loader. Vanilla Minecraft
+     * loads resource packs, so a loader narrows nothing - and the version
+     * genuinely matters here, because a pack states a {@code pack_format} and the
+     * game refuses one from the wrong era rather than making do.
+     *
+     * <p>Modrinth files the whole catalogue under
+     * {@code project_type:resourcepack} - there is no second spelling to OR
+     * against, unlike data packs - and tags every one of them with the loader
+     * {@code minecraft}, which is that platform's way of writing "loaded by the
+     * game itself".
+     */
+    RESOURCEPACK("resourcepack", 12, "mods.kind.resourcepack", "resourcepack", true, false,
+            Choice.NONE, List.of(".zip"), "resourcepacks", "minecraft"),
+
+    /**
+     * A shader pack: a zip in the instance's {@code shaderpacks} folder.
+     *
+     * <h2>Why this one is not narrowed by version</h2>
+     *
+     * <p>Every other kind here is. A shader pack is GLSL loaded by Iris, OptiFine
+     * or Canvas, and what it is written against is that program's pipeline rather
+     * than a Minecraft release - which is why one pack runs for years across a
+     * dozen versions, and why its author lists whichever versions they happened
+     * to test. Narrowing the catalogue to the instance's exact version therefore
+     * hides packs that work, and on a version published last month it hides
+     * nearly all of them. The kinds where a wrong build is a crash are narrowed;
+     * this is not one of them.
+     *
+     * <p>The loader is not the profile's either. A shader is loaded by
+     * {@code iris}, {@code optifine} or {@code canvas} - not by Fabric or Forge -
+     * so the tag a <em>file</em> is asked for comes from what the instance
+     * actually has installed, which no enum can know: see {@link ShaderLoaders}.
+     * The catalogue is not narrowed by it, because most packs publish for two of
+     * the three and somebody still deciding which loader to install wants to see
+     * what they would get.
+     */
+    SHADER("shader", 6552, "mods.kind.shader", "shader", false, false,
+            Choice.NONE, List.of(".zip"), "shaderpacks", null);
 
     /**
      * The one thing a kind asks the user, if it has one.
@@ -211,10 +254,13 @@ public enum ContentKind {
     private final boolean filteredByLoader;
     private final Choice choice;
     private final List<String> extensions;
+    private final String instanceFolder;
+    private final String modrinthLoaderTag;
 
     ContentKind(String modrinthProjectType, int curseForgeClassId, String key,
                 String modrinthPagePath, boolean filteredByVersion, boolean filteredByLoader,
-                Choice choice, List<String> extensions) {
+                Choice choice, List<String> extensions,
+                String instanceFolder, String modrinthLoaderTag) {
         this.modrinthProjectType = modrinthProjectType;
         this.curseForgeClassId = curseForgeClassId;
         this.key = key;
@@ -223,6 +269,8 @@ public enum ContentKind {
         this.filteredByLoader = filteredByLoader;
         this.choice = choice;
         this.extensions = List.copyOf(extensions);
+        this.instanceFolder = instanceFolder;
+        this.modrinthLoaderTag = modrinthLoaderTag;
     }
 
     /** Translation key for the name of this kind. */
@@ -257,14 +305,58 @@ public enum ContentKind {
     }
 
     /**
-     * The Modrinth loader tag that identifies this kind, or null when the kind is
-     * not a loader on that platform.
+     * The folder inside an instance where this kind lives, or null.
      *
-     * <p>Only data packs have one. It is what separates a data pack from a mod in
-     * the half of the catalogue where both are {@code project_type:mod}.
+     * <p>Null for the two kinds that have no single one: a modpack is unpacked
+     * across the whole instance, and a data pack goes into one <em>world</em>
+     * rather than into the instance - which is why that section has a world
+     * picker and these do not.
+     */
+    public String instanceFolder() {
+        return instanceFolder;
+    }
+
+    /** True when this kind lives in one folder per instance. */
+    public boolean hasInstanceFolder() {
+        return instanceFolder != null;
+    }
+
+    /**
+     * The record file this kind keeps beside its files.
+     *
+     * <p>One per folder, never shared. A folder holding two kinds could
+     * otherwise have one record claiming the other's files, and the rule that
+     * protects a player's own files is exactly "if it is not in this record, it
+     * is not ours to touch".
+     */
+    public String lockFile() {
+        return switch (this) {
+            case MOD -> ModLibrary.LOCK_FILE;
+            case DATAPACK -> DatapackScan.LOCK_FILE;
+            case RESOURCEPACK -> ".hexadron-resourcepacks.json";
+            case SHADER -> ".hexadron-shaderpacks.json";
+            case MODPACK -> ModpackLibrary.LOCK_FILE;
+        };
+    }
+
+    /**
+     * The Modrinth loader tag that identifies this kind, or null when it has no
+     * single one.
+     *
+     * <p>Modrinth keeps "what loads this" in the same field as the mod loaders,
+     * so a kind loaded by something other than Fabric or Forge has a tag of its
+     * own there: {@code datapack} for a data pack, {@code minecraft} for a
+     * resource pack. For a data pack the tag is load-bearing - it is what
+     * separates a pack from a mod in the half of the catalogue where both are
+     * {@code project_type:mod}.
+     *
+     * <p>Null for mods and modpacks, whose loader is the profile's, and for
+     * shaders, which have three of them - {@code iris}, {@code optifine},
+     * {@code canvas} - and no way to choose without looking at what the instance
+     * has installed. See {@link ShaderLoaders}.
      */
     public String modrinthLoaderTag() {
-        return this == DATAPACK ? "datapack" : null;
+        return modrinthLoaderTag;
     }
 
     /**
@@ -348,9 +440,18 @@ public enum ContentKind {
         return filteredByLoader || (choice == Choice.ONLY_FOR_PROFILE && onlyForProfile);
     }
 
-    /** True when this kind cannot be installed without a mod loader. */
+    /**
+     * True when this kind cannot be installed at all without a mod loader.
+     *
+     * <p>Mods only, and it is deliberately not the same question as
+     * {@link #isFilteredByLoader()}. A resource pack and a data pack are loaded
+     * by the game. A shader is loaded by Iris, OptiFine or Canvas - which is a
+     * mod, and therefore something the section reports as missing and offers to
+     * fetch, rather than a reason to refuse the search: browsing shaders to
+     * decide whether to install Iris at all is a reasonable thing to do.
+     */
     public boolean needsLoader() {
-        return filteredByLoader;
+        return this == MOD;
     }
 
     /** The file extensions a file of this kind is allowed to have. */
@@ -399,8 +500,8 @@ public enum ContentKind {
     /**
      * True when the category filter means anything for this kind.
      *
-     * <p>True for all three now that each kind is offered its own list. It was
-     * once true for mods alone, because {@link ModCategory} held Modrinth's mod
+     * <p>True for every kind now that each is offered its own list. It was once
+     * true for mods alone, because {@link ModCategory} held Modrinth's mod
      * categories and nothing else, and offering those against a modpack returned
      * a confidently empty list.
      */

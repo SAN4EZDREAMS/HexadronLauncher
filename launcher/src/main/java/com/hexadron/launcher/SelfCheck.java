@@ -67,6 +67,8 @@ import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.SvgPaths;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.mods.ModScan;
+import com.hexadron.launcher.mods.PackScan;
+import com.hexadron.launcher.mods.ShaderLoaders;
 import com.hexadron.launcher.mods.VersionRanges;
 import com.hexadron.launcher.mods.ModrinthProvider;
 import com.hexadron.launcher.net.Http;
@@ -137,6 +139,8 @@ public final class SelfCheck {
         javaVersionParsing();
         javaRuntimeSelection();
         javaRuntimeHousekeeping();
+        packFolders();
+        shaderLoaderDetection();
         archiveExtraction();
         applicationIcons();
         versionManifestParsing();
@@ -1081,6 +1085,245 @@ public final class SelfCheck {
                 com.hexadron.launcher.util.Archives.deleteWhatCan(work);
             }
         }
+    }
+
+    // -------------------------------------------- resource packs and shaders
+
+    /**
+     * The two instance folders of packs, read.
+     *
+     * <p>Worth its own section because the test that decides whether a zip is
+     * this kind of pack is different per kind, and getting it wrong is silent
+     * both ways: a resource pack written into {@code shaderpacks} is a file
+     * nothing loads, and a shader refused as "not a pack" is a download the
+     * player has to place by hand while the launcher insists it is not one.
+     */
+    private static void packFolders() {
+        section("Pack folders");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-pack-check");
+            Path resourcepacks = dir.resolve("resourcepacks");
+            Path shaderpacks = dir.resolve("shaderpacks");
+            java.nio.file.Files.createDirectories(resourcepacks);
+            java.nio.file.Files.createDirectories(shaderpacks);
+
+            PackScan packs = PackScan.of(ContentKind.RESOURCEPACK);
+            PackScan shaders = PackScan.of(ContentKind.SHADER);
+
+            check("the mods folder is not read by this reader", refuses(ContentKind.MOD));
+            check("nor is a modpack, which has no folder", refuses(ContentKind.MODPACK));
+            check("nor a data pack, which belongs to a world", refuses(ContentKind.DATAPACK));
+
+            // ------------------------------------------------ resource packs
+            writeJar(resourcepacks.resolve("faithful.zip"), Map.of(
+                    "pack.mcmeta",
+                    "{\"pack\":{\"pack_format\":34,\"description\":\"Crisp 32x\"}}",
+                    "pack.png", "not really a png",
+                    "assets/minecraft/textures/block/stone.png", "x"));
+            writeJar(resourcepacks.resolve("switched-off.zip.disabled"), Map.of(
+                    "pack.mcmeta",
+                    "{\"pack\":{\"pack_format\":34,\"description\":"
+                            + "[{\"text\":\"Two \"},{\"text\":\"parts\"}]}}"));
+            writeJar(resourcepacks.resolve("just-a-zip.zip"), Map.of("readme.txt", "hello"));
+            java.nio.file.Files.createDirectories(resourcepacks.resolve("unzipped"));
+            java.nio.file.Files.writeString(resourcepacks.resolve("unzipped/pack.mcmeta"),
+                    "{\"pack\":{\"pack_format\":34,\"description\":{\"text\":\"A folder\"}}}");
+            java.nio.file.Files.writeString(resourcepacks.resolve("notes.txt"), "not a pack");
+
+            List<ModEntry> found = packs.scan(resourcepacks);
+            check("both zips, the loose zip and the folder are listed", found.size() == 4);
+            check("a text file is not a pack",
+                    found.stream().noneMatch(pack -> pack.fileName().endsWith(".txt")));
+
+            ModEntry faithful = found.stream()
+                    .filter(pack -> pack.fileName().startsWith("faithful"))
+                    .findFirst().orElseThrow();
+            check("a resource pack's description is read from pack.mcmeta",
+                    "Crisp 32x".equals(faithful.description()));
+            check("its pack format is shown as the pack states it",
+                    faithful.version() != null && faithful.version().contains("34"));
+            // pack_format is one number, and turning it into "works on 1.21.4"
+            // needs a table of every release. The launcher keeps none.
+            check("no version verdict is claimed",
+                    faithful.verdict() == VersionRanges.Verdict.UNKNOWN);
+            check("a pack the launcher did not install is the player's own",
+                    faithful.origin() == ModOrigin.EXTERNAL);
+            check("its own picture is found in the zip",
+                    "pack.png".equals(faithful.iconJarPath()));
+
+            ModEntry switched = found.stream()
+                    .filter(pack -> pack.fileName().startsWith("switched-off"))
+                    .findFirst().orElseThrow();
+            check("a renamed pack is listed as switched off", !switched.enabled());
+            check("a description written as a list is read as one line",
+                    "Two parts".equals(switched.description()));
+
+            ModEntry folder = found.stream()
+                    .filter(pack -> "unzipped".equals(pack.fileName()))
+                    .findFirst().orElseThrow();
+            check("a folder pack is read too", "A folder".equals(folder.description()));
+            check("a folder pack cannot be switched off by renaming",
+                    !PackScan.isTogglable(folder));
+
+            packs.setEnabled(resourcepacks, faithful, false);
+            check("switching off renames the file",
+                    java.nio.file.Files.isRegularFile(
+                            resourcepacks.resolve("faithful.zip" + PackScan.DISABLED_SUFFIX)));
+            check("and the pack is still listed", packs.scan(resourcepacks).size() == 4);
+
+            // What may be imported. A zip is not a resource pack unless there is
+            // a pack.mcmeta in it: Minecraft refuses one without, so a launcher
+            // that copies it in has put a file in a folder that will be listed
+            // in the game as broken.
+            Path incoming = dir.resolve("incoming");
+            java.nio.file.Files.createDirectories(incoming);
+            writeJar(incoming.resolve("nice.zip"), Map.of("pack.mcmeta",
+                    "{\"pack\":{\"pack_format\":34,\"description\":\"Nice\"}}"));
+            writeJar(incoming.resolve("empty.zip"), Map.of("readme.txt", "hello"));
+            java.nio.file.Files.writeString(incoming.resolve("thing.jar"), "not a zip pack");
+
+            ModScan.Imported imported = packs.importPacks(resourcepacks,
+                    List.of(incoming.resolve("nice.zip"), incoming.resolve("empty.zip"),
+                            incoming.resolve("thing.jar")),
+                    Progress.NOOP);
+            check("a real pack is imported", imported.imported().equals(List.of("nice.zip")));
+            check("a zip with no pack.mcmeta is refused as not a pack",
+                    imported.skipped().stream().anyMatch(skip -> skip.file().equals("empty.zip")
+                            && skip.reason() == ModScan.Reason.NOT_AN_ARCHIVE));
+            check("and a jar is refused as the wrong sort of file",
+                    imported.skipped().stream().anyMatch(skip -> skip.file().equals("thing.jar")
+                            && skip.reason() == ModScan.Reason.NOT_A_JAR));
+
+            // ------------------------------------------------------- shaders
+            //
+            // A shader pack has no manifest at all. What identifies one is a
+            // shaders folder, which is what Iris and OptiFine look for - and the
+            // reason to check is that a resource pack full of core shaders is
+            // also called something like "shaders.zip".
+            writeJar(shaderpacks.resolve("BSL.zip"), Map.of(
+                    "shaders/gbuffers_terrain.fsh", "// glsl",
+                    "shaders/shaders.properties", "profile=Medium"));
+            writeJar(shaderpacks.resolve("nested.zip"), Map.of(
+                    "NestedPack/shaders/composite.fsh", "// glsl"));
+            writeJar(shaderpacks.resolve("not-a-shader.zip"), Map.of(
+                    "pack.mcmeta", "{\"pack\":{\"pack_format\":34}}"));
+
+            List<ModEntry> shaderRows = shaders.scan(shaderpacks);
+            check("every zip in the folder is listed, whatever is in it",
+                    shaderRows.size() == 3);
+            ModEntry bsl = shaderRows.stream()
+                    .filter(pack -> pack.fileName().startsWith("BSL"))
+                    .findFirst().orElseThrow();
+            check("a shader pack claims no description, because it publishes none",
+                    bsl.description() == null && bsl.version() == null);
+            check("and no picture, because there is no pack.png in one",
+                    bsl.iconJarPath() == null);
+
+            check("a zip with a shaders folder is a shader pack",
+                    shaders.looksLikePack(shaderpacks.resolve("BSL.zip")));
+            check("so is one zipped with its own folder around it",
+                    shaders.looksLikePack(shaderpacks.resolve("nested.zip")));
+            check("a resource pack is not a shader pack",
+                    !shaders.looksLikePack(shaderpacks.resolve("not-a-shader.zip")));
+            check("and a shader pack is not a resource pack",
+                    !packs.looksLikePack(shaderpacks.resolve("BSL.zip")));
+        } catch (IOException e) {
+            check("pack folders were read: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
+    /** True when this kind is refused by the pack folder reader. */
+    private static boolean refuses(ContentKind kind) {
+        try {
+            PackScan.of(kind);
+            return false;
+        } catch (IllegalArgumentException expected) {
+            return true;
+        }
+    }
+
+    /**
+     * Which program in an instance can load a shader pack.
+     *
+     * <p>The name test is what makes this cheap and the mod id is what makes it
+     * right, and the case that needs both is in here: "Canvas Blocks" is a mod
+     * whose name contains "canvas" and which cannot load a shader. Reporting it
+     * as a shader loader would hide the warning that is the whole point.
+     */
+    private static void shaderLoaderDetection() {
+        section("Shader loaders");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-shader-check");
+
+            Path iris = dir.resolve("iris-mc1.21-1.7.5.jar");
+            writeJar(iris, Map.of("fabric.mod.json",
+                    "{\"id\":\"iris\",\"name\":\"Iris\",\"version\":\"1.7.5\"}"));
+            Path oculus = dir.resolve("oculus-1.20.1-1.6.9.jar");
+            writeJar(oculus, Map.of("fabric.mod.json",
+                    "{\"id\":\"oculus\",\"name\":\"Oculus\",\"version\":\"1.6.9\"}"));
+            Path decoy = dir.resolve("canvas-blocks-1.2.jar");
+            writeJar(decoy, Map.of("fabric.mod.json",
+                    "{\"id\":\"canvasblocks\",\"name\":\"Canvas Blocks\","
+                            + "\"version\":\"1.2\"}"));
+            // OptiFine ships no descriptor of any kind, so nothing can be read
+            // out of it and its name is the only answer there is.
+            Path optifine = dir.resolve("OptiFine_1.20.1_HD_U_I6.jar");
+            writeJar(optifine, Map.of("notch/Config.class", "binary-ish"));
+
+            check("no mods means no shader loader",
+                    ShaderLoaders.detect(List.of()).isEmpty());
+            check("Iris is recognised",
+                    ShaderLoaders.detect(List.of(modRow(iris, "Iris", true)))
+                            .equals(List.of(ShaderLoaders.ShaderLoader.IRIS)));
+            // Oculus is Iris on Forge: a different mod with the same pipeline,
+            // and a pack built for Iris is the pack it loads.
+            check("so is Oculus, as Iris",
+                    ShaderLoaders.detect(List.of(modRow(oculus, "Oculus", true)))
+                            .equals(List.of(ShaderLoaders.ShaderLoader.IRIS)));
+            check("OptiFine is recognised by its name, having no descriptor",
+                    ShaderLoaders.detect(List.of(modRow(optifine, "OptiFine", true)))
+                            .equals(List.of(ShaderLoaders.ShaderLoader.OPTIFINE)));
+            check("a mod that merely sounds like one is not",
+                    ShaderLoaders.detect(List.of(modRow(decoy, "Canvas Blocks", true))).isEmpty());
+            // A jar renamed to .disabled is not going to load anything, and
+            // reporting it as present leaves a player with a pack, no warning
+            // and nothing on screen.
+            check("a switched-off Iris does not count",
+                    ShaderLoaders.detect(List.of(modRow(iris, "Iris", false))).isEmpty());
+
+            check("the Modrinth tag for Iris is what a file request carries",
+                    ShaderLoaders.tagsOf(List.of(ShaderLoaders.ShaderLoader.IRIS))
+                            .equals(List.of("iris")));
+            check("and Oculus asks for the Iris tag rather than its own",
+                    "iris".equals(ShaderLoaders.ShaderLoader.IRIS.tag()));
+            check("a tag maps back to its loader",
+                    ShaderLoaders.ShaderLoader.byTag("optifine").orElseThrow()
+                            == ShaderLoaders.ShaderLoader.OPTIFINE);
+            check("and a mod loader is not a shader loader",
+                    ShaderLoaders.ShaderLoader.byTag("fabric").isEmpty());
+        } catch (IOException e) {
+            check("shader loaders were detected: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
+    /** A mods-list row for one jar on disk. */
+    private static ModEntry modRow(Path jar, String title, boolean enabled) {
+        String name = jar.getFileName().toString() + (enabled ? "" : ModScan.DISABLED_SUFFIX);
+        return new ModEntry("test:" + title, title, null, null, List.of(), name, jar,
+                ModOrigin.EXTERNAL, null, null, null, null, enabled, null,
+                VersionRanges.Verdict.UNKNOWN, List.of());
     }
 
     /**
@@ -2049,9 +2292,39 @@ public final class SelfCheck {
                     reference.containsKey(key));
         }
 
+        // The two pack sections' own words. One panel serves both kinds and
+        // builds every key from the kind's own name - see PackSection.key - so
+        // a missing one is a heading reading !packs.shader.note! rather than a
+        // sentence in the wrong language.
+        for (ContentKind kind : List.of(ContentKind.RESOURCEPACK, ContentKind.SHADER)) {
+            String prefix = "packs." + kind.name().toLowerCase(java.util.Locale.ROOT) + ".";
+            for (String suffix : new String[]{"note", "installed.empty", "installed.search",
+                    "remove.header", "remove.body", "remove.body.external", "installed",
+                    "imported", "import.title", "import.filter", "import.skipped.notPack"}) {
+                check("the " + kind.name().toLowerCase(java.util.Locale.ROOT)
+                                + " panel has its words: " + prefix + suffix,
+                        reference.containsKey(prefix + suffix));
+            }
+            check("the kind itself is named: " + kind.key(), reference.containsKey(kind.key()));
+            String prompt = "mods.search.prompt."
+                    + kind.name().toLowerCase(java.util.Locale.ROOT);
+            check("and its search box has a prompt: " + prompt,
+                    reference.containsKey(prompt));
+        }
+
+        // The lines both panels share, and the three that exist because a
+        // shader pack needs a program to load it that is not Minecraft.
+        for (String key : new String[]{"packs.import.skipped.notZip", "packs.folder.noToggle",
+                "packs.pack.locked", "packs.requirements.header",
+                "packs.shader.noLoader", "packs.shader.noLoader.action", "packs.shader.loader"}) {
+            check("the pack panels have their shared words: " + key,
+                    reference.containsKey(key));
+        }
+
         // Every category the filter offers needs a name in the reference
-        // bundle, including the six that only modpacks are filed under. A
-        // missing one is a tick box labelled !mods.category.quests!.
+        // bundle, including the six that only modpacks are filed under and the
+        // forty that resource packs and shaders brought with them. A missing one
+        // is a tick box labelled !mods.category.quests!.
         for (ModCategory category : ModCategory.values()) {
             check("a category is named: " + category.id(),
                     reference.containsKey(category.key()));
@@ -4629,6 +4902,10 @@ public final class SelfCheck {
                 "modpack".equals(ContentKind.MODPACK.modrinthProjectType()));
         check("data packs are filed as data packs",
                 "datapack".equals(ContentKind.DATAPACK.modrinthProjectType()));
+        check("resource packs are filed as resource packs",
+                "resourcepack".equals(ContentKind.RESOURCEPACK.modrinthProjectType()));
+        check("shaders are filed as shaders",
+                "shader".equals(ContentKind.SHADER.modrinthProjectType()));
 
         // Modrinth introduced data packs as a loader on top of "mod" before they
         // became a project type. Asking for one of the two returns half the
@@ -4650,10 +4927,45 @@ public final class SelfCheck {
                 ContentKind.MODPACK.curseForgeClassId() == 4471);
         check("data packs under class 6945",
                 ContentKind.DATAPACK.curseForgeClassId() == 6945);
+        check("resource packs under class 12",
+                ContentKind.RESOURCEPACK.curseForgeClassId() == 12);
+        check("shaders under class 6552",
+                ContentKind.SHADER.curseForgeClassId() == 6552);
+        // A shared class id would mean one section quietly listing another's
+        // catalogue, which looks like the platform having odd taste rather than
+        // like a wrong number in this file.
+        java.util.Set<Integer> classIds = new java.util.LinkedHashSet<>();
+        for (ContentKind kind : ContentKind.values()) {
+            classIds.add(kind.curseForgeClassId());
+        }
         check("every kind has a class of its own",
-                ContentKind.MOD.curseForgeClassId() != ContentKind.MODPACK.curseForgeClassId()
-                        && ContentKind.MODPACK.curseForgeClassId()
-                                != ContentKind.DATAPACK.curseForgeClassId());
+                classIds.size() == ContentKind.values().length);
+
+        // Where each kind lives, and the record it keeps there. Two kinds
+        // sharing a folder's record file would have each claiming the other's
+        // files as the launcher's to delete.
+        check("a resource pack lives in resourcepacks",
+                "resourcepacks".equals(ContentKind.RESOURCEPACK.instanceFolder()));
+        check("a shader pack lives in shaderpacks",
+                "shaderpacks".equals(ContentKind.SHADER.instanceFolder()));
+        check("a modpack has no folder of its own",
+                !ContentKind.MODPACK.hasInstanceFolder());
+        check("nor does a data pack, which goes into a world",
+                !ContentKind.DATAPACK.hasInstanceFolder());
+        java.util.Set<String> lockFiles = new java.util.LinkedHashSet<>();
+        for (ContentKind kind : ContentKind.values()) {
+            lockFiles.add(kind.lockFile());
+        }
+        check("no two kinds share a record file",
+                lockFiles.size() == ContentKind.values().length);
+
+        // The loader tags. Modrinth keeps "what loads this" in the same field a
+        // category lives in, so a kind loaded by something other than a mod
+        // loader has a name of its own there.
+        check("a resource pack is tagged as loaded by Minecraft itself",
+                "minecraft".equals(ContentKind.RESOURCEPACK.modrinthLoaderTag()));
+        check("a shader has no single loader tag, because it has three",
+                ContentKind.SHADER.modrinthLoaderTag() == null);
 
         // The filtering rules. A pack states a version and a loader rather than
         // needing them, so filtering by the instance's would hide every pack
@@ -4676,7 +4988,31 @@ public final class SelfCheck {
         check("only mods need a loader to install",
                 ContentKind.MOD.needsLoader()
                         && !ContentKind.MODPACK.needsLoader()
-                        && !ContentKind.DATAPACK.needsLoader());
+                        && !ContentKind.DATAPACK.needsLoader()
+                        && !ContentKind.RESOURCEPACK.needsLoader()
+                        && !ContentKind.SHADER.needsLoader());
+
+        // A resource pack states a pack format per era of the game and is
+        // refused when it is from the wrong one, so the version narrows it. A
+        // shader is written against Iris rather than against a Minecraft
+        // release, so narrowing to the exact version hides packs that work -
+        // and on a version published last month it hides nearly all of them.
+        check("a resource pack search is narrowed by version",
+                ContentKind.RESOURCEPACK.isFilteredByVersion());
+        check("and never by the mod loader",
+                !ContentKind.RESOURCEPACK.isFilteredByLoader());
+        check("a shader search is narrowed by neither",
+                !ContentKind.SHADER.isFilteredByVersion()
+                        && !ContentKind.SHADER.isFilteredByLoader());
+        check("neither pack kind offers to narrow to the profile",
+                !ContentKind.RESOURCEPACK.isNarrowableToProfile()
+                        && !ContentKind.SHADER.isNarrowableToProfile());
+        check("both pack kinds are zips",
+                ContentKind.RESOURCEPACK.matches("Faithful.zip")
+                        && ContentKind.SHADER.matches("BSL_v8.zip")
+                        && !ContentKind.SHADER.matches("iris-1.7.jar"));
+        check("and both offer a category filter",
+                ContentKind.RESOURCEPACK.hasCategories() && ContentKind.SHADER.hasCategories());
 
         // Narrowing to the profile's own version and loader is a question with
         // two honest answers for exactly one kind. A mod is always narrowed; a

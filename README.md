@@ -16,6 +16,8 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Mods | One content window per instance, with a rail of kinds down the left - icons until the pointer is on it, names while it is. Mods: search, sort, filter by category, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically, and the launcher asks before you switch off or delete something other mods depend on |
 | Modpacks | Modrinth `.mrpack` and CurseForge modpack zips, from either platform's catalogue or from a file on disk. The window asks first whether the pack should become a new instance or take over this one, and every file it writes is recorded so removing it deletes exactly those |
 | Data packs | Per world, which is where Minecraft loads them from: the window asks which world, then lists that world's folder - install, switch off, remove, import a zip. The one section that works on an instance with no mod loader |
+| Resource packs | Their own section, filtered to the instance's Minecraft version - search, categories, install, switch off, remove, import or drop in a zip. Loaded by vanilla Minecraft, so no loader is needed |
+| Shaders | Their own section, not filtered by version - a shader pack is written against Iris rather than against a release. The launcher reads the mods folder to see whether Iris, OptiFine or Canvas is there, installs the build that one can load, and when none is there says so and takes you to Mods to fetch it |
 | Updating itself | Checks the project's own releases at start-up, on the Release or the Nightly channel, and offers the new version with its notes. Downloads, unpacks and replaces the installed folder, then starts again |
 | Java | The launcher finds the installed runtimes - PATH, the registry, the vendor folders, the official launcher's own downloads - and picks the one the version asks for. If the machine has none, it offers to download an Eclipse Temurin JRE |
 | Assets | Modern, `virtual` (1.6) and `map_to_resources` (pre-1.6) layouts |
@@ -994,8 +996,9 @@ modal window would hold the launcher hostage for as long as it took.
 | ⬡  | [ Browse ] [ Installed (5) ]  |  | Sections     |] [ Installed (5) ]  |
 | ▤  |  [ search ... ] [ Popular v ] |  | ⬡ Mods       |ch ... ] [ Popular v]|
 | ▢  | []  Sodium      Modrinth      |  | ▤ Modpacks   |dium      Modrinth   |
-|    |     A modern renderer ...     |  | ▢ Data packs |modern renderer ...  |
-|    |  ...                          |  |              | ...                 |
+| ▦  |     A modern renderer ...     |  | ▢ Data packs |modern renderer ...  |
+| ☀  |  ...                          |  | ▦ Resource…  | ...                 |
+|    |                               |  | ☀ Shaders    |                     |
 +----+-------------------------------+  +--------------+---------------------+
 | Searching...                       |  | Searching...                       |
 +------------------------------------+  +------------------------------------+
@@ -1007,6 +1010,11 @@ instance: search a platform, read about something, install it, look at what is
 already there, search again. Three windows for that would be three status lines,
 three ways for two installs to write to one folder at once, and three places to
 fix the next thing that is wrong with a row.
+
+Five kinds are on it: mods, modpacks, data packs, resource packs and shaders.
+Mods first because that is what almost every visit is for, then the modpack,
+which decides a whole instance, then the three that change one part of one - what
+the world runs on, what it looks like, and how it is lit.
 
 So the kinds are a rail down the left and the panel beside it belongs to
 whichever is chosen. A rail rather than a second row of tabs: the tabs inside a
@@ -1519,6 +1527,91 @@ without one is refused on import too. The launcher agreeing with the game is the
 point. The description in that file may be a string, a text component or a list
 of them; all three say the same sentence, and the row wants the sentence.
 
+### Resource packs and shaders
+
+Two sections, one class. `PackSection` is built with a `ContentKind` and takes
+every sentence it shows from a key built out of that kind's name, because the two
+sections are the same section: both kinds live in one folder of the instance, one
+file per pack, both are a zip or an unpacked folder, both are switched off by
+renaming, and both are searched, filtered, installed, imported and removed
+identically. What differs is three strings and one warning. A second copy of six
+hundred lines to hold those is a second copy that drifts, and the data pack
+section is the precedent for what that costs.
+
+The reader is `PackScan`, one class for both folders for the same reason - the
+only differences are the folder, the record file beside the packs, and the test
+for whether a zip is that kind of pack at all. `pack.mcmeta` is read by
+`PackMeta`, shared with the data pack reader: it is the identical file and
+Minecraft reads it the identical way, and two readers for one format is two
+places for a description written as a JSON text component to be understood
+differently.
+
+**Resource packs** go in `resourcepacks`, are loaded by vanilla Minecraft, and
+are narrowed to the instance's Minecraft version - a pack states a `pack_format`
+and the game refuses one from the wrong era rather than making do. A zip is not a
+resource pack unless there is a `pack.mcmeta` in it, so one without is refused on
+import, exactly as for a data pack.
+
+**Shaders** go in `shaderpacks`, and two things about them are different from
+everything else in this window.
+
+The first is that the catalogue is **not** narrowed by Minecraft version. Every
+other kind is. A shader pack is GLSL written against Iris or OptiFine's pipeline
+rather than against a Minecraft release, which is why one pack runs for years
+across a dozen versions and why its author lists whichever versions they happened
+to test; narrowing to the instance's exact version hides packs that work, and on
+a version published last month it hides nearly all of them. The kinds where a
+wrong build is a crash are narrowed. This is not one of them.
+
+The second is that a shader pack needs a **program to load it**, and that program
+is not Minecraft and not Fabric: it is Iris, OptiFine or Canvas, all three of
+which are mods. A `shaderpacks` folder on an instance with none of them is a
+folder the game never opens, so the panel reads the mods folder and says which
+one is there - or, when none is, says so and offers the mods search that fixes
+it. `ShaderLoaders` does that reading: the cheap signal is the jar's name, which
+is nearly always right, and anything the name catches is opened and its declared
+mod id read, because "Canvas Blocks" is a mod whose name contains `canvas` and
+which cannot load a shader. OptiFine ships no descriptor at all, so for that one
+the name is the answer; being wrong there costs a warning that is not shown
+rather than a file written anywhere.
+
+The same answer decides which file is installed. Modrinth publishes a shader
+project's versions per loader, and most packs publish for two of the three, so a
+request that names none comes back with whichever was uploaded last - possibly
+for the program this instance does not have. That is what the `loaderTags`
+argument on `ModProvider.resolveFile` is for; it is a second axis because
+`LoaderType` is the mod loader and none of these three is one.
+
+Nothing is installed on the player's behalf. The panel names the missing program
+and takes them to Mods with the search already run, and it does **not** refuse
+the install: the pack is a file in a folder, it will be loaded the moment Iris
+is, and browsing shaders to decide whether to install Iris at all is a reasonable
+thing to do.
+
+**What a pack requires.** A version may name required dependencies, and for these
+two kinds they come in two shapes. One of the same kind - a base pack an add-on
+is painted over - is fetched into the same folder, recorded as a dependency, and
+removed with the pack that needed it when nothing else does. One that is *not*
+the same kind is almost always the loader, and is named in front of the user
+rather than installed: it goes in `mods`, it is chosen against the profile's own
+loader, and a launcher that quietly put a jar there because somebody clicked a
+shader would be installing something they never asked for.
+
+**Packs a modpack brought.** A pack routinely ships its mods, the resource pack
+that retextures them and the shader it was tuned with. All three folders are now
+claimed for the modpack that wrote them, not just `mods`: such a row says which
+pack owns it and its Remove button is off, and removing the modpack takes them
+out together. Only files whose project is known are claimed - the CurseForge
+ones, and the Modrinth ones whose address carries the project id - and a file
+that arrived through a pack's `overrides` is left listed as the player's own,
+because there is no project to record.
+
+Switching a pack off is a rename to `.disabled`, the same as everywhere else in
+this window. Which resource packs are actually *on*, and which shader is
+selected, stay where the game and Iris keep them - `options.txt` and
+`config/iris.properties` - and the launcher does not write to either. It manages
+the folder; the game manages its own settings.
+
 ## Updating itself
 
 The launcher checks its own repository for a newer build while the start-up
@@ -1804,9 +1897,6 @@ field is for `mangohud`-style tools, not for isolation.
   writing one is the other half: it means deciding which of an instance's files
   are the set and which are the player's, which is a question the launcher can
   only answer for the files it recorded.
-- Resource packs and shaders. Both are one folder per instance and a file
-  extension, so both are a `ContentKind` and a folder reader rather than
-  anything new; they are simply not written yet.
 - A sandbox the launcher turns on by itself. What exists instead is the
   wrapper command below, and the reason is in the next section: a sandbox
   cannot do the thing this line used to claim it did.

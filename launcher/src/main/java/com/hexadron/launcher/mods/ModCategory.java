@@ -52,11 +52,14 @@ public enum ModCategory {
 
     ADVENTURE("adventure", ContentKind.MOD, ContentKind.DATAPACK, ContentKind.MODPACK),
     CHALLENGING("challenging", ContentKind.MODPACK),
-    COMBAT("combat", ContentKind.MODPACK),
-    CURSED("cursed", ContentKind.MOD, ContentKind.DATAPACK),
-    DECORATION("decoration", ContentKind.MOD, ContentKind.DATAPACK),
+    COMBAT("combat", ContentKind.MODPACK, ContentKind.RESOURCEPACK),
+    CURSED("cursed", ContentKind.MOD, ContentKind.DATAPACK,
+            ContentKind.RESOURCEPACK, ContentKind.SHADER),
+    DECORATION("decoration", ContentKind.MOD, ContentKind.DATAPACK,
+            ContentKind.RESOURCEPACK),
     ECONOMY("economy", ContentKind.MOD, ContentKind.DATAPACK),
-    EQUIPMENT("equipment", ContentKind.MOD, ContentKind.DATAPACK),
+    EQUIPMENT("equipment", ContentKind.MOD, ContentKind.DATAPACK,
+            ContentKind.RESOURCEPACK),
     FOOD("food", ContentKind.MOD, ContentKind.DATAPACK),
     GAME_MECHANICS("game-mechanics", ContentKind.MOD, ContentKind.DATAPACK),
     KITCHEN_SINK("kitchen-sink", ContentKind.MODPACK),
@@ -73,8 +76,73 @@ public enum ModCategory {
     STORAGE("storage", ContentKind.MOD, ContentKind.DATAPACK),
     TECHNOLOGY("technology", ContentKind.MOD, ContentKind.DATAPACK, ContentKind.MODPACK),
     TRANSPORTATION("transportation", ContentKind.MOD, ContentKind.DATAPACK),
-    UTILITY("utility", ContentKind.MOD, ContentKind.DATAPACK),
-    WORLDGEN("worldgen", ContentKind.MOD, ContentKind.DATAPACK);
+    UTILITY("utility", ContentKind.MOD, ContentKind.DATAPACK,
+            ContentKind.RESOURCEPACK),
+    WORLDGEN("worldgen", ContentKind.MOD, ContentKind.DATAPACK),
+
+    // ------------------------------------------------------- resource packs
+    //
+    // What a resource pack is, as Modrinth's own filter offers it. Three groups
+    // on the website - what it is, what it replaces, and how big its textures
+    // are - and all three are the same "categories" facet underneath, so all
+    // three are values here.
+
+    MODDED("modded", ContentKind.RESOURCEPACK),
+    SIMPLISTIC("simplistic", ContentKind.RESOURCEPACK),
+    THEMED("themed", ContentKind.RESOURCEPACK),
+    TWEAKS("tweaks", ContentKind.RESOURCEPACK),
+
+    AUDIO("audio", ContentKind.RESOURCEPACK),
+    BLOCKS("blocks", ContentKind.RESOURCEPACK),
+    CORE_SHADERS("core-shaders", ContentKind.RESOURCEPACK),
+    ENTITIES("entities", ContentKind.RESOURCEPACK),
+    ENVIRONMENT("environment", ContentKind.RESOURCEPACK),
+    FONTS("fonts", ContentKind.RESOURCEPACK),
+    GUI("gui", ContentKind.RESOURCEPACK),
+    ITEMS("items", ContentKind.RESOURCEPACK),
+    LOCALE("locale", ContentKind.RESOURCEPACK),
+    MODELS("models", ContentKind.RESOURCEPACK),
+
+    // Texture resolution. The identifiers are the platform's own and two of them
+    // are open-ended - "8x-" is 8x and below, "512x+" is 512x and above - which
+    // is why they are written out rather than derived from a number.
+    RESOLUTION_8X_MINUS("8x-", ContentKind.RESOURCEPACK),
+    RESOLUTION_16X("16x", ContentKind.RESOURCEPACK),
+    RESOLUTION_32X("32x", ContentKind.RESOURCEPACK),
+    RESOLUTION_48X("48x", ContentKind.RESOURCEPACK),
+    RESOLUTION_64X("64x", ContentKind.RESOURCEPACK),
+    RESOLUTION_128X("128x", ContentKind.RESOURCEPACK),
+    RESOLUTION_256X("256x", ContentKind.RESOURCEPACK),
+    RESOLUTION_512X_PLUS("512x+", ContentKind.RESOURCEPACK),
+
+    // -------------------------------------------------------------- shaders
+
+    CARTOON("cartoon", ContentKind.SHADER),
+    FANTASY("fantasy", ContentKind.SHADER),
+    SEMI_REALISTIC("semi-realistic", ContentKind.SHADER),
+
+    ATMOSPHERE("atmosphere", ContentKind.SHADER),
+    BLOOM("bloom", ContentKind.SHADER),
+    COLORED_LIGHTING("colored-lighting", ContentKind.SHADER),
+    FOLIAGE("foliage", ContentKind.SHADER),
+    PATH_TRACING("path-tracing", ContentKind.SHADER),
+    PBR("pbr", ContentKind.SHADER),
+    REFLECTIONS("reflections", ContentKind.SHADER),
+    SHADOWS("shadows", ContentKind.SHADER),
+
+    // How much of a machine a pack asks for. The one filter a player with an
+    // older graphics card uses before any other, which is why it is offered
+    // rather than left as a sentence in a description.
+    POTATO("potato", ContentKind.SHADER),
+    LOW("low", ContentKind.SHADER),
+    MEDIUM("medium", ContentKind.SHADER),
+    HIGH("high", ContentKind.SHADER),
+    SCREENSHOT("screenshot", ContentKind.SHADER),
+
+    // ------------------------------------------------- shared by both of them
+
+    REALISTIC("realistic", ContentKind.RESOURCEPACK, ContentKind.SHADER),
+    VANILLA_LIKE("vanilla-like", ContentKind.RESOURCEPACK, ContentKind.SHADER);
 
     private final String id;
 
@@ -88,6 +156,16 @@ public enum ModCategory {
      * alone - they describe a whole instance, which is what a pack is, and there
      * is no single mod that is "a kitchen sink". Data packs are the half of the
      * catalogue that is still filed as mods, so they carry the mod list.
+     *
+     * <p>Resource packs and shaders have lists of their own again, and on the
+     * website those are drawn as more than one group - what the pack is, what
+     * part of the game it replaces, how big its textures are; or its look, its
+     * effects, and how much of a machine it asks for. Underneath they are all
+     * the one {@code categories} facet, so they are all values here and the
+     * filter offers them together. Three of the names are shared with mods
+     * ({@code combat}, {@code cursed}, {@code decoration}) and two with each
+     * other ({@code realistic}, {@code vanilla-like}), which is why the kinds a
+     * category applies to is a set rather than a single value.
      *
      * <p>Offering the wrong list is not a cosmetic fault: a search narrowed to a
      * category the platform does not file this kind under comes back empty, and

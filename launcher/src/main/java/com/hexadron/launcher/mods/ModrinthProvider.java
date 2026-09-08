@@ -125,6 +125,14 @@ public final class ModrinthProvider implements ModProvider {
     public Optional<ModFile> resolveFile(ContentKind kind, String projectId,
                                          String minecraftVersion, LoaderType loader)
             throws IOException, InterruptedException {
+        return resolveFile(kind, projectId, minecraftVersion, loader, List.of());
+    }
+
+    @Override
+    public Optional<ModFile> resolveFile(ContentKind kind, String projectId,
+                                         String minecraftVersion, LoaderType loader,
+                                         List<String> loaderTags)
+            throws IOException, InterruptedException {
 
         StringBuilder url = new StringBuilder(API)
                 .append("/project/").append(encode(projectId)).append("/version");
@@ -132,10 +140,15 @@ public final class ModrinthProvider implements ModProvider {
         if (kind.isFilteredByVersion() && minecraftVersion != null && !minecraftVersion.isBlank()) {
             params.add("game_versions=" + encode("[\"" + minecraftVersion + "\"]"));
         }
-        List<String> loaderTags = fileLoaderTags(kind, loader);
-        if (!loaderTags.isEmpty()) {
+        // The caller's tags win when it has any: for a shader they are the
+        // programs this instance can actually load a pack with, and no rule
+        // written against a LoaderType can work that out.
+        List<String> tags = loaderTags == null || loaderTags.isEmpty()
+                ? fileLoaderTags(kind, loader)
+                : loaderTags;
+        if (!tags.isEmpty()) {
             StringBuilder loaders = new StringBuilder("[");
-            for (String platformId : loaderTags) {
+            for (String platformId : tags) {
                 if (loaders.length() > 1) {
                     loaders.append(',');
                 }
@@ -200,6 +213,19 @@ public final class ModrinthProvider implements ModProvider {
         if (kind == ContentKind.DATAPACK) {
             return modded ? loader.platformIds() : List.of(kind.modrinthLoaderTag());
         }
+        if (kind == ContentKind.SHADER) {
+            // Nothing was said about which program will load it, so any of the
+            // three will do - a Modrinth loaders list is an OR. Better than
+            // asking for none, which returns whichever version was uploaded
+            // last and may be for a program this instance does not have.
+            return ShaderLoaders.tagsOf(List.of(ShaderLoaders.ShaderLoader.values()));
+        }
+        if (kind.modrinthLoaderTag() != null) {
+            // A resource pack: the platform tags every one of them "minecraft",
+            // and asking for it is what keeps a project's mod build out of an
+            // answer meant for the resourcepacks folder.
+            return List.of(kind.modrinthLoaderTag());
+        }
         return kind.isFilteredByLoader() && modded ? loader.platformIds() : List.of();
     }
 
@@ -254,22 +280,22 @@ public final class ModrinthProvider implements ModProvider {
     /**
      * The line drawings the platform publishes beside its category names.
      *
-     * <p>The same endpoint carries the categories of resource packs, shaders and
-     * servers, so only the ones filed under a mod or a modpack are kept - the two
-     * lists this launcher offers as filters.
+     * <p>Only the project types this launcher offers as filters. The same
+     * endpoint also carries plugins and servers, and a set that grew with those
+     * would be a file that grows for no reason.
      *
-     * <p>Mods first, then modpacks, and never over the top of a drawing already
-     * taken. A handful of identifiers appear under more than one project type
-     * with a different drawing each time ({@code combat} is one), and the mod
-     * list is the one nineteen of the twenty-five categories come from, so it is
-     * the one that wins a collision.
+     * <p>Mods first, then modpacks, then the two pack kinds, and never over the
+     * top of a drawing already taken. A handful of identifiers appear under more
+     * than one project type with a different drawing each time ({@code combat}
+     * and {@code cursed} are two), and the mod list is the one most of the
+     * shared names come from, so it is the one that wins a collision.
      *
      * @return category identifier to the markup of its drawing
      */
     public java.util.Map<String, String> categoryArt() throws IOException, InterruptedException {
         java.util.List<Json> tags = Http.getJson(API + "/tag/category").elements();
         java.util.Map<String, String> art = new java.util.LinkedHashMap<>();
-        for (String type : java.util.List.of("mod", "modpack")) {
+        for (String type : java.util.List.of("mod", "modpack", "resourcepack", "shader")) {
             for (Json tag : tags) {
                 if (!type.equals(tag.get("project_type").asString(""))) {
                     continue;
@@ -292,9 +318,10 @@ public final class ModrinthProvider implements ModProvider {
      * one extra request per row to be told that is not a trade worth making.
      *
      * @param projectType the platform's own name for what this is - {@code mod},
-     *                    {@code modpack}, {@code datapack}. It is part of the
-     *                    address rather than decoration, so it is taken from the
-     *                    response that named the project rather than assumed
+     *                    {@code modpack}, {@code datapack}, {@code resourcepack},
+     *                    {@code shader}. It is part of the address rather than
+     *                    decoration, so it is taken from the response that named
+     *                    the project rather than assumed
      */
     public static String pageUrl(String slug, String projectType) {
         if (slug == null || slug.isBlank()) {
