@@ -165,6 +165,17 @@ public final class SettingsDialog {
     private boolean proxyPasswordEdited;
     private final PasswordField curseForgeKey = new PasswordField();
 
+    /**
+     * Says when the pasted key is the wrong kind of CurseForge key.
+     *
+     * <p>Live, under the field, rather than on save. CurseForge has two key
+     * pages; the one a search engine finds first issues something this API
+     * refuses on every request, and the two are told apart by looking at the
+     * string. Saying so while it is being pasted is the difference between one
+     * sentence and an afternoon of 403s.
+     */
+    private final Label curseForgeWarning = new Label();
+
     // Accounts
     //
     // The Azure client id is deliberately not here. It identifies the launcher
@@ -589,6 +600,28 @@ public final class SettingsDialog {
         spinner(modIconCache, LauncherSettings.MOD_ICON_CACHE_MIN,
                 LauncherSettings.MOD_ICON_CACHE_MAX, settings.modIconCacheMegabytes());
 
+        curseForgeWarning.getStyleClass().addAll("muted", "dialog-warning");
+        curseForgeWarning.setWrapText(true);
+        curseForgeWarning.setMaxWidth(Double.MAX_VALUE);
+        curseForgeWarning.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
+        curseForgeKey.textProperty().addListener(
+                (observable, previous, value) -> refreshCurseForgeWarning());
+        refreshCurseForgeWarning();
+
+        // The address is a button rather than a line of text to copy, because
+        // the one thing this note has to do is get somebody to the right page -
+        // and there are two CurseForge key pages, only one of which works here.
+        Button console = new Button(I18n.t("settings.curseforge.console"));
+        console.setOnAction(event -> {
+            if (!SystemBrowser.open(
+                    com.hexadron.launcher.mods.CurseForgeProvider.CONSOLE_URL)) {
+                curseForgeWarning.setText(I18n.t("mods.details.failed",
+                        com.hexadron.launcher.mods.CurseForgeProvider.CONSOLE_URL));
+                curseForgeWarning.setVisible(true);
+                curseForgeWarning.setManaged(true);
+            }
+        });
+
         GridPane grid = form();
         int row = 0;
         grid.addRow(row++, new Label(), warnAboutDependents);
@@ -596,8 +629,28 @@ public final class SettingsDialog {
         grid.addRow(row++, label("settings.modIconCache"), modIconCache);
         grid.addRow(row++, new Label(), note("settings.modIconCache.note"));
         grid.addRow(row++, label("settings.curseforge"), curseForgeKey);
-        grid.addRow(row, new Label(), note("mods.curseforge.key.body"));
+        grid.addRow(row++, new Label(), curseForgeWarning);
+        grid.addRow(row++, new Label(), note("mods.curseforge.key.body"));
+        grid.addRow(row++, new Label(), note("settings.curseforge.howto"));
+        grid.addRow(row, new Label(), console);
         return grid;
+    }
+
+    /**
+     * Shows or hides the "that is the other kind of key" line.
+     *
+     * <p>A warning and not a refusal. The shape is a guess - CurseForge may
+     * change either format - and a settings window that would not accept a key
+     * because it did not recognise the format would be broken by a change it
+     * could simply have passed on.
+     */
+    private void refreshCurseForgeWarning() {
+        boolean wrong = com.hexadron.launcher.mods.CurseForgeProvider.shapeOf(
+                curseForgeKey.getText())
+                == com.hexadron.launcher.mods.CurseForgeProvider.KeyShape.UPLOAD_TOKEN;
+        curseForgeWarning.setText(wrong ? I18n.t("mods.curseforge.key.wrongKind") : "");
+        curseForgeWarning.setVisible(wrong);
+        curseForgeWarning.setManaged(wrong);
     }
 
     /**

@@ -694,7 +694,8 @@ public final class ModInstaller {
                 // there": the user sees a shorter list and no reason for it. A
                 // wrong API key looks exactly like a mod that does not exist for
                 // their version.
-                unavailable.add(provider.source().displayName() + ": " + reasonFor(e));
+                unavailable.add(provider.source().displayName() + ": "
+                        + reasonFor(provider.source(), e));
             }
         }
         if (results.isEmpty() && firstFailure != null) {
@@ -741,12 +742,35 @@ public final class ModInstaller {
      * behind the full request URL.
      */
     public static String reasonFor(IOException failure) {
+        return reasonFor(null, failure);
+    }
+
+    /**
+     * The same, with the platform named so the advice can be its own.
+     *
+     * <p>"The API key was refused" was true and useless. CurseForge has two key
+     * pages, the wrong one is the one a search finds first, and a key from it is
+     * refused on every request - so for that platform the reason includes which
+     * page to use and why the other one does not work. See
+     * {@link CurseForgeProvider#explainRejection()}.
+     *
+     * @param source the platform that failed, or null when it is not known
+     */
+    public static String reasonFor(ModProvider.Source source, IOException failure) {
         if (failure instanceof CurseForgeProvider.UnsupportedCategoriesException) {
             return "the chosen categories are Modrinth's own and have no equivalent here";
         }
+        if (failure instanceof CurseForgeProvider.KeyRejectedException refused) {
+            // Already a whole sentence, and already naming the platform - which
+            // the caller is about to name again, so its own prefix goes.
+            return "HTTP " + refused.statusCode() + " - the API key was refused. "
+                    + CurseForgeProvider.explainRejection();
+        }
         if (failure instanceof com.hexadron.launcher.net.Http.HttpStatusException status) {
             return switch (status.statusCode()) {
-                case 401, 403 -> "HTTP " + status.statusCode() + " - the API key was refused";
+                case 401, 403 -> "HTTP " + status.statusCode() + " - the API key was refused"
+                        + (source == ModProvider.Source.CURSEFORGE
+                                ? ". " + CurseForgeProvider.explainRejection() : "");
                 case 429 -> "HTTP 429 - too many requests, try again shortly";
                 case 404 -> "HTTP 404 - the platform has no such endpoint any more";
                 default -> "HTTP " + status.statusCode();

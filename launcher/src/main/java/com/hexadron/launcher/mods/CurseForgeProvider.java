@@ -28,14 +28,20 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
 /**
  * CurseForge (api.curseforge.com/v1).
  *
  * <p>Three constraints, all imposed by CurseForge rather than by this code.
  *
- * <p><b>A key is required for every request.</b> Where it comes from, in order,
- * and the first non-empty one wins:
+ * <p><b>A key is required for every request.</b> It is a <em>Core API key</em>
+ * from {@code console.curseforge.com}, and CurseForge's other key page - the
+ * author site's "API tokens" - issues something else entirely that this service
+ * refuses with a {@code 403}. Which is a mistake worth naming rather than
+ * letting a user debug: see {@link KeyShape}.
+ *
+ * <p>Where the key comes from, in order, and the first non-empty one wins:
  * <ol>
  *   <li>the launcher settings, so a user can always use their own key;</li>
  *   <li>the {@code CURSEFORGE_API_KEY} environment variable;</li>
@@ -64,6 +70,38 @@ public final class CurseForgeProvider implements ModProvider {
     private static final String API = "https://api.curseforge.com/v1";
     private static final String API_KEY_HEADER = "x-api-key";
 
+    /**
+     * Where a key that works here is created.
+     *
+     * <p>Written down because it is the answer to the one question this class
+     * cannot work around, and because there are two CurseForge key pages and
+     * only one of them issues a key for this API. See {@link KeyShape}.
+     */
+    public static final String CONSOLE_URL = "https://console.curseforge.com/";
+
+    /** The other page: where the token that does <em>not</em> work comes from. */
+    public static final String AUTHOR_TOKENS_URL =
+            "https://legacy.curseforge.com/account/api-tokens";
+
+    /**
+     * A Core API key, as the console issues them: a bcrypt-shaped string.
+     *
+     * <p>{@code $2a$10$} and then fifty-odd characters. Matched loosely - the
+     * cost version and the salt are not this launcher's business - because the
+     * point is to tell it apart from the other kind of key, not to validate it.
+     */
+    private static final Pattern CORE_KEY_SHAPE =
+            Pattern.compile("^\\$2[abxy]?\\$\\d{2}\\$\\S{20,}$");
+
+    /**
+     * An Upload API token, as the author site issues them: 32 hex characters,
+     * or the same thing written as a UUID.
+     */
+    private static final Pattern UPLOAD_TOKEN_SHAPE = Pattern.compile(
+            "^[0-9a-fA-F]{32}$"
+                    + "|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
+                    + "-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+
     /** CurseForge's game id for Minecraft. */
     private static final int GAME_MINECRAFT = 432;
 
@@ -77,6 +115,168 @@ public final class CurseForgeProvider implements ModProvider {
      */
     private static final AtomicReference<String> ACTIVE_KEY = new AtomicReference<>("");
     private static final AtomicBoolean HEADER_RULE_REGISTERED = new AtomicBoolean();
+
+    /**
+     * Which of CurseForge's two kinds of key this looks like.
+     *
+     * <h2>Why this is worth detecting</h2>
+     *
+     * <p>CurseForge has two API key pages and they are not interchangeable, and
+     * nothing on either page says so. The one a search engine finds first -
+     * {@link #AUTHOR_TOKENS_URL} - issues an <b>Upload API token</b>: a
+     * 32-character string, sent as {@code X-Api-Token}, whose purpose is
+     * uploading files to projects you own and reading the list of game versions.
+     * It is not a credential for {@code api.curseforge.com} and that service
+     * rejects it with {@code 403} on every request.
+     *
+     * <p>The one a launcher needs is a <b>Core API key</b> from
+     * {@link #CONSOLE_URL}, sent as {@code x-api-key}. The two look nothing
+     * alike, which is what makes this checkable: a 403 with a 32-hex key in the
+     * settings has one overwhelmingly likely cause, and saying so turns an
+     * afternoon of guessing into one sentence.
+     *
+     * <p>A shape is a guess and is never a reason to refuse a key. CurseForge
+     * may change either format, and a launcher that rejected the new one would
+     * be broken by a change it could simply have passed on.
+     */
+    public enum KeyShape {
+
+        /** Looks like a Core API key: the right sort for this API. */
+        CORE,
+
+        /** Looks like an Upload API token: the wrong sort, and a common mistake. */
+        UPLOAD_TOKEN,
+
+        /** Neither shape. No opinion - it is sent and the service decides. */
+        UNKNOWN
+    }
+
+    /** Which kind of key this looks like. Reads the string, sends nothing. */
+    public static KeyShape shapeOf(String key) {
+        if (key == null) {
+            return KeyShape.UNKNOWN;
+        }
+        String trimmed = key.trim();
+        if (trimmed.isEmpty()) {
+            return KeyShape.UNKNOWN;
+        }
+        if (CORE_KEY_SHAPE.matcher(trimmed).matches()) {
+            return KeyShape.CORE;
+        }
+        if (UPLOAD_TOKEN_SHAPE.matcher(trimmed).matches()) {
+            return KeyShape.UPLOAD_TOKEN;
+        }
+        return KeyShape.UNKNOWN;
+    }
+
+    /** The shape of the key this provider is using. */
+    public KeyShape keyShape() {
+        return shapeOf(apiKey);
+    }
+
+    /**
+     * Why CurseForge is likely to have refused the key in use.
+     *
+     * <p>Appended to a 401 or a 403, which on its own is a number the reader
+     * cannot act on. Static because the message is wanted from
+     * {@link ModInstaller#reasonFor}, which is handed an exception rather than a
+     * provider - and there is only ever one key in use.
+     */
+    public static String explainRejection() {
+        return switch (shapeOf(ACTIVE_KEY.get())) {
+            case UPLOAD_TOKEN -> "that key is 32 hex characters, which is the shape of an"
+                    + " Upload API token from " + AUTHOR_TOKENS_URL + ". That token uploads"
+                    + " files to projects you own; it is not a credential for"
+                    + " api.curseforge.com. Create a Core API key at " + CONSOLE_URL
+                    + " and paste that one instead";
+            case CORE -> "the key has the shape of a Core API key, so it is the right sort and"
+                    + " was still refused: it may have been revoked, or the account it belongs"
+                    + " to may not be approved for the API yet. Create a new one at "
+                    + CONSOLE_URL;
+            case UNKNOWN -> "a key for this API is created at " + CONSOLE_URL + ". A token from "
+                    + AUTHOR_TOKENS_URL + " is a different thing and is not accepted here";
+        };
+    }
+
+    /**
+     * One request to the API, with the key attached and a refusal explained.
+     *
+     * <p>Every path into this class goes through here so that a 401 or a 403
+     * carries the sentence that names the two key pages, once. Before this the
+     * message a user got depended on which button they had pressed: a search
+     * arrived with the explanation, and installing a mod arrived as
+     * {@code HTTP 403 for https://api.curseforge.com/v1/mods/1234/files?...} -
+     * the same fault, reported as a URL they never typed.
+     */
+    private Json get(String url) throws IOException, InterruptedException {
+        try {
+            return Http.getJson(url, headers());
+        } catch (Http.HttpStatusException e) {
+            if (e.statusCode() != 401 && e.statusCode() != 403) {
+                throw e;
+            }
+            throw new KeyRejectedException(e.statusCode(), e);
+        }
+    }
+
+    /**
+     * CurseForge refused the key.
+     *
+     * <p>A subclass rather than a message, so that the status code survives for
+     * the callers that ask about it - {@link #resolveFile} treats a 404 as "no
+     * such project" and must not treat this the same way - and so the sentence
+     * is written once.
+     */
+    public static final class KeyRejectedException extends IOException {
+
+        private final int statusCode;
+
+        KeyRejectedException(int statusCode, Throwable cause) {
+            super("CurseForge refused the API key (HTTP " + statusCode + "). "
+                    + explainRejection(), cause);
+            this.statusCode = statusCode;
+        }
+
+        public int statusCode() {
+            return statusCode;
+        }
+    }
+
+    /** What one probe request found out about the key. */
+    public record KeyCheck(boolean ok, String message) {
+    }
+
+    /**
+     * Asks CurseForge whether it accepts the key, now.
+     *
+     * <p>One small request, made because somebody just pasted a key. Without it
+     * the answer arrives as an empty catalogue on the next search, which looks
+     * like a platform with nothing on it for this version rather than like a
+     * key that was refused - and that is exactly how a wrong key gets mistaken
+     * for a broken launcher.
+     *
+     * <p>Never throws. A refusal and an unreachable service are both answers,
+     * and both belong on the status line rather than in a stack trace.
+     */
+    public KeyCheck verify() throws InterruptedException {
+        if (apiKey == null) {
+            return new KeyCheck(false, "no key is set, so CurseForge is switched off");
+        }
+        try {
+            Json game = get(API + "/games/" + GAME_MINECRAFT).get("data");
+            if (game.get("id").asLong(0) != GAME_MINECRAFT) {
+                return new KeyCheck(false, "CurseForge answered, and not with Minecraft");
+            }
+            return new KeyCheck(true, "the key was accepted");
+        } catch (KeyRejectedException e) {
+            return new KeyCheck(false, e.getMessage());
+        } catch (Http.HttpStatusException e) {
+            return new KeyCheck(false, "HTTP " + e.statusCode() + " from CurseForge");
+        } catch (IOException e) {
+            return new KeyCheck(false,
+                    e.getMessage() == null ? e.toString() : e.getMessage());
+        }
+    }
 
     /** Where the key in use came from. Shown in diagnostics, never the key itself. */
     public enum KeySource {
@@ -272,7 +472,7 @@ public final class CurseForgeProvider implements ModProvider {
             url.append("&modLoaderType=").append(loaderId);
         }
 
-        Json response = Http.getJson(url.toString(), headers());
+        Json response = get(url.toString());
         List<SearchResult> results = new ArrayList<>();
         for (Json mod : response.get("data").elements()) {
             String slug = mod.get("slug").asString("");
@@ -296,7 +496,7 @@ public final class CurseForgeProvider implements ModProvider {
     @Override
     public Optional<ProjectCard> project(String projectId) throws IOException, InterruptedException {
         try {
-            Json mod = Http.getJson(API + "/mods/" + encode(projectId), headers()).get("data");
+            Json mod = get(API + "/mods/" + encode(projectId)).get("data");
             String name = mod.get("name").asString(null);
             if (name == null || name.isBlank()) {
                 return Optional.empty();
@@ -397,8 +597,8 @@ public final class CurseForgeProvider implements ModProvider {
     public Optional<ModFile> resolveExact(String projectId, String fileId)
             throws IOException, InterruptedException {
         try {
-            Json file = Http.getJson(API + "/mods/" + encode(projectId)
-                    + "/files/" + encode(fileId), headers()).get("data");
+            Json file = get(API + "/mods/" + encode(projectId)
+                    + "/files/" + encode(fileId)).get("data");
             if (file.get("id").asLong(0) == 0) {
                 return Optional.empty();
             }
@@ -427,7 +627,7 @@ public final class CurseForgeProvider implements ModProvider {
 
         Json response;
         try {
-            response = Http.getJson(url.toString(), headers());
+            response = get(url.toString());
         } catch (Http.HttpStatusException e) {
             if (e.statusCode() == 404) {
                 return Optional.empty();

@@ -358,6 +358,36 @@ CurseForge requires an API key for every request, and since July 2026 for the
 file downloads as well - its content hosts answer `401` without one. Modrinth
 requires none.
 
+**Two key pages, and only one of them works.** This is the trap, and it has cost
+people an afternoon each: CurseForge has two places that issue something called
+an API key, nothing on either page says the other exists, and the one a search
+engine finds first is the wrong one.
+
+| Page | Issues | Header | What it is for |
+|---|---|---|---|
+| `console.curseforge.com` | a **Core API key**, `$2a$10$…`, around sixty characters | `x-api-key` | reading the catalogue: what a launcher needs |
+| `legacy.curseforge.com/account/api-tokens` | an **Upload API token**, 32 hex characters | `X-Api-Token` | uploading files to projects *you own*, and reading the game-version list |
+
+They are not interchangeable. `api.curseforge.com` answers the upload token with
+`403 Forbidden` on **every** request, which looks exactly like a broken launcher:
+the catalogue comes back empty and nothing says why.
+
+So the launcher tells them apart by looking at the string.
+`CurseForgeProvider.shapeOf` classifies a pasted key as `CORE`, `UPLOAD_TOKEN`
+or `UNKNOWN` - the two shapes are nothing alike - and three things follow from
+it. The settings field
+warns under itself, while the key is being pasted, that this is the other kind.
+Saving a key in the content window then makes one small request to
+`/v1/games/432` and reports the answer at once, instead of letting it arrive as
+an empty search. And every 401 or 403 from the API carries the sentence that
+names the page to use and why the other one does not, wherever it surfaces -
+`CurseForgeProvider.get` is the single place that translates it, so installing a
+mod reports the same thing a search does rather than a raw request URL.
+
+A shape is a guess and never a reason to refuse a key. CurseForge may change
+either format, and a launcher that would not accept the new one would be broken
+by a change it could simply have passed on.
+
 **Where the key comes from.** In this order, first non-empty wins:
 
 1. `curseForgeApiKey` in `launcher.json` - a user's own key, and it always wins;
@@ -400,6 +430,13 @@ it has a file with the same SHA-1. A hit is the same bytes by definition,
 published by the same author in a place they did allow, so the download comes
 from there and the digest still verifies it. No hit, and the mod is named,
 skipped, and left for you to fetch by hand.
+
+This is a different failure from a refused key and is worth not confusing with
+one: `allowModDistribution: false` costs you one file out of a pack and says
+which, and a wrong key costs you the whole platform on every request. Other
+launchers add a third step here - open the project page in the browser, watch the
+Downloads folder, and move the file into the instance when it appears. That is a
+legitimate approach and it is not implemented; see **Not done yet**.
 
 ## The mod
 
@@ -1897,6 +1934,15 @@ field is for `mangohud`-style tools, not for isolation.
   writing one is the other half: it means deciding which of an instance's files
   are the set and which are the player's, which is a question the launcher can
   only answer for the files it recorded.
+- Browser-assisted downloads for the mods whose authors disabled third-party
+  distribution. Today those are named, skipped, and left to be fetched by hand
+  after the Modrinth mirror has been tried. The other half would be: open each
+  blocked project's page, watch the user's Downloads folder with a
+  `WatchService`, match an arriving file by name and SHA-1 against what the pack
+  asked for, and move it into the instance. Nothing about it circumvents
+  anything - it automates the copying the user would otherwise do - but it is a
+  folder watcher, a matcher and a flow of its own, so it is a feature rather than
+  a fix.
 - A sandbox the launcher turns on by itself. What exists instead is the
   wrapper command below, and the reason is in the next section: a sandbox
   cannot do the thing this line used to claim it did.

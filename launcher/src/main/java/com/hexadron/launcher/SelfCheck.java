@@ -2292,6 +2292,20 @@ public final class SelfCheck {
                     reference.containsKey(key));
         }
 
+        // CurseForge's key: where it comes from, and the one wrong page. A
+        // missing key here is the difference between "nothing works" and a
+        // sentence naming the page to use.
+        for (String key : new String[]{"settings.curseforge", "settings.curseforge.prompt",
+                "settings.curseforge.console", "settings.curseforge.howto",
+                "mods.curseforge.key.body", "mods.curseforge.key.wrongKind",
+                "mods.curseforge.key.checking", "mods.curseforge.key.rejected"}) {
+            check("the CurseForge key has its words: " + key, reference.containsKey(key));
+        }
+        check("the instructions name the console that issues the right key",
+                reference.get("settings.curseforge.howto").contains("console.curseforge.com"));
+        check("and warn about the page that issues the wrong one",
+                reference.get("settings.curseforge.howto").contains("legacy.curseforge.com"));
+
         // The two pack sections' own words. One panel serves both kinds and
         // builds every key from the kind's own name - see PackSection.key - so
         // a missing one is a heading reading !packs.shader.note! rather than a
@@ -3096,6 +3110,58 @@ public final class SelfCheck {
         check("a plain failure keeps its own message",
                 "connection reset".equals(
                         ModInstaller.reasonFor(new IOException("connection reset"))));
+
+        // ------------------------------------------- which CurseForge key it is
+        //
+        // CurseForge has two API key pages and they are not interchangeable.
+        // The one a search engine finds first - legacy.curseforge.com/account/
+        // api-tokens - issues a 32-character Upload API token for project
+        // authors, which api.curseforge.com refuses with 403 on every single
+        // request. The one a launcher needs is a Core API key from
+        // console.curseforge.com. Nothing on either page says so, and the
+        // reported symptom was "I pasted the key and nothing works".
+        //
+        // The shapes are nothing alike, so the mistake is nameable. The example
+        // strings here are made up: a real key does not belong in a repository.
+        check("a bcrypt-shaped key is a Core API key",
+                CurseForgeProvider.shapeOf("$2a$10$abcdefghijklmnopqrstuvwxyz0123456789ABCDEFghij")
+                        == CurseForgeProvider.KeyShape.CORE);
+        check("so is one with another cost or prefix",
+                CurseForgeProvider.shapeOf("$2b$12$0123456789012345678901234567890123456789abcd")
+                        == CurseForgeProvider.KeyShape.CORE);
+        check("32 hex characters is the author site's upload token",
+                CurseForgeProvider.shapeOf("0123456789abcdef0123456789abcdef")
+                        == CurseForgeProvider.KeyShape.UPLOAD_TOKEN);
+        check("and so is the same thing written as a uuid",
+                CurseForgeProvider.shapeOf("01234567-89ab-cdef-0123-456789abcdef")
+                        == CurseForgeProvider.KeyShape.UPLOAD_TOKEN);
+        check("surrounding whitespace does not change the answer",
+                CurseForgeProvider.shapeOf("  0123456789abcdef0123456789abcdef\n")
+                        == CurseForgeProvider.KeyShape.UPLOAD_TOKEN);
+        // 32 characters that are not all hex is not that token, and guessing
+        // that it is would put a wrong explanation in front of somebody whose
+        // key is fine.
+        check("32 characters that are not hex are not claimed",
+                CurseForgeProvider.shapeOf("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+                        == CurseForgeProvider.KeyShape.UNKNOWN);
+        check("nothing at all is not claimed either",
+                CurseForgeProvider.shapeOf(null) == CurseForgeProvider.KeyShape.UNKNOWN
+                        && CurseForgeProvider.shapeOf("   ")
+                                == CurseForgeProvider.KeyShape.UNKNOWN);
+
+        // The sentence a refusal carries. It has to name the page that works,
+        // because the whole failure is that the user went to the other one.
+        String advice = CurseForgeProvider.explainRejection();
+        check("a refusal names the console the key comes from",
+                advice.contains("console.curseforge.com"));
+        check("a rejected key exception says so in one sentence",
+                ModInstaller.reasonFor(ModProvider.Source.CURSEFORGE,
+                        new Http.HttpStatusException(403, "https://api.curseforge.com/v1/x", ""))
+                        .contains("console.curseforge.com"));
+        check("and Modrinth is not given CurseForge's advice",
+                !ModInstaller.reasonFor(ModProvider.Source.MODRINTH,
+                        new Http.HttpStatusException(403, "https://api.modrinth.com/v2/x", ""))
+                        .contains("console.curseforge.com"));
 
         // Naming a dependency. The reported symptom was an installed list showing
         // "eXts2L7r", which is a project id and tells the user nothing. The

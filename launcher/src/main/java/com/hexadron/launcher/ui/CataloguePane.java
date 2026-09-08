@@ -495,10 +495,47 @@ final class CataloguePane {
                 return;
             }
             refreshCurseForgeState();
-            if (host.service().curseForge().isAvailable()) {
-                host.progress().done(I18n.t("mods.curseforge.key.saved"));
-                search();
+            if (!host.service().curseForge().isAvailable()) {
+                return;
             }
+            // The wrong kind of key is recognisable without asking anybody, and
+            // it is the mistake almost everybody makes: CurseForge's author site
+            // issues an "API token" that this API refuses on every request, and
+            // it is the page a search engine finds first.
+            if (host.service().curseForge().keyShape()
+                    == com.hexadron.launcher.mods.CurseForgeProvider.KeyShape.UPLOAD_TOKEN) {
+                host.warn(I18n.t("mods.curseforge.key.header"),
+                        I18n.t("mods.curseforge.key.wrongKind"));
+                return;
+            }
+            verifyCurseForgeKey();
+        });
+    }
+
+    /**
+     * Asks CurseForge whether it accepts the key that was just pasted.
+     *
+     * <p>Because the alternative is finding out by way of an empty catalogue,
+     * which is indistinguishable from a platform that has nothing for this
+     * version - and that is exactly how a refused key gets mistaken for a broken
+     * launcher. One small request, and then either the search runs or the reason
+     * is on the status line.
+     */
+    private void verifyCurseForgeKey() {
+        host.run(I18n.t("mods.curseforge.key.checking"), null, () -> {
+            com.hexadron.launcher.mods.CurseForgeProvider.KeyCheck checked =
+                    host.service().curseForge().verify();
+            Platform.runLater(() -> {
+                if (checked.ok()) {
+                    host.progress().done(I18n.t("mods.curseforge.key.saved"));
+                    search();
+                    return;
+                }
+                host.progress().failed(I18n.t("mods.curseforge.key.rejected",
+                        checked.message()));
+                host.warn(I18n.t("mods.curseforge.key.header"),
+                        I18n.t("mods.curseforge.key.rejected", checked.message()));
+            });
         });
     }
 
