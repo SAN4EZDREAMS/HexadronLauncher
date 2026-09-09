@@ -39,6 +39,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -187,6 +188,8 @@ public final class MainWindow implements ProfileHost {
     private final Button gridSettingsButton = new Button();
     private final Button aboutButton = new Button();
     private final Button gridAboutButton = new Button();
+    private final Button bugButton = new Button();
+    private final Button gridBugButton = new Button();
     private final Button modeButton = new Button();
     private final Button gridModeButton = new Button();
     private final Button newGroupButton = new Button();
@@ -228,8 +231,8 @@ public final class MainWindow implements ProfileHost {
     /** Cached so a language switch can re-render the summary without touching disk. */
     private Profile shown;
 
-    /** One browser window per profile, reused so a second click focuses it. */
-    private final java.util.Map<String, ModBrowserWindow> browsers = new java.util.HashMap<>();
+    /** One content window per profile, reused so a second click focuses it. */
+    private final java.util.Map<String, ContentBrowserWindow> browsers = new java.util.HashMap<>();
 
     public MainWindow(LauncherService service, Stage stage) {
         this.service = service;
@@ -262,17 +265,23 @@ public final class MainWindow implements ProfileHost {
      * who has their own reason to manage Java themselves should be able to say
      * so once, and get a message telling them what to install instead of the
      * same dialog before every launch.
+     *
+     * <p>"Download" means this download. It used to also mean "and never ask
+     * again", because saying yes once rewrote {@code javaDownloadPolicy} to
+     * {@code always} - a setting change nobody asked for, made by a button that
+     * did not mention it. Handing over the decision permanently is now the
+     * checkbox, which is a thing the reader can see and choose.
      */
-    private boolean askAboutJavaDownload(JavaProvisioner.Candidate candidate) {
+    private JavaRuntimes.Answer askAboutJavaDownload(JavaProvisioner.Candidate candidate) {
         if (Platform.isFxApplicationThread()) {
             // Not expected - launches run on a worker - but blocking the FX
             // thread on itself would deadlock, so answer without asking.
-            return false;
+            return JavaRuntimes.Answer.NO;
         }
 
         java.util.concurrent.CountDownLatch answered = new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.atomic.AtomicBoolean allowed =
-                new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.concurrent.atomic.AtomicReference<JavaRuntimes.Answer> answer =
+                new java.util.concurrent.atomic.AtomicReference<>(JavaRuntimes.Answer.NO);
 
         Platform.runLater(() -> {
             try {
@@ -296,9 +305,18 @@ public final class MainWindow implements ProfileHost {
                 alert.setHeaderText(I18n.t("java.download.header", candidate.major()));
                 alert.getDialogPane().setPrefWidth(620);
 
+                CheckBox remember = new CheckBox(I18n.t("java.download.remember"));
+                remember.setWrapText(true);
+                alert.getDialogPane().setExpandableContent(null);
+                alert.getDialogPane().setContent(buildJavaDialogBody(
+                        alert.getContentText(), remember));
+
                 ButtonType chosen = alert.showAndWait().orElse(notNow);
-                allowed.set(chosen == download);
-                if (chosen == never) {
+                if (chosen == download) {
+                    answer.set(remember.isSelected()
+                            ? JavaRuntimes.Answer.ALWAYS
+                            : JavaRuntimes.Answer.ONCE);
+                } else if (chosen == never) {
                     service.settings().javaDownloadPolicy(JavaRuntimes.DownloadPolicy.NEVER);
                     saveSettingsQuietly();
                 }
@@ -311,9 +329,24 @@ public final class MainWindow implements ProfileHost {
             answered.await();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return false;
+            return JavaRuntimes.Answer.NO;
         }
-        return allowed.get();
+        return answer.get();
+    }
+
+    /**
+     * The dialog's body: the explanation, then the checkbox under it.
+     *
+     * <p>Replacing the content also replaces the label an {@code Alert} builds
+     * from its content text, so that label is rebuilt here rather than lost.
+     */
+    private static VBox buildJavaDialogBody(String message, CheckBox remember) {
+        Label body = new Label(message);
+        body.setWrapText(true);
+        body.setMinWidth(0);
+        VBox content = new VBox(14, body, remember);
+        content.setMinWidth(0);
+        return content;
     }
 
     public Scene build() {
@@ -382,13 +415,19 @@ public final class MainWindow implements ProfileHost {
         asIcon(settingsButton, Glyphs.settings(), "settings.open");
         aboutButton.setOnAction(event -> openAbout());
         asIcon(aboutButton, Glyphs.about(), "about.open");
+        bugButton.setOnAction(event -> openBugReport());
+        asIcon(bugButton, Glyphs.bug(), "bug.open");
 
         // No language box here. The setting lives in the settings window, and a
         // setting with two homes is a setting that disagrees with itself; the
         // two buttons left are the two that are pressed often enough to earn the
         // far end of the bar.
+        // The bug sits before the two that were already here, not after the
+        // cog: the cog is the last thing on that bar on every program anybody
+        // has used, and moving it to make room for a new button is a change to
+        // something people no longer look at before clicking.
         HBox header = new HBox(10, mark, brandLabel, searchField, spacer(),
-                modeButton, aboutButton, settingsButton);
+                modeButton, bugButton, aboutButton, settingsButton);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         keepLabels(header);
@@ -465,12 +504,14 @@ public final class MainWindow implements ProfileHost {
         asIcon(gridSettingsButton, Glyphs.settings(), "settings.open");
         gridAboutButton.setOnAction(event -> openAbout());
         asIcon(gridAboutButton, Glyphs.about(), "about.open");
+        gridBugButton.setOnAction(event -> openBugReport());
+        asIcon(gridBugButton, Glyphs.bug(), "bug.open");
 
         gridHint.getStyleClass().add("muted");
 
         HBox bar = new HBox(10, mark, gridTitle, gridSearchField, gridNewButton,
                 gridNewGroupButton, gridSortButton, spacer(), gridHint,
-                gridModeButton, gridAboutButton, gridSettingsButton);
+                gridModeButton, gridBugButton, gridAboutButton, gridSettingsButton);
         bar.getStyleClass().addAll("header", "inventory-bar");
         bar.setAlignment(Pos.CENTER_LEFT);
         keepLabels(bar);
@@ -719,7 +760,7 @@ public final class MainWindow implements ProfileHost {
         actions.setAlignment(Pos.CENTER_LEFT);
 
         modsTitle.getStyleClass().add("section-title");
-        modsList.setCellFactory(view -> new ModCell());
+        modsList.setCellFactory(view -> new ModCell(() -> modpackIds));
         modsList.setPlaceholder(modsEmpty);
         modsList.setPrefHeight(150);
         modsList.setFocusTraversable(false);
@@ -769,7 +810,18 @@ public final class MainWindow implements ProfileHost {
         private final Label badge = new Label();
         private final HBox box = new HBox(10, icon, name, version, badge);
 
-        ModCell() {
+        /**
+         * Which pack ids in this instance are modpacks.
+         *
+         * <p>A supplier rather than a value: the cells are built once and the
+         * record is re-read whenever the instance changes. It is what tells the
+         * two meanings of one origin apart - a jar out of the launcher's own set,
+         * and a jar out of a modpack somebody installed.
+         */
+        private final java.util.function.Supplier<java.util.Set<String>> modpackIds;
+
+        ModCell(java.util.function.Supplier<java.util.Set<String>> modpackIds) {
+            this.modpackIds = modpackIds;
             name.getStyleClass().add("summary-value");
             version.getStyleClass().add("instance-subtitle");
             badge.getStyleClass().add("badge");
@@ -798,7 +850,10 @@ public final class MainWindow implements ProfileHost {
             icon.show(mod);
             name.setText(mod.title());
             version.setText(mod.version() == null ? "" : mod.version());
-            badge.setText(ModLabels.badge(mod));
+            boolean fromModpack = mod.origin() == ModOrigin.PACK && mod.packId() != null
+                    && modpackIds.get().contains(mod.packId());
+            badge.setText(ModLabels.badge(mod, fromModpack));
+            boolean live = mod.enabled() && !mod.isWrongVersion();
             // Only when it actually differs. A style class changed from inside a
             // list cell's update is resolved a frame late - the cell is updated
             // during the list's layout, after CSS has run - so touching one for
@@ -806,10 +861,16 @@ public final class MainWindow implements ProfileHost {
             // and corrected afterwards.
             setBadgeClass(badge, "badge-off", !mod.enabled());
             setBadgeClass(badge, "badge-wrong", mod.enabled() && mod.isWrongVersion());
-            setBadgeClass(badge, "badge-pack", mod.enabled() && !mod.isWrongVersion()
-                    && mod.origin() == ModOrigin.PACK);
-            setBadgeClass(badge, "badge-dependency", mod.enabled() && !mod.isWrongVersion()
+            setBadgeClass(badge, "badge-modpack", live && fromModpack);
+            setBadgeClass(badge, "badge-pack",
+                    live && !fromModpack && mod.origin() == ModOrigin.PACK);
+            setBadgeClass(badge, "badge-dependency", live
                     && mod.origin() == ModOrigin.DEPENDENCY);
+            // A jar a data pack brought with it. Named here as well as in the
+            // content window, because this panel is the list most players read
+            // first and a mod nobody chose is exactly the row they ask about.
+            setBadgeClass(badge, "badge-datapack", live
+                    && mod.origin() == ModOrigin.DATAPACK);
             setGraphic(box);
         }
     }
@@ -864,17 +925,42 @@ public final class MainWindow implements ProfileHost {
         new AboutDialog().show(stage);
     }
 
+    /**
+     * The bug window: what a report needs, and where to send it.
+     *
+     * <p>Built fresh each time rather than kept, because the one thing in it
+     * that changes is the one thing that matters - which log file is the newest
+     * - and a window held from the first press would go on naming a file that
+     * has since been rotated away.
+     */
+    private void openBugReport() {
+        new ReportBugDialog(service.dirs()).show(stage);
+    }
+
+    /**
+     * Opens the content window for the selected instance.
+     *
+     * <p>No longer refused on an instance with no mod loader. It used to be, and
+     * that was right while the window was only about mods; it is wrong now that
+     * the same window covers data packs, which vanilla Minecraft loads, and
+     * modpacks, which bring a loader with them. The one section that does need a
+     * loader says so in place of its own results, where the user is looking.
+     */
     private void openModBrowser() {
         Profile profile = selectedProfile;
         if (profile == null) {
             return;
         }
-        if (profile.loader() == LoaderType.VANILLA) {
-            showWarning(I18n.t("mods.vanilla.header"), I18n.t("mods.vanilla"));
-            return;
-        }
         browsers.computeIfAbsent(profile.id(),
-                        id -> new ModBrowserWindow(service, stage, profile, () -> refreshModsList(profile)))
+                        id -> new ContentBrowserWindow(service, stage, profile,
+                                () -> refreshModsList(profile),
+                                // A modpack install changes the profile's version
+                                // and loader, or makes a profile of its own. Both
+                                // are the list's business as much as the panel's,
+                                // so this is the full re-read rather than the mods
+                                // count - and it is a separate callback so that
+                                // switching one mod off does not rebuild the grid.
+                                this::refreshProfiles))
                 .show();
     }
 
@@ -891,6 +977,16 @@ public final class MainWindow implements ProfileHost {
     }
 
     /**
+     * The ids of the modpacks installed in the instance being shown.
+     *
+     * <p>Held rather than looked up per row, and re-read with the mods list. It
+     * is the difference between a row that says "Hexadron Optimise" and one that
+     * says "modpack", and getting it wrong tells the reader their instance
+     * contains a set they never installed.
+     */
+    private java.util.Set<String> modpackIds = java.util.Set.of();
+
+    /**
      * Re-reads the mods folder for the summary list.
      *
      * <p>More than the lock file, now that the list includes what the player put
@@ -900,10 +996,16 @@ public final class MainWindow implements ProfileHost {
      */
     private void refreshModsList(Profile profile) {
         if (profile == null) {
+            modpackIds = java.util.Set.of();
             modsList.setItems(FXCollections.observableArrayList());
             modsTitle.setText(I18n.t("instance.mods", 0));
             return;
         }
+        // Read with the list, not per row: a badge is drawn again on every
+        // repaint, and this is a file in the instance folder.
+        java.util.Set<String> packs = new java.util.LinkedHashSet<>();
+        service.modpacksIn(profile).forEach(pack -> packs.add(pack.id()));
+        modpackIds = java.util.Set.copyOf(packs);
         java.util.List<ModEntry> installed = service.modsIn(profile);
         modsList.setItems(FXCollections.observableArrayList(installed));
         modsTitle.setText(I18n.t("instance.mods", installed.size()));
@@ -1037,7 +1139,7 @@ public final class MainWindow implements ProfileHost {
         // key, so this loop does not have to know what any of them is.
         for (javafx.scene.control.Button button : new javafx.scene.control.Button[]{
                 settingsButton, gridSettingsButton, aboutButton, gridAboutButton,
-                modeButton, gridModeButton}) {
+                bugButton, gridBugButton, modeButton, gridModeButton}) {
             Object key = button.getProperties().get("hexadron.name");
             if (key == null) {
                 continue;
@@ -1193,9 +1295,14 @@ public final class MainWindow implements ProfileHost {
         }
 
         closeBrowser(profile.id());
-        if (answer.get() == deleteFiles) {
-            try {
-                List<Path> undeleted = service.profiles().removeWithFiles(profile);
+        // Through the service rather than the store, because removing a profile
+        // is also the moment to give back a downloaded Java runtime that nothing
+        // asks for any more - and only the service can see the whole profile
+        // list to know whether anything still does.
+        try {
+            List<Path> undeleted =
+                    service.deleteProfile(profile, answer.get() == deleteFiles, progress);
+            if (answer.get() == deleteFiles) {
                 if (undeleted.isEmpty()) {
                     progress.log(I18n.t("profiles.remove.deleted", profile.name()));
                 } else {
@@ -1205,18 +1312,16 @@ public final class MainWindow implements ProfileHost {
                     progress.log(I18n.t("profiles.remove.deleteFailed", undeleted.size()));
                     undeleted.stream().limit(10).forEach(path -> progress.log("  " + path));
                 }
-            } catch (IOException e) {
-                showError(I18n.t("profiles.remove.header"), e);
             }
-        } else {
-            service.profiles().remove(profile);
+        } catch (IOException e) {
+            showError(I18n.t("profiles.remove.header"), e);
         }
         saveProfilesQuietly();
         refreshProfiles();
     }
 
     private void closeBrowser(String profileId) {
-        ModBrowserWindow browser = browsers.remove(profileId);
+        ContentBrowserWindow browser = browsers.remove(profileId);
         if (browser != null) {
             browser.close();
         }

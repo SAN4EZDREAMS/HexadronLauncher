@@ -41,9 +41,15 @@ import java.util.List;
  * @param pageUrl    the project's page on the platform, or null
  * @param categories what the project is filed under, so the installed list can
  *                   say what a mod is for with no connection and no lookup
+ * @param datapack   the data pack this was installed for, when {@code origin} is
+ *                   {@link ModOrigin#DATAPACK}, and null otherwise. A data pack
+ *                   lives in one world's folder rather than beside the mods, so
+ *                   the link has to be written down here - see
+ *                   {@link DatapackOwner}
  */
 public record InstalledMod(String title, ModFile file, ModOrigin origin, String packId,
-                           String iconUrl, String pageUrl, List<ModCategory> categories) {
+                           String iconUrl, String pageUrl, List<ModCategory> categories,
+                           DatapackOwner datapack) {
 
     public InstalledMod {
         categories = List.copyOf(categories);
@@ -51,20 +57,32 @@ public record InstalledMod(String title, ModFile file, ModOrigin origin, String 
 
     /** An entry with no artwork or link recorded, as version 2 of the lock file wrote them. */
     public InstalledMod(String title, ModFile file, ModOrigin origin, String packId) {
-        this(title, file, origin, packId, null, null, List.of());
+        this(title, file, origin, packId, null, null, List.of(), null);
     }
 
     /** An entry as version 3 wrote it: a logo and a page, and no categories. */
     public InstalledMod(String title, ModFile file, ModOrigin origin, String packId,
                         String iconUrl, String pageUrl) {
-        this(title, file, origin, packId, iconUrl, pageUrl, List.of());
+        this(title, file, origin, packId, iconUrl, pageUrl, List.of(), null);
+    }
+
+    /** An entry as version 4 wrote it: everything but the data pack that owns it. */
+    public InstalledMod(String title, ModFile file, ModOrigin origin, String packId,
+                        String iconUrl, String pageUrl, List<ModCategory> categories) {
+        this(title, file, origin, packId, iconUrl, pageUrl, categories, null);
     }
 
     /** An entry labelled from what the platform published about the project. */
     public static InstalledMod of(ModProvider.ProjectCard card, ModFile file,
                                   ModOrigin origin, String packId) {
+        return of(card, file, origin, packId, null);
+    }
+
+    /** The same, for a mod a data pack brought with it. */
+    public static InstalledMod of(ModProvider.ProjectCard card, ModFile file,
+                                  ModOrigin origin, String packId, DatapackOwner datapack) {
         return new InstalledMod(card.title(), file, origin, packId,
-                card.iconUrl(), card.pageUrl(), card.categories());
+                card.iconUrl(), card.pageUrl(), card.categories(), datapack);
     }
 
     /** The lock-file key: one entry per project per provider. */
@@ -78,6 +96,13 @@ public record InstalledMod(String title, ModFile file, ModOrigin origin, String 
 
     public boolean belongsTo(String pack) {
         return origin == ModOrigin.PACK && packId != null && packId.equals(pack);
+    }
+
+    /** True when this mod was installed for that data pack and goes out with it. */
+    public boolean belongsToDatapack(String world, String key) {
+        return origin == ModOrigin.DATAPACK && datapack != null
+                && key != null && key.equals(datapack.key())
+                && (world == null || world.equals(datapack.world()));
     }
 
     public Json toJson() {
@@ -97,6 +122,9 @@ public record InstalledMod(String title, ModFile file, ModOrigin origin, String 
             Json list = Json.array();
             categories.forEach(category -> list.add(category.id()));
             json.put("categories", list);
+        }
+        if (datapack != null) {
+            json.put("datapack", datapack.toJson());
         }
         return json;
     }
@@ -134,6 +162,12 @@ public record InstalledMod(String title, ModFile file, ModOrigin origin, String 
                 origin == ModOrigin.PACK ? packId : null,
                 json.get("iconUrl").asString(null),
                 json.get("pageUrl").asString(null),
-                ModCategory.parse(categoryIds));
+                ModCategory.parse(categoryIds),
+                // Only for the origin it means something for. An entry that
+                // names a data pack under any other origin is one this build
+                // did not write, and the badge it would draw would contradict
+                // the row's own buttons.
+                origin == ModOrigin.DATAPACK
+                        ? DatapackOwner.fromJson(json.get("datapack")) : null);
     }
 }

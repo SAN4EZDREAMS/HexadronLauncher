@@ -226,4 +226,24 @@ public final class ProfileStore {
     public Path modsDirectory(Profile profile) {
         return gameDirectory(profile).resolve("mods");
     }
+
+    /**
+     * The folder inside a profile where one kind of content lives.
+     *
+     * <p>{@code mods}, {@code resourcepacks}, {@code shaderpacks} - the names
+     * are Minecraft's own and belong to the kind, not to this class, which is
+     * why they come from {@link com.hexadron.launcher.mods.ContentKind}.
+     *
+     * @throws IllegalArgumentException for a kind with no single folder: a
+     *                                 modpack is unpacked across the whole
+     *                                 instance, and a data pack goes into one
+     *                                 world rather than into the instance
+     */
+    public Path contentDirectory(Profile profile,
+                                 com.hexadron.launcher.mods.ContentKind kind) {
+        if (kind == null || !kind.hasInstanceFolder()) {
+            throw new IllegalArgumentException(kind + " has no folder of its own in an instance");
+        }
+        return gameDirectory(profile).resolve(kind.instanceFolder());
+    }
 }

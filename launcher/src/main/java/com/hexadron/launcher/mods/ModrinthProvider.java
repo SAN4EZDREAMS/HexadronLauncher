@@ -45,18 +45,41 @@ public final class ModrinthProvider implements ModProvider {
     }
 
     @Override
-    public SearchPage search(String query, String minecraftVersion, LoaderType loader,
-                             ModSort sort, List<ModCategory> categories, int limit, int offset)
+    public SearchPage search(ContentKind kind, String query, String minecraftVersion,
+                             LoaderType loader, ModSort sort, List<ModCategory> categories,
+                             boolean onlyForProfile, int limit, int offset)
             throws IOException, InterruptedException {
 
         // Modrinth facets are an array of OR-groups that are ANDed together.
         List<String> facetGroups = new ArrayList<>();
-        facetGroups.add("[\"project_type:mod\"]");
-        if (minecraftVersion != null && !minecraftVersion.isBlank()) {
+
+        // One group, so the two spellings of "data pack" are an OR. See
+        // ContentKind.modrinthTypeFacets for why there are two.
+        List<String> types = new ArrayList<>();
+        for (String type : kind.modrinthTypeFacets()) {
+            types.add("\"project_type:" + type + "\"");
+        }
+        facetGroups.add("[" + String.join(",", types) + "]");
+
+        // The kind's own loader tag, where it has one. For a data pack this is
+        // what separates it from a mod in the half of the catalogue that is still
+        // filed as project_type:mod.
+        String kindLoader = kind.modrinthLoaderTag();
+        if (kindLoader != null) {
+            facetGroups.add("[\"categories:" + kindLoader + "\"]");
+        }
+        if (kind.narrowsByVersion(onlyForProfile)
+                && minecraftVersion != null && !minecraftVersion.isBlank()) {
             facetGroups.add("[\"versions:" + minecraftVersion + "\"]");
         }
-        if (loader != null && loader.isModded()) {
-            facetGroups.add("[\"categories:" + loader.platformId() + "\"]");
+        if (kind.narrowsByLoader(onlyForProfile) && loader != null && loader.isModded()) {
+            // One group, several tags: a Modrinth facet group is an OR, and for
+            // Quilt the honest question is "quilt or fabric", not "quilt".
+            List<String> tags = new ArrayList<>();
+            for (String platformId : loader.platformIds()) {
+                tags.add("\"categories:" + platformId + "\"");
+            }
+            facetGroups.add("[" + String.join(",", tags) + "]");
         }
         // One group each, so they are ANDed: two ticked categories mean "both",
         // which is how the platform's own filter behaves. A single group would
@@ -85,7 +108,12 @@ public final class ModrinthProvider implements ModProvider {
                     hit.get("author").asString(""),
                     hit.get("downloads").asLong(0),
                     hit.get("icon_url").asString(null),
-                    pageUrl(slug),
+                    // The hit's own project_type where it has one, because that
+                    // is what the website addresses it by, and the kind asked
+                    // for otherwise. They differ for exactly the data packs
+                    // still filed as mods, and a link built from the wrong one
+                    // is a link to a page that is not there.
+                    pageUrl(slug, hit.get("project_type").asString(kind.modrinthPagePath())),
                     categoriesOf(hit.get("categories")),
                     Source.MODRINTH));
         }
@@ -94,17 +122,39 @@ public final class ModrinthProvider implements ModProvider {
     }
 
     @Override
-    public Optional<ModFile> resolveLatest(String projectId, String minecraftVersion, LoaderType loader)
+    public Optional<ModFile> resolveFile(ContentKind kind, String projectId,
+                                         String minecraftVersion, LoaderType loader)
+            throws IOException, InterruptedException {
+        return resolveFile(kind, projectId, minecraftVersion, loader, List.of());
+    }
+
+    @Override
+    public Optional<ModFile> resolveFile(ContentKind kind, String projectId,
+                                         String minecraftVersion, LoaderType loader,
+                                         List<String> loaderTags)
             throws IOException, InterruptedException {
 
         StringBuilder url = new StringBuilder(API)
                 .append("/project/").append(encode(projectId)).append("/version");
         List<String> params = new ArrayList<>();
-        if (minecraftVersion != null && !minecraftVersion.isBlank()) {
+        if (kind.isFilteredByVersion() && minecraftVersion != null && !minecraftVersion.isBlank()) {
             params.add("game_versions=" + encode("[\"" + minecraftVersion + "\"]"));
         }
-        if (loader != null && loader.isModded()) {
-            params.add("loaders=" + encode("[\"" + loader.platformId() + "\"]"));
+        // The caller's tags win when it has any: for a shader they are the
+        // programs this instance can actually load a pack with, and no rule
+        // written against a LoaderType can work that out.
+        List<String> tags = loaderTags == null || loaderTags.isEmpty()
+                ? fileLoaderTags(kind, loader)
+                : loaderTags;
+        if (!tags.isEmpty()) {
+            StringBuilder loaders = new StringBuilder("[");
+            for (String platformId : tags) {
+                if (loaders.length() > 1) {
+                    loaders.append(',');
+                }
+                loaders.append('"').append(platformId).append('"');
+            }
+            params.add("loaders=" + encode(loaders.append(']').toString()));
         }
         if (!params.isEmpty()) {
             url.append('?').append(String.join("&", params));
@@ -138,6 +188,47 @@ public final class ModrinthProvider implements ModProvider {
         return Optional.of(toModFile(projectId, chosen));
     }
 
+    /**
+     * Which loader tags a request for one file should ask the platform for.
+     *
+     * <h2>Why a data pack has any</h2>
+     *
+     * <p>A data pack project publishes its versions twice over: the plain pack,
+     * which vanilla Minecraft loads out of a world folder, and the same pack for
+     * a mod loader, whose version names the mod that puts it in place as a
+     * required dependency. They are two different versions of one project, and
+     * asking for neither returns whichever was uploaded last - so an instance
+     * with Fabric could be handed the plain pack, and a request for "no mods,
+     * please" could be answered with the version that brings one.
+     *
+     * <p>So the tag is always asked for: the loader's own when there is a loader
+     * to load the pack through, and {@code datapack} when there is not - which
+     * is both a vanilla instance and somebody who ticked the box.
+     *
+     * @param loader the loader to ask for, or {@link LoaderType#VANILLA} for the
+     *               plain pack
+     */
+    private static List<String> fileLoaderTags(ContentKind kind, LoaderType loader) {
+        boolean modded = loader != null && loader.isModded();
+        if (kind == ContentKind.DATAPACK) {
+            return modded ? loader.platformIds() : List.of(kind.modrinthLoaderTag());
+        }
+        if (kind == ContentKind.SHADER) {
+            // Nothing was said about which program will load it, so any of the
+            // three will do - a Modrinth loaders list is an OR. Better than
+            // asking for none, which returns whichever version was uploaded
+            // last and may be for a program this instance does not have.
+            return ShaderLoaders.tagsOf(List.of(ShaderLoaders.ShaderLoader.values()));
+        }
+        if (kind.modrinthLoaderTag() != null) {
+            // A resource pack: the platform tags every one of them "minecraft",
+            // and asking for it is what keeps a project's mod build out of an
+            // answer meant for the resourcepacks folder.
+            return List.of(kind.modrinthLoaderTag());
+        }
+        return kind.isFilteredByLoader() && modded ? loader.platformIds() : List.of();
+    }
+
     @Override
     public Optional<ProjectCard> project(String projectId) throws IOException, InterruptedException {
         try {
@@ -152,7 +243,8 @@ public final class ModrinthProvider implements ModProvider {
             String slug = project.get("slug").asString(projectId);
             return Optional.of(new ProjectCard(Source.MODRINTH,
                     project.get("id").asString(projectId), slug, title,
-                    project.get("icon_url").asString(null), pageUrl(slug),
+                    project.get("icon_url").asString(null),
+                    pageUrl(slug, project.get("project_type").asString("mod")),
                     categoriesOf(project.get("categories"))));
         } catch (Http.HttpStatusException e) {
             if (e.statusCode() == 404) {
@@ -188,37 +280,60 @@ public final class ModrinthProvider implements ModProvider {
     /**
      * The line drawings the platform publishes beside its category names.
      *
-     * <p>The same endpoint carries the categories of resource packs, plugins and
-     * servers, so only the ones filed under a mod are kept.
+     * <p>Only the project types this launcher offers as filters. The same
+     * endpoint also carries plugins and servers, and a set that grew with those
+     * would be a file that grows for no reason.
+     *
+     * <p>Mods first, then modpacks, then the two pack kinds, and never over the
+     * top of a drawing already taken. A handful of identifiers appear under more
+     * than one project type with a different drawing each time ({@code combat}
+     * and {@code cursed} are two), and the mod list is the one most of the
+     * shared names come from, so it is the one that wins a collision.
      *
      * @return category identifier to the markup of its drawing
      */
     public java.util.Map<String, String> categoryArt() throws IOException, InterruptedException {
+        java.util.List<Json> tags = Http.getJson(API + "/tag/category").elements();
         java.util.Map<String, String> art = new java.util.LinkedHashMap<>();
-        for (Json tag : Http.getJson(API + "/tag/category").elements()) {
-            if (!"mod".equals(tag.get("project_type").asString(""))) {
-                continue;
-            }
-            String name = tag.get("name").asString(null);
-            String icon = tag.get("icon").asString(null);
-            if (name != null && icon != null && !icon.isBlank()) {
-                art.putIfAbsent(name, icon);
+        for (String type : java.util.List.of("mod", "modpack", "resourcepack", "shader")) {
+            for (Json tag : tags) {
+                if (!type.equals(tag.get("project_type").asString(""))) {
+                    continue;
+                }
+                String name = tag.get("name").asString(null);
+                String icon = tag.get("icon").asString(null);
+                if (name != null && icon != null && !icon.isBlank()) {
+                    art.putIfAbsent(name, icon);
+                }
             }
         }
         return art;
     }
 
     /**
-     * The page a user reads about this mod on.
+     * The page a user reads about this project on.
      *
      * <p>Built rather than fetched. Modrinth's search returns no link, the shape
-     * {@code modrinth.com/mod/<slug>} is what the site itself publishes, and one
-     * extra request per row to be told that is not a trade worth making.
+     * {@code modrinth.com/<type>/<slug>} is what the site itself publishes, and
+     * one extra request per row to be told that is not a trade worth making.
+     *
+     * @param projectType the platform's own name for what this is - {@code mod},
+     *                    {@code modpack}, {@code datapack}, {@code resourcepack},
+     *                    {@code shader}. It is part of the address rather than
+     *                    decoration, so it is taken from the response that named
+     *                    the project rather than assumed
      */
+    public static String pageUrl(String slug, String projectType) {
+        if (slug == null || slug.isBlank()) {
+            return null;
+        }
+        String type = projectType == null || projectType.isBlank() ? "mod" : projectType;
+        return "https://modrinth.com/" + encode(type) + "/" + encode(slug);
+    }
+
+    /** A mod's page, for the callers that only ever ask about mods. */
     public static String pageUrl(String slug) {
-        return slug == null || slug.isBlank()
-                ? null
-                : "https://modrinth.com/mod/" + encode(slug);
+        return pageUrl(slug, "mod");
     }
 
     /** Resolves one exact version id, used when a pack pins a build. */
@@ -330,7 +445,8 @@ public final class ModrinthProvider implements ModProvider {
             String slug = project.get("slug").asString(id);
             cards.add(new ProjectCard(Source.MODRINTH, id, slug,
                     project.get("title").asString(slug),
-                    project.get("icon_url").asString(null), pageUrl(slug),
+                    project.get("icon_url").asString(null),
+                    pageUrl(slug, project.get("project_type").asString("mod")),
                     categoriesOf(project.get("categories"))));
         }
         return cards;

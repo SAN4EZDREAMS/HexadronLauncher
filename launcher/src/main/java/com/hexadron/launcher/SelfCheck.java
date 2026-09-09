@@ -40,11 +40,16 @@ import com.hexadron.launcher.meta.Library;
 import com.hexadron.launcher.meta.Rule;
 import com.hexadron.launcher.meta.VersionJson;
 import com.hexadron.launcher.meta.VersionManifest;
+import com.hexadron.launcher.mods.ContentKind;
+import com.hexadron.launcher.mods.CurseForgeCategories;
 import com.hexadron.launcher.mods.CurseForgeProvider;
+import com.hexadron.launcher.mods.DatapackScan;
+import com.hexadron.launcher.mods.PackArchive;
 import com.hexadron.launcher.mods.InstalledMod;
 import com.hexadron.launcher.mods.ModFile;
 import com.hexadron.launcher.mods.ModInstaller;
 import com.hexadron.launcher.mods.ModLibrary;
+import com.hexadron.launcher.mods.ModMenuCount;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModPack;
 import com.hexadron.launcher.mods.ModVersions;
@@ -63,6 +68,8 @@ import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.SvgPaths;
 import com.hexadron.launcher.mods.ModProvider;
 import com.hexadron.launcher.mods.ModScan;
+import com.hexadron.launcher.mods.PackScan;
+import com.hexadron.launcher.mods.ShaderLoaders;
 import com.hexadron.launcher.mods.VersionRanges;
 import com.hexadron.launcher.mods.ModrinthProvider;
 import com.hexadron.launcher.net.Http;
@@ -132,6 +139,9 @@ public final class SelfCheck {
         securityHardening();
         javaVersionParsing();
         javaRuntimeSelection();
+        javaRuntimeHousekeeping();
+        packFolders();
+        shaderLoaderDetection();
         archiveExtraction();
         applicationIcons();
         versionManifestParsing();
@@ -147,6 +157,7 @@ public final class SelfCheck {
         launcherUpdates();
         deltaUpdates();
         modCategories();
+        curseForgeCategories();
         categoryOrder();
         loaderCompatibility();
         forgeInstallerProfiles();
@@ -159,6 +170,11 @@ public final class SelfCheck {
         unreachableHosts();
         proxyRouting();
         modCompatibility();
+        contentKinds();
+        modpackArchives();
+        modpackPaths();
+        datapackFolder();
+        worldList();
         stylesheet();
         launcherLog();
         about();
@@ -994,6 +1010,322 @@ public final class SelfCheck {
                 List.of("windows", "mac", "linux").contains(JavaProvisioner.adoptiumOs()));
         check("this host maps to an Adoptium architecture",
                 List.of("x64", "x32", "aarch64", "arm").contains(JavaProvisioner.adoptiumArch()));
+    }
+
+    /**
+     * Owning a downloaded runtime: recognising it, and giving it back.
+     *
+     * <p>The launcher deletes directories here, which is the reason this exists.
+     * Two properties have to hold and both fail silently: only a folder the
+     * launcher itself downloaded may be removed - a Java the user installed is
+     * not the launcher's to touch, however the profile list looks - and a
+     * version any remaining profile still asks for has to survive. Getting the
+     * second one wrong deletes the runtime a working profile launches on, and
+     * nothing notices until the next Play.
+     */
+    private static void javaRuntimeHousekeeping() {
+        section("Java runtime housekeeping");
+
+        // What a profile remembers, since that is what the decision rests on.
+        Profile profile = Profile.create("Pack", "1.12.2", LoaderType.FORGE);
+        check("a fresh profile remembers no java version", profile.javaMajor() == null);
+        profile.javaMajor(8);
+        check("the java version survives a round trip through json",
+                Integer.valueOf(8).equals(Profile.fromJson(profile.toJson()).javaMajor()));
+        profile.javaMajor(0);
+        check("a nonsense java version is not stored", profile.javaMajor() == null);
+        profile.javaMajor(null);
+        check("clearing the java version is allowed", profile.javaMajor() == null);
+
+        java.nio.file.Path work = null;
+        try {
+            work = java.nio.file.Files.createTempDirectory("hexadron-java-check");
+            GameDirs dirs = new GameDirs(work);
+            JavaLocator locator = new JavaLocator(dirs);
+            JavaProvisioner provisioner = new JavaProvisioner(dirs, locator);
+
+            // Three folders: two the launcher would have written, one it would
+            // not. Only the marker tells them apart.
+            java.nio.file.Path eight = dirs.javaRuntime(provisioner.component(8));
+            java.nio.file.Path twentyOne = dirs.javaRuntime(provisioner.component(21));
+            java.nio.file.Path strangers = dirs.javaRuntime(
+                    provisioner.component(17));
+            for (java.nio.file.Path home : List.of(eight, twentyOne, strangers)) {
+                java.nio.file.Files.createDirectories(home.resolve("bin"));
+                java.nio.file.Files.writeString(home.resolve("bin").resolve("placeholder"), "x");
+            }
+            java.nio.file.Files.writeString(
+                    eight.resolve(".hexadron-runtime.json"), "{\"majorVersion\":8}");
+            java.nio.file.Files.writeString(
+                    twentyOne.resolve(".hexadron-runtime.json"), "{\"majorVersion\":21}");
+
+            List<Integer> managed = provisioner.installedMajors();
+            check("a downloaded runtime is recognised", managed.contains(8) && managed.contains(21));
+            check("a runtime without the marker is not claimed", !managed.contains(17));
+
+            JavaRuntimes runtimes = new JavaRuntimes(dirs, locator,
+                    () -> JavaRuntimes.DownloadPolicy.NEVER, policy -> { });
+            List<Integer> deleted = runtimes.prune(java.util.Set.of(21), Progress.NOOP);
+
+            check("a runtime nothing asks for is deleted", deleted.equals(List.of(8)));
+            check("the deleted runtime is gone", !java.nio.file.Files.exists(eight));
+            check("a runtime still in use is kept", java.nio.file.Files.isDirectory(twentyOne));
+            check("a runtime the launcher did not install is left alone",
+                    java.nio.file.Files.isDirectory(strangers));
+
+            boolean refused = false;
+            try {
+                provisioner.uninstall(17);
+            } catch (java.io.IOException expected) {
+                refused = true;
+            }
+            check("deleting an unmarked runtime is refused outright", refused);
+        } catch (java.io.IOException e) {
+            check("java housekeeping ran: " + e, false);
+        } finally {
+            if (work != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(work);
+            }
+        }
+    }
+
+    // -------------------------------------------- resource packs and shaders
+
+    /**
+     * The two instance folders of packs, read.
+     *
+     * <p>Worth its own section because the test that decides whether a zip is
+     * this kind of pack is different per kind, and getting it wrong is silent
+     * both ways: a resource pack written into {@code shaderpacks} is a file
+     * nothing loads, and a shader refused as "not a pack" is a download the
+     * player has to place by hand while the launcher insists it is not one.
+     */
+    private static void packFolders() {
+        section("Pack folders");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-pack-check");
+            Path resourcepacks = dir.resolve("resourcepacks");
+            Path shaderpacks = dir.resolve("shaderpacks");
+            java.nio.file.Files.createDirectories(resourcepacks);
+            java.nio.file.Files.createDirectories(shaderpacks);
+
+            PackScan packs = PackScan.of(ContentKind.RESOURCEPACK);
+            PackScan shaders = PackScan.of(ContentKind.SHADER);
+
+            check("the mods folder is not read by this reader", refuses(ContentKind.MOD));
+            check("nor is a modpack, which has no folder", refuses(ContentKind.MODPACK));
+            check("nor a data pack, which belongs to a world", refuses(ContentKind.DATAPACK));
+
+            // ------------------------------------------------ resource packs
+            writeJar(resourcepacks.resolve("faithful.zip"), Map.of(
+                    "pack.mcmeta",
+                    "{\"pack\":{\"pack_format\":34,\"description\":\"Crisp 32x\"}}",
+                    "pack.png", "not really a png",
+                    "assets/minecraft/textures/block/stone.png", "x"));
+            writeJar(resourcepacks.resolve("switched-off.zip.disabled"), Map.of(
+                    "pack.mcmeta",
+                    "{\"pack\":{\"pack_format\":34,\"description\":"
+                            + "[{\"text\":\"Two \"},{\"text\":\"parts\"}]}}"));
+            writeJar(resourcepacks.resolve("just-a-zip.zip"), Map.of("readme.txt", "hello"));
+            java.nio.file.Files.createDirectories(resourcepacks.resolve("unzipped"));
+            java.nio.file.Files.writeString(resourcepacks.resolve("unzipped/pack.mcmeta"),
+                    "{\"pack\":{\"pack_format\":34,\"description\":{\"text\":\"A folder\"}}}");
+            java.nio.file.Files.writeString(resourcepacks.resolve("notes.txt"), "not a pack");
+
+            List<ModEntry> found = packs.scan(resourcepacks);
+            check("both zips, the loose zip and the folder are listed", found.size() == 4);
+            check("a text file is not a pack",
+                    found.stream().noneMatch(pack -> pack.fileName().endsWith(".txt")));
+
+            ModEntry faithful = found.stream()
+                    .filter(pack -> pack.fileName().startsWith("faithful"))
+                    .findFirst().orElseThrow();
+            check("a resource pack's description is read from pack.mcmeta",
+                    "Crisp 32x".equals(faithful.description()));
+            check("its pack format is shown as the pack states it",
+                    faithful.version() != null && faithful.version().contains("34"));
+            // pack_format is one number, and turning it into "works on 1.21.4"
+            // needs a table of every release. The launcher keeps none.
+            check("no version verdict is claimed",
+                    faithful.verdict() == VersionRanges.Verdict.UNKNOWN);
+            check("a pack the launcher did not install is the player's own",
+                    faithful.origin() == ModOrigin.EXTERNAL);
+            check("its own picture is found in the zip",
+                    "pack.png".equals(faithful.iconJarPath()));
+
+            ModEntry switched = found.stream()
+                    .filter(pack -> pack.fileName().startsWith("switched-off"))
+                    .findFirst().orElseThrow();
+            check("a renamed pack is listed as switched off", !switched.enabled());
+            check("a description written as a list is read as one line",
+                    "Two parts".equals(switched.description()));
+
+            ModEntry folder = found.stream()
+                    .filter(pack -> "unzipped".equals(pack.fileName()))
+                    .findFirst().orElseThrow();
+            check("a folder pack is read too", "A folder".equals(folder.description()));
+            check("a folder pack cannot be switched off by renaming",
+                    !PackScan.isTogglable(folder));
+
+            packs.setEnabled(resourcepacks, faithful, false);
+            check("switching off renames the file",
+                    java.nio.file.Files.isRegularFile(
+                            resourcepacks.resolve("faithful.zip" + PackScan.DISABLED_SUFFIX)));
+            check("and the pack is still listed", packs.scan(resourcepacks).size() == 4);
+
+            // What may be imported. A zip is not a resource pack unless there is
+            // a pack.mcmeta in it: Minecraft refuses one without, so a launcher
+            // that copies it in has put a file in a folder that will be listed
+            // in the game as broken.
+            Path incoming = dir.resolve("incoming");
+            java.nio.file.Files.createDirectories(incoming);
+            writeJar(incoming.resolve("nice.zip"), Map.of("pack.mcmeta",
+                    "{\"pack\":{\"pack_format\":34,\"description\":\"Nice\"}}"));
+            writeJar(incoming.resolve("empty.zip"), Map.of("readme.txt", "hello"));
+            java.nio.file.Files.writeString(incoming.resolve("thing.jar"), "not a zip pack");
+
+            ModScan.Imported imported = packs.importPacks(resourcepacks,
+                    List.of(incoming.resolve("nice.zip"), incoming.resolve("empty.zip"),
+                            incoming.resolve("thing.jar")),
+                    Progress.NOOP);
+            check("a real pack is imported", imported.imported().equals(List.of("nice.zip")));
+            check("a zip with no pack.mcmeta is refused as not a pack",
+                    imported.skipped().stream().anyMatch(skip -> skip.file().equals("empty.zip")
+                            && skip.reason() == ModScan.Reason.NOT_AN_ARCHIVE));
+            check("and a jar is refused as the wrong sort of file",
+                    imported.skipped().stream().anyMatch(skip -> skip.file().equals("thing.jar")
+                            && skip.reason() == ModScan.Reason.NOT_A_JAR));
+
+            // ------------------------------------------------------- shaders
+            //
+            // A shader pack has no manifest at all. What identifies one is a
+            // shaders folder, which is what Iris and OptiFine look for - and the
+            // reason to check is that a resource pack full of core shaders is
+            // also called something like "shaders.zip".
+            writeJar(shaderpacks.resolve("BSL.zip"), Map.of(
+                    "shaders/gbuffers_terrain.fsh", "// glsl",
+                    "shaders/shaders.properties", "profile=Medium"));
+            writeJar(shaderpacks.resolve("nested.zip"), Map.of(
+                    "NestedPack/shaders/composite.fsh", "// glsl"));
+            writeJar(shaderpacks.resolve("not-a-shader.zip"), Map.of(
+                    "pack.mcmeta", "{\"pack\":{\"pack_format\":34}}"));
+
+            List<ModEntry> shaderRows = shaders.scan(shaderpacks);
+            check("every zip in the folder is listed, whatever is in it",
+                    shaderRows.size() == 3);
+            ModEntry bsl = shaderRows.stream()
+                    .filter(pack -> pack.fileName().startsWith("BSL"))
+                    .findFirst().orElseThrow();
+            check("a shader pack claims no description, because it publishes none",
+                    bsl.description() == null && bsl.version() == null);
+            check("and no picture, because there is no pack.png in one",
+                    bsl.iconJarPath() == null);
+
+            check("a zip with a shaders folder is a shader pack",
+                    shaders.looksLikePack(shaderpacks.resolve("BSL.zip")));
+            check("so is one zipped with its own folder around it",
+                    shaders.looksLikePack(shaderpacks.resolve("nested.zip")));
+            check("a resource pack is not a shader pack",
+                    !shaders.looksLikePack(shaderpacks.resolve("not-a-shader.zip")));
+            check("and a shader pack is not a resource pack",
+                    !packs.looksLikePack(shaderpacks.resolve("BSL.zip")));
+        } catch (IOException e) {
+            check("pack folders were read: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
+    /** True when this kind is refused by the pack folder reader. */
+    private static boolean refuses(ContentKind kind) {
+        try {
+            PackScan.of(kind);
+            return false;
+        } catch (IllegalArgumentException expected) {
+            return true;
+        }
+    }
+
+    /**
+     * Which program in an instance can load a shader pack.
+     *
+     * <p>The name test is what makes this cheap and the mod id is what makes it
+     * right, and the case that needs both is in here: "Canvas Blocks" is a mod
+     * whose name contains "canvas" and which cannot load a shader. Reporting it
+     * as a shader loader would hide the warning that is the whole point.
+     */
+    private static void shaderLoaderDetection() {
+        section("Shader loaders");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-shader-check");
+
+            Path iris = dir.resolve("iris-mc1.21-1.7.5.jar");
+            writeJar(iris, Map.of("fabric.mod.json",
+                    "{\"id\":\"iris\",\"name\":\"Iris\",\"version\":\"1.7.5\"}"));
+            Path oculus = dir.resolve("oculus-1.20.1-1.6.9.jar");
+            writeJar(oculus, Map.of("fabric.mod.json",
+                    "{\"id\":\"oculus\",\"name\":\"Oculus\",\"version\":\"1.6.9\"}"));
+            Path decoy = dir.resolve("canvas-blocks-1.2.jar");
+            writeJar(decoy, Map.of("fabric.mod.json",
+                    "{\"id\":\"canvasblocks\",\"name\":\"Canvas Blocks\","
+                            + "\"version\":\"1.2\"}"));
+            // OptiFine ships no descriptor of any kind, so nothing can be read
+            // out of it and its name is the only answer there is.
+            Path optifine = dir.resolve("OptiFine_1.20.1_HD_U_I6.jar");
+            writeJar(optifine, Map.of("notch/Config.class", "binary-ish"));
+
+            check("no mods means no shader loader",
+                    ShaderLoaders.detect(List.of()).isEmpty());
+            check("Iris is recognised",
+                    ShaderLoaders.detect(List.of(modRow(iris, "Iris", true)))
+                            .equals(List.of(ShaderLoaders.ShaderLoader.IRIS)));
+            // Oculus is Iris on Forge: a different mod with the same pipeline,
+            // and a pack built for Iris is the pack it loads.
+            check("so is Oculus, as Iris",
+                    ShaderLoaders.detect(List.of(modRow(oculus, "Oculus", true)))
+                            .equals(List.of(ShaderLoaders.ShaderLoader.IRIS)));
+            check("OptiFine is recognised by its name, having no descriptor",
+                    ShaderLoaders.detect(List.of(modRow(optifine, "OptiFine", true)))
+                            .equals(List.of(ShaderLoaders.ShaderLoader.OPTIFINE)));
+            check("a mod that merely sounds like one is not",
+                    ShaderLoaders.detect(List.of(modRow(decoy, "Canvas Blocks", true))).isEmpty());
+            // A jar renamed to .disabled is not going to load anything, and
+            // reporting it as present leaves a player with a pack, no warning
+            // and nothing on screen.
+            check("a switched-off Iris does not count",
+                    ShaderLoaders.detect(List.of(modRow(iris, "Iris", false))).isEmpty());
+
+            check("the Modrinth tag for Iris is what a file request carries",
+                    ShaderLoaders.tagsOf(List.of(ShaderLoaders.ShaderLoader.IRIS))
+                            .equals(List.of("iris")));
+            check("and Oculus asks for the Iris tag rather than its own",
+                    "iris".equals(ShaderLoaders.ShaderLoader.IRIS.tag()));
+            check("a tag maps back to its loader",
+                    ShaderLoaders.ShaderLoader.byTag("optifine").orElseThrow()
+                            == ShaderLoaders.ShaderLoader.OPTIFINE);
+            check("and a mod loader is not a shader loader",
+                    ShaderLoaders.ShaderLoader.byTag("fabric").isEmpty());
+        } catch (IOException e) {
+            check("shader loaders were detected: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
+    /** A mods-list row for one jar on disk. */
+    private static ModEntry modRow(Path jar, String title, boolean enabled) {
+        String name = jar.getFileName().toString() + (enabled ? "" : ModScan.DISABLED_SUFFIX);
+        return new ModEntry("test:" + title, title, null, null, List.of(), name, jar,
+                ModOrigin.EXTERNAL, null, null, null, null, enabled, null,
+                VersionRanges.Verdict.UNKNOWN, List.of());
     }
 
     /**
@@ -1921,6 +2253,109 @@ public final class SelfCheck {
 
         check("a mod nothing needs any more can say so",
                 reference.containsKey("mods.dependents.none"));
+
+        // The tick box that narrows the modpack catalogue to this profile, the
+        // sentence that says what it does, and the placeholder for when it
+        // leaves nothing - which has to name the box, or it reads as "no such
+        // pack exists".
+        for (String key : new String[]{"mods.onlyForProfile", "mods.onlyForProfile.tip",
+                "mods.noResults.forProfile", "modpacks.target.warning"}) {
+            check("the modpack catalogue has its words: " + key,
+                    reference.containsKey(key));
+        }
+
+        // A jar out of a downloaded modpack. Without these three the row falls
+        // back to the launcher's own set - "Hexadron Optimise" on a mod that
+        // came out of somebody else's pack - and the panel that says which pack
+        // it was has nothing to put in it.
+        for (String key : new String[]{"mods.origin.modpack", "mods.modpack.title",
+                "mods.modpack.hint"}) {
+            check("a mod from a modpack can say which one: " + key,
+                    reference.containsKey(key));
+        }
+
+        // The same three for a jar a data pack brought with it, plus the
+        // sentence on its Remove button - which is locked, and locked for a
+        // different reason than a modpack's mod, so it cannot borrow that one.
+        for (String key : new String[]{"mods.origin.datapack", "mods.datapack.title",
+                "mods.datapack.hint", "mods.remove.datapackLocked"}) {
+            check("a mod from a data pack can say which one: " + key,
+                    reference.containsKey(key));
+        }
+
+        // The box that decides whether the mods a data pack requires are
+        // fetched, the sentence that says what it does, the one for an instance
+        // with no loader to put a mod into, and the two messages for an install
+        // and a removal that moved a jar as well as a pack.
+        for (String key : new String[]{"datapacks.withoutMods", "datapacks.withoutMods.tip",
+                "datapacks.withoutMods.vanilla",
+                "datapacks.installed.withMods", "datapacks.removed.withMods"}) {
+            check("the data pack catalogue has its words: " + key,
+                    reference.containsKey(key));
+        }
+
+        // CurseForge's key: where it comes from, and the one wrong page. A
+        // missing key here is the difference between "nothing works" and a
+        // sentence naming the page to use.
+        for (String key : new String[]{"settings.curseforge", "settings.curseforge.prompt",
+                "settings.curseforge.console", "settings.curseforge.howto",
+                "mods.curseforge.key.body", "mods.curseforge.key.wrongKind",
+                "mods.curseforge.key.checking", "mods.curseforge.key.rejected"}) {
+            check("the CurseForge key has its words: " + key, reference.containsKey(key));
+        }
+        check("the instructions name the console that issues the right key",
+                reference.get("settings.curseforge.howto").contains("console.curseforge.com"));
+        check("and warn about the page that issues the wrong one",
+                reference.get("settings.curseforge.howto").contains("legacy.curseforge.com"));
+
+        // The two pack sections' own words. One panel serves both kinds and
+        // builds every key from the kind's own name - see PackSection.key - so
+        // a missing one is a heading reading !packs.shader.note! rather than a
+        // sentence in the wrong language.
+        for (ContentKind kind : List.of(ContentKind.RESOURCEPACK, ContentKind.SHADER)) {
+            String prefix = "packs." + kind.name().toLowerCase(java.util.Locale.ROOT) + ".";
+            for (String suffix : new String[]{"note", "installed.empty", "installed.search",
+                    "remove.header", "remove.body", "remove.body.external", "installed",
+                    "imported", "import.title", "import.filter", "import.skipped.notPack"}) {
+                check("the " + kind.name().toLowerCase(java.util.Locale.ROOT)
+                                + " panel has its words: " + prefix + suffix,
+                        reference.containsKey(prefix + suffix));
+            }
+            check("the kind itself is named: " + kind.key(), reference.containsKey(kind.key()));
+            String prompt = "mods.search.prompt."
+                    + kind.name().toLowerCase(java.util.Locale.ROOT);
+            check("and its search box has a prompt: " + prompt,
+                    reference.containsKey(prompt));
+        }
+
+        // The lines both panels share, and the three that exist because a
+        // shader pack needs a program to load it that is not Minecraft.
+        for (String key : new String[]{"packs.import.skipped.notZip", "packs.folder.noToggle",
+                "packs.pack.locked", "packs.requirements.header",
+                "packs.shader.noLoader", "packs.shader.noLoader.action", "packs.shader.loader"}) {
+            check("the pack panels have their shared words: " + key,
+                    reference.containsKey(key));
+        }
+
+        // Every category the filter offers needs a name in the reference
+        // bundle, including the six that only modpacks are filed under and the
+        // forty that resource packs and shaders brought with them. A missing one
+        // is a tick box labelled !mods.category.quests!.
+        for (ModCategory category : ModCategory.values()) {
+            check("a category is named: " + category.id(),
+                    reference.containsKey(category.key()));
+        }
+
+        // The bug window asks for four things and says where to send them. A
+        // missing key here is a line of the report form replaced by !bug.how!,
+        // which is worse than the question not being asked at all.
+        for (String key : new String[]{"bug.open", "bug.title", "bug.heading",
+                "bug.capture", "bug.what", "bug.how", "bug.repeat",
+                "bug.attachLog", "bug.openFolder", "bug.noLog", "bug.where",
+                "bug.send"}) {
+            check("the bug report window has its words: " + key,
+                    reference.containsKey(key));
+        }
         check("the logo cache setting is named and explained",
                 reference.containsKey("settings.modIconCache")
                         && reference.containsKey("settings.modIconCache.note"));
@@ -2160,6 +2595,14 @@ public final class SelfCheck {
         check("a pack mod cannot be removed alone", !ModOrigin.PACK.isRemovableAlone());
         check("a chosen mod can", ModOrigin.MANUAL.isRemovableAlone());
         check("a dependency can", ModOrigin.DEPENDENCY.isRemovableAlone());
+        // A jar a data pack brought with it follows the pack rule rather than
+        // the dependency one: what needs it is a zip in a world folder that this
+        // list knows nothing about, so removing it on its own leaves a data pack
+        // the player installed silently not loading.
+        check("a data pack's mod cannot be removed alone",
+                !ModOrigin.DATAPACK.isRemovableAlone());
+        check("a data pack origin survives a read",
+                ModOrigin.parse("DATAPACK") == ModOrigin.DATAPACK);
         check("an unknown origin reads as the user's",
                 ModOrigin.parse("something-else") == ModOrigin.MANUAL);
         check("a null origin reads as the user's", ModOrigin.parse(null) == ModOrigin.MANUAL);
@@ -2669,6 +3112,58 @@ public final class SelfCheck {
         check("a plain failure keeps its own message",
                 "connection reset".equals(
                         ModInstaller.reasonFor(new IOException("connection reset"))));
+
+        // ------------------------------------------- which CurseForge key it is
+        //
+        // CurseForge has two API key pages and they are not interchangeable.
+        // The one a search engine finds first - legacy.curseforge.com/account/
+        // api-tokens - issues a 32-character Upload API token for project
+        // authors, which api.curseforge.com refuses with 403 on every single
+        // request. The one a launcher needs is a Core API key from
+        // console.curseforge.com. Nothing on either page says so, and the
+        // reported symptom was "I pasted the key and nothing works".
+        //
+        // The shapes are nothing alike, so the mistake is nameable. The example
+        // strings here are made up: a real key does not belong in a repository.
+        check("a bcrypt-shaped key is a Core API key",
+                CurseForgeProvider.shapeOf("$2a$10$abcdefghijklmnopqrstuvwxyz0123456789ABCDEFghij")
+                        == CurseForgeProvider.KeyShape.CORE);
+        check("so is one with another cost or prefix",
+                CurseForgeProvider.shapeOf("$2b$12$0123456789012345678901234567890123456789abcd")
+                        == CurseForgeProvider.KeyShape.CORE);
+        check("32 hex characters is the author site's upload token",
+                CurseForgeProvider.shapeOf("0123456789abcdef0123456789abcdef")
+                        == CurseForgeProvider.KeyShape.UPLOAD_TOKEN);
+        check("and so is the same thing written as a uuid",
+                CurseForgeProvider.shapeOf("01234567-89ab-cdef-0123-456789abcdef")
+                        == CurseForgeProvider.KeyShape.UPLOAD_TOKEN);
+        check("surrounding whitespace does not change the answer",
+                CurseForgeProvider.shapeOf("  0123456789abcdef0123456789abcdef\n")
+                        == CurseForgeProvider.KeyShape.UPLOAD_TOKEN);
+        // 32 characters that are not all hex is not that token, and guessing
+        // that it is would put a wrong explanation in front of somebody whose
+        // key is fine.
+        check("32 characters that are not hex are not claimed",
+                CurseForgeProvider.shapeOf("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+                        == CurseForgeProvider.KeyShape.UNKNOWN);
+        check("nothing at all is not claimed either",
+                CurseForgeProvider.shapeOf(null) == CurseForgeProvider.KeyShape.UNKNOWN
+                        && CurseForgeProvider.shapeOf("   ")
+                                == CurseForgeProvider.KeyShape.UNKNOWN);
+
+        // The sentence a refusal carries. It has to name the page that works,
+        // because the whole failure is that the user went to the other one.
+        String advice = CurseForgeProvider.explainRejection();
+        check("a refusal names the console the key comes from",
+                advice.contains("console.curseforge.com"));
+        check("a rejected key exception says so in one sentence",
+                ModInstaller.reasonFor(ModProvider.Source.CURSEFORGE,
+                        new Http.HttpStatusException(403, "https://api.curseforge.com/v1/x", ""))
+                        .contains("console.curseforge.com"));
+        check("and Modrinth is not given CurseForge's advice",
+                !ModInstaller.reasonFor(ModProvider.Source.MODRINTH,
+                        new Http.HttpStatusException(403, "https://api.modrinth.com/v2/x", ""))
+                        .contains("console.curseforge.com"));
 
         // Naming a dependency. The reported symptom was an installed list showing
         // "eXts2L7r", which is a project id and tells the user nothing. The
@@ -3430,6 +3925,8 @@ public final class SelfCheck {
     private static void modCategories() {
         section("Mod categories");
 
+        categoryArtCache();
+
         check("a category is recognised by its identifier",
                 ModCategory.byId("worldgen").orElseThrow() == ModCategory.WORLDGEN);
         check("a hyphenated identifier is recognised",
@@ -3483,6 +3980,48 @@ public final class SelfCheck {
         check("one category is left alone",
                 ModCategory.chosenFirst(List.of(ModCategory.MAGIC), Set.of(ModCategory.MAGIC))
                         .equals(List.of(ModCategory.MAGIC)));
+
+        // --- one list per kind
+        //
+        // The platform keeps a category list per project type, and they are not
+        // the same list. Offering a mod's categories against a modpack search
+        // returns nothing at all, and nothing at all reads as "no pack like that
+        // exists for your version" rather than as a filter that cannot match.
+        List<ModCategory> mods = ModCategory.forKind(ContentKind.MOD);
+        List<ModCategory> packs = ModCategory.forKind(ContentKind.MODPACK);
+        List<ModCategory> datapacks = ModCategory.forKind(ContentKind.DATAPACK);
+        check("mods have Modrinth's nineteen", mods.size() == 19);
+        check("modpacks have their own ten", packs.size() == 10);
+        check("a data pack is filed as a mod, so it has the mod list",
+                datapacks.equals(mods));
+        check("the four that are on both lists are on both",
+                packs.contains(ModCategory.ADVENTURE) && packs.contains(ModCategory.MAGIC)
+                        && packs.contains(ModCategory.OPTIMIZATION)
+                        && packs.contains(ModCategory.TECHNOLOGY));
+        check("the six that describe a whole instance are the pack's alone",
+                packs.containsAll(List.of(ModCategory.CHALLENGING, ModCategory.COMBAT,
+                        ModCategory.KITCHEN_SINK, ModCategory.LIGHTWEIGHT,
+                        ModCategory.MULTIPLAYER, ModCategory.QUESTS))
+                        && mods.stream().noneMatch(category ->
+                                category == ModCategory.KITCHEN_SINK
+                                        || category == ModCategory.QUESTS));
+        check("a mod category is not offered for a pack",
+                !packs.contains(ModCategory.WORLDGEN)
+                        && !ModCategory.WORLDGEN.appliesTo(ContentKind.MODPACK));
+        check("and a pack category is not offered for a mod",
+                !ModCategory.QUESTS.appliesTo(ContentKind.MOD)
+                        && !ModCategory.QUESTS.appliesTo(ContentKind.DATAPACK));
+        check("every category files something",
+                java.util.Arrays.stream(ModCategory.values())
+                        .allMatch(category -> !category.kinds().isEmpty()));
+        check("nothing is offered for a kind twice",
+                packs.size() == Set.copyOf(packs).size()
+                        && mods.size() == Set.copyOf(mods).size());
+        // The identifiers still come back whatever kind published them: this is
+        // what reads a project's own list, not what draws a filter.
+        check("a pack's own category is still recognised by its identifier",
+                ModCategory.byId("kitchen-sink").orElseThrow() == ModCategory.KITCHEN_SINK
+                        && ModCategory.byId("quests").orElseThrow() == ModCategory.QUESTS);
 
         // --- the drawings
         check("nothing is read out of nothing", SvgPaths.read(null).isEmpty());
@@ -3555,6 +4094,259 @@ public final class SelfCheck {
             }
         }
         check("no malformed markup throws", survived == rubbish.length);
+
+        // --- the grid a drawing is actually on
+        //
+        // Almost every icon in the set is on a twenty-four unit grid, and the
+        // code that draws them scaled by a constant twenty-four. Modrinth's
+        // "potato" shader category is on a 512 unit grid, so the constant drew
+        // it twenty-one times too big - across the rows above it, which then
+        // could not be ticked, because a parent is asked whether a point is
+        // inside it by being asked of every child. The size has to be read.
+        check("a drawing with no viewBox is on the twenty-four unit grid",
+                SvgPaths.of("<path d=\"M1 1 L2 2\"/>").extent() == SvgPaths.GRID);
+        check("and one with a viewBox is on that one",
+                SvgPaths.of("<svg viewBox=\"0 0 512 512\" fill=\"currentColor\">"
+                        + "<circle cx=\"256\" cy=\"256\" r=\"200\"/></svg>").extent() == 512);
+        check("a viewBox that is not four numbers is not believed",
+                SvgPaths.of("<svg viewBox=\"0 0 512\"><path d=\"M1 1 L2 2\"/></svg>")
+                        .extent() == SvgPaths.GRID);
+        check("nor is one with no area, which would scale a drawing to nothing",
+                SvgPaths.of("<svg viewBox=\"0 0 0 0\"><path d=\"M1 1 L2 2\"/></svg>")
+                        .extent() == SvgPaths.GRID);
+        check("a viewBox that does not start at the origin keeps its corner",
+                SvgPaths.of("<svg viewBox=\"-8 -4 32 32\"><path d=\"M1 1 L2 2\"/></svg>")
+                        .minX() == -8);
+        check("commas separate a viewBox as well as spaces",
+                SvgPaths.of("<svg viewBox=\"0,0,48,48\"><path d=\"M1 1 L2 2\"/></svg>")
+                        .extent() == 48);
+
+        // --- filled or stroked, as the markup asks
+        SvgPaths.Drawing outline = SvgPaths.of(
+                "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\""
+                        + " stroke-width=\"3\"><path d=\"M2 20h.01\"/></svg>");
+        check("a line drawing is stroked and not filled",
+                outline.stroked() && !outline.filled());
+        check("and is stroked as widely as it says", outline.strokeWidth() == 3);
+
+        SvgPaths.Drawing solid = SvgPaths.of(
+                "<svg viewBox=\"0 0 512 512\" fill=\"currentColor\" stroke=\"currentColor\">"
+                        + "<circle cx=\"256\" cy=\"256\" r=\"200\"/></svg>");
+        check("a solid drawing is filled", solid.filled());
+
+        check("markup that names no paint is the outline the rest of the set is",
+                SvgPaths.of("<path d=\"M1 1 L2 2\"/>").stroked()
+                        && !SvgPaths.of("<path d=\"M1 1 L2 2\"/>").filled()
+                        && SvgPaths.of("<path d=\"M1 1 L2 2\"/>").strokeWidth() == 2);
+        SvgPaths.Drawing neither = SvgPaths.of(
+                "<svg viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M1 1 L2 2\"/></svg>");
+        check("a drawing that asks for neither is still drawn",
+                neither.stroked() || neither.filled());
+        check("an empty drawing is empty and still has a grid",
+                SvgPaths.of("  ").isEmpty() && SvgPaths.of("  ").extent() == SvgPaths.GRID);
+        check("reading paths alone still answers the same list",
+                SvgPaths.read("<path d=\"M1 1 L2 2\"/>")
+                        .equals(SvgPaths.of("<path d=\"M1 1 L2 2\"/>").paths()));
+    }
+
+    /**
+     * The two platforms' vocabularies, and the pairing between them.
+     *
+     * <p>CurseForge's categories used to be read as though they were Modrinth's:
+     * a row showed whichever handful happened to be spelled the same and nothing
+     * for the rest, and a data pack filed under CurseForge's {@code fantasy} was
+     * marked with Modrinth's, which is a shader's look. What is checked here is
+     * that the pairing is by meaning and per kind, and that it reads both ways -
+     * forwards for the marks on a row, backwards for a search.
+     */
+    private static void curseForgeCategories() {
+        section("CurseForge categories");
+
+        check("what CurseForge splits, one mark joins",
+                CurseForgeCategories.of(ContentKind.MOD,
+                        List.of("technology-automation", "technology-energy",
+                                "technology-processing"))
+                        .equals(List.of(ModCategory.TECHNOLOGY)));
+        check("four ways of generating a world are one category",
+                CurseForgeCategories.of(ContentKind.MOD,
+                        List.of("world-biomes", "world-dimensions", "world-structures",
+                                "world-ores-resources"))
+                        .equals(List.of(ModCategory.WORLDGEN)));
+        check("and mobs are not one of them",
+                CurseForgeCategories.of(ContentKind.MOD, List.of("world-mobs"))
+                        .equals(List.of(ModCategory.MOBS)));
+        check("a category that is honestly two is two",
+                CurseForgeCategories.of(ContentKind.MOD,
+                        List.of("technology-item-fluid-energy-transport"))
+                        .equals(List.of(ModCategory.TECHNOLOGY, ModCategory.TRANSPORTATION)));
+        check("a name spelled differently still pairs",
+                CurseForgeCategories.of(ContentKind.MOD, List.of("mc-food"))
+                        .equals(List.of(ModCategory.FOOD))
+                        && CurseForgeCategories.of(ContentKind.MOD, List.of("library-api"))
+                                .equals(List.of(ModCategory.LIBRARY))
+                        && CurseForgeCategories.of(ContentKind.RESOURCEPACK,
+                                List.of("sixty-four-x"))
+                                .equals(List.of(ModCategory.RESOLUTION_64X)));
+        check("a category naming the mod it extends is left off",
+                CurseForgeCategories.of(ContentKind.MOD,
+                        List.of("create", "kubejs", "applied-energistics-2")).isEmpty());
+        check("and so is one naming a jam it was made for",
+                CurseForgeCategories.of(ContentKind.MOD, List.of("modjam-2025")).isEmpty());
+        check("case and spacing are not a different slug",
+                CurseForgeCategories.of(ContentKind.MOD, List.of(" MC-Food "))
+                        .equals(List.of(ModCategory.FOOD)));
+        check("nothing is claimed for a kind that was not named",
+                CurseForgeCategories.of(null, List.of("magic")).isEmpty());
+
+        // The fault that reading by identifier could not see: the same word is
+        // two different categories on two different lists.
+        check("a data pack's fantasy is not a shader's",
+                CurseForgeCategories.of(ContentKind.DATAPACK, List.of("fantasy")).isEmpty()
+                        && CurseForgeCategories.of(ContentKind.SHADER, List.of("fantasy"))
+                                .equals(List.of(ModCategory.FANTASY)));
+        check("a resource pack's traditional is Modrinth's vanilla-like",
+                CurseForgeCategories.of(ContentKind.RESOURCEPACK, List.of("traditional"))
+                        .equals(List.of(ModCategory.VANILLA_LIKE)));
+        check("and a shader's vanilla is too",
+                CurseForgeCategories.of(ContentKind.SHADER, List.of("vanilla"))
+                        .equals(List.of(ModCategory.VANILLA_LIKE)));
+
+        // Backwards, which is what lets a ticked box narrow a CurseForge search
+        // instead of refusing it.
+        check("asking for worldgen asks for all four",
+                Set.copyOf(CurseForgeCategories.slugsFor(ContentKind.MOD, ModCategory.WORLDGEN))
+                        .equals(Set.of("world-biomes", "world-dimensions", "world-structures",
+                                "world-ores-resources")));
+        check("asking for a category this platform has no word for asks for nothing",
+                CurseForgeCategories.slugsFor(ContentKind.SHADER, ModCategory.LOW).isEmpty()
+                        && !CurseForgeCategories.canExpress(ContentKind.SHADER, ModCategory.PBR));
+        check("the three shader categories it does have are expressible",
+                CurseForgeCategories.canExpress(ContentKind.SHADER, ModCategory.REALISTIC)
+                        && CurseForgeCategories.canExpress(ContentKind.SHADER, ModCategory.FANTASY)
+                        && CurseForgeCategories.canExpress(ContentKind.SHADER,
+                                ModCategory.VANILLA_LIKE));
+        check("a search is refused by naming what cannot be asked for",
+                CurseForgeCategories.unexpressible(ContentKind.SHADER,
+                        List.of(ModCategory.REALISTIC, ModCategory.LOW, ModCategory.PBR))
+                        .equals(List.of(ModCategory.LOW, ModCategory.PBR)));
+        check("and a search of things it can express is not refused",
+                CurseForgeCategories.unexpressible(ContentKind.MOD,
+                        List.of(ModCategory.TECHNOLOGY, ModCategory.WORLDGEN)).isEmpty());
+
+        // Every pairing has to be one the platform offers for that kind, or the
+        // mark is one no filter can ever match.
+        for (ContentKind kind : ContentKind.values()) {
+            for (String slug : CurseForgeCategories.slugsFor(kind)) {
+                for (ModCategory category : CurseForgeCategories.of(kind, List.of(slug))) {
+                    check("a " + kind.name().toLowerCase(java.util.Locale.ROOT)
+                                    + "'s " + slug + " pairs with a category of its own kind",
+                            category.appliesTo(kind));
+                }
+            }
+        }
+
+        check("a class the platform numbers is a kind this launcher knows",
+                ContentKind.byCurseForgeClassId(ContentKind.SHADER.curseForgeClassId())
+                        .orElseThrow() == ContentKind.SHADER
+                        && ContentKind.byCurseForgeClassId(0).isEmpty());
+    }
+
+    /**
+     * The kept category drawings, and the one question the cache did not ask.
+     *
+     * <p>The drawings are fetched once and kept for a month, which is right -
+     * the platform's category list changes about as often as this launcher's
+     * does. What was wrong is what "kept" meant: the file held the pictures and
+     * a timestamp, and the launcher asked it two questions - is it empty, and is
+     * it old. Neither is true of a file written last week, so the six
+     * modpack-only categories added to {@link ModCategory} after it was written
+     * had a name in the filter, a blank where the picture goes, and no way of
+     * ever getting one until the month ran out.
+     *
+     * <p>So the file now records which categories were <em>asked</em> about, and
+     * a category this launcher offers that was never asked about makes the set
+     * stale on its own. Asked rather than answered, because a category the
+     * platform publishes no drawing for would otherwise be re-asked on every
+     * opening of the browser for ever.
+     */
+    private static void categoryArtCache() {
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-category-art");
+
+            check("nothing kept yet is stale",
+                    com.hexadron.launcher.mods.CategoryArt.read(dir).isStale());
+            check("and empty", com.hexadron.launcher.mods.CategoryArt.read(dir).isEmpty());
+
+            // A file written when the enum was shorter: every drawing it holds
+            // is fresh, and it is still missing the ones nobody has asked for.
+            StringBuilder icons = new StringBuilder();
+            for (ModCategory category : ModCategory.forKind(ContentKind.MOD)) {
+                if (icons.length() > 0) {
+                    icons.append(',');
+                }
+                icons.append('"').append(category.id()).append("\":\"<svg/>\"");
+            }
+            java.nio.file.Files.writeString(
+                    dir.resolve(com.hexadron.launcher.mods.CategoryArt.FILE),
+                    "{\"version\":1,\"fetched\":" + System.currentTimeMillis()
+                            + ",\"icons\":{" + icons + "}}");
+
+            com.hexadron.launcher.mods.CategoryArt older =
+                    com.hexadron.launcher.mods.CategoryArt.read(dir);
+            check("a kept set written this minute is still read", !older.isEmpty());
+            check("a category with a drawing has one",
+                    older.of(ModCategory.MAGIC).isPresent());
+            // The whole point. Modpack-only categories are the ones that were
+            // added last, so they are the ones this file cannot have.
+            check("a category added since is missing its drawing",
+                    older.of(ModCategory.KITCHEN_SINK).isEmpty());
+            check("and the set says so", older.isIncomplete());
+            check("a set missing a category this launcher offers is stale",
+                    older.isStale());
+
+            // The same file with every category recorded as asked about. Nothing
+            // is missing that was ever asked for, so it is not stale - which is
+            // what stops the launcher fetching twenty-five pictures on every
+            // opening of the browser.
+            StringBuilder asked = new StringBuilder();
+            for (ModCategory category : ModCategory.values()) {
+                if (asked.length() > 0) {
+                    asked.append(',');
+                }
+                asked.append('"').append(category.id()).append('"');
+            }
+            java.nio.file.Files.writeString(
+                    dir.resolve(com.hexadron.launcher.mods.CategoryArt.FILE),
+                    "{\"version\":2,\"fetched\":" + System.currentTimeMillis()
+                            + ",\"asked\":[" + asked + "],\"icons\":{" + icons + "}}");
+
+            com.hexadron.launcher.mods.CategoryArt complete =
+                    com.hexadron.launcher.mods.CategoryArt.read(dir);
+            check("a set that asked about everything is not stale",
+                    !complete.isStale());
+            // Still incomplete, and that is a different fact: those categories
+            // have been asked about, and the platform published nothing for
+            // them. A category with no picture is a category with a name.
+            check("even though the platform answered for only some",
+                    complete.isIncomplete());
+
+            java.nio.file.Files.writeString(
+                    dir.resolve(com.hexadron.launcher.mods.CategoryArt.FILE),
+                    "{\"version\":2,\"fetched\":0,\"asked\":[" + asked
+                            + "],\"icons\":{" + icons + "}}");
+            check("and a set from long enough ago is stale whatever it holds",
+                    com.hexadron.launcher.mods.CategoryArt.read(dir).isStale());
+
+            java.nio.file.Files.writeString(
+                    dir.resolve(com.hexadron.launcher.mods.CategoryArt.FILE), "not json");
+            check("an unreadable file is an empty set rather than a failure",
+                    com.hexadron.launcher.mods.CategoryArt.read(dir).isEmpty());
+        } catch (IOException e) {
+            check("category art checks ran (" + e.getMessage() + ")", false);
+        } finally {
+            deleteRecursively(dir);
+        }
     }
 
     /**
@@ -3584,7 +4376,8 @@ public final class SelfCheck {
                 ukrainian.contains("Економіка, Ігрові механіки, Їжа, Керування"));
         check("Ukrainian ends at Ч", ukrainian.endsWith("Технології, Чаклунство"));
         check("nothing is lost or repeated by the sort",
-                ukrainian.split(", ").length == ModCategory.values().length);
+                ukrainian.split(", ").length
+                        == ModCategory.forKind(ContentKind.MOD).size());
 
         // Polish: ł sorts inside L, and ś inside S.
         String polish = orderIn(byCode("pl"));
@@ -3602,18 +4395,41 @@ public final class SelfCheck {
         check("Russian is in Russian order", russian.startsWith("Библиотека, Взаимодействие"));
 
         for (Language language : Language.all()) {
-            check("every category is offered in " + language.code(),
-                    ModCategory.inReadingOrder(language.locale(),
-                            category -> I18n.bundle(language).get(category.key()))
-                            .size() == ModCategory.values().length);
+            for (ContentKind kind : ContentKind.values()) {
+                check("every " + kind.name().toLowerCase(java.util.Locale.ROOT)
+                                + " category is offered in " + language.code(),
+                        ModCategory.inReadingOrder(kind, language.locale(),
+                                category -> I18n.bundle(language).get(category.key()))
+                                .size() == ModCategory.forKind(kind).size());
+            }
         }
+
+        // The modpack list is its own, and it is sorted the same way. Ten names,
+        // six of which no mod has, so a menu built from the mod list would have
+        // been ten wrong names rather than an empty menu.
+        String packsEnglish = orderIn(Language.ENGLISH, ContentKind.MODPACK);
+        check("the modpack menu is ten long",
+                packsEnglish.split(", ").length == 10);
+        check("English modpack order starts at A",
+                packsEnglish.startsWith("Adventure, Challenging, Combat"));
+        check("and ends at T", packsEnglish.endsWith("Quests, Technology"));
+
+        String packsUkrainian = orderIn(byCode("uk"), ContentKind.MODPACK);
+        check("Ukrainian modpack order starts at Б",
+                packsUkrainian.startsWith("Бої, Все в одному, Квести"));
+        check("and ends at Ч", packsUkrainian.endsWith("Технології, Чаклунство"));
     }
 
-    /** The category names of one language, in the order the menu would offer them. */
+    /** The mod category names of one language, in the order the menu offers them. */
     private static String orderIn(Language language) {
+        return orderIn(language, ContentKind.MOD);
+    }
+
+    /** One kind's category names, in the order that kind's menu offers them. */
+    private static String orderIn(Language language, ContentKind kind) {
         Map<String, String> bundle = I18n.bundle(language);
         List<String> names = new ArrayList<>();
-        for (ModCategory category : ModCategory.inReadingOrder(language.locale(),
+        for (ModCategory category : ModCategory.inReadingOrder(kind, language.locale(),
                 category -> bundle.getOrDefault(category.key(), category.id()))) {
             names.add(bundle.getOrDefault(category.key(), category.id()));
         }
@@ -4288,6 +5104,672 @@ public final class SelfCheck {
         return mods.stream().filter(mod -> title.equals(mod.title())).findFirst().orElse(null);
     }
 
+    // ---------------------------------------------------------------- content kinds
+
+    /**
+     * The four constants that are the whole difference between searching for one
+     * kind of thing and another.
+     *
+     * <p>Checked because each of them is a fact about somebody else's API that
+     * cannot be derived and is wrong silently. A modpack searched with the mod
+     * facet returns mods; a data pack search that keeps the instance's loader
+     * filter returns nothing at all and looks exactly like a platform with no
+     * data packs on it.
+     */
+    private static void contentKinds() {
+        section("Content kinds");
+
+        check("mods are filed as mods on Modrinth",
+                "mod".equals(ContentKind.MOD.modrinthProjectType()));
+        check("modpacks are filed as modpacks",
+                "modpack".equals(ContentKind.MODPACK.modrinthProjectType()));
+        check("data packs are filed as data packs",
+                "datapack".equals(ContentKind.DATAPACK.modrinthProjectType()));
+        check("resource packs are filed as resource packs",
+                "resourcepack".equals(ContentKind.RESOURCEPACK.modrinthProjectType()));
+        check("shaders are filed as shaders",
+                "shader".equals(ContentKind.SHADER.modrinthProjectType()));
+
+        // Modrinth introduced data packs as a loader on top of "mod" before they
+        // became a project type. Asking for one of the two returns half the
+        // catalogue and no hint that the other half exists.
+        check("a data pack search accepts both spellings",
+                ContentKind.DATAPACK.modrinthTypeFacets().size() == 2
+                        && ContentKind.DATAPACK.modrinthTypeFacets().contains("mod")
+                        && ContentKind.DATAPACK.modrinthTypeFacets().contains("datapack"));
+        check("and narrows them by the data pack loader tag",
+                "datapack".equals(ContentKind.DATAPACK.modrinthLoaderTag()));
+        check("a mod search asks for one project type",
+                ContentKind.MOD.modrinthTypeFacets().size() == 1);
+        check("a mod has no loader tag of its own",
+                ContentKind.MOD.modrinthLoaderTag() == null);
+
+        check("CurseForge files mods under class 6",
+                ContentKind.MOD.curseForgeClassId() == 6);
+        check("modpacks under class 4471",
+                ContentKind.MODPACK.curseForgeClassId() == 4471);
+        check("data packs under class 6945",
+                ContentKind.DATAPACK.curseForgeClassId() == 6945);
+        check("resource packs under class 12",
+                ContentKind.RESOURCEPACK.curseForgeClassId() == 12);
+        check("shaders under class 6552",
+                ContentKind.SHADER.curseForgeClassId() == 6552);
+        // A shared class id would mean one section quietly listing another's
+        // catalogue, which looks like the platform having odd taste rather than
+        // like a wrong number in this file.
+        java.util.Set<Integer> classIds = new java.util.LinkedHashSet<>();
+        for (ContentKind kind : ContentKind.values()) {
+            classIds.add(kind.curseForgeClassId());
+        }
+        check("every kind has a class of its own",
+                classIds.size() == ContentKind.values().length);
+
+        // Where each kind lives, and the record it keeps there. Two kinds
+        // sharing a folder's record file would have each claiming the other's
+        // files as the launcher's to delete.
+        check("a resource pack lives in resourcepacks",
+                "resourcepacks".equals(ContentKind.RESOURCEPACK.instanceFolder()));
+        check("a shader pack lives in shaderpacks",
+                "shaderpacks".equals(ContentKind.SHADER.instanceFolder()));
+        check("a modpack has no folder of its own",
+                !ContentKind.MODPACK.hasInstanceFolder());
+        check("nor does a data pack, which goes into a world",
+                !ContentKind.DATAPACK.hasInstanceFolder());
+        java.util.Set<String> lockFiles = new java.util.LinkedHashSet<>();
+        for (ContentKind kind : ContentKind.values()) {
+            lockFiles.add(kind.lockFile());
+        }
+        check("no two kinds share a record file",
+                lockFiles.size() == ContentKind.values().length);
+
+        // The loader tags. Modrinth keeps "what loads this" in the same field a
+        // category lives in, so a kind loaded by something other than a mod
+        // loader has a name of its own there.
+        check("a resource pack is tagged as loaded by Minecraft itself",
+                "minecraft".equals(ContentKind.RESOURCEPACK.modrinthLoaderTag()));
+        check("a shader has no single loader tag, because it has three",
+                ContentKind.SHADER.modrinthLoaderTag() == null);
+
+        // The filtering rules. A pack states a version and a loader rather than
+        // needing them, so filtering by the instance's would hide every pack
+        // worth installing - which is the whole catalogue.
+        check("a mod search is narrowed to the instance's version",
+                ContentKind.MOD.isFilteredByVersion());
+        check("and to its loader", ContentKind.MOD.isFilteredByLoader());
+        check("a modpack search is narrowed by neither",
+                !ContentKind.MODPACK.isFilteredByVersion()
+                        && !ContentKind.MODPACK.isFilteredByLoader());
+        check("a data pack search is narrowed by version",
+                ContentKind.DATAPACK.isFilteredByVersion());
+        // Not unconditionally, which is the distinction: a data pack is loaded
+        // by vanilla Minecraft, so it must be installable with no loader at all.
+        // The loader still narrows the catalogue by default, because half of it
+        // is published a second time as "the pack plus the mod that loads it" -
+        // and that is a choice rather than a requirement.
+        check("and not by loader unconditionally, because vanilla loads it",
+                !ContentKind.DATAPACK.isFilteredByLoader());
+        check("only mods need a loader to install",
+                ContentKind.MOD.needsLoader()
+                        && !ContentKind.MODPACK.needsLoader()
+                        && !ContentKind.DATAPACK.needsLoader()
+                        && !ContentKind.RESOURCEPACK.needsLoader()
+                        && !ContentKind.SHADER.needsLoader());
+
+        // A resource pack states a pack format per era of the game and is
+        // refused when it is from the wrong one, so the version narrows it. A
+        // shader is written against Iris rather than against a Minecraft
+        // release, so narrowing to the exact version hides packs that work -
+        // and on a version published last month it hides nearly all of them.
+        check("a resource pack search is narrowed by version",
+                ContentKind.RESOURCEPACK.isFilteredByVersion());
+        check("and never by the mod loader",
+                !ContentKind.RESOURCEPACK.isFilteredByLoader());
+        check("a shader search is narrowed by neither",
+                !ContentKind.SHADER.isFilteredByVersion()
+                        && !ContentKind.SHADER.isFilteredByLoader());
+        check("neither pack kind offers to narrow to the profile",
+                !ContentKind.RESOURCEPACK.isNarrowableToProfile()
+                        && !ContentKind.SHADER.isNarrowableToProfile());
+        check("both pack kinds are zips",
+                ContentKind.RESOURCEPACK.matches("Faithful.zip")
+                        && ContentKind.SHADER.matches("BSL_v8.zip")
+                        && !ContentKind.SHADER.matches("iris-1.7.jar"));
+        check("and both offer a category filter",
+                ContentKind.RESOURCEPACK.hasCategories() && ContentKind.SHADER.hasCategories());
+
+        // Narrowing to the profile's own version and loader is a question with
+        // two honest answers for exactly one kind. A mod is always narrowed; a
+        // data pack is filed under no loader at all, so "data packs for Fabric"
+        // is a request that comes back empty and must not be offerable.
+        check("only a modpack search can be narrowed to the profile",
+                ContentKind.MODPACK.isNarrowableToProfile()
+                        && !ContentKind.MOD.isNarrowableToProfile()
+                        && !ContentKind.DATAPACK.isNarrowableToProfile());
+        check("an unnarrowed modpack search asks the platform for neither",
+                !ContentKind.MODPACK.narrowsByVersion(false)
+                        && !ContentKind.MODPACK.narrowsByLoader(false));
+        check("and a narrowed one asks for both",
+                ContentKind.MODPACK.narrowsByVersion(true)
+                        && ContentKind.MODPACK.narrowsByLoader(true));
+        check("a mod is narrowed either way",
+                ContentKind.MOD.narrowsByVersion(false) && ContentKind.MOD.narrowsByLoader(false)
+                        && ContentKind.MOD.narrowsByVersion(true)
+                        && ContentKind.MOD.narrowsByLoader(true));
+        check("a data pack is narrowed by version either way",
+                ContentKind.DATAPACK.narrowsByVersion(false)
+                        && ContentKind.DATAPACK.narrowsByVersion(true));
+        // And never by loader, whatever the box says. Vanilla Minecraft loads a
+        // data pack, so every pack for the right version installs and works on
+        // every instance - a loader filter here is a list made shorter by
+        // something the world folder does not care about. The tags are on those
+        // projects, which is what made this look reasonable: much of the
+        // catalogue is published twice, as a data pack and as a mod build of the
+        // same content, and filtering by loader left only the ones with the
+        // second build.
+        check("a data pack is never narrowed by loader",
+                !ContentKind.DATAPACK.narrowsByLoader(false)
+                        && !ContentKind.DATAPACK.narrowsByLoader(true));
+
+        // Each kind's one question, its words, where it starts, and whether the
+        // answer belongs to the search or to the install.
+        check("only a data pack asks about mods",
+                ContentKind.DATAPACK.choice() == ContentKind.Choice.WITHOUT_MODS
+                        && ContentKind.MODPACK.choice()
+                                == ContentKind.Choice.ONLY_FOR_PROFILE
+                        && ContentKind.MOD.choice() == ContentKind.Choice.NONE);
+        check("a mod has no box to draw", !ContentKind.MOD.choice().isOffered());
+        check("the other two have one",
+                ContentKind.MODPACK.choice().isOffered()
+                        && ContentKind.DATAPACK.choice().isOffered());
+        check("a modpack's box starts ticked and a data pack's does not",
+                ContentKind.MODPACK.choice().isChosenByDefault()
+                        && !ContentKind.DATAPACK.choice().isChosenByDefault());
+        // Only one of them is a search term. A box that cannot change the list
+        // must not re-run the request: the page in hand is already the answer.
+        check("a modpack's box narrows the search",
+                ContentKind.MODPACK.choice().affectsSearch());
+        check("and a data pack's box does not",
+                !ContentKind.DATAPACK.choice().affectsSearch()
+                        && !ContentKind.MOD.choice().affectsSearch());
+        // An empty answer has to name the box that emptied it, or it reads as
+        // "no such thing exists for your version" - and must not name one that
+        // could not have emptied anything.
+        check("an empty narrowed list names the box",
+                "mods.noResults.forProfile".equals(
+                        ContentKind.Choice.ONLY_FOR_PROFILE.emptyKey(true)));
+        check("an unnarrowed empty list does not",
+                "mods.noResults".equals(
+                        ContentKind.Choice.ONLY_FOR_PROFILE.emptyKey(false))
+                        && "mods.noResults".equals(ContentKind.Choice.NONE.emptyKey(true)));
+        check("and a box that narrows nothing is never blamed",
+                "mods.noResults".equals(ContentKind.Choice.WITHOUT_MODS.emptyKey(true))
+                        && "mods.noResults".equals(
+                                ContentKind.Choice.WITHOUT_MODS.emptyKey(false)));
+
+        // Every kind has a category filter now, and each is offered its own
+        // list. It was mods alone while ModCategory held Modrinth's mod
+        // categories and nothing else - offered against a modpack, those return
+        // a confidently empty list.
+        check("every kind has categories",
+                ContentKind.MOD.hasCategories()
+                        && ContentKind.MODPACK.hasCategories()
+                        && ContentKind.DATAPACK.hasCategories());
+        check("and each kind is offered its own list",
+                !ContentKind.MOD.categories().equals(ContentKind.MODPACK.categories())
+                        && ContentKind.DATAPACK.categories()
+                                .equals(ContentKind.MOD.categories()));
+
+        check("a mod is a jar", ContentKind.MOD.matches("sodium-0.6.13.jar"));
+        check("a mod is not a zip", !ContentKind.MOD.matches("pack.zip"));
+        check("a modpack is either archive",
+                ContentKind.MODPACK.matches("Fabulously.mrpack")
+                        && ContentKind.MODPACK.matches("pack.zip"));
+        check("a data pack is a zip",
+                ContentKind.DATAPACK.matches("vanilla-tweaks.zip")
+                        && !ContentKind.DATAPACK.matches("something.jar"));
+        check("the file chooser gets patterns, not extensions",
+                ContentKind.DATAPACK.chooserPatterns().contains("*.zip"));
+
+        check("a Modrinth modpack page is under /modpack/",
+                "https://modrinth.com/modpack/fabulously".equals(
+                        ModrinthProvider.pageUrl("fabulously", "modpack")));
+        check("and a data pack page under /datapack/",
+                "https://modrinth.com/datapack/tweaks".equals(
+                        ModrinthProvider.pageUrl("tweaks", "datapack")));
+        check("an unnamed type falls back to a mod page",
+                "https://modrinth.com/mod/sodium".equals(
+                        ModrinthProvider.pageUrl("sodium", null)));
+    }
+
+    // ---------------------------------------------------------------- modpacks
+
+    /**
+     * Reading both modpack formats.
+     *
+     * <p>Two manifests with nothing in common but their purpose, and one record
+     * out of either. What has to hold is that the version and the loader come out
+     * right - they are what the instance is set to, and a pack read as Fabric
+     * when it is NeoForge is a folder of jars that cannot load.
+     */
+    private static void modpackArchives() {
+        section("Modpack archives");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-modpack-check");
+
+            Path mrpack = dir.resolve("fabulously.mrpack");
+            writeJar(mrpack, Map.of(
+                    PackArchive.MRPACK_INDEX, """
+                            {"formatVersion":1,"game":"minecraft","versionId":"5.1",
+                             "name":"Fabulously Optimised",
+                             "summary":"Fast and pretty",
+                             "dependencies":{"minecraft":"26.2","fabric-loader":"0.16.9"},
+                             "files":[
+                               {"path":"mods/sodium.jar",
+                                "hashes":{"sha1":"aaaa"},
+                                "downloads":["https://cdn.modrinth.com/data/AANobbMI/versions/v1/sodium.jar"],
+                                "fileSize":100},
+                               {"path":"mods/server-only.jar",
+                                "env":{"client":"unsupported","server":"required"},
+                                "downloads":["https://example.invalid/server.jar"]},
+                               {"path":"../escape.jar",
+                                "downloads":["https://example.invalid/escape.jar"]}
+                             ]}""",
+                    "overrides/config/sodium.txt", "quality=high",
+                    "client-overrides/options.txt", "fov:90"));
+
+            PackArchive pack = PackArchive.read(mrpack);
+            check("a .mrpack is read as one", pack.format() == PackArchive.Format.MRPACK);
+            check("its name is the pack's own",
+                    "Fabulously Optimised".equals(pack.name()));
+            check("its version comes through", "5.1".equals(pack.version()));
+            check("the Minecraft version comes through", "26.2".equals(pack.minecraftVersion()));
+            check("fabric-loader means Fabric",
+                    pack.loader() == com.hexadron.launcher.install.loader.LoaderType.FABRIC);
+            check("and the pinned loader version is kept",
+                    "0.16.9".equals(pack.loaderVersion()));
+            // A pack carries both sides of a multiplayer install. Leaving out a
+            // server-only file is the pack being followed, not an omission.
+            check("a file the client does not support is left out",
+                    pack.downloads().stream().noneMatch(
+                            file -> file.path().contains("server-only")));
+            check("the client's own files are kept",
+                    pack.downloads().stream().anyMatch(
+                            file -> file.path().equals("mods/sodium.jar")));
+            check("a file's addresses come through",
+                    pack.downloads().get(0).urls().size() == 1);
+            check("and its digest", "aaaa".equals(pack.downloads().get(0).sha1()));
+            check("both override folders are found", pack.overrides().size() == 2);
+            check("the client's own overrides go last, so they win",
+                    "client-overrides".equals(pack.overrides().get(1)));
+            check("a Modrinth pack needs no CurseForge key", !pack.needsCurseForge());
+
+            Path curse = dir.resolve("cursed.zip");
+            writeJar(curse, Map.of(
+                    PackArchive.CURSEFORGE_MANIFEST, """
+                            {"minecraft":{"version":"1.21.1",
+                                          "modLoaders":[{"id":"forge-52.0.1","primary":false},
+                                                        {"id":"neoforge-21.1.72","primary":true}]},
+                             "name":"Cursed Pack","version":"2.0","author":"Somebody",
+                             "files":[{"projectID":238222,"fileID":5000,"required":true},
+                                      {"projectID":310111,"fileID":5001,"required":false}],
+                             "overrides":"overrides"}""",
+                    "overrides/config/thing.cfg", "x=1"));
+
+            PackArchive cursed = PackArchive.read(curse);
+            check("a CurseForge zip is read as one",
+                    cursed.format() == PackArchive.Format.CURSEFORGE);
+            check("its name comes through", "Cursed Pack".equals(cursed.name()));
+            check("its author comes through", "Somebody".equals(cursed.author()));
+            // A pack may list several loaders and mark one primary. The primary
+            // one is the pack's own answer, not the first in the list.
+            check("the primary loader wins over the first listed",
+                    cursed.loader() == com.hexadron.launcher.install.loader.LoaderType.NEOFORGE);
+            check("and its version is split off the id",
+                    "21.1.72".equals(cursed.loaderVersion()));
+            check("both files are listed", cursed.projectFiles().size() == 2);
+            check("a required file is marked required",
+                    cursed.projectFiles().get(0).required());
+            check("an optional one is not", !cursed.projectFiles().get(1).required());
+            check("a CurseForge pack needs a key", cursed.needsCurseForge());
+            check("its overrides folder is found",
+                    cursed.overrides().equals(List.of("overrides")));
+
+            // A zip that is not a pack is refused with a sentence about the file
+            // rather than a stack trace about a missing entry.
+            Path notAPack = dir.resolve("resources.zip");
+            writeJar(notAPack, Map.of("pack.mcmeta", "{\"pack\":{\"pack_format\":48}}"));
+            check("a zip with neither manifest is not a pack",
+                    !PackArchive.looksLikePack(notAPack));
+            checkThrows("and reading it says so", () -> {
+                try {
+                    PackArchive.read(notAPack);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            check("a pack file is recognised without complaint",
+                    PackArchive.looksLikePack(mrpack) && PackArchive.looksLikePack(curse));
+
+            check("a nameless pack falls back to its file name",
+                    !new PackArchive(PackArchive.Format.MRPACK, null, null, null, null,
+                            "26.2", com.hexadron.launcher.install.loader.LoaderType.FABRIC,
+                            null, List.of(), List.of(), List.of(), mrpack)
+                            .instanceName().isBlank());
+
+        } catch (IOException e) {
+            check("the modpack archives could be read: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
+    /**
+     * The one check in the modpack installer whose failure is not a broken
+     * install.
+     *
+     * <p>A manifest is a file from the internet, and a path in it is untrusted
+     * input. {@code ../../../.ssh/authorized_keys} is a valid string in a JSON
+     * document, and a launcher that resolves it against the instance folder and
+     * writes there has handed a stranger the user's home directory.
+     */
+    private static void modpackPaths() {
+        section("Modpack path safety");
+
+        Path root = Path.of("/instances/pack").toAbsolutePath().normalize();
+
+        check("an ordinary path is kept",
+                "mods/sodium.jar".equals(
+                        com.hexadron.launcher.mods.ModpackInstaller.safeRelative(
+                                root, "mods/sodium.jar")));
+        check("a backslash path is normalised",
+                "config/sodium/main.txt".equals(
+                        com.hexadron.launcher.mods.ModpackInstaller.safeRelative(
+                                root, "config\\sodium\\main.txt")));
+        check("a leading slash is dropped, not obeyed",
+                "mods/a.jar".equals(
+                        com.hexadron.launcher.mods.ModpackInstaller.safeRelative(
+                                root, "/mods/a.jar")));
+        check("a redundant segment is removed",
+                "mods/a.jar".equals(
+                        com.hexadron.launcher.mods.ModpackInstaller.safeRelative(
+                                root, "mods/./a.jar")));
+
+        check("a climbing path is refused",
+                com.hexadron.launcher.mods.ModpackInstaller.safeRelative(
+                        root, "../escape.jar") == null);
+        check("a deeply climbing path is refused",
+                com.hexadron.launcher.mods.ModpackInstaller.safeRelative(
+                        root, "mods/../../../etc/passwd") == null);
+        check("a Windows drive is refused",
+                com.hexadron.launcher.mods.ModpackInstaller.safeRelative(
+                        root, "C:/Windows/system32/x.dll") == null);
+        check("a UNC path is refused",
+                com.hexadron.launcher.mods.ModpackInstaller.safeRelative(
+                        root, "\\\\server\\share\\x.dll") == null);
+        check("an empty path is refused",
+                com.hexadron.launcher.mods.ModpackInstaller.safeRelative(root, "  ") == null);
+        check("a null path is refused",
+                com.hexadron.launcher.mods.ModpackInstaller.safeRelative(root, null) == null);
+        check("the instance folder itself is not a file to write",
+                com.hexadron.launcher.mods.ModpackInstaller.safeRelative(root, "./") == null);
+    }
+
+    // ---------------------------------------------------------------- data packs
+
+    /**
+     * One world's data pack folder, read.
+     *
+     * <p>The same rule as the mods folder, one level down: the folder is the
+     * authority, a pack the launcher did not download is listed rather than
+     * hidden, and nothing the launcher did not record is ever treated as the
+     * launcher's to delete. What is new is that a data pack may be a folder, and
+     * a folder cannot be switched off by renaming it.
+     */
+    private static void datapackFolder() {
+        section("Data pack folder");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-datapack-check");
+
+            writeJar(dir.resolve("vanilla-tweaks.zip"), Map.of(
+                    "pack.mcmeta",
+                    "{\"pack\":{\"pack_format\":48,\"description\":\"Small changes\"}}",
+                    "pack.png", "not really a png",
+                    "data/minecraft/tags/x.json", "{}"));
+            writeJar(dir.resolve("switched-off.zip.disabled"), Map.of(
+                    "pack.mcmeta",
+                    "{\"pack\":{\"pack_format\":48,\"description\":"
+                            + "[{\"text\":\"Two \"},{\"text\":\"parts\"}]}}"));
+            java.nio.file.Files.createDirectories(dir.resolve("unzipped"));
+            java.nio.file.Files.writeString(dir.resolve("unzipped/pack.mcmeta"),
+                    "{\"pack\":{\"pack_format\":48,\"description\":{\"text\":\"A folder\"}}}");
+            java.nio.file.Files.writeString(dir.resolve("notes.txt"), "not a pack");
+
+            List<ModEntry> packs = DatapackScan.scan(dir);
+            check("both zips and the folder are listed", packs.size() == 3);
+            check("a text file is not a data pack",
+                    packs.stream().noneMatch(pack -> pack.fileName().endsWith(".txt")));
+
+            ModEntry tweaks = packs.stream()
+                    .filter(pack -> pack.fileName().startsWith("vanilla-tweaks"))
+                    .findFirst().orElseThrow();
+            check("a pack's description is read from pack.mcmeta",
+                    "Small changes".equals(tweaks.description()));
+            check("its pack format is shown as the pack states it",
+                    tweaks.version() != null && tweaks.version().contains("48"));
+            // A data pack states pack_format, and turning that into "works on
+            // 1.21.4" needs a table of every release. The launcher keeps none and
+            // therefore does not claim to know.
+            check("no version verdict is claimed",
+                    tweaks.verdict() == VersionRanges.Verdict.UNKNOWN);
+            check("and no version requirement is invented", tweaks.requires() == null);
+            check("a pack the launcher did not install is the player's own",
+                    tweaks.origin() == ModOrigin.EXTERNAL);
+            check("its own picture is found in the zip",
+                    "pack.png".equals(tweaks.iconJarPath()));
+            check("a zip can be switched off", DatapackScan.isTogglable(tweaks));
+
+            ModEntry switched = packs.stream()
+                    .filter(pack -> pack.fileName().startsWith("switched-off"))
+                    .findFirst().orElseThrow();
+            check("a renamed pack is listed as switched off", !switched.enabled());
+            // Minecraft accepts a raw JSON text component here, so a description
+            // is sometimes a string, sometimes an object, sometimes a list.
+            check("a description written as a list is read as one line",
+                    "Two parts".equals(switched.description()));
+
+            ModEntry folder = packs.stream()
+                    .filter(pack -> "unzipped".equals(pack.fileName()))
+                    .findFirst().orElseThrow();
+            check("a folder pack is read too", "A folder".equals(folder.description()));
+            check("a folder pack cannot be switched off by renaming",
+                    !DatapackScan.isTogglable(folder));
+            check("and has no picture to read out of an archive",
+                    folder.iconJarPath() == null);
+
+            DatapackScan.setEnabled(dir, tweaks, false);
+            check("switching off renames the file",
+                    java.nio.file.Files.isRegularFile(
+                            dir.resolve("vanilla-tweaks.zip" + DatapackScan.DISABLED_SUFFIX)));
+            List<ModEntry> afterDisable = DatapackScan.scan(dir);
+            check("the pack is still listed", afterDisable.size() == 3);
+            ModEntry offNow = afterDisable.stream()
+                    .filter(pack -> pack.fileName().startsWith("vanilla-tweaks"))
+                    .findFirst().orElseThrow();
+            check("and now reads as switched off", !offNow.enabled());
+            DatapackScan.setEnabled(dir, offNow, true);
+            check("switching back on restores the name",
+                    java.nio.file.Files.isRegularFile(dir.resolve("vanilla-tweaks.zip")));
+
+            check("a disabled name round-trips",
+                    "a.zip".equals(DatapackScan.enabledName(
+                            "a.zip" + DatapackScan.DISABLED_SUFFIX)));
+            check("an enabled name is left alone",
+                    "a.zip".equals(DatapackScan.enabledName("a.zip")));
+            check("a missing folder scans to nothing",
+                    DatapackScan.scan(dir.resolve("nowhere")).isEmpty());
+
+            // Importing. The one refusal that matters is a zip with no
+            // pack.mcmeta: Minecraft refuses that too, so the launcher agreeing
+            // with the game is the point.
+            Path source = java.nio.file.Files.createTempDirectory("hexadron-datapack-source");
+            try {
+                Path good = source.resolve("more-tweaks.zip");
+                writeJar(good, Map.of("pack.mcmeta", "{\"pack\":{\"pack_format\":48}}"));
+                Path bad = source.resolve("not-a-pack.zip");
+                writeJar(bad, Map.of("readme.txt", "hello"));
+                Path wrongKind = source.resolve("a-mod.jar");
+                writeJar(wrongKind, Map.of("fabric.mod.json", "{\"id\":\"x\"}"));
+
+                ModScan.Imported imported = DatapackScan.importPacks(
+                        dir, List.of(good, bad, wrongKind), QUIET);
+                check("a real pack is imported", imported.imported().size() == 1);
+                check("a zip with no pack.mcmeta is refused", imported.skipped().stream()
+                        .anyMatch(skip -> skip.file().equals("not-a-pack.zip")
+                                && skip.reason() == ModScan.Reason.NOT_AN_ARCHIVE));
+                check("a jar is not a data pack", imported.skipped().stream()
+                        .anyMatch(skip -> skip.file().equals("a-mod.jar")
+                                && skip.reason() == ModScan.Reason.NOT_A_JAR));
+                check("the original is left where it was",
+                        java.nio.file.Files.isRegularFile(good));
+
+                ModScan.Imported again = DatapackScan.importPacks(dir, List.of(good), QUIET);
+                check("importing the same pack twice is refused, not overwritten",
+                        again.imported().isEmpty() && again.skipped().stream()
+                                .anyMatch(skip -> skip.reason() == ModScan.Reason.ALREADY_THERE));
+            } finally {
+                deleteRecursively(source);
+            }
+
+            // The record lives beside the packs, under its own name, so a folder
+            // holding both kinds could never have one record claiming the other's
+            // files.
+            check("the data pack record is not the mod lock file",
+                    !DatapackScan.LOCK_FILE.equals(ModLibrary.LOCK_FILE));
+            ModLibrary library = DatapackScan.libraryOf(dir);
+            library.put(new InstalledMod("Vanilla Tweaks",
+                    new ModFile("abcd", "vanilla-tweaks", "v1", "1.0",
+                            "vanilla-tweaks.zip", "https://example.invalid/vt.zip",
+                            null, 1, List.of(), ModProvider.Source.MODRINTH),
+                    ModOrigin.MANUAL, null,
+                    "https://example.invalid/icon.png",
+                    "https://modrinth.com/datapack/vanilla-tweaks"));
+            library.write();
+            check("the record is written where the packs are",
+                    java.nio.file.Files.isRegularFile(dir.resolve(DatapackScan.LOCK_FILE)));
+
+            ModEntry recorded = DatapackScan.scan(dir).stream()
+                    .filter(pack -> "Vanilla Tweaks".equals(pack.title()))
+                    .findFirst().orElseThrow();
+            check("a recorded pack is managed", recorded.isManaged());
+            check("its page survives the save", recorded.hasPage());
+            check("and the launcher's logo is preferred over the zip's",
+                    recorded.iconUrl() != null);
+
+            // A record whose file is a jar. This is what a build that asked the
+            // platform for the wrong thing left behind: Modrinth publishes much
+            // of this catalogue twice, as a data pack zip and as a mod build of
+            // the same content, and only the first is a thing a world loads.
+            //
+            // The folder is the authority, so the jar is not listed - and that
+            // is exactly why the Install button must be drawn from this list and
+            // not from the record beside it. Reading the record gave a catalogue
+            // that said "installed", a world list that showed nothing and a pack
+            // count that did not move: three answers to one question.
+            writeJar(dir.resolve("dungeons-and-taverns-5.3.2.jar"),
+                    Map.of("fabric.mod.json", "{\"id\":\"dungeons_and_taverns\"}"));
+            ModLibrary withJar = DatapackScan.libraryOf(dir);
+            withJar.put(new InstalledMod("Dungeons and Taverns",
+                    new ModFile("efgh", "dungeons-and-taverns", "v2", "5.3.2+mod",
+                            "dungeons-and-taverns-5.3.2.jar",
+                            "https://example.invalid/dt.jar",
+                            null, 1, List.of(), ModProvider.Source.MODRINTH),
+                    ModOrigin.MANUAL, null));
+            withJar.write();
+            check("a jar recorded as a data pack is not listed",
+                    DatapackScan.scan(dir).stream()
+                            .noneMatch(pack -> pack.fileName().endsWith(".jar")));
+            check("and the record alone still claims it is installed",
+                    DatapackScan.libraryOf(dir)
+                            .contains(ModProvider.Source.MODRINTH, "efgh"));
+            check("a jar is not a data pack file",
+                    !DatapackScan.isDatapackFile(dir.resolve("dungeons-and-taverns-5.3.2.jar")));
+            // The same question the installer asks before it writes anything
+            // into a world, by name alone, which is all a platform's answer
+            // gives it.
+            check("a data pack version's file is a zip",
+                    ContentKind.DATAPACK.matches("Dungeons and Taverns v5.3.2.zip"));
+            check("and a mod build's file is refused",
+                    !ContentKind.DATAPACK.matches("dungeons-and-taverns-5.3.2.jar"));
+
+        } catch (IOException e) {
+            check("the data pack folder could be read: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
+    /**
+     * The world list the data pack section picks from.
+     *
+     * <p>A folder counts as a world when it has a {@code level.dat}, which is the
+     * file Minecraft itself looks for - so a backup zip, a half-extracted
+     * download and {@code .DS_Store} are left out exactly as the game leaves them
+     * out.
+     */
+    private static void worldList() {
+        section("World list");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-worlds-check");
+
+            check("an instance that has never been launched has no worlds",
+                    com.hexadron.launcher.mods.WorldSaves.of(dir).isEmpty());
+
+            Path saves = dir.resolve(com.hexadron.launcher.mods.WorldSaves.SAVES_DIR);
+            java.nio.file.Files.createDirectories(saves.resolve("Old world"));
+            java.nio.file.Files.writeString(saves.resolve("Old world/level.dat"), "x");
+            java.nio.file.Files.createDirectories(saves.resolve("New world"));
+            java.nio.file.Files.writeString(saves.resolve("New world/level.dat"), "x");
+            java.nio.file.Files.setLastModifiedTime(saves.resolve("New world/level.dat"),
+                    java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
+            java.nio.file.Files.setLastModifiedTime(saves.resolve("Old world/level.dat"),
+                    java.nio.file.attribute.FileTime.fromMillis(1_000_000));
+            // A folder with no level.dat is not a world, and a file in saves is
+            // not one either.
+            java.nio.file.Files.createDirectories(saves.resolve("not-a-world"));
+            java.nio.file.Files.writeString(saves.resolve("backup.zip"), "x");
+
+            List<com.hexadron.launcher.mods.WorldSaves.World> worlds =
+                    com.hexadron.launcher.mods.WorldSaves.of(dir);
+            check("only folders with a level.dat are worlds", worlds.size() == 2);
+            check("the most recently played world comes first",
+                    "New world".equals(worlds.get(0).folder()));
+            check("a world knows where its data packs go",
+                    worlds.get(0).datapacks().endsWith(
+                            com.hexadron.launcher.mods.WorldSaves.DATAPACKS_DIR));
+            check("a world with no data pack folder counts none",
+                    worlds.get(0).datapackCount() == 0);
+
+            Path packs = worlds.get(0).datapacks();
+            java.nio.file.Files.createDirectories(packs);
+            writeJar(packs.resolve("one.zip"), Map.of("pack.mcmeta",
+                    "{\"pack\":{\"pack_format\":48}}"));
+            java.nio.file.Files.writeString(packs.resolve("readme.txt"), "x");
+            check("and counts the packs when there are some",
+                    com.hexadron.launcher.mods.WorldSaves.of(dir).get(0).datapackCount() == 1);
+
+        } catch (IOException e) {
+            check("the world list could be read: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
     /** Builds a jar with the given entries, so the readers can be checked offline. */
     private static void writeJar(Path path, Map<String, String> entries) throws IOException {
         try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(
@@ -4703,8 +6185,112 @@ public final class SelfCheck {
                     check("a conditional entry is optional by construction", entry.optional());
                 }
             }
+
+            // --- which loaders it is for ------------------------------------
+            //
+            // The set used to be one list with no loader on it, which is a
+            // Fabric list wearing no label: on a Forge profile every lookup
+            // failed one at a time and the button simply vanished.
+            check("the set says which loaders it is for", !pack.loaders().isEmpty());
+            check("Fabric is one of them", pack.supports(LoaderType.FABRIC));
+            check("Quilt is another, because Quilt Loader runs these jars",
+                    pack.supports(LoaderType.QUILT));
+            check("NeoForge is the third", pack.supports(LoaderType.NEOFORGE));
+            check("Forge is not, and says so before asking anybody",
+                    !pack.supports(LoaderType.FORGE));
+            check("and neither is a profile with no loader at all",
+                    !pack.supports(LoaderType.VANILLA));
+
+            // --- what each loader actually gets -----------------------------
+            java.util.function.BiFunction<LoaderType, String, Boolean> has =
+                    (loader, label) -> pack.entriesFor(loader).stream()
+                            .anyMatch(entry -> entry.label().equals(label));
+
+            check("Fabric gets Fabric API", has.apply(LoaderType.FABRIC, "Fabric API"));
+            check("and not the Quilt substitute for it",
+                    !has.apply(LoaderType.FABRIC, "Quilted Fabric API"));
+            check("Quilt gets Quilted Fabric API instead",
+                    has.apply(LoaderType.QUILT, "Quilted Fabric API"));
+            check("and not Fabric API, which conflicts with it",
+                    !has.apply(LoaderType.QUILT, "Fabric API"));
+            check("NeoForge gets neither, and Krypton is not asked of it either",
+                    !has.apply(LoaderType.NEOFORGE, "Fabric API")
+                            && !has.apply(LoaderType.NEOFORGE, "Quilted Fabric API")
+                            && !has.apply(LoaderType.NEOFORGE, "Krypton"));
+            check("Sodium is in every one of them",
+                    has.apply(LoaderType.FABRIC, "Sodium")
+                            && has.apply(LoaderType.QUILT, "Sodium")
+                            && has.apply(LoaderType.NEOFORGE, "Sodium"));
+            check("an entry with no loaders of its own belongs to all of them",
+                    pack.entries().stream()
+                            .filter(entry -> entry.label().equals("Lithium"))
+                            .allMatch(entry -> entry.appliesTo(LoaderType.FABRIC)
+                                    && entry.appliesTo(LoaderType.QUILT)
+                                    && entry.appliesTo(LoaderType.NEOFORGE)));
+            check("no loader is offered an empty set",
+                    !pack.entriesFor(LoaderType.FABRIC).isEmpty()
+                            && !pack.entriesFor(LoaderType.QUILT).isEmpty()
+                            && !pack.entriesFor(LoaderType.NEOFORGE).isEmpty());
         } catch (IOException e) {
             check("the set contains Sodium", false);
+        }
+
+        // --- what a loader can run --------------------------------------
+        //
+        // The reason a Quilt profile used to see an empty browser: one tag was
+        // sent, and almost nobody publishes under it.
+        check("Fabric asks for Fabric files",
+                LoaderType.FABRIC.platformIds().equals(java.util.List.of("fabric")));
+        check("Quilt asks for Quilt files and Fabric ones, in that order",
+                LoaderType.QUILT.platformIds().equals(java.util.List.of("quilt", "fabric")));
+        check("and where only one tag fits, it is the one the files are under",
+                "fabric".equals(LoaderType.QUILT.searchPlatformId()));
+        check("NeoForge is not offered Forge files",
+                !LoaderType.NEOFORGE.platformIds().contains("forge"));
+        check("nor Forge NeoForge ones",
+                !LoaderType.FORGE.platformIds().contains("neoforge"));
+        check("a profile with no loader asks for nothing",
+                LoaderType.VANILLA.platformIds().isEmpty()
+                        && LoaderType.VANILLA.searchPlatformId() == null);
+
+        // --- the number in the corner -----------------------------------
+        try {
+            java.nio.file.Path gameDir = java.nio.file.Files.createTempDirectory("hexadron-modmenu");
+            java.nio.file.Path config = gameDir.resolve("config").resolve("modmenu.json");
+            Progress quiet = Progress.NOOP;
+
+            check("Mod Menu is recognised by its file name", ModMenuCount.isPresentAmong(
+                    java.util.List.of(new ModFile("mOgUt4GM", null, "1", "Mod Menu",
+                            "modmenu-11.0.3.jar", null, null, -1, java.util.List.of(),
+                            ModProvider.Source.MODRINTH))));
+            check("and another mod is not", !ModMenuCount.isPresentAmong(
+                    java.util.List.of(new ModFile("AANobbMI", null, "1", "Sodium",
+                            "sodium-fabric-0.6.13.jar", null, null, -1, java.util.List.of(),
+                            ModProvider.Source.MODRINTH))));
+
+            check("the counting keys are written when there is no config yet",
+                    ModMenuCount.applyTo(gameDir, quiet));
+            Json written = Json.read(config);
+            check("count_children is off - this is the Fabric API fifty",
+                    !written.get("count_children").asBool(true));
+            check("count_libraries is off", !written.get("count_libraries").asBool(true));
+            check("count_hidden_mods is off", !written.get("count_hidden_mods").asBool(true));
+
+            check("a second run changes nothing", !ModMenuCount.applyTo(gameDir, quiet));
+
+            // The player's own answer wins. An installer that overrules a
+            // setting on every run is worse than the number it is correcting.
+            Json chosen = Json.object().put("count_children", true).put("keep_me", "yes");
+            chosen.write(config);
+            ModMenuCount.applyTo(gameDir, quiet);
+            Json after = Json.read(config);
+            check("a key the player set is left alone", after.get("count_children").asBool(false));
+            check("the keys they never touched are still filled in",
+                    !after.get("count_libraries").asBool(true));
+            check("and nothing else in their file is lost",
+                    "yes".equals(after.get("keep_me").asString(null)));
+        } catch (IOException e) {
+            check("Mod Menu's mod count can be settled", false);
         }
     }
 
@@ -4791,6 +6377,22 @@ public final class SelfCheck {
         // this the menu's highlight covers all nineteen at once.
         check("the category panel turns off the menu's own highlight",
                 css.contains(".category-item:focused"));
+        // The content window's rail. Its rows are the one place in the window
+        // where the text is the control's own rather than a label inside it, so
+        // a row whose fill nobody paints is drawn in modena's ink - which on
+        // this background is very nearly the background. It was.
+        check("the rail of content kinds is styled",
+                css.contains(".kind-rail"));
+        check("a rail row paints its own text",
+                ruleOf(css, ".kind-row").contains("-fx-text-fill"));
+        check("and the kind that is showing is marked",
+                css.contains(".kind-row-on"));
+        check("the open rail casts a shadow, so it reads as being in front",
+                ruleOf(css, ".kind-rail-open").contains("-fx-effect"));
+        check("the panel each kind occupies is styled",
+                css.contains(".kind-pane"));
+        check("the world picker has room above the tabs",
+                css.contains(".world-row"));
         check("a mod other mods need is marked in its own colour",
                 css.contains(".badge-dependency") && css.contains("-fx-warning-0"));
         check("a badge keeps its edges on a selected row",

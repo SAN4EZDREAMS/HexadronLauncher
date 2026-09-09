@@ -60,10 +60,28 @@ public final class ModInstaller {
         }
     }
 
-    /** Whether a pack can be installed for a given version and loader at all. */
-    public record PackAvailability(boolean available, List<String> missing) {
+    /**
+     * Whether a pack can be installed for a given version and loader at all.
+     *
+     * <p>The two ways of failing are kept apart because they are answers to
+     * different questions and deserve different words. A pack that does not
+     * support the loader is a fact about the file, true before anything is
+     * asked and true for ever; a pack whose mods have no build for this
+     * Minecraft version is a fact about today's catalogue, and it will change.
+     *
+     * @param loaderSupported false when the pack does not cover this loader at
+     *                        all - {@code missing} is then empty, because
+     *                        nothing was looked up
+     * @param missing         entries with no build for this version and loader
+     */
+    public record PackAvailability(boolean available, boolean loaderSupported, List<String> missing) {
         public PackAvailability {
             missing = List.copyOf(missing);
+        }
+
+        /** An answer for a loader the pack was never written for. */
+        public static PackAvailability unsupportedLoader() {
+            return new PackAvailability(false, false, List.of());
         }
     }
 
@@ -72,16 +90,27 @@ public final class ModInstaller {
     /**
      * Checks a pack against a version and loader without downloading anything.
      *
-     * <p>The mod browser uses this to decide whether to offer the pack at all.
-     * A button that always fails - because half the set has no build for the
-     * chosen version - reads as a broken launcher rather than as an unsupported
-     * version, so the button is simply absent instead.
+     * <p>The mod browser uses this to decide whether the install button is
+     * clickable. The button stays on screen either way and is greyed when the
+     * answer is no, with the reason beside it: a button that always fails reads
+     * as a broken launcher, and a button that is not there at all reads as one
+     * that forgot to draw itself. Neither says "not for this profile", which is
+     * what is actually true.
+     *
+     * <p>A loader the pack does not cover is answered from the file, before any
+     * lookup: it is a fact the pack states about itself, and finding it out by
+     * asking a platform nine times and failing nine times is nine requests spent
+     * on a conclusion already in hand.
      */
     public PackAvailability checkPack(ModPack pack, String minecraftVersion, LoaderType loader)
             throws InterruptedException {
 
+        if (!pack.supports(loader)) {
+            return PackAvailability.unsupportedLoader();
+        }
+
         List<String> missing = new ArrayList<>();
-        for (ModPack.Entry entry : pack.entries()) {
+        for (ModPack.Entry entry : pack.entriesFor(loader)) {
             // A conditional entry is not part of what makes the set installable:
             // whether it belongs at all depends on the build another entry
             // resolves to, which is not known until the install runs.
@@ -101,7 +130,7 @@ public final class ModInstaller {
                 missing.add(entry.label());
             }
         }
-        return new PackAvailability(missing.isEmpty(), missing);
+        return new PackAvailability(missing.isEmpty(), true, missing);
     }
 
     /**
@@ -115,6 +144,12 @@ public final class ModInstaller {
     public Result installPack(ModPack pack, String minecraftVersion, LoaderType loader,
                               Path modsDir, Progress progress) throws IOException, InterruptedException {
 
+        if (!pack.supports(loader)) {
+            throw new IOException(pack.name() + " is not published for "
+                    + loader.displayName() + "; it covers "
+                    + String.join(", ", pack.loaders()));
+        }
+
         progress.stage("Resolving " + pack.name());
         Files.createDirectories(modsDir);
 
@@ -126,7 +161,7 @@ public final class ModInstaller {
 
         Deque<Pending> queue = new ArrayDeque<>();
         List<ModPack.Entry> conditional = new ArrayList<>();
-        for (ModPack.Entry entry : pack.entries()) {
+        for (ModPack.Entry entry : pack.entriesFor(loader)) {
             if (entry.isConditional()) {
                 // Held back: the condition is about what another entry resolves
                 // to, so it cannot be answered until that one has.
@@ -435,14 +470,167 @@ public final class ModInstaller {
     }
 
     /**
+     * Installs the mods something outside the mods folder requires.
+     *
+     * <h2>What this is for</h2>
+     *
+     * <p>A data pack taken in its loader flavour names a mod as a required
+     * dependency - the mod that puts the pack in place. That jar has to go into
+     * the instance's mods folder, and it is neither the player's choice nor
+     * another mod's dependency, so it is recorded against the pack that needs it
+     * and removed with that pack. See {@link ModOrigin#DATAPACK}.
+     *
+     * <h2>Why it never throws</h2>
+     *
+     * <p>Whatever needed these is already installed by the time this runs. A
+     * requirement that cannot be resolved is therefore a note on the status line
+     * and a pack that may not load, not a reason to fail an install that has
+     * already written a file - and certainly not a reason to leave the folder
+     * half-written.
+     *
+     * @param projectIds the required projects, as the version listed them
+     * @param owner      the data pack these belong to
+     */
+    public Result installRequirements(ModProvider.Source source, List<String> projectIds,
+                                      String minecraftVersion, LoaderType loader, Path modsDir,
+                                      DatapackOwner owner, Progress progress)
+            throws IOException, InterruptedException {
+
+        ModProvider provider = providers.get(source);
+        if (projectIds.isEmpty() || provider == null || !provider.isAvailable()
+                || loader == null || !loader.isModded()) {
+            return new Result(List.of(), List.of(), List.of());
+        }
+        Files.createDirectories(modsDir);
+        ModLibrary library = ModLibrary.read(modsDir);
+
+        Map<String, ModFile> resolved = new LinkedHashMap<>();
+        Map<String, ModProvider.ProjectCard> cards = new LinkedHashMap<>();
+        List<String> skipped = new ArrayList<>();
+        List<String> manual = new ArrayList<>();
+        Set<String> visited = new LinkedHashSet<>();
+
+        Deque<Pending> queue = new ArrayDeque<>();
+        for (String projectId : projectIds) {
+            queue.add(new Pending(source, projectId, null, projectId, false, 0, owner.label()));
+        }
+
+        while (!queue.isEmpty()) {
+            Pending pending = queue.poll();
+            String key = InstalledMod.keyOf(pending.provider(), pending.projectId());
+            if (!visited.add(key)) {
+                continue;
+            }
+            if (pending.depth() > MAX_DEPENDENCY_DEPTH) {
+                skipped.add(pending.label() + " (dependency chain too deep)");
+                continue;
+            }
+            // Already in the folder, from a pack or from the player's own
+            // choosing. Left exactly as it is, ownership included: a mod the
+            // player installed themselves must not start belonging to a data
+            // pack, or removing the pack would take their mod with it.
+            if (library.contains(key)) {
+                continue;
+            }
+
+            Optional<ModFile> file =
+                    provider.resolveLatest(pending.projectId(), minecraftVersion, loader);
+            if (file.isEmpty()) {
+                skipped.add(pending.label() + " (no build for Minecraft " + minecraftVersion
+                        + " on " + loader.displayName() + ")");
+                continue;
+            }
+            ModFile modFile = file.get();
+            if (!modFile.isDownloadable()) {
+                Optional<ModFile> mirrored = mirrorOnModrinth(modFile);
+                if (mirrored.isEmpty()) {
+                    manual.add(pending.label() + " - " + modFile.fileName()
+                            + " (the author has disabled third-party downloads)");
+                    continue;
+                }
+                modFile = mirrored.get();
+            }
+
+            cards.put(key, cardFor(provider, pending, modFile));
+            resolved.put(key, modFile);
+            progress.log("%s is required by the data pack %s",
+                    cards.get(key).title(), owner.label());
+
+            for (String dependency : modFile.dependencies()) {
+                queue.add(new Pending(pending.provider(), dependency, null,
+                        dependency, false, pending.depth() + 1, pending.label()));
+            }
+        }
+
+        if (!resolved.isEmpty()) {
+            List<DownloadTask> tasks = new ArrayList<>();
+            for (ModFile modFile : resolved.values()) {
+                tasks.add(DownloadTask.of(modFile.url(), modsDir.resolve(modFile.fileName()),
+                        modFile.sha1(), modFile.size(), modFile.fileName()));
+            }
+            progress.stage("Downloading " + tasks.size() + " mod(s) the data pack needs");
+            downloader.run(tasks, progress);
+
+            resolved.forEach((key, modFile) -> library.put(InstalledMod.of(
+                    cardOrFileName(cards, key, modFile), modFile,
+                    ModOrigin.DATAPACK, null, owner)));
+            library.write();
+        }
+
+        for (String note : skipped) {
+            progress.log("Skipped: %s", note);
+        }
+        for (String note : manual) {
+            progress.log("Manual download required: %s", note);
+        }
+        return new Result(List.copyOf(resolved.values()), List.copyOf(skipped), List.copyOf(manual));
+    }
+
+    /**
+     * Removes the mods a data pack brought with it.
+     *
+     * <p>Only the ones recorded against that pack, which is why the record
+     * exists. A jar the player installed themselves is never claimed by a pack -
+     * see {@link #installRequirements} - so it is never taken away by one.
+     *
+     * @return how many were removed
+     */
+    public int removeDatapackMods(String world, String datapackKey, Path modsDir,
+                                  Progress progress) throws IOException {
+        ModLibrary library = ModLibrary.read(modsDir);
+        List<InstalledMod> owned = library.ofDatapack(world, datapackKey);
+        if (owned.isEmpty()) {
+            return 0;
+        }
+        for (InstalledMod mod : owned) {
+            String name = mod.file().fileName();
+            // Both names: the player may have switched the mod off since it was
+            // installed, and a rename is all that is.
+            if (Files.deleteIfExists(modsDir.resolve(name))
+                    || Files.deleteIfExists(modsDir.resolve(name + ModScan.DISABLED_SUFFIX))) {
+                progress.log("Removed %s, which %s needed", name, mod.datapack().label());
+            }
+            library.forget(mod.key());
+        }
+        library.write();
+        return owned.size();
+    }
+
+    /**
      * Removes one mod.
      *
-     * @throws IOException when the entry belongs to a pack, which is removed whole
+     * @throws IOException when the entry belongs to a pack or to a data pack,
+     *                     either of which is removed whole
      */
     public void removeMod(String key, Path modsDir, Progress progress) throws IOException {
         ModLibrary library = ModLibrary.read(modsDir);
         InstalledMod mod = library.get(key).orElseThrow(
                 () -> new IOException("no managed mod with key " + key));
+        if (mod.origin() == ModOrigin.DATAPACK) {
+            throw new IOException(mod.title() + " is needed by the data pack "
+                    + (mod.datapack() == null ? "it was installed for" : mod.datapack().label())
+                    + " and is removed with it, not on its own");
+        }
         if (!mod.origin().isRemovableAlone()) {
             throw new IOException(mod.title() + " belongs to the " + mod.packId()
                     + " pack and is removed with it, not on its own");
@@ -468,9 +656,9 @@ public final class ModInstaller {
      * failure is only raised when every provider failed and there is nothing to
      * show.
      */
-    public ModProvider.SearchPage search(String query, String minecraftVersion,
+    public ModProvider.SearchPage search(ContentKind kind, String query, String minecraftVersion,
                                          LoaderType loader, ModSort sort,
-                                         List<ModCategory> categories,
+                                         List<ModCategory> categories, boolean onlyForProfile,
                                          int limitPerProvider, int offset,
                                          ModProvider.Source only)
             throws IOException, InterruptedException {
@@ -490,7 +678,7 @@ public final class ModInstaller {
             }
             try {
                 ModProvider.SearchPage page = provider.search(
-                        query, minecraftVersion, loader, sort, categories,
+                        kind, query, minecraftVersion, loader, sort, categories, onlyForProfile,
                         limitPerProvider, offset);
                 results.addAll(page.results());
                 if (page.total() >= 0) {
@@ -506,7 +694,8 @@ public final class ModInstaller {
                 // there": the user sees a shorter list and no reason for it. A
                 // wrong API key looks exactly like a mod that does not exist for
                 // their version.
-                unavailable.add(provider.source().displayName() + ": " + reasonFor(e));
+                unavailable.add(provider.source().displayName() + ": "
+                        + reasonFor(provider.source(), e));
             }
         }
         if (results.isEmpty() && firstFailure != null) {
@@ -522,6 +711,28 @@ public final class ModInstaller {
                 results, totalKnown ? total : -1, offset, unavailable);
     }
 
+    /** Mods, for the callers that predate there being anything else to search. */
+    public ModProvider.SearchPage search(String query, String minecraftVersion,
+                                         LoaderType loader, ModSort sort,
+                                         List<ModCategory> categories,
+                                         int limitPerProvider, int offset,
+                                         ModProvider.Source only)
+            throws IOException, InterruptedException {
+        return search(ContentKind.MOD, query, minecraftVersion, loader, sort, categories, false,
+                limitPerProvider, offset, only);
+    }
+
+    /** The provider for a platform, or empty when this build has none configured. */
+    public Optional<ModProvider> provider(ModProvider.Source source) {
+        ModProvider provider = providers.get(source);
+        return provider != null && provider.isAvailable() ? Optional.of(provider) : Optional.empty();
+    }
+
+    /** The downloader this installer uses, so a pack install can share it. */
+    public Downloader downloader() {
+        return downloader;
+    }
+
     /**
      * A short reason fit for one line of interface, not a stack trace.
      *
@@ -531,12 +742,39 @@ public final class ModInstaller {
      * behind the full request URL.
      */
     public static String reasonFor(IOException failure) {
-        if (failure instanceof CurseForgeProvider.UnsupportedCategoriesException) {
-            return "the chosen categories are Modrinth's own and have no equivalent here";
+        return reasonFor(null, failure);
+    }
+
+    /**
+     * The same, with the platform named so the advice can be its own.
+     *
+     * <p>"The API key was refused" was true and useless. CurseForge has two key
+     * pages, the wrong one is the one a search finds first, and a key from it is
+     * refused on every request - so for that platform the reason includes which
+     * page to use and why the other one does not work. See
+     * {@link CurseForgeProvider#explainRejection()}.
+     *
+     * @param source the platform that failed, or null when it is not known
+     */
+    public static String reasonFor(ModProvider.Source source, IOException failure) {
+        if (failure instanceof CurseForgeProvider.UnsupportedCategoriesException unsupported) {
+            // Named, not counted. Most categories are paired with CurseForge's
+            // own now, so the ones that are not are a short list and the reader
+            // can untick exactly those and have their search back.
+            return "no equivalent here for "
+                    + String.join(", ", ModCategory.idsOf(unsupported.categories()));
+        }
+        if (failure instanceof CurseForgeProvider.KeyRejectedException refused) {
+            // Already a whole sentence, and already naming the platform - which
+            // the caller is about to name again, so its own prefix goes.
+            return "HTTP " + refused.statusCode() + " - the API key was refused. "
+                    + CurseForgeProvider.explainRejection();
         }
         if (failure instanceof com.hexadron.launcher.net.Http.HttpStatusException status) {
             return switch (status.statusCode()) {
-                case 401, 403 -> "HTTP " + status.statusCode() + " - the API key was refused";
+                case 401, 403 -> "HTTP " + status.statusCode() + " - the API key was refused"
+                        + (source == ModProvider.Source.CURSEFORGE
+                                ? ". " + CurseForgeProvider.explainRejection() : "");
                 case 429 -> "HTTP 429 - too many requests, try again shortly";
                 case 404 -> "HTTP 404 - the platform has no such endpoint any more";
                 default -> "HTTP " + status.statusCode();

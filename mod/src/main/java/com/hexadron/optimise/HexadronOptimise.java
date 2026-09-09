@@ -14,11 +14,19 @@ package com.hexadron.optimise;
 
 import net.fabricmc.api.ModInitializer;
 
-import net.minecraft.resources.Identifier;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * The umbrella mod for the Hexadron performance set.
+ *
+ * <p>It deliberately touches no Minecraft class. Every such reference is a
+ * reference to a name Mojang renames, moves or deletes between releases, and
+ * one of them - {@code Identifier}, which nothing here ever called - was the
+ * whole reason this jar would load on the one version it had been compiled
+ * against and no other. A mod whose job is to name a set of other mods has no
+ * business being version-specific, so it is not.
+ */
 public class HexadronOptimise implements ModInitializer {
 	public static final String MOD_ID = "hexadron-optimise";
 
@@ -34,9 +42,5 @@ public class HexadronOptimise implements ModInitializer {
 		// Proceed with mild caution.
 
 		LOGGER.info("Hexadron Optimise завантажується!");
-	}
-
-	public static Identifier id(String path) {
-		return Identifier.fromNamespaceAndPath(MOD_ID, path);
 	}
 }

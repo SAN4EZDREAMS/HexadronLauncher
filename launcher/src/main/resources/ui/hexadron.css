@@ -40,6 +40,18 @@
        broken yet, and this is the one badge whose whole job is to be noticed
        before a button is pressed rather than after. */
     -fx-warning-0: #d8a13c;
+    /* A modpack. Not the accent green, which is the launcher's own set of mods,
+       and not amber or red, which both mean "deal with this": a pack is a fact
+       about the instance, and violet is the one hue left in this palette that
+       carries a meaning of its own without claiming to be a warning. */
+    -fx-modpack-0: #7a5cc4;
+    /* A data pack. Blue, because it is the fourth thing a badge can mean and
+       the three taken hues already mean "the launcher's own set" (green), "deal
+       with this" (amber, red) and "a modpack" (violet). A mod that came in with
+       a data pack obeys the modpack rule - in whole, out whole - so it is drawn
+       as a sibling of that badge rather than as a variant of it: the same shape
+       and weight, another hue, because it is another owner. */
+    -fx-datapack-0: #2e83b8;
 
     /* Overridden per cell by the view, from the cell's group. Declared here so
        that a cell in no group still resolves it instead of raising a CSS error. */
@@ -705,10 +717,117 @@
     -fx-text-fill: -fx-text-0;
 }
 
-/* ------------------------------------------------------------------ mod browser */
+/*
+ * A warning inside a dialog: the paragraph that has to be read before the
+ * buttons are pressed.
+ *
+ * Amber text on a panel of its own, not red and not an icon. Red is for
+ * something that has already gone wrong; this is a consequence of an answer the
+ * user has not given yet. The strip of colour down the left is what separates it
+ * from the description above it at a glance, so the eye finds it without the
+ * dialog shouting.
+ */
+.dialog-warning {
+    -fx-text-fill: -fx-warning-0;
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 8;
+    -fx-border-color: transparent transparent transparent -fx-warning-0;
+    -fx-border-width: 0 0 0 3;
+    -fx-padding: 8 12 8 12;
+}
+
+/* ------------------------------------------------------------------ content window */
 
 .browse-pane {
     -fx-padding: 14 0 0 0;
+}
+
+/* The panel a kind of content occupies, between the sidebar and the footer.
+   No padding of its own: the tab pane inside it draws its own edge, and a
+   second one around it would make the content window's lists start further in
+   than the launcher's. */
+.kind-pane {
+    -fx-padding: 0;
+}
+
+/* The rail of kinds down the left. Shut it is a column of three icons; the
+   pointer opens it over the panel, so it needs a background of its own and,
+   open, an edge that says it is in front of something. */
+.kind-rail {
+    -fx-background-color: -fx-base-1;
+    -fx-border-color: transparent -fx-base-3 transparent transparent;
+    -fx-border-width: 0 1 0 0;
+    -fx-padding: 10 8 10 8;
+}
+
+/* Open, it is over the panel rather than beside it, and a shadow is the whole
+   of what says so. Without it the names appear to be printed on the list. */
+.kind-rail-open {
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.45), 18, 0.1, 3, 0);
+}
+
+/* A row on the rail. Drawn as a flat row rather than a button: three buttons
+   with borders down the side of a window read as a toolbar, and this is
+   navigation. The text fill is set here and not left to the theme - a cell
+   whose text nobody paints is drawn in modena's ink, which on this background
+   is very nearly the background. That is exactly what it looked like. */
+.kind-row {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-border-width: 0;
+    -fx-padding: 9 10 9 10;
+    -fx-graphic-text-gap: 10;
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 13px;
+}
+
+.kind-row:hover {
+    -fx-background-color: -fx-base-2;
+    -fx-text-fill: -fx-text-0;
+}
+
+/* The kind that is showing. Filled, and its name at full strength, because
+   "which of these am I looking at" is the one question this rail answers when
+   it is shut and only an icon is visible. */
+.kind-row-on {
+    -fx-background-color: -fx-base-3;
+    -fx-text-fill: -fx-text-0;
+    -fx-font-weight: bold;
+}
+
+/* Hovering the row that is already showing must not make it darker than it
+   was. A pseudo-class beats a plain class in JavaFX as it does in CSS, so
+   .kind-row:hover would otherwise win over .kind-row-on and repaint the filled
+   row in the hover colour - which is one step down, not up. */
+.kind-row-on:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+.kind-row-on .glyph {
+    -fx-fill: -fx-accent-1;
+}
+
+.kind-row:hover .glyph {
+    -fx-fill: -fx-accent-1;
+}
+
+/* The rail's own heading, which is only on screen while it is open. */
+.kind-rail .section-title {
+    -fx-padding: 2 0 6 12;
+}
+
+/* The row that asks which world. Above the tabs rather than inside them,
+   because it applies to both of them: the catalogue installs into that world
+   and the installed list reads it.
+
+   The sides are the tab pane's own twenty, not zero. This row is the one thing
+   in the panel that sits outside the tabs, so with no inset of its own the word
+   "World" started hard against the rail while every list under it started
+   twenty points in - the label looked like it had fallen out of the panel. The
+   same number on both sides keeps it lined up with the tab strip and off the
+   right edge. */
+.world-row {
+    -fx-padding: 12 20 2 20;
 }
 
 .tab-pane .tab-header-background {
@@ -784,6 +903,36 @@
     -fx-text-fill: white;
 }
 
+/*
+ * A mod that came in with a modpack, and a modpack's own row.
+ *
+ * Violet rather than the accent green, because green is the launcher's own set
+ * of mods - Hexadron Optimise - and the two obey the same rule (in whole, out
+ * whole) while being different things. A jar out of a downloaded pack drawn in
+ * the launcher's colour, with the launcher's set named on it, is not a shade too
+ * close: it is the wrong answer to "where did this come from".
+ */
+.badge-modpack {
+    -fx-background-color: -fx-modpack-0;
+    -fx-border-color: derive(-fx-modpack-0, -20%);
+    -fx-text-fill: white;
+}
+
+/*
+ * A mod that came in with a data pack, and a data pack's own row.
+ *
+ * Blue, and filled like the modpack badge, because it says the same kind of
+ * thing: this jar belongs to something else, and the something else is what
+ * removes it. Hovering it names that pack and takes the reader to it, which is
+ * the only place in the launcher where the answer is - the pack is in a world's
+ * folder, and this is the instance's mod list.
+ */
+.badge-datapack {
+    -fx-background-color: -fx-datapack-0;
+    -fx-border-color: derive(-fx-datapack-0, -20%);
+    -fx-text-fill: white;
+}
+
 /* A switched-off mod is present but not loaded, which is neither "installed"
    nor "gone". The badge is drawn hollow so the row reads as inactive at a
    glance rather than needing the word to be read. */
@@ -815,6 +964,20 @@
 .svg-icon {
     -fx-fill: transparent;
     -fx-stroke: -fx-text-1;
+}
+
+/*
+ * The other kind, for the drawings that are one.
+ *
+ * Not every icon in the set is an outline: a few are published as solid shapes
+ * with a fill and no stroke, and drawn hollow like the rest they come out as a
+ * wire frame of themselves. Which of the two a drawing is comes from its own
+ * markup - see SvgPaths.Drawing - and both take the same colour, so a filled
+ * icon and a stroked one sit beside each other without either standing out.
+ */
+.svg-icon-filled {
+    -fx-fill: -fx-text-1;
+    -fx-stroke: transparent;
 }
 
 /*

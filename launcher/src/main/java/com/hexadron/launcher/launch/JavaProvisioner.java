@@ -31,8 +31,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Downloads a Java runtime when the machine has none that will do.
@@ -70,6 +74,22 @@ public final class JavaProvisioner {
 
     /** Marker written beside a downloaded runtime, recording what it is. */
     private static final String MARKER = ".hexadron-runtime.json";
+
+    /** Matches the folder names {@link #component} produces. */
+    private static final Pattern COMPONENT = Pattern.compile("^temurin-(\\d+)-[^-]+-.+$");
+
+    /**
+     * One monitor per major version.
+     *
+     * <p>Two things can want the same runtime at the same moment - a Forge
+     * installer's processor chain and a launch that is waiting on it, or two
+     * profiles started in quick succession - and before this they shared a
+     * staging directory whose first act was to delete itself. Whichever arrived
+     * second wiped what the first had half-unpacked, and the failure looked like
+     * a corrupt download. Serialised per major version, so two different
+     * runtimes still install in parallel.
+     */
+    private static final Map<Integer, Object> LOCKS = new ConcurrentHashMap<>();
 
     /** One candidate build, as the Adoptium API describes it. */
     public record Candidate(int major, String releaseName, String url, long size,
@@ -225,12 +245,35 @@ public final class JavaProvisioner {
     public JavaLocator.JavaRuntime install(Candidate candidate, Progress progress)
             throws IOException, InterruptedException {
 
+        Object lock = LOCKS.computeIfAbsent(candidate.major(), major -> new Object());
+        synchronized (lock) {
+            // Re-checked inside the lock. Whoever was ahead in the queue may have
+            // just finished fetching exactly this, and downloading it a second
+            // time to overwrite it with itself is 180 MB of nothing.
+            Optional<JavaLocator.JavaRuntime> already = installed(candidate.major());
+            if (already.isPresent()) {
+                progress.log("Java %d was already fetched: %s",
+                        candidate.major(), already.get());
+                return already.get();
+            }
+            return installExclusively(candidate, progress);
+        }
+    }
+
+    /** The body of {@link #install}, with the per-version lock already held. */
+    private JavaLocator.JavaRuntime installExclusively(Candidate candidate, Progress progress)
+            throws IOException, InterruptedException {
+
         Path home = dirs.javaRuntime(component(candidate.major()));
-        Path staging = home.resolveSibling(home.getFileName() + ".incomplete");
+        // Unique per attempt rather than a fixed ".incomplete": a leftover from
+        // a run that was killed must not be mistaken for this run's work, and
+        // two attempts must not share one directory.
+        Path staging = home.resolveSibling(home.getFileName() + ".incomplete-"
+                + ProcessHandle.current().pid() + "-" + System.nanoTime());
         Path archive = dirs.cache().resolve("java").resolve(candidate.archiveName());
 
-        Archives.deleteRecursively(staging);
         Files.createDirectories(archive.getParent());
+        sweepLeftovers(home);
 
         progress.stage("Downloading Java " + candidate.major());
         progress.log("Source: %s", candidate.url());
@@ -243,11 +286,9 @@ public final class JavaProvisioner {
             Archives.extract(archive, staging, 1);
 
             JavaLocator.clearProbeCache();
-            JavaLocator.JavaRuntime runtime = verify(staging, candidate, progress);
+            verify(staging, candidate, progress);
 
-            Archives.deleteRecursively(home);
-            Files.createDirectories(home.getParent());
-            Files.move(staging, home);
+            swapIntoPlace(staging, home, candidate.major());
 
             writeMarker(home, candidate);
             JavaLocator.clearProbeCache();
@@ -255,8 +296,87 @@ public final class JavaProvisioner {
             return installed(candidate.major()).orElseThrow(() -> new IOException(
                     "the runtime was unpacked into " + home + " but cannot be started from there"));
         } finally {
-            Archives.deleteRecursively(staging);
-            Files.deleteIfExists(archive);
+            Archives.deleteWhatCan(staging);
+            try {
+                Files.deleteIfExists(archive);
+            } catch (IOException ignored) {
+                // The archive is in the cache and its job is done. A file the
+                // system will not release yet is not worth failing a finished
+                // install over.
+            }
+        }
+    }
+
+    /**
+     * Puts {@code staging} where {@code home} is, without a moment in which
+     * neither exists.
+     *
+     * <p>This used to delete {@code home} and then move. On Windows that is not
+     * one step: if anything still holds a handle inside the old tree - and the
+     * game running on that very runtime does - the delete half-succeeds and the
+     * move then fails onto a directory that exists and no longer works. Every
+     * later attempt found that directory, and the launcher reported a corrupt
+     * runtime it had corrupted itself. Moving the old tree aside either succeeds
+     * completely or changes nothing, and says which.
+     */
+    private void swapIntoPlace(Path staging, Path home, int major) throws IOException {
+        Files.createDirectories(home.getParent());
+        Path retired = null;
+        if (Files.exists(home)) {
+            retired = home.resolveSibling(home.getFileName() + ".replaced-" + System.nanoTime());
+            try {
+                Files.move(home, retired);
+            } catch (IOException e) {
+                throw new IOException("Java " + major + " is already unpacked at " + home
+                        + " and it cannot be replaced while something is using it. Close "
+                        + "Minecraft, then try again. Nothing was changed.", e);
+            }
+        }
+        try {
+            Files.move(staging, home);
+        } catch (IOException e) {
+            if (retired != null) {
+                // Put back what was working before, so a failed replacement
+                // leaves the machine no worse than it started.
+                try {
+                    Files.move(retired, home);
+                } catch (IOException ignored) {
+                    throw new IOException("the new Java " + major + " could not be moved into "
+                            + home + ", and the runtime that was there is now at " + retired
+                            + ". Rename it back, or delete both and let the launcher fetch "
+                            + "another.", e);
+                }
+            }
+            throw e;
+        }
+        if (retired != null) {
+            Archives.deleteWhatCan(retired);
+        }
+    }
+
+    /**
+     * Removes the debris of earlier attempts beside {@code home}.
+     *
+     * <p>Best effort, and never the runtime itself. A killed download leaves a
+     * partial staging tree that nothing will ever look at again; left alone, one
+     * per attempt accumulates at 180 MB each.
+     */
+    private void sweepLeftovers(Path home) {
+        Path parent = home.getParent();
+        String prefix = home.getFileName().toString();
+        if (parent == null || !Files.isDirectory(parent)) {
+            return;
+        }
+        try (var entries = Files.list(parent)) {
+            entries.filter(Files::isDirectory)
+                    .filter(path -> {
+                        String name = path.getFileName().toString();
+                        return name.startsWith(prefix + ".incomplete-")
+                                || name.startsWith(prefix + ".replaced-");
+                    })
+                    .forEach(Archives::deleteWhatCan);
+        } catch (IOException | RuntimeException ignored) {
+            // Nothing here is required for the install to succeed.
         }
     }
 
@@ -362,6 +482,73 @@ public final class JavaProvisioner {
                 .put("note", "Downloaded by HexadronLauncher because no suitable Java was installed. "
                         + "Safe to delete; it will be fetched again if it is needed.")
                 .write(home.resolve(MARKER));
+    }
+
+    // ------------------------------------------------------------ inventory
+
+    /**
+     * The major versions this class has installed on this machine.
+     *
+     * <p>Read from the folder names, and only for folders that carry the marker.
+     * The marker is what distinguishes a runtime the launcher fetched - and may
+     * therefore delete again - from anything else a user has put in that folder.
+     */
+    public List<Integer> installedMajors() {
+        Path root = dirs.javaRuntimes();
+        if (!Files.isDirectory(root)) {
+            return List.of();
+        }
+        List<Integer> majors = new ArrayList<>();
+        try (var entries = Files.list(root)) {
+            for (Path directory : entries.filter(Files::isDirectory).toList()) {
+                Matcher matcher = COMPONENT.matcher(directory.getFileName().toString());
+                if (!matcher.matches() || !isLauncherManaged(directory)) {
+                    continue;
+                }
+                try {
+                    majors.add(Integer.parseInt(matcher.group(1)));
+                } catch (NumberFormatException ignored) {
+                    // Not one of ours after all.
+                }
+            }
+        } catch (IOException | RuntimeException ignored) {
+            return List.copyOf(majors);
+        }
+        majors.sort(null);
+        return List.copyOf(majors);
+    }
+
+    /** Whether this directory is a runtime the launcher downloaded. */
+    public boolean isLauncherManaged(Path runtimeHome) {
+        return runtimeHome != null && Files.isRegularFile(runtimeHome.resolve(MARKER));
+    }
+
+    /** Where a runtime of this major version lives, whether or not it is there. */
+    public Path home(int major) {
+        return dirs.javaRuntime(component(major));
+    }
+
+    /**
+     * Deletes a runtime this class installed.
+     *
+     * <p>Refuses anything without the marker, so a path that has been
+     * hand-edited, or a folder a user pointed the setting at, is never removed
+     * by a routine that thinks it owns everything under {@code java/}.
+     *
+     * @return the paths that could not be deleted; empty when the runtime is gone
+     */
+    public List<Path> uninstall(int major) throws IOException {
+        Path home = home(major);
+        if (!Files.exists(home)) {
+            return List.of();
+        }
+        if (!isLauncherManaged(home)) {
+            throw new IOException("refusing to delete " + home + ": it carries no "
+                    + MARKER + ", so the launcher did not put it there");
+        }
+        List<Path> undeleted = Archives.deleteWhatCan(home);
+        JavaLocator.clearProbeCache();
+        return undeleted;
     }
 
     // ------------------------------------------------------------- platform

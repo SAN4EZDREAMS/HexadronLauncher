@@ -44,6 +44,20 @@ public final class Profile {
     private List<String> extraJvmArguments;
     private List<String> extraGameArguments;
     private String javaPath;
+    /**
+     * The major Java version this profile last needed, or null if it has never
+     * been resolved.
+     *
+     * <p>Recorded so that removing a profile can tell whether the runtime it
+     * used is still wanted by anything else. Deriving it instead would mean
+     * reading a version manifest that a profile installed but never launched
+     * does not have on disk yet, and guessing there is how a runtime another
+     * profile still needs gets deleted.
+     *
+     * <p>Not a setting, and not shown anywhere. {@link #javaPath} is the
+     * setting; this is a note of what was worked out.
+     */
+    private Integer javaMajor;
     private String wrapperCommand;
     private Integer windowWidth;
     private Integer windowHeight;
@@ -76,6 +90,7 @@ public final class Profile {
         this.extraJvmArguments = new ArrayList<>();
         this.extraGameArguments = new ArrayList<>();
         this.javaPath = null;
+        this.javaMajor = null;
         this.wrapperCommand = null;
         this.demo = false;
         this.lastPlayed = 0;
@@ -243,6 +258,16 @@ public final class Profile {
      * default is a launcher that breaks somebody's GPU driver, controller or
      * Discord integration on first run, and they have no way to know why.
      */
+    /** The major Java version last resolved for this profile, or null. */
+    public Integer javaMajor() {
+        return javaMajor;
+    }
+
+    public Profile javaMajor(Integer value) {
+        this.javaMajor = (value == null || value < 1) ? null : value;
+        return this;
+    }
+
     public String wrapperCommand() {
         return wrapperCommand;
     }
@@ -367,6 +392,9 @@ public final class Profile {
         if (javaPath != null) {
             json.put("javaPath", javaPath);
         }
+        if (javaMajor != null) {
+            json.put("javaMajor", javaMajor);
+        }
         if (wrapperCommand != null) {
             json.put("wrapperCommand", wrapperCommand);
         }
@@ -390,6 +418,8 @@ public final class Profile {
         profile.versionId = json.get("versionId").asString(null);
         profile.memoryMegabytes = json.get("memoryMegabytes").asInt(defaultMemoryMegabytes());
         profile.javaPath = json.get("javaPath").asString(null);
+        int storedJavaMajor = json.get("javaMajor").asInt(-1);
+        profile.javaMajor = storedJavaMajor > 0 ? storedJavaMajor : null;
         profile.wrapperCommand = json.get("wrapperCommand").asString(null);
         profile.demo = json.get("demo").asBool(false);
         profile.lastPlayed = json.get("lastPlayed").asLong(0);

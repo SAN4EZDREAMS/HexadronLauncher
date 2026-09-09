@@ -151,6 +151,157 @@ final class Glyphs {
     }
 
     /**
+     * A beetle: body, head, two antennae, six legs, and markings punched out.
+     *
+     * <p>An insect rather than an exclamation mark or a crossed-out circle. The
+     * other two mean "something is wrong right now" and would read, sitting in
+     * a toolbar beside the cog, as a warning about the launcher's own state -
+     * which is not what this button is. A bug is the one shape that means
+     * "report a fault" without meaning "there is a fault".
+     *
+     * <p>Wound rather than filled with the even-odd rule, unlike every other
+     * glyph here. This one is a silhouette assembled from overlapping pieces -
+     * the head sits on the body, the legs run under it - and even-odd would
+     * punch a hole out of every overlap. So the outline pieces are all wound
+     * one way and the markings the other, and {@link FillRule#NON_ZERO} fills
+     * the union and empties the markings.
+     */
+    static Group bug() {
+        SVGPath beetle = new SVGPath();
+        beetle.setFillRule(FillRule.NON_ZERO);
+        beetle.setContent(
+                // Body: an ellipse about (12, 14.5), drawn clockwise.
+                "M 12 7.6 A 5.9 6.9 0 0 1 12 21.4 A 5.9 6.9 0 0 1 12 7.6 Z "
+                        // Head, overlapping the body so the two read as one
+                        // silhouette rather than as two shapes that touch.
+                        + "M 12 2.6 A 2.8 2.8 0 0 1 12 8.2 A 2.8 2.8 0 0 1 12 2.6 Z "
+                        // Antennae.
+                        + "M 7.4 1.5 L 10.0 3.7 L 9.2 4.7 L 6.6 2.5 Z "
+                        + "M 17.4 2.5 L 14.8 4.7 L 14.0 3.7 L 16.6 1.5 Z "
+                        // Six legs, each rooted just inside the body edge and
+                        // reaching the frame. Thicker than they look they need
+                        // to be: at sixteen pixels a bar under a unit wide is a
+                        // row of grey specks with gaps in it.
+                        + "M 2.8 7.6 L 8.0 10.3 L 7.4 11.5 L 2.2 8.8 Z "
+                        + "M 2.0 13.9 L 7.8 13.9 L 7.8 15.2 L 2.0 15.2 Z "
+                        + "M 2.2 20.4 L 7.4 17.7 L 8.0 18.9 L 2.8 21.6 Z "
+                        + "M 21.2 8.8 L 16.0 11.5 L 15.4 10.3 L 20.6 7.6 Z "
+                        + "M 22.0 15.2 L 16.2 15.2 L 16.2 13.9 L 22.0 13.9 Z "
+                        + "M 21.8 21.6 L 16.0 18.9 L 16.6 17.7 L 21.2 20.4 Z "
+                        // The seam and two spots, wound the other way so they
+                        // come out of the body rather than adding to it. Two
+                        // rather than the four this was drawn with first: four
+                        // survive the large size and turn the small one to mush.
+                        + "M 11.35 9.4 L 11.35 19.8 L 12.65 19.8 L 12.65 9.4 Z "
+                        + "M 9.2 12.0 A 1.35 1.35 0 0 0 9.2 14.7 A 1.35 1.35 0 0 0 9.2 12.0 Z "
+                        + "M 14.8 12.0 A 1.35 1.35 0 0 0 14.8 14.7 A 1.35 1.35 0 0 0 14.8 12.0 Z");
+        return sized(beetle, 16);
+    }
+
+    /**
+     * A hexagonal ring: one module.
+     *
+     * <p>The content window's list of kinds needs three shapes that are told
+     * apart at sixteen pixels, and told apart by outline rather than by detail -
+     * anything finer than a stroke is mush at that size. A hexagon, a crate and a
+     * page are three silhouettes with nothing in common, which is the whole
+     * requirement.
+     *
+     * <p>Drawn as a ring: two hexagons wound the same way, with the even-odd rule
+     * punching the smaller one out. Filled, it would be a blob.
+     */
+    static Group module() {
+        SVGPath hexagon = new SVGPath();
+        hexagon.setFillRule(FillRule.EVEN_ODD);
+        hexagon.setContent(
+                "M12 2 L20.7 7 L20.7 17 L12 22 L3.3 17 L3.3 7 Z "
+                        + "M12 6.5 L16.8 9.25 L16.8 14.75 L12 17.5 L7.2 14.75 L7.2 9.25 Z");
+        return sized(hexagon, 16);
+    }
+
+    /**
+     * A crate: a set that travels as one thing.
+     *
+     * <p>Assembled from bars rather than punched out of a rectangle, and wound
+     * one way with {@link FillRule#NON_ZERO}, so the band across the middle joins
+     * the frame instead of cutting a hole in it - which is what even-odd would do
+     * where the two overlap.
+     */
+    static Group crate() {
+        SVGPath crate = new SVGPath();
+        crate.setFillRule(FillRule.NON_ZERO);
+        crate.setContent(
+                // The frame, as four bars.
+                "M3 4.5 H21 V6.7 H3 Z "
+                        + "M3 17.3 H21 V19.5 H3 Z "
+                        + "M3 4.5 H5.2 V19.5 H3 Z "
+                        + "M18.8 4.5 H21 V19.5 H18.8 Z "
+                        // The band, and the latch on it.
+                        + "M3 10.4 H21 V12.6 H3 Z "
+                        + "M10.3 12.6 H13.7 V16 H10.3 Z");
+        return sized(crate, 16);
+    }
+
+    /**
+     * A page with writing on it: data.
+     *
+     * <p>Three lines, the last one short, because that is what makes a rectangle
+     * with bars in it read as a page of text rather than as a list. Wound one way
+     * for the same reason as the crate.
+     */
+    static Group page() {
+        SVGPath page = new SVGPath();
+        page.setFillRule(FillRule.NON_ZERO);
+        page.setContent(
+                "M5 2 H19 V4.1 H5 Z "
+                        + "M5 19.9 H19 V22 H5 Z "
+                        + "M5 2 H7.1 V22 H5 Z "
+                        + "M16.9 2 H19 V22 H16.9 Z "
+                        + "M8.7 6.6 H15.3 V8.4 H8.7 Z "
+                        + "M8.7 11.1 H15.3 V12.9 H8.7 Z "
+                        + "M8.7 15.6 H12.8 V17.4 H8.7 Z");
+        return sized(page, 16);
+    }
+
+    /**
+     * Resource packs: a stack of tiles, which is what a texture pack is.
+     *
+     * <p>Drawn as three offset squares rather than a picture frame, because the
+     * rail is sixteen pixels and a frame at that size is a rectangle with a
+     * smaller rectangle in it - indistinguishable from the modpack crate.
+     */
+    static Group palette() {
+        SVGPath tiles = new SVGPath();
+        tiles.setFillRule(FillRule.NON_ZERO);
+        tiles.setContent(
+                "M3 3 H10.4 V10.4 H3 Z "
+                        + "M13.6 3 H21 V10.4 H13.6 Z "
+                        + "M3 13.6 H10.4 V21 H3 Z "
+                        + "M13.6 13.6 H21 V16.3 H13.6 Z "
+                        + "M13.6 18.3 H21 V21 H13.6 Z");
+        return sized(tiles, 16);
+    }
+
+    /**
+     * Shaders: a sun over a horizon.
+     *
+     * <p>What a shader pack changes is the light, and the light is the one thing
+     * a sixteen-pixel glyph can say about it.
+     */
+    static Group sun() {
+        SVGPath sun = new SVGPath();
+        sun.setFillRule(FillRule.NON_ZERO);
+        sun.setContent(
+                "M11.1 2 H12.9 V5.2 H11.1 Z "
+                        + "M17.9 4.8 L19.2 6.1 L16.9 8.4 L15.6 7.1 Z "
+                        + "M4.8 6.1 L6.1 4.8 L8.4 7.1 L7.1 8.4 Z "
+                        + "M12 8 A4 4 0 1 1 11.99 8 Z "
+                        + "M2 15.1 H22 V16.9 H2 Z "
+                        + "M5 19.1 H19 V20.9 H5 Z");
+        return sized(sun, 16);
+    }
+
+    /**
      * Scales a path to a height in pixels and wraps it so layout can measure it.
      *
      * <p>Wrapped in a Group because a scaled node still reports its unscaled

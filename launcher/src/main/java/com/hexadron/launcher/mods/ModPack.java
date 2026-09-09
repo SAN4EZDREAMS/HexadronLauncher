@@ -12,6 +12,7 @@
 
 package com.hexadron.launcher.mods;
 
+import com.hexadron.launcher.install.loader.LoaderType;
 import com.hexadron.launcher.json.Json;
 
 import java.io.IOException;
@@ -20,7 +21,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * A named set of mods to install together, loaded from JSON rather than
@@ -29,7 +33,8 @@ import java.util.List;
  * <p>Bundled packs live in {@code /packs/*.json} on the classpath; user packs
  * can be dropped into {@code <root>/packs/}.
  */
-public record ModPack(String id, String name, String description, List<Entry> entries) {
+public record ModPack(String id, String name, String description,
+                     Set<String> loaders, List<Entry> entries) {
 
     /**
      * @param provider  which platform to resolve against
@@ -41,10 +46,28 @@ public record ModPack(String id, String name, String description, List<Entry> en
      *                  an entry that is always installed
      */
     public record Entry(ModProvider.Source provider, String projectId, String versionId,
-                        String label, boolean optional, Condition onlyWith) {
+                        String label, boolean optional, Condition onlyWith, Set<String> loaders) {
+
+        public Entry {
+            loaders = normaliseLoaders(loaders);
+        }
 
         public boolean isConditional() {
             return onlyWith != null;
+        }
+
+        /**
+         * Whether this entry belongs in an install for {@code loader}.
+         *
+         * <p>An entry with no loaders of its own belongs to every loader the
+         * pack supports - which is the common case and keeps the file readable.
+         * An entry that names loaders is one project that exists for some and
+         * not others: Fabric API on Fabric, Quilted Fabric API on Quilt, Krypton
+         * on neither NeoForge nor Forge because it was never ported.
+         */
+        public boolean appliesTo(LoaderType loader) {
+            return loaders.isEmpty()
+                    || (loader != null && loaders.contains(loader.id()));
         }
     }
 
@@ -76,6 +99,63 @@ public record ModPack(String id, String name, String description, List<Entry> en
 
     public ModPack {
         entries = List.copyOf(entries);
+        loaders = normaliseLoaders(loaders);
+    }
+
+    /**
+     * Whether this pack can be installed on {@code loader} at all.
+     *
+     * <p>Distinct from "every mod in it resolved". This answers a question that
+     * needs no network and cannot change: a set built out of Fabric and NeoForge
+     * builds has nothing to offer a Forge profile, and a launcher that finds
+     * that out by asking Modrinth nine times and failing has spent nine requests
+     * to reach a conclusion the file already stated.
+     *
+     * <p>A pack that names no loaders supports every modded one, which is what
+     * every pack written before this field meant.
+     */
+    public boolean supports(LoaderType loader) {
+        if (loader == null || !loader.isModded()) {
+            return false;
+        }
+        return loaders.isEmpty() || loaders.contains(loader.id());
+    }
+
+    /** The entries that belong in an install for this loader, in file order. */
+    public List<Entry> entriesFor(LoaderType loader) {
+        List<Entry> applicable = new ArrayList<>(entries.size());
+        for (Entry entry : entries) {
+            if (entry.appliesTo(loader)) {
+                applicable.add(entry);
+            }
+        }
+        return List.copyOf(applicable);
+    }
+
+    /** The loaders this pack names, lower-cased and de-duplicated. */
+    private static Set<String> normaliseLoaders(Set<String> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> cleaned = new LinkedHashSet<>();
+        for (String id : raw) {
+            if (id != null && !id.isBlank()) {
+                cleaned.add(id.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        return Set.copyOf(cleaned);
+    }
+
+    /** Reads a {@code "loaders": [...]} array, or an empty set when absent. */
+    private static Set<String> loadersOf(Json array) {
+        Set<String> ids = new LinkedHashSet<>();
+        for (Json element : array.elements()) {
+            String id = element.asString(null);
+            if (id != null) {
+                ids.add(id);
+            }
+        }
+        return ids;
     }
 
     public static ModPack parse(Json json) {
@@ -105,12 +185,14 @@ public record ModPack(String id, String name, String description, List<Entry> en
                     entry.get("versionId").asString(null),
                     entry.get("label").asString(projectId),
                     entry.get("optional").asBool(false),
-                    onlyWith));
+                    onlyWith,
+                    loadersOf(entry.get("loaders"))));
         }
         return new ModPack(
                 json.get("id").asString("pack"),
                 json.get("name").asString("Mod pack"),
                 json.get("description").asString(""),
+                loadersOf(json.get("loaders")),
                 entries);
     }
 

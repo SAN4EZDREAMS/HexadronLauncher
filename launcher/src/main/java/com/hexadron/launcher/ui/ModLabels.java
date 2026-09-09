@@ -37,6 +37,38 @@ public final class ModLabels {
      * to find out.
      */
     public static String badge(ModEntry mod) {
+        return badge(mod, false);
+    }
+
+    /**
+     * The same, for a list that knows whether the owning pack is a modpack.
+     *
+     * <h2>Why the caller has to tell us</h2>
+     *
+     * <p>{@link com.hexadron.launcher.mods.ModOrigin#PACK} means two different
+     * things that happen to obey the same rule. One is the launcher's own set,
+     * Hexadron Optimise, installed from the button in the header; the other is a
+     * modpack somebody installed from the catalogue, which brought a Minecraft
+     * version and a loader with it. Both go in and come out whole, which is why
+     * they share an origin - but they are not the same thing to read about, and
+     * a jar out of a downloaded pack that says "Hexadron Optimise" is simply
+     * wrong.
+     *
+     * <p>Which of the two it is cannot be decided from the row: it is
+     * {@code packId} looked up in the instance's modpack record, and that record
+     * belongs to the window. So the window looks it up and says so here.
+     *
+     * <p>It answers ahead of the origin rather than inside the {@code PACK} arm,
+     * because a modpack can put a file somewhere the origin does not reach. The
+     * jars and the packs it downloads are recorded and come back as
+     * {@code PACK}; a resource pack it unpacked out of its {@code overrides} has
+     * no project behind it, is recorded by nobody, and comes back as a file the
+     * player put there themselves. It is the pack's either way, and the row that
+     * says which pack has already looked the answer up.
+     *
+     * @param fromModpack true when this file belongs to an installed modpack
+     */
+    public static String badge(ModEntry mod, boolean fromModpack) {
         if (!mod.enabled()) {
             return I18n.t("mods.origin.disabled");
         }
@@ -45,9 +77,17 @@ public final class ModLabels {
         if (mod.isWrongVersion()) {
             return I18n.t("mods.origin.wrongVersion");
         }
+        if (fromModpack) {
+            return I18n.t("mods.origin.modpack");
+        }
         return switch (mod.origin()) {
             case PACK -> I18n.t("mods.origin.pack");
             case DEPENDENCY -> I18n.t("mods.origin.dependency");
+            // A jar that came with a data pack, not one the player chose. Which
+            // pack it was is on the panel behind the badge, because that is the
+            // only place the answer is - a data pack is in a world's folder and
+            // this list is the instance's.
+            case DATAPACK -> I18n.t("mods.origin.datapack");
             case MANUAL -> I18n.t("mods.origin.manual");
             case EXTERNAL -> I18n.t("mods.origin.external");
         };

@@ -28,14 +28,20 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
 /**
  * CurseForge (api.curseforge.com/v1).
  *
  * <p>Three constraints, all imposed by CurseForge rather than by this code.
  *
- * <p><b>A key is required for every request.</b> Where it comes from, in order,
- * and the first non-empty one wins:
+ * <p><b>A key is required for every request.</b> It is a <em>Core API key</em>
+ * from {@code console.curseforge.com}, and CurseForge's other key page - the
+ * author site's "API tokens" - issues something else entirely that this service
+ * refuses with a {@code 403}. Which is a mistake worth naming rather than
+ * letting a user debug: see {@link KeyShape}.
+ *
+ * <p>Where the key comes from, in order, and the first non-empty one wins:
  * <ol>
  *   <li>the launcher settings, so a user can always use their own key;</li>
  *   <li>the {@code CURSEFORGE_API_KEY} environment variable;</li>
@@ -64,10 +70,40 @@ public final class CurseForgeProvider implements ModProvider {
     private static final String API = "https://api.curseforge.com/v1";
     private static final String API_KEY_HEADER = "x-api-key";
 
+    /**
+     * Where a key that works here is created.
+     *
+     * <p>Written down because it is the answer to the one question this class
+     * cannot work around, and because there are two CurseForge key pages and
+     * only one of them issues a key for this API. See {@link KeyShape}.
+     */
+    public static final String CONSOLE_URL = "https://console.curseforge.com/";
+
+    /** The other page: where the token that does <em>not</em> work comes from. */
+    public static final String AUTHOR_TOKENS_URL =
+            "https://legacy.curseforge.com/account/api-tokens";
+
+    /**
+     * A Core API key, as the console issues them: a bcrypt-shaped string.
+     *
+     * <p>{@code $2a$10$} and then fifty-odd characters. Matched loosely - the
+     * cost version and the salt are not this launcher's business - because the
+     * point is to tell it apart from the other kind of key, not to validate it.
+     */
+    private static final Pattern CORE_KEY_SHAPE =
+            Pattern.compile("^\\$2[abxy]?\\$\\d{2}\\$\\S{20,}$");
+
+    /**
+     * An Upload API token, as the author site issues them: 32 hex characters,
+     * or the same thing written as a UUID.
+     */
+    private static final Pattern UPLOAD_TOKEN_SHAPE = Pattern.compile(
+            "^[0-9a-fA-F]{32}$"
+                    + "|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
+                    + "-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+
     /** CurseForge's game id for Minecraft. */
     private static final int GAME_MINECRAFT = 432;
-    /** CurseForge's class id for the "Mods" category. */
-    private static final int CLASS_MODS = 6;
 
     /**
      * The key the host-header rule reads.
@@ -79,6 +115,168 @@ public final class CurseForgeProvider implements ModProvider {
      */
     private static final AtomicReference<String> ACTIVE_KEY = new AtomicReference<>("");
     private static final AtomicBoolean HEADER_RULE_REGISTERED = new AtomicBoolean();
+
+    /**
+     * Which of CurseForge's two kinds of key this looks like.
+     *
+     * <h2>Why this is worth detecting</h2>
+     *
+     * <p>CurseForge has two API key pages and they are not interchangeable, and
+     * nothing on either page says so. The one a search engine finds first -
+     * {@link #AUTHOR_TOKENS_URL} - issues an <b>Upload API token</b>: a
+     * 32-character string, sent as {@code X-Api-Token}, whose purpose is
+     * uploading files to projects you own and reading the list of game versions.
+     * It is not a credential for {@code api.curseforge.com} and that service
+     * rejects it with {@code 403} on every request.
+     *
+     * <p>The one a launcher needs is a <b>Core API key</b> from
+     * {@link #CONSOLE_URL}, sent as {@code x-api-key}. The two look nothing
+     * alike, which is what makes this checkable: a 403 with a 32-hex key in the
+     * settings has one overwhelmingly likely cause, and saying so turns an
+     * afternoon of guessing into one sentence.
+     *
+     * <p>A shape is a guess and is never a reason to refuse a key. CurseForge
+     * may change either format, and a launcher that rejected the new one would
+     * be broken by a change it could simply have passed on.
+     */
+    public enum KeyShape {
+
+        /** Looks like a Core API key: the right sort for this API. */
+        CORE,
+
+        /** Looks like an Upload API token: the wrong sort, and a common mistake. */
+        UPLOAD_TOKEN,
+
+        /** Neither shape. No opinion - it is sent and the service decides. */
+        UNKNOWN
+    }
+
+    /** Which kind of key this looks like. Reads the string, sends nothing. */
+    public static KeyShape shapeOf(String key) {
+        if (key == null) {
+            return KeyShape.UNKNOWN;
+        }
+        String trimmed = key.trim();
+        if (trimmed.isEmpty()) {
+            return KeyShape.UNKNOWN;
+        }
+        if (CORE_KEY_SHAPE.matcher(trimmed).matches()) {
+            return KeyShape.CORE;
+        }
+        if (UPLOAD_TOKEN_SHAPE.matcher(trimmed).matches()) {
+            return KeyShape.UPLOAD_TOKEN;
+        }
+        return KeyShape.UNKNOWN;
+    }
+
+    /** The shape of the key this provider is using. */
+    public KeyShape keyShape() {
+        return shapeOf(apiKey);
+    }
+
+    /**
+     * Why CurseForge is likely to have refused the key in use.
+     *
+     * <p>Appended to a 401 or a 403, which on its own is a number the reader
+     * cannot act on. Static because the message is wanted from
+     * {@link ModInstaller#reasonFor}, which is handed an exception rather than a
+     * provider - and there is only ever one key in use.
+     */
+    public static String explainRejection() {
+        return switch (shapeOf(ACTIVE_KEY.get())) {
+            case UPLOAD_TOKEN -> "that key is 32 hex characters, which is the shape of an"
+                    + " Upload API token from " + AUTHOR_TOKENS_URL + ". That token uploads"
+                    + " files to projects you own; it is not a credential for"
+                    + " api.curseforge.com. Create a Core API key at " + CONSOLE_URL
+                    + " and paste that one instead";
+            case CORE -> "the key has the shape of a Core API key, so it is the right sort and"
+                    + " was still refused: it may have been revoked, or the account it belongs"
+                    + " to may not be approved for the API yet. Create a new one at "
+                    + CONSOLE_URL;
+            case UNKNOWN -> "a key for this API is created at " + CONSOLE_URL + ". A token from "
+                    + AUTHOR_TOKENS_URL + " is a different thing and is not accepted here";
+        };
+    }
+
+    /**
+     * One request to the API, with the key attached and a refusal explained.
+     *
+     * <p>Every path into this class goes through here so that a 401 or a 403
+     * carries the sentence that names the two key pages, once. Before this the
+     * message a user got depended on which button they had pressed: a search
+     * arrived with the explanation, and installing a mod arrived as
+     * {@code HTTP 403 for https://api.curseforge.com/v1/mods/1234/files?...} -
+     * the same fault, reported as a URL they never typed.
+     */
+    private Json get(String url) throws IOException, InterruptedException {
+        try {
+            return Http.getJson(url, headers());
+        } catch (Http.HttpStatusException e) {
+            if (e.statusCode() != 401 && e.statusCode() != 403) {
+                throw e;
+            }
+            throw new KeyRejectedException(e.statusCode(), e);
+        }
+    }
+
+    /**
+     * CurseForge refused the key.
+     *
+     * <p>A subclass rather than a message, so that the status code survives for
+     * the callers that ask about it - {@link #resolveFile} treats a 404 as "no
+     * such project" and must not treat this the same way - and so the sentence
+     * is written once.
+     */
+    public static final class KeyRejectedException extends IOException {
+
+        private final int statusCode;
+
+        KeyRejectedException(int statusCode, Throwable cause) {
+            super("CurseForge refused the API key (HTTP " + statusCode + "). "
+                    + explainRejection(), cause);
+            this.statusCode = statusCode;
+        }
+
+        public int statusCode() {
+            return statusCode;
+        }
+    }
+
+    /** What one probe request found out about the key. */
+    public record KeyCheck(boolean ok, String message) {
+    }
+
+    /**
+     * Asks CurseForge whether it accepts the key, now.
+     *
+     * <p>One small request, made because somebody just pasted a key. Without it
+     * the answer arrives as an empty catalogue on the next search, which looks
+     * like a platform with nothing on it for this version rather than like a
+     * key that was refused - and that is exactly how a wrong key gets mistaken
+     * for a broken launcher.
+     *
+     * <p>Never throws. A refusal and an unreachable service are both answers,
+     * and both belong on the status line rather than in a stack trace.
+     */
+    public KeyCheck verify() throws InterruptedException {
+        if (apiKey == null) {
+            return new KeyCheck(false, "no key is set, so CurseForge is switched off");
+        }
+        try {
+            Json game = get(API + "/games/" + GAME_MINECRAFT).get("data");
+            if (game.get("id").asLong(0) != GAME_MINECRAFT) {
+                return new KeyCheck(false, "CurseForge answered, and not with Minecraft");
+            }
+            return new KeyCheck(true, "the key was accepted");
+        } catch (KeyRejectedException e) {
+            return new KeyCheck(false, e.getMessage());
+        } catch (Http.HttpStatusException e) {
+            return new KeyCheck(false, "HTTP " + e.statusCode() + " from CurseForge");
+        } catch (IOException e) {
+            return new KeyCheck(false,
+                    e.getMessage() == null ? e.toString() : e.getMessage());
+        }
+    }
 
     /** Where the key in use came from. Shown in diagnostics, never the key itself. */
     public enum KeySource {
@@ -191,18 +389,29 @@ public final class CurseForgeProvider implements ModProvider {
         return keySource;
     }
 
-    /** CurseForge's numeric mod loader ids. */
-    private static Integer loaderTypeId(LoaderType loader) {
-        if (loader == null) {
+    /** CurseForge's numeric mod loader ids, by the platform tag name. */
+    private static Integer loaderTypeId(String platformId) {
+        if (platformId == null) {
             return null;
         }
-        return switch (loader) {
-            case FORGE -> 1;
-            case FABRIC -> 4;
-            case QUILT -> 5;
-            case NEOFORGE -> 6;
-            case VANILLA -> null;
+        return switch (platformId) {
+            case "forge" -> 1;
+            case "fabric" -> 4;
+            case "quilt" -> 5;
+            case "neoforge" -> 6;
+            default -> null;
         };
+    }
+
+    /**
+     * The one id to filter a search by.
+     *
+     * <p>{@code modLoaderType} takes a single number, so a loader that can run
+     * more than one kind of file has to pick; {@link LoaderType#searchPlatformId()}
+     * is where that choice is made and explained.
+     */
+    private static Integer searchLoaderTypeId(LoaderType loader) {
+        return loader == null ? null : loaderTypeId(loader.searchPlatformId());
     }
 
     /**
@@ -229,21 +438,33 @@ public final class CurseForgeProvider implements ModProvider {
     }
 
     @Override
-    public SearchPage search(String query, String minecraftVersion, LoaderType loader,
-                             ModSort sort, List<ModCategory> categories, int limit, int offset)
+    public SearchPage search(ContentKind kind, String query, String minecraftVersion,
+                             LoaderType loader, ModSort sort, List<ModCategory> categories,
+                             boolean onlyForProfile, int limit, int offset)
             throws IOException, InterruptedException {
 
-        // The categories are Modrinth's, and CurseForge files its projects under
-        // a different set of its own. Guessing a mapping would quietly return
-        // the wrong mods; saying so is the honest answer, and the browser has a
-        // line for exactly this.
-        if (!categories.isEmpty()) {
-            throw new UnsupportedCategoriesException();
+        // The categories are Modrinth's; CurseForge files its projects under a
+        // set of its own. The two are paired by meaning in
+        // CurseForgeCategories, so most of a narrowed search can be put to this
+        // platform - and the part that cannot is named rather than guessed at.
+        List<ModCategory> chosen = categories == null ? List.of() : categories;
+        List<ModCategory> unsupported = CurseForgeCategories.unexpressible(kind, chosen);
+        if (!unsupported.isEmpty()) {
+            throw new UnsupportedCategoriesException(unsupported);
+        }
+        List<Integer> categoryIds = categoryIdsFor(kind, chosen);
+        if (!chosen.isEmpty() && categoryIds.isEmpty()) {
+            // The pairing says these can be asked for and the platform did not
+            // give a number for any of them, which leaves only one honest
+            // answer. Running the search unnarrowed would hand back a full page
+            // of mods that do not match the ticked boxes, and nothing on screen
+            // would say the filter had been dropped.
+            throw new UnsupportedCategoriesException(chosen);
         }
 
         StringBuilder url = new StringBuilder(API + "/mods/search")
                 .append("?gameId=").append(GAME_MINECRAFT)
-                .append("&classId=").append(CLASS_MODS)
+                .append("&classId=").append(kind.curseForgeClassId())
                 .append("&pageSize=").append(Math.max(1, Math.min(limit, 50)))
                 .append("&index=").append(Math.max(0, offset))
                 .append("&sortField=").append((sort == null ? ModSort.RELEVANCE : sort).curseForgeSortField())
@@ -252,15 +473,27 @@ public final class CurseForgeProvider implements ModProvider {
         if (query != null && !query.isBlank()) {
             url.append("&searchFilter=").append(encode(query));
         }
-        if (minecraftVersion != null && !minecraftVersion.isBlank()) {
+        if (kind.narrowsByVersion(onlyForProfile)
+                && minecraftVersion != null && !minecraftVersion.isBlank()) {
             url.append("&gameVersion=").append(encode(minecraftVersion));
         }
-        Integer loaderId = loaderTypeId(loader);
+        Integer loaderId = kind.narrowsByLoader(onlyForProfile)
+                ? searchLoaderTypeId(loader) : null;
         if (loaderId != null) {
             url.append("&modLoaderType=").append(loaderId);
         }
+        if (!categoryIds.isEmpty()) {
+            // The platform takes at most ten, and a JSON array is the shape it
+            // takes them in. One of ours can be several of theirs - worldgen is
+            // four - so the ten is reached by a filter of three or four ticks,
+            // not ten, which is why the list is trimmed rather than assumed
+            // short.
+            List<String> ids = new ArrayList<>();
+            categoryIds.stream().limit(MAX_CATEGORY_IDS).forEach(id -> ids.add(String.valueOf(id)));
+            url.append("&categoryIds=").append(encode("[" + String.join(",", ids) + "]"));
+        }
 
-        Json response = Http.getJson(url.toString(), headers());
+        Json response = get(url.toString());
         List<SearchResult> results = new ArrayList<>();
         for (Json mod : response.get("data").elements()) {
             String slug = mod.get("slug").asString("");
@@ -273,27 +506,127 @@ public final class CurseForgeProvider implements ModProvider {
                     mod.get("downloadCount").asLong(0),
                     mod.get("logo").get("thumbnailUrl").asString(null),
                     pageUrl(mod, slug),
-                    categoriesOf(mod),
+                    categoriesOf(kind, mod),
                     Source.CURSEFORGE));
         }
-        return new SearchPage(results,
-                response.get("pagination").get("totalCount").asInt(-1),
-                Math.max(0, offset));
+        int total = response.get("pagination").get("totalCount").asInt(-1);
+
+        // Ticked categories mean "all of them", here as on Modrinth.
+        //
+        // CurseForge's categoryIds does not document whether it means all of
+        // them or any of them, and the two are a different search. Rather than
+        // depend on the answer, the page is narrowed here to the rows that carry
+        // every ticked category. Where the platform already meant "all", nothing
+        // is removed and its own count still stands; where it did not, the rows
+        // are right and the count is no longer this search's, so it is not
+        // reported as one.
+        if (!chosen.isEmpty()) {
+            List<SearchResult> both = new ArrayList<>();
+            for (SearchResult result : results) {
+                if (result.categories().containsAll(chosen)) {
+                    both.add(result);
+                }
+            }
+            if (both.size() != results.size()) {
+                results = both;
+                total = -1;
+            }
+        }
+        return new SearchPage(results, total, Math.max(0, offset));
     }
+
+    /** CurseForge's own cap on how many category ids one search may name. */
+    private static final int MAX_CATEGORY_IDS = 10;
+
+    /**
+     * The platform's numeric ids for the chosen categories.
+     *
+     * <p>CurseForge filters by number and publishes the numbers alongside the
+     * names, so they are asked for rather than written down: a number in this
+     * repository is a number that goes wrong silently the day the platform
+     * renumbers a section, and no reader can check it. The pairing that is
+     * written down is by slug, in {@link CurseForgeCategories}, where it can be
+     * read and argued with.
+     */
+    private List<Integer> categoryIdsFor(ContentKind kind, List<ModCategory> chosen)
+            throws IOException, InterruptedException {
+
+        if (chosen.isEmpty()) {
+            return List.of();
+        }
+        Map<String, Integer> ids = categoryIds(kind);
+        List<Integer> found = new ArrayList<>();
+        for (ModCategory category : chosen) {
+            for (String slug : CurseForgeCategories.slugsFor(kind, category)) {
+                Integer id = ids.get(slug);
+                if (id != null && !found.contains(id)) {
+                    found.add(id);
+                }
+            }
+        }
+        return List.copyOf(found);
+    }
+
+    /**
+     * Every category of one kind, by slug, as the platform numbers them.
+     *
+     * <p>Asked for once per kind per run and then held. This changes about as
+     * often as CurseForge adds a section, the answer is a few kilobytes, and a
+     * search must not spend a second request on it every time a box is ticked.
+     */
+    private Map<String, Integer> categoryIds(ContentKind kind)
+            throws IOException, InterruptedException {
+
+        Map<String, Integer> known = categoryIdsByKind.get(kind);
+        if (known != null) {
+            return known;
+        }
+        Map<String, Integer> ids = new java.util.LinkedHashMap<>();
+        Json response = get(API + "/categories?gameId=" + GAME_MINECRAFT
+                + "&classId=" + kind.curseForgeClassId());
+        for (Json category : response.get("data").elements()) {
+            String slug = category.get("slug").asString(null);
+            int id = category.get("id").asInt(0);
+            if (slug != null && !slug.isBlank() && id > 0) {
+                ids.put(slug.trim().toLowerCase(Locale.ROOT), id);
+            }
+        }
+        Map<String, Integer> settled = Map.copyOf(ids);
+        // Only a real answer is kept: an empty one is a request that failed in a
+        // way that returned 200, and keeping it would mean an unfiltered search
+        // for the rest of the run.
+        if (!settled.isEmpty()) {
+            categoryIdsByKind.put(kind, settled);
+        }
+        return settled;
+    }
+
+    /** Held per run, filled on the first search that narrows by category. */
+    private final Map<ContentKind, Map<String, Integer>> categoryIdsByKind =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     @Override
     public Optional<ProjectCard> project(String projectId) throws IOException, InterruptedException {
         try {
-            Json mod = Http.getJson(API + "/mods/" + encode(projectId), headers()).get("data");
+            Json mod = get(API + "/mods/" + encode(projectId)).get("data");
             String name = mod.get("name").asString(null);
             if (name == null || name.isBlank()) {
                 return Optional.empty();
             }
             String slug = mod.get("slug").asString("");
+            // Which of the platform's category lists this project's categories
+            // are from is decided by the class it is in, and the response says
+            // which that is. Without it the same slug would be read against the
+            // wrong list - "fantasy" is a data pack category here and a shader
+            // category on Modrinth.
+            ContentKind kind = ContentKind
+                    .byCurseForgeClassId(mod.get("classId").asInt(0))
+                    .orElse(null);
             return Optional.of(new ProjectCard(Source.CURSEFORGE,
                     String.valueOf(mod.get("id").asLong(0)), slug, name,
                     mod.get("logo").get("thumbnailUrl").asString(null),
-                    pageUrl(mod, slug)));
+                    pageUrl(mod, slug),
+                    categoriesOf(kind, mod)));
         } catch (Http.HttpStatusException e) {
             if (e.statusCode() == 404) {
                 return Optional.empty();
@@ -303,30 +636,53 @@ public final class CurseForgeProvider implements ModProvider {
     }
 
     /**
-     * Whichever of a CurseForge project's own categories this launcher has a
-     * name for.
+     * A CurseForge project's own categories, said in this launcher's words.
      *
-     * <p>The two platforms file mods under different sets, and only a handful of
-     * names coincide - magic, technology, food, storage, mobs. Those are shown;
-     * the rest are left off rather than translated by guesswork into something
-     * the project's author did not say.
+     * <p>The two platforms file projects under different sets, and this used to
+     * read CurseForge's slugs as though they were Modrinth's - so a row showed
+     * whichever handful happened to be spelled the same and nothing for the
+     * rest, and a data pack filed under CurseForge's {@code fantasy} was marked
+     * with Modrinth's, which is a shader's look. The pairing is written down by
+     * meaning and per kind in {@link CurseForgeCategories}.
+     *
+     * @param kind the platform's list these slugs are from; null when the
+     *             response did not say, in which case nothing is claimed
      */
-    private static List<ModCategory> categoriesOf(Json mod) {
-        List<String> ids = new ArrayList<>();
+    private static List<ModCategory> categoriesOf(ContentKind kind, Json mod) {
+        if (kind == null) {
+            return List.of();
+        }
+        List<String> slugs = new ArrayList<>();
         for (Json category : mod.get("categories").elements()) {
             String slug = category.get("slug").asString(null);
             if (slug != null) {
-                ids.add(slug);
+                slugs.add(slug);
             }
         }
-        return ModCategory.parse(ids);
+        return CurseForgeCategories.of(kind, slugs);
     }
 
-    /** Raised when a search asks for categories this platform cannot express. */
+    /**
+     * Raised when a search asks for categories this platform cannot express.
+     *
+     * <p>Most of them it can, now that the two vocabularies are paired. The ones
+     * left are Modrinth's alone - a shader's effects, and how much of a machine
+     * it asks for - and the message names them, because "your categories do not
+     * exist here" does not tell anybody which box to untick.
+     */
     public static final class UnsupportedCategoriesException extends IOException {
 
-        UnsupportedCategoriesException() {
-            super("categories are Modrinth's and do not map onto CurseForge's own");
+        private final List<ModCategory> categories;
+
+        UnsupportedCategoriesException(List<ModCategory> categories) {
+            super("CurseForge does not file anything under "
+                    + String.join(", ", ModCategory.idsOf(categories)));
+            this.categories = List.copyOf(categories);
+        }
+
+        /** The categories that have no equivalent here. */
+        public List<ModCategory> categories() {
+            return categories;
         }
     }
 
@@ -350,7 +706,58 @@ public final class CurseForgeProvider implements ModProvider {
     }
 
     @Override
-    public Optional<ModFile> resolveLatest(String projectId, String minecraftVersion, LoaderType loader)
+    public Optional<ModFile> resolveFile(ContentKind kind, String projectId,
+                                         String minecraftVersion, LoaderType loader)
+            throws IOException, InterruptedException {
+
+        String version = kind.isFilteredByVersion() ? minecraftVersion : null;
+
+        // Every tag this loader can actually run, most specific first. On Quilt
+        // that is the Quilt build when the author published one and the Fabric
+        // build otherwise - which is the file Quilt Loader will load either way.
+        List<String> platformIds = kind.isFilteredByLoader() && loader != null
+                ? loader.platformIds() : List.of();
+        if (platformIds.isEmpty()) {
+            return resolveLatestFor(projectId, version, null);
+        }
+        for (String platformId : platformIds) {
+            Optional<ModFile> found =
+                    resolveLatestFor(projectId, version, loaderTypeId(platformId));
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * One exact file, by its own id.
+     *
+     * <p>What a CurseForge modpack's manifest is written in: a list of project
+     * and file ids, with no versions and no names. Nothing else can answer it -
+     * "the newest file" is not what the pack pinned, and installing that instead
+     * is how a pack that was tested together stops being the pack.
+     */
+    public Optional<ModFile> resolveExact(String projectId, String fileId)
+            throws IOException, InterruptedException {
+        try {
+            Json file = get(API + "/mods/" + encode(projectId)
+                    + "/files/" + encode(fileId)).get("data");
+            if (file.get("id").asLong(0) == 0) {
+                return Optional.empty();
+            }
+            return Optional.of(toModFile(projectId, file));
+        } catch (Http.HttpStatusException e) {
+            if (e.statusCode() == 404) {
+                return Optional.empty();
+            }
+            throw e;
+        }
+    }
+
+    /** One query, against one of CurseForge's numeric loader ids. */
+    private Optional<ModFile> resolveLatestFor(String projectId, String minecraftVersion,
+                                               Integer loaderId)
             throws IOException, InterruptedException {
 
         StringBuilder url = new StringBuilder(API + "/mods/").append(encode(projectId)).append("/files")
@@ -358,14 +765,13 @@ public final class CurseForgeProvider implements ModProvider {
         if (minecraftVersion != null && !minecraftVersion.isBlank()) {
             url.append("&gameVersion=").append(encode(minecraftVersion));
         }
-        Integer loaderId = loaderTypeId(loader);
         if (loaderId != null) {
             url.append("&modLoaderType=").append(loaderId);
         }
 
         Json response;
         try {
-            response = Http.getJson(url.toString(), headers());
+            response = get(url.toString());
         } catch (Http.HttpStatusException e) {
             if (e.statusCode() == 404) {
                 return Optional.empty();
@@ -387,26 +793,30 @@ public final class CurseForgeProvider implements ModProvider {
         if (chosen == null) {
             return Optional.empty();
         }
+        return Optional.of(toModFile(projectId, chosen));
+    }
 
+    /** One of CurseForge's file objects, as the launcher's own record of it. */
+    private static ModFile toModFile(String projectId, Json file) {
         List<String> dependencies = new ArrayList<>();
-        for (Json dependency : chosen.get("dependencies").elements()) {
+        for (Json dependency : file.get("dependencies").elements()) {
             // relationType 3 = required dependency.
             if (dependency.get("relationType").asInt(0) == 3) {
                 dependencies.add(String.valueOf(dependency.get("modId").asLong(0)));
             }
         }
 
-        return Optional.of(new ModFile(
+        return new ModFile(
                 projectId,
                 null,
-                String.valueOf(chosen.get("id").asLong(0)),
-                chosen.get("displayName").asString(""),
-                chosen.get("fileName").asString(""),
-                chosen.get("downloadUrl").asString(null),
-                sha1Of(chosen),
-                chosen.get("fileLength").asLong(-1),
+                String.valueOf(file.get("id").asLong(0)),
+                file.get("displayName").asString(""),
+                file.get("fileName").asString(""),
+                file.get("downloadUrl").asString(null),
+                sha1Of(file),
+                file.get("fileLength").asLong(-1),
                 dependencies,
-                Source.CURSEFORGE));
+                Source.CURSEFORGE);
     }
 
     /** CurseForge reports hashes as a list with algo 1 = SHA-1, 2 = MD5. */

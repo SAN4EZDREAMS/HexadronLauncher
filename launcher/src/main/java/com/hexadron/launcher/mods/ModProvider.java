@@ -131,18 +131,56 @@ public interface ModProvider {
     }
 
     /**
-     * Searches for mods compatible with a Minecraft version and loader.
+     * Searches for content of one kind, compatible with a Minecraft version and
+     * loader.
      *
-     * @param categories the categories the results must all be in, or empty for
-     *                   no restriction. Several narrow rather than widen, which
-     *                   is what the platform's own filter does and therefore what
-     *                   a player who has used it expects
-     * @param limit      page size
-     * @param offset     how many matches to skip, for paging
+     * <p>Which of the version and the loader are actually applied is the kind's
+     * own decision - see {@link ContentKind#isFilteredByVersion()} - because a
+     * modpack states a version rather than needing one, and a data pack needs no
+     * loader at all. The caller passes the instance's pair either way and does
+     * not have to know which kinds care.
+     *
+     * @param categories     the categories the results must all be in, or empty
+     *                       for no restriction. Several narrow rather than widen,
+     *                       which is what the platform's own filter does and
+     *                       therefore what a player who has used it expects
+     * @param onlyForProfile narrow to the profile's version and loader, for the
+     *                       one kind that states its own rather than needing one
+     *                       - see {@link ContentKind.Choice#ONLY_FOR_PROFILE}.
+     *                       Ignored for the kinds where the search asks no such
+     *                       question
+     * @param limit          page size
+     * @param offset         how many matches to skip, for paging
      */
-    SearchPage search(String query, String minecraftVersion, LoaderType loader,
-                      ModSort sort, List<ModCategory> categories, int limit, int offset)
+    SearchPage search(ContentKind kind, String query, String minecraftVersion, LoaderType loader,
+                      ModSort sort, List<ModCategory> categories, boolean onlyForProfile,
+                      int limit, int offset)
             throws IOException, InterruptedException;
+
+    /**
+     * The kind's own default, for a caller with no choice to pass.
+     *
+     * <p>The default rather than "no narrowing": the box starts in the state
+     * that answers the question the user is most likely asking, and a caller
+     * that draws no box should search the list the box would have. Only a box
+     * that narrows counts here - see {@link ContentKind.Choice#affectsSearch()}.
+     */
+    default SearchPage search(ContentKind kind, String query, String minecraftVersion,
+                              LoaderType loader, ModSort sort, List<ModCategory> categories,
+                              int limit, int offset)
+            throws IOException, InterruptedException {
+        return search(kind, query, minecraftVersion, loader, sort, categories,
+                kind.choice().affectsSearch() && kind.choice().isChosenByDefault(),
+                limit, offset);
+    }
+
+    /** Mods, for the callers that predate there being anything else. */
+    default SearchPage search(String query, String minecraftVersion, LoaderType loader,
+                              ModSort sort, List<ModCategory> categories, int limit, int offset)
+            throws IOException, InterruptedException {
+        return search(ContentKind.MOD, query, minecraftVersion, loader, sort, categories,
+                limit, offset);
+    }
 
     /** First page, relevance-ordered, for callers that do not page or sort. */
     default List<SearchResult> search(String query, String minecraftVersion, LoaderType loader, int limit)
@@ -152,11 +190,55 @@ public interface ModProvider {
     }
 
     /**
-     * The newest file of {@code projectId} compatible with the given version and
-     * loader, or empty when the project has none.
+     * The newest file of {@code projectId} that this instance can use, or empty
+     * when the project has none.
+     *
+     * <p>Same rule as {@link #search}: the kind decides whether the version and
+     * the loader narrow the answer. Asking a modpack project for "the build for
+     * Fabric 26.2" would come back empty for every pack that is not exactly that,
+     * which is every pack.
      */
-    Optional<ModFile> resolveLatest(String projectId, String minecraftVersion, LoaderType loader)
+    Optional<ModFile> resolveFile(ContentKind kind, String projectId,
+                                  String minecraftVersion, LoaderType loader)
             throws IOException, InterruptedException;
+
+    /**
+     * The same, for a kind whose loader is not the profile's.
+     *
+     * <h2>Why there is a second axis at all</h2>
+     *
+     * <p>{@link LoaderType} is the mod loader: Fabric, Forge, NeoForge, Quilt.
+     * It answers "what runs a jar", and for a mod that is the only question
+     * there is. A shader pack is loaded by Iris, OptiFine or Canvas - three
+     * programs that are themselves mods - and a project publishes a version per
+     * one of them. Neither name is a {@code LoaderType} and neither is derivable
+     * from the profile: it depends on which of the three the player has
+     * installed, which is a folder read rather than a setting.
+     *
+     * <p>So the tags come in from the caller. Empty means "whatever the kind
+     * decides", which is what every existing caller wants and is why this is a
+     * default rather than a change to the method above.
+     *
+     * @param loaderTags platform loader names to accept, most wanted first, or
+     *                   empty to leave the choice to the kind. See
+     *                   {@link ShaderLoaders}
+     */
+    default Optional<ModFile> resolveFile(ContentKind kind, String projectId,
+                                          String minecraftVersion, LoaderType loader,
+                                          List<String> loaderTags)
+            throws IOException, InterruptedException {
+        return resolveFile(kind, projectId, minecraftVersion, loader);
+    }
+
+    /**
+     * The newest mod file of {@code projectId} compatible with the given version
+     * and loader, or empty when the project has none.
+     */
+    default Optional<ModFile> resolveLatest(String projectId, String minecraftVersion,
+                                            LoaderType loader)
+            throws IOException, InterruptedException {
+        return resolveFile(ContentKind.MOD, projectId, minecraftVersion, loader);
+    }
 
     /**
      * The human-readable name of a project.

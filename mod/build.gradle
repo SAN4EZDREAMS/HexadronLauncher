@@ -89,8 +89,22 @@ processResources {
 	}
 }
 
+// The class file version this jar ships as, which is a separate question from
+// the JDK that builds it.
+//
+// It was 25, which meant the jar refused to load on any Java older than 25 -
+// that is, on every Minecraft before 26.x. Nothing in this mod needs a language
+// feature past 17: it is a logger, a string and two empty entrypoints. So it is
+// compiled to 17 and runs everywhere, while the toolchain below stays at the
+// version Loom needs to read Minecraft 26.2 in the development environment.
+//
+// `release` rather than source/targetCompatibility because only `release` also
+// restricts the API: it is what stops a Java 21 method call from compiling
+// cleanly here and failing with NoSuchMethodError on a 1.20.1 profile.
+def modJavaVersion = 17
+
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 25
+	it.options.release = modJavaVersion
 }
 
 java {
@@ -98,10 +112,13 @@ java {
 	// If you remove this line, sources will not be generated.
 	withSourcesJar()
 
-	sourceCompatibility = JavaVersion.VERSION_25
-	targetCompatibility = JavaVersion.VERSION_25
+	sourceCompatibility = JavaVersion.toVersion(modJavaVersion)
+	targetCompatibility = JavaVersion.toVersion(modJavaVersion)
 
 	toolchain {
+		// The JDK that runs javac and Loom, not the bytecode target. Minecraft
+		// 26.2's own classes are Java 25, so reading them needs a 25 toolchain
+		// even though nothing compiled here refers to one of them.
 		languageVersion = JavaLanguageVersion.of(25)
 	}
 }

@@ -42,27 +42,42 @@ public final class ModLibrary {
 
     public static final String LOCK_FILE = ".hexadron-mods.json";
     /**
-     * Version 3 added the project's logo and page to each entry, and version 4
-     * its categories. Both are readable by an older build - the extra fields are
-     * simply ignored - so the number records when they appeared rather than
-     * gating anything.
+     * Version 3 added the project's logo and page to each entry, version 4 its
+     * categories, and version 5 the data pack a mod was installed for. All of
+     * them are readable by an older build - the extra fields are simply ignored -
+     * so the number records when they appeared rather than gating anything.
      */
-    private static final int FORMAT_VERSION = 4;
+    private static final int FORMAT_VERSION = 5;
 
     /** The pack that wrote every version-1 lock file. */
     private static final String LEGACY_PACK_ID = "hexadron-optimise";
 
     private final Path modsDir;
+    private final String lockFile;
     private final Map<String, InstalledMod> mods = new LinkedHashMap<>();
 
-    private ModLibrary(Path modsDir) {
+    private ModLibrary(Path modsDir, String lockFile) {
         this.modsDir = modsDir;
+        this.lockFile = lockFile;
     }
 
     /** Reads the lock file. A missing or unreadable one yields an empty library. */
     public static ModLibrary read(Path modsDir) {
-        ModLibrary library = new ModLibrary(modsDir);
-        Path lock = modsDir.resolve(LOCK_FILE);
+        return read(modsDir, LOCK_FILE);
+    }
+
+    /**
+     * The same record, under another name, for another folder.
+     *
+     * <p>Data packs need exactly this book-keeping - which of the files here did
+     * the launcher download, and which are the player's own - in a folder that is
+     * not the mods folder and belongs to one world. The rules are identical, so
+     * the reader is; only the file name differs, so that a folder holding both
+     * kinds could never have one record claiming the other's files.
+     */
+    public static ModLibrary read(Path modsDir, String lockFileName) {
+        ModLibrary library = new ModLibrary(modsDir, lockFileName);
+        Path lock = modsDir.resolve(lockFileName);
         if (!Files.isRegularFile(lock)) {
             return library;
         }
@@ -131,6 +146,21 @@ public final class ModLibrary {
         return mods.values().stream().anyMatch(mod -> mod.belongsTo(packId));
     }
 
+    /**
+     * Entries a data pack brought with it.
+     *
+     * <p>Asked when that pack is removed, so that the jar it needed goes with
+     * it rather than staying behind as a mod nobody can account for.
+     *
+     * @param world the world the pack is in, or null to match on the key alone
+     */
+    public List<InstalledMod> ofDatapack(String world, String key) {
+        List<InstalledMod> owned = new ArrayList<>();
+        mods.values().stream().filter(mod -> mod.belongsToDatapack(world, key))
+                .forEach(owned::add);
+        return List.copyOf(owned);
+    }
+
     /** Titles for the profile summary, in a stable order. */
     public List<String> titles() {
         return mods.values().stream().map(InstalledMod::title).sorted(String.CASE_INSENSITIVE_ORDER).toList();
@@ -155,6 +185,6 @@ public final class ModLibrary {
         Json.object()
                 .put("version", FORMAT_VERSION)
                 .put("mods", entries)
-                .write(modsDir.resolve(LOCK_FILE));
+                .write(modsDir.resolve(lockFile));
     }
 }
