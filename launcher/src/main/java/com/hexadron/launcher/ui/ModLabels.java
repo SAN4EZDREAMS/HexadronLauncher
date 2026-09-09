@@ -58,7 +58,15 @@ public final class ModLabels {
      * {@code packId} looked up in the instance's modpack record, and that record
      * belongs to the window. So the window looks it up and says so here.
      *
-     * @param fromModpack true when this mod's pack is an installed modpack
+     * <p>It answers ahead of the origin rather than inside the {@code PACK} arm,
+     * because a modpack can put a file somewhere the origin does not reach. The
+     * jars and the packs it downloads are recorded and come back as
+     * {@code PACK}; a resource pack it unpacked out of its {@code overrides} has
+     * no project behind it, is recorded by nobody, and comes back as a file the
+     * player put there themselves. It is the pack's either way, and the row that
+     * says which pack has already looked the answer up.
+     *
+     * @param fromModpack true when this file belongs to an installed modpack
      */
     public static String badge(ModEntry mod, boolean fromModpack) {
         if (!mod.enabled()) {
@@ -69,8 +77,11 @@ public final class ModLabels {
         if (mod.isWrongVersion()) {
             return I18n.t("mods.origin.wrongVersion");
         }
+        if (fromModpack) {
+            return I18n.t("mods.origin.modpack");
+        }
         return switch (mod.origin()) {
-            case PACK -> I18n.t(fromModpack ? "mods.origin.modpack" : "mods.origin.pack");
+            case PACK -> I18n.t("mods.origin.pack");
             case DEPENDENCY -> I18n.t("mods.origin.dependency");
             // A jar that came with a data pack, not one the player chose. Which
             // pack it was is on the panel behind the badge, because that is the

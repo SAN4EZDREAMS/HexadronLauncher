@@ -114,6 +114,21 @@ abstract class ContentSection {
         void searchInMods(String query);
 
         /**
+         * Switches to the modpacks panel and selects an installed pack.
+         *
+         * <p>For the same reason as {@link #searchInMods}: the answer a section
+         * has to give is a row in another section. A resource pack or a shader
+         * that came inside a modpack raises exactly one question - which pack -
+         * and the useful answer is that pack's row, not its name in a sentence.
+         *
+         * <p>The window's rather than the section's, because it owns the rail
+         * and it owns the modpacks panel.
+         *
+         * @param packId the {@code InstalledModpack} id recorded against the file
+         */
+        void revealModpack(String packId);
+
+        /**
          * Says that this instance's contents changed.
          *
          * <p>The window passes it on to the launcher, whose instance panel counts

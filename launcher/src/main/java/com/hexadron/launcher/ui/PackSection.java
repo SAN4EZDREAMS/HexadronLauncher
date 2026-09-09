@@ -15,6 +15,7 @@ package com.hexadron.launcher.ui;
 import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.mods.ContentKind;
 import com.hexadron.launcher.mods.InstalledMod;
+import com.hexadron.launcher.mods.InstalledModpack;
 import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.mods.ModProvider;
@@ -29,6 +30,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.Tab;
@@ -41,8 +43,11 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * Resource packs, or shaders: whichever kind this instance of the section was
@@ -97,6 +102,33 @@ final class PackSection extends ContentSection {
 
     private List<ModEntry> packsAll = List.of();
     private List<ShaderLoaders.ShaderLoader> loaders = List.of();
+
+    /**
+     * The modpacks this instance has, by the id a pack row records.
+     *
+     * <p>Read with the pack list, because it is what a row needs to tell the two
+     * meanings of {@link ModOrigin#PACK} apart: a file out of the launcher's own
+     * set, and a file a modpack brought with it. Both are "a pack owns this",
+     * and only one of them is Hexadron Optimise - so without this a resource
+     * pack that arrived inside a downloaded modpack claimed to be the launcher's
+     * own optimisation set, which it never was.
+     */
+    private Map<String, InstalledModpack> modpacksById = Map.of();
+
+    /**
+     * The same packs, by the file each one wrote into this section's folder.
+     *
+     * <p>The second way of asking, for the files the first cannot answer. A pack
+     * that ships a resource pack through its {@code overrides} folder has no
+     * project behind that file, so nothing is written into this folder's lock
+     * file and the row comes back as one the player put there themselves. The
+     * modpack's own record still lists the path - that is how removal finds it -
+     * so the path is what the badge falls back to.
+     *
+     * <p>Keyed by the enabled file name, lowercased: a pack switched off is
+     * renamed, and it is still the pack's.
+     */
+    private Map<String, InstalledModpack> modpacksByFile = Map.of();
 
     PackSection(Host host, ContentKind kind) {
         super(host);
@@ -240,6 +272,7 @@ final class PackSection extends ContentSection {
     @Override
     void refresh() {
         packsAll = host.service().packsIn(host.profile(), kind);
+        readModpacks();
         if (kind == ContentKind.SHADER) {
             // The mods folder, not this one: Iris and OptiFine are mods. Read
             // with the pack list because installing one changes the answer, and
@@ -452,6 +485,71 @@ final class PackSection extends ContentSection {
         });
     }
 
+    /**
+     * Reads the instance's modpack record, once per list read.
+     *
+     * <p>Here rather than per row, for the reason the mods list does the same: a
+     * row is drawn on every repaint and on every scroll, and the answer is a
+     * file on disk. Read beside the list it describes, so the two cannot
+     * disagree about what is installed.
+     */
+    private void readModpacks() {
+        Map<String, InstalledModpack> byId = new LinkedHashMap<>();
+        Map<String, InstalledModpack> byFile = new LinkedHashMap<>();
+        String prefix = kind.instanceFolder() + "/";
+        for (InstalledModpack pack : host.service().modpacksIn(host.profile())) {
+            byId.put(pack.id(), pack);
+            for (String path : pack.paths()) {
+                if (!path.startsWith(prefix)) {
+                    continue;
+                }
+                String name = path.substring(prefix.length());
+                if (name.isEmpty() || name.indexOf('/') >= 0) {
+                    // Something the pack wrote inside a pack, not a pack of its
+                    // own. Only the folder's top level is a row here.
+                    continue;
+                }
+                byFile.putIfAbsent(name.toLowerCase(Locale.ROOT), pack);
+            }
+        }
+        modpacksById = Map.copyOf(byId);
+        modpacksByFile = Map.copyOf(byFile);
+    }
+
+    /**
+     * The modpack this pack came inside, or null.
+     *
+     * <p>Two questions, asked in the order they can be trusted. The recorded
+     * owner first: a file the launcher downloaded for a pack carries that pack's
+     * id in this folder's lock file, and that is an exact answer. The path
+     * second, for a file the pack unpacked out of its {@code overrides} with no
+     * project behind it - the lock file has nothing to say about that one, and
+     * the modpack's own list of what it wrote does.
+     *
+     * <p>Null for a pack nothing owns, for one out of the launcher's own set -
+     * whose {@code packId} is that set's id and is in no modpack record - and
+     * for one whose pack has since been removed. All three are the same answer
+     * to the row: there is no pack to send the reader to.
+     */
+    private InstalledModpack modpackOf(ModEntry pack) {
+        if (pack.origin() == ModOrigin.PACK && pack.packId() != null) {
+            InstalledModpack owner = modpacksById.get(pack.packId());
+            if (owner != null) {
+                return owner;
+            }
+        }
+        if (modpacksByFile.isEmpty() || pack.fileName() == null) {
+            return null;
+        }
+        return modpacksByFile.get(
+                PackScan.enabledName(pack.fileName()).toLowerCase(Locale.ROOT));
+    }
+
+    /** What to call a pack in a link. Its own name, or its id when it has none. */
+    private static String nameOf(InstalledModpack pack) {
+        return pack.name() == null || pack.name().isBlank() ? pack.id() : pack.name();
+    }
+
     /** One pack in the folder: what it is, and what may be done to it. */
     private final class PackCell extends ContentRow<ModEntry> {
 
@@ -461,10 +559,19 @@ final class PackSection extends ContentSection {
         private final Tooltip toggleTip = new Tooltip();
         private final Tooltip removeTip = new Tooltip();
 
+        /** What the badge says when it is hovered: which modpack this is part of. */
+        private final HoverPanel owner = new HoverPanel();
+
+        /** The modpack the panel was last built for, so an unchanged row is left alone. */
+        private String ownerPack;
+
         PackCell() {
             super(host::categories, catalogue::highlighted);
             badge.getStyleClass().add("badge");
             badge.setMinWidth(Region.USE_PREF_SIZE);
+            // Set once, on a badge that is reused. A panel with nothing in it
+            // opens nothing, so a pack no modpack owns simply never shows one.
+            owner.watch(badge);
             remove.getStyleClass().add("danger");
             actions.getChildren().addAll(badge, toggle, remove);
         }
@@ -494,9 +601,28 @@ final class PackSection extends ContentSection {
                 host.warn(I18n.t("mods.details"), I18n.t("mods.details.failed", pack.pageUrl()));
             });
 
-            badge.setText(ModLabels.badge(pack));
+            // Which modpack brought it, when one did. This is what stops a
+            // resource pack or a shader out of a downloaded pack from claiming
+            // to be Hexadron Optimise: the two share an origin, and only the
+            // instance's modpack record tells them apart.
+            InstalledModpack from = modpackOf(pack);
+
+            badge.setText(ModLabels.badge(pack, from != null));
+            boolean live = pack.enabled();
             styleClass(badge, "badge-off", !pack.enabled());
-            styleClass(badge, "badge-pack", pack.enabled() && pack.isManaged());
+            styleClass(badge, "badge-modpack", live && from != null);
+            // Narrowed to the launcher's own set. It used to be every pack the
+            // launcher had a record of, which painted a hand-installed pack in
+            // the colour that means "part of a set" and said so on the badge.
+            styleClass(badge, "badge-pack",
+                    live && from == null && pack.origin() == ModOrigin.PACK);
+            styleClass(badge, "badge-linked", from != null);
+
+            String packId = from == null ? null : from.id();
+            if (!Objects.equals(packId, ownerPack)) {
+                ownerPack = packId;
+                fillOwner(from);
+            }
 
             // A folder cannot be switched off by renaming it - the game reads
             // what is inside, not what it is called - so the button says so
@@ -511,12 +637,47 @@ final class PackSection extends ContentSection {
             // rule as the mods list, and for the same reason: a set that was
             // tested together stops being that set as soon as one file is
             // pulled out of it.
-            boolean owned = pack.origin() == ModOrigin.PACK;
+            boolean owned = from != null || pack.origin() == ModOrigin.PACK;
             remove.setText(I18n.t("mods.remove"));
             remove.setDisable(host.isBusy() || owned);
             tooltip(remove, removeTip, owned ? I18n.t("packs.pack.locked") : null);
             remove.setOnAction(event -> removePack(pack));
             showRow();
+        }
+
+        /**
+         * Fills the panel behind the badge: which modpack this pack came inside.
+         *
+         * <p>A name that can be pressed, not a sentence naming it. The reader
+         * hovering the badge is asking "which pack is this from", and the useful
+         * next step is that pack's row - so pressing the name goes there, the
+         * way the mods list has always done it. Same panel, same wording, same
+         * move, because it is the same question about a different folder.
+         */
+        private void fillOwner(InstalledModpack from) {
+            owner.content().clear();
+            if (from == null) {
+                owner.hide();
+                return;
+            }
+            Label title = new Label(I18n.t("mods.modpack.title"));
+            title.getStyleClass().add("hover-title");
+            owner.content().add(title);
+
+            Hyperlink link = new Hyperlink(nameOf(from));
+            link.getStyleClass().add("hover-link");
+            String id = from.id();
+            link.setOnAction(event -> {
+                owner.hide();
+                host.revealModpack(id);
+            });
+            owner.content().add(link);
+
+            Label hint = new Label(I18n.t("mods.modpack.hint"));
+            hint.setWrapText(true);
+            hint.setMaxWidth(280);
+            hint.getStyleClass().add("muted");
+            owner.content().add(hint);
         }
     }
 }

@@ -1493,8 +1493,20 @@ public final class ContentBrowserWindow implements ContentSection.Host {
      * itself rather than a name to go and look for.
      */
     private void jumpToModpack(com.hexadron.launcher.mods.InstalledModpack pack) {
+        revealModpack(pack.id());
+    }
+
+    /**
+     * The same move, asked for by id.
+     *
+     * <p>What the pack sections use. They hold a row, not a record: a resource
+     * pack or a shader out of a modpack knows the pack's id and nothing else
+     * about it, and the id is all this move needs.
+     */
+    @Override
+    public void revealModpack(String packId) {
         showSection(Section.MODPACKS);
-        modpacks.reveal(pack.id());
+        modpacks.reveal(packId);
     }
 
     /**
