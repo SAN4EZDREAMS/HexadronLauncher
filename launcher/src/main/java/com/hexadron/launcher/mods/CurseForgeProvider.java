@@ -710,6 +710,8 @@ public final class CurseForgeProvider implements ModProvider {
                                          String minecraftVersion, LoaderType loader)
             throws IOException, InterruptedException {
 
+        ModProvider.requireVersionForFileLookup(kind, minecraftVersion);
+
         String version = kind.isFilteredByVersion() ? minecraftVersion : null;
 
         // Every tag this loader can actually run, most specific first. On Quilt

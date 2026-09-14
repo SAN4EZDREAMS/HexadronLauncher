@@ -134,6 +134,8 @@ public final class ModrinthProvider implements ModProvider {
                                          List<String> loaderTags)
             throws IOException, InterruptedException {
 
+        ModProvider.requireVersionForFileLookup(kind, minecraftVersion);
+
         StringBuilder url = new StringBuilder(API)
                 .append("/project/").append(encode(projectId)).append("/version");
         List<String> params = new ArrayList<>();
