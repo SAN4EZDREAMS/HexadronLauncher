@@ -1519,6 +1519,36 @@ public final class SelfCheck {
             check("an entry pointing outside the target is refused", refused);
             check("and nothing was written outside it",
                     !java.nio.file.Files.exists(work.resolve("escaped.txt")));
+
+            // A zip that does not declare its names as UTF-8, which is what any
+            // ordinary archiver writes when the local code page can hold them.
+            // Java's default is to read those as UTF-8 anyway, replace every
+            // byte it cannot make sense of, and write the file out as a row of
+            // question marks - silently, which is the part that costs a day.
+            //
+            // Written with the charset the extractor itself falls back to, so
+            // the question asked is the one with a fixed answer on every host:
+            // does the name that went in come back out. ZipOutputStream sets the
+            // UTF-8 flag only for UTF-8, so on a host whose native encoding is
+            // something else this is a genuinely unflagged archive.
+            java.nio.charset.Charset legacy = Archives.legacyEntryNames();
+            String awkward = "конфіг.txt";
+            if (legacy.newEncoder().canEncode(awkward)) {
+                java.nio.file.Path legacyZip = work.resolve("legacy-names.zip");
+                try (java.util.zip.ZipOutputStream out = new java.util.zip.ZipOutputStream(
+                        java.nio.file.Files.newOutputStream(legacyZip), legacy)) {
+                    out.putNextEntry(new java.util.zip.ZipEntry("pack/" + awkward));
+                    out.write("x".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    out.closeEntry();
+                }
+                java.nio.file.Path unpacked = work.resolve("legacy-names");
+                Archives.extract(legacyZip, unpacked, 1);
+                check("a zip name outside UTF-8 survives extraction",
+                        java.nio.file.Files.isRegularFile(unpacked.resolve(awkward)));
+            } else {
+                // Nothing to prove on a host that cannot write the name at all.
+                check("the fallback charset is a charset", legacy.canEncode());
+            }
         } catch (IOException e) {
             check("archive extraction ran: " + e.getMessage(), false);
         } finally {

@@ -15,6 +15,7 @@ package com.hexadron.launcher.mods;
 import com.hexadron.launcher.core.Progress;
 import com.hexadron.launcher.net.DownloadTask;
 import com.hexadron.launcher.net.Downloader;
+import com.hexadron.launcher.util.Archives;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -370,7 +371,12 @@ public final class ModpackInstaller {
 
         String prefix = overrides.endsWith("/") ? overrides : overrides + "/";
         List<String> written = new ArrayList<>();
-        try (ZipFile zip = new ZipFile(archive.toFile())) {
+        // Entry names decide the names these files get on disk, so an archive
+        // that does not declare its names as UTF-8 is read the way the machine
+        // that wrote it meant them - see Archives.legacyEntryNames. Left to the
+        // default, a pack carrying "конфіг.txt" installs it as question marks
+        // and the mod that reads it never finds it.
+        try (ZipFile zip = new ZipFile(archive.toFile(), Archives.legacyEntryNames())) {
             List<ZipEntry> entries = new ArrayList<>();
             zip.stream()
                     .filter(entry -> entry.getName().startsWith(prefix))
