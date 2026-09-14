@@ -36,6 +36,10 @@ public final class Profile {
     private final String id;
     private String name;
     private String minecraftVersion;
+
+    /** @see #minecraftVersion(String) */
+    private String previousMinecraftVersion;
+
     private LoaderType loader;
     private String loaderVersion;
     /** Resolved version id to launch, e.g. {@code fabric-loader-0.19.3-26.2}. Set at install time. */
@@ -165,9 +169,43 @@ public final class Profile {
     }
 
     public Profile minecraftVersion(String value) {
+        // Kept before it is overwritten, because this is the one change that can
+        // invalidate a whole mods folder at once and the only one with nothing to
+        // go back to. A set of mods is assembled for one Minecraft version; move
+        // the profile off it and every jar that publishes no build for the new
+        // one stops loading. The launcher can see that afterwards - each jar says
+        // which versions it takes - but "which version did these work on" is not
+        // in any of them. It is here, and only if it is recorded at the moment it
+        // stops being true.
+        //
+        // Only a real change is recorded. Saving the dialog without touching the
+        // version must not overwrite the way back with the version the profile is
+        // already on.
+        if (this.minecraftVersion != null && !this.minecraftVersion.isBlank()
+                && !this.minecraftVersion.equals(value)) {
+            this.previousMinecraftVersion = this.minecraftVersion;
+        }
         this.minecraftVersion = value;
         // The installed version id no longer matches; force a reinstall.
         this.versionId = null;
+        return this;
+    }
+
+    /**
+     * The Minecraft version this profile was on before the last change, or null
+     * when it has never been changed.
+     *
+     * <p>A record, not a guess: it is what the profile actually ran, which is
+     * more than the mods themselves can say. A mod that accepts
+     * {@code [1.20,1.21)} narrows the answer to a range; this names the version.
+     */
+    public String previousMinecraftVersion() {
+        return previousMinecraftVersion;
+    }
+
+    /** Forgets the way back, once it has been taken or refused for good. */
+    public Profile clearPreviousMinecraftVersion() {
+        this.previousMinecraftVersion = null;
         return this;
     }
 
@@ -389,6 +427,9 @@ public final class Profile {
         if (versionId != null) {
             json.put("versionId", versionId);
         }
+        if (previousMinecraftVersion != null) {
+            json.put("previousMinecraftVersion", previousMinecraftVersion);
+        }
         if (javaPath != null) {
             json.put("javaPath", javaPath);
         }
@@ -413,6 +454,7 @@ public final class Profile {
         Profile profile = new Profile(id);
         profile.name = json.get("name").asString(id);
         profile.minecraftVersion = json.get("minecraftVersion").asString("");
+        profile.previousMinecraftVersion = json.get("previousMinecraftVersion").asString(null);
         profile.loader = LoaderType.fromId(json.get("loader").asString("vanilla"));
         profile.loaderVersion = json.get("loaderVersion").asString(null);
         profile.versionId = json.get("versionId").asString(null);

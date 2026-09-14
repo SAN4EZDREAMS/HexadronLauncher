@@ -241,6 +241,30 @@ public interface ModProvider {
     }
 
     /**
+     * Refuses a file lookup that cannot be narrowed to a Minecraft version.
+     *
+     * <p>Both platforms answer an unfiltered request with the project's newest
+     * build, so a missing version does not fail - it silently installs a file
+     * for whatever Minecraft version came out last. That is how an instance on
+     * 1.20.1 ends up holding Sodium for 26.2, and the game only says so at the
+     * next launch, in a wall of resolution errors naming every mod in the set.
+     *
+     * <p>A blank version reaching this point is a broken profile, not a user
+     * choice, so it stops here rather than being worked around. Kinds that do
+     * not narrow by version - a modpack, a resource pack - are unaffected.
+     *
+     * @throws IOException when the kind needs a version and none was given
+     */
+    static void requireVersionForFileLookup(ContentKind kind, String minecraftVersion)
+            throws IOException {
+        if (kind != null && kind.isFilteredByVersion()
+                && (minecraftVersion == null || minecraftVersion.isBlank())) {
+            throw new IOException("this profile has no Minecraft version, so no build can be "
+                    + "matched to it. Set the profile's Minecraft version and try again.");
+        }
+    }
+
+    /**
      * The human-readable name of a project.
      *
      * <p>Needed for dependencies. A mod the user chose arrives with the name they

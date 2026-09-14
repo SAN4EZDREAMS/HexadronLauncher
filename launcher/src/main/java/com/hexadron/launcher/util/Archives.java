@@ -14,6 +14,7 @@ package com.hexadron.launcher.util;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystemException;
 import java.nio.file.FileVisitResult;
@@ -55,6 +56,50 @@ public final class Archives {
     }
 
     /**
+     * What to read a zip entry name as when the archive does not say.
+     *
+     * <h2>The rule</h2>
+     *
+     * <p>A zip entry carries a flag saying its name is UTF-8. Set, the name is
+     * UTF-8 and nothing here applies - both {@link java.util.zip.ZipFile} and
+     * {@link ZipInputStream} honour the flag and ignore any charset given to
+     * them. Clear, the name is in whatever the machine that wrote it used, and
+     * the format has no way to say which. Java's default for that case is UTF-8,
+     * which is the one answer that cannot be right: a name that was UTF-8 would
+     * have had the flag set.
+     *
+     * <h2>What goes wrong without it</h2>
+     *
+     * <p>The bytes are not valid UTF-8, the decoder replaces each one it cannot
+     * read with U+FFFD, and the file is written to disk under a name of question
+     * marks. No exception, no warning - a modpack whose overrides include
+     * {@code конфіг.txt} installs, and the mod that looks for it does not find
+     * it.
+     *
+     * <h2>Why the system encoding</h2>
+     *
+     * <p>Archives without the flag are written by tools using the machine's own
+     * code page, and a pack a user is installing usually came from a machine
+     * like theirs. It is a guess, but it is the guess the format's own history
+     * points at, and it is right far more often than UTF-8 is.
+     *
+     * <p>{@code native.encoding} rather than {@link Charset#defaultCharset()}:
+     * from Java 18 the default is UTF-8 everywhere regardless of the host, which
+     * is the value this exists to avoid.
+     */
+    public static Charset legacyEntryNames() {
+        String declared = System.getProperty("native.encoding");
+        if (declared != null && !declared.isBlank()) {
+            try {
+                return Charset.forName(declared);
+            } catch (RuntimeException ignored) {
+                // An unknown name from the runtime is not worth failing over.
+            }
+        }
+        return Charset.defaultCharset();
+    }
+
+    /**
      * Unpacks an archive into {@code targetDir}, dropping {@code stripLeading}
      * leading path components from every entry.
      *
@@ -78,7 +123,8 @@ public final class Archives {
 
     private static void extractZip(Path archive, Path targetDir, int stripLeading) throws IOException {
         Path root = prepare(targetDir);
-        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(archive))) {
+        try (ZipInputStream zip =
+                     new ZipInputStream(Files.newInputStream(archive), legacyEntryNames())) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 String relative = strip(entry.getName(), stripLeading);

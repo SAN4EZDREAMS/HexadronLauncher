@@ -573,6 +573,95 @@ public final class SelfCheck {
                 .forEach(argument -> argument.collectInto(mixedGame, Map.of()));
         check("a legacy parent keeps its arguments under a modern child",
                 mixedGame.contains("--username") && mixedGame.contains("example.Tweaker"));
+
+        // Before 1.19 a vanilla manifest lists one coordinate several times and
+        // tells the copies apart by their rules and by their role. Minecraft
+        // 1.18.2 carries four org.lwjgl:lwjgl entries - 3.2.1 and 3.2.2, each
+        // once as a classpath jar and once as a natives container - and none of
+        // them names a classifier, so all four share one dedupe key.
+        //
+        // Collapsing them, which is what deduplicating the parent's own list
+        // did, keeps whichever comes first. That is the macOS-only one, the
+        // rules then drop it everywhere else, and a Windows launch ends up with
+        // no LWJGL on the classpath and none downloaded either. The game gets
+        // as far as the renderer and stops at NoClassDefFoundError:
+        // org/lwjgl/system/MemoryUtil, naming nothing that points back here.
+        //
+        // A loader manifest that mentions no LWJGL at all must not be able to
+        // cause that, so the merge is asked to prove it keeps all four.
+        VersionJson legacyNativesVanilla = VersionJson.parse(Json.parse("""
+                {
+                  "id": "1.18.2",
+                  "mainClass": "net.minecraft.client.main.Main",
+                  "libraries": [
+                    {"name": "org.lwjgl:lwjgl:3.2.1",
+                     "downloads": {"artifact": {"path": "org/lwjgl/lwjgl/3.2.1/lwjgl-3.2.1.jar",
+                                                "url": "https://libraries.minecraft.net/lwjgl-3.2.1.jar",
+                                                "sha1": "a1", "size": 1}},
+                     "rules": [{"action": "allow", "os": {"name": "osx"}}]},
+                    {"name": "org.lwjgl:lwjgl:3.2.2",
+                     "downloads": {"artifact": {"path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
+                                                "url": "https://libraries.minecraft.net/lwjgl-3.2.2.jar",
+                                                "sha1": "a2", "size": 2}},
+                     "rules": [{"action": "allow"}, {"action": "disallow", "os": {"name": "osx"}}]},
+                    {"name": "org.lwjgl:lwjgl:3.2.1",
+                     "downloads": {"artifact": {"path": "org/lwjgl/lwjgl/3.2.1/lwjgl-3.2.1.jar",
+                                                "url": "https://libraries.minecraft.net/lwjgl-3.2.1.jar",
+                                                "sha1": "a1", "size": 1},
+                                   "classifiers": {"natives-macos":
+                                       {"path": "org/lwjgl/lwjgl/3.2.1/lwjgl-3.2.1-natives-macos.jar",
+                                        "url": "https://libraries.minecraft.net/lwjgl-3.2.1-natives-macos.jar",
+                                        "sha1": "a3", "size": 3}}},
+                     "natives": {"osx": "natives-macos"},
+                     "rules": [{"action": "allow", "os": {"name": "osx"}}]},
+                    {"name": "org.lwjgl:lwjgl:3.2.2",
+                     "downloads": {"artifact": {"path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
+                                                "url": "https://libraries.minecraft.net/lwjgl-3.2.2.jar",
+                                                "sha1": "a2", "size": 2},
+                                   "classifiers": {
+                                     "natives-linux":
+                                       {"path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-linux.jar",
+                                        "url": "https://libraries.minecraft.net/lwjgl-3.2.2-natives-linux.jar",
+                                        "sha1": "a4", "size": 4},
+                                     "natives-windows":
+                                       {"path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-windows.jar",
+                                        "url": "https://libraries.minecraft.net/lwjgl-3.2.2-natives-windows.jar",
+                                        "sha1": "a5", "size": 5}}},
+                     "natives": {"linux": "natives-linux", "windows": "natives-windows"},
+                     "rules": [{"action": "allow"}, {"action": "disallow", "os": {"name": "osx"}}]}
+                  ]
+                }"""));
+
+        VersionJson loaderOverLegacyNatives = VersionJson.parse(Json.parse("""
+                {
+                  "id": "1.18.2-forge-40.1.0",
+                  "inheritsFrom": "1.18.2",
+                  "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+                  "libraries": [
+                    {"name": "net.minecraftforge:fmlloader:1.18.2-40.1.0",
+                     "url": "https://maven.minecraftforge.net/"}
+                  ]
+                }"""));
+
+        List<Library> everyLwjgl =
+                VersionJson.merge(loaderOverLegacyNatives, legacyNativesVanilla).libraries().stream()
+                        .filter(library ->
+                                library.coordinate().groupArtifact().equals("org.lwjgl:lwjgl"))
+                        .toList();
+        check("every LWJGL variant survives the merge", everyLwjgl.size() == 4);
+
+        // Host-independent on purpose: macOS keeps the 3.2.1 pair and every other
+        // platform the 3.2.2 pair, so the counts are the same wherever this runs.
+        List<Library> lwjglHere = everyLwjgl.stream()
+                .filter(Library::appliesToThisHost)
+                .toList();
+        check("exactly one LWJGL pair applies to this host", lwjglHere.size() == 2);
+        check("one of the pair is the classpath jar",
+                lwjglHere.stream().filter(library -> library.classpathArtifact() != null).count() == 1);
+        check("the other is the natives container",
+                lwjglHere.stream().filter(library ->
+                        library.isLegacyNativeContainer() && library.nativeArtifact() != null)
+                        .count() == 1);
     }
 
     // ---------------------------------------------------------------- legacy
@@ -847,6 +936,59 @@ public final class SelfCheck {
         check("a clean exit is not blamed on the wrapper",
                 com.hexadron.launcher.launch.GameLauncher.describeExit(0, "bwrap")
                         .equals(com.hexadron.launcher.launch.GameLauncher.describeExit(0)));
+
+        // Read out of a real crash. Every one of these ends as exit code 1, which
+        // says a crash happened and nothing about what, so the cause has to come
+        // out of the output. The lines are copied verbatim from a session that
+        // took an evening to work out by hand.
+        String pageFile = com.hexadron.launcher.launch.GameLauncher.explain(
+                "OpenJDK 64-Bit Server VM warning: INFO: os::commit_memory(0x0000000720000000, "
+                        + "633339904, 0) failed; error='The paging file is too small for this "
+                        + "operation to complete' (DOS error/errno=1455)");
+        check("the page file limit is recognised", pageFile != null);
+        check("the page file answer says what to change",
+                pageFile != null && pageFile.contains("page file")
+                        && pageFile.contains("memory setting"));
+
+        check("a native memory failure is recognised",
+                com.hexadron.launcher.launch.GameLauncher.explain(
+                        "# There is insufficient memory for the Java Runtime Environment "
+                                + "to continue.") != null);
+
+        String heap = com.hexadron.launcher.launch.GameLauncher.explain(
+                "Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space");
+        check("a filled heap is recognised", heap != null);
+        // The two run out of memory in opposite directions, and the fixes are
+        // opposite too. Telling a user to raise the heap while the system is
+        // already at its commit limit makes the next attempt fail sooner.
+        check("a filled heap is answered by raising the limit",
+                heap != null && heap.contains("Raise"));
+        check("the system running out is not answered by raising it",
+                pageFile != null && !pageFile.contains("Raise"));
+
+        check("a missing game is recognised as a broken install",
+                com.hexadron.launcher.launch.GameLauncher.explain(
+                        "\tMod ID: 'minecraft', Requested by: 'swem', Expected range: "
+                                + "'[1.21.1,1.21.1]', Actual version: '[MISSING]'") != null);
+        check("a broken install does not send the user to the mods folder",
+                com.hexadron.launcher.launch.GameLauncher.explain(
+                        "\tMod ID: 'neoforge', Requested by: 'swem', Expected range: "
+                                + "'[21.1.240,)', Actual version: '[MISSING]'")
+                        .contains("does not need to be touched"));
+
+        // An ordinary missing mod is the user's to fix and is reported elsewhere;
+        // calling the installation broken would send them to reinstall a loader
+        // that is perfectly fine.
+        check("an ordinary missing dependency is left alone",
+                com.hexadron.launcher.launch.GameLauncher.explain(
+                        "\tMod ID: 'flywheel', Requested by: 'create', Expected range: "
+                                + "'[0.6.8,)', Actual version: '[MISSING]'") == null);
+        check("ordinary output explains nothing",
+                com.hexadron.launcher.launch.GameLauncher.explain(
+                        "[Render thread/INFO]: Loading Xaero's Minimap - Stage 2/2") == null);
+        check("a blank line explains nothing",
+                com.hexadron.launcher.launch.GameLauncher.explain("") == null
+                        && com.hexadron.launcher.launch.GameLauncher.explain(null) == null);
     }
 
     // ---------------------------------------------------------------- assets
@@ -1377,6 +1519,36 @@ public final class SelfCheck {
             check("an entry pointing outside the target is refused", refused);
             check("and nothing was written outside it",
                     !java.nio.file.Files.exists(work.resolve("escaped.txt")));
+
+            // A zip that does not declare its names as UTF-8, which is what any
+            // ordinary archiver writes when the local code page can hold them.
+            // Java's default is to read those as UTF-8 anyway, replace every
+            // byte it cannot make sense of, and write the file out as a row of
+            // question marks - silently, which is the part that costs a day.
+            //
+            // Written with the charset the extractor itself falls back to, so
+            // the question asked is the one with a fixed answer on every host:
+            // does the name that went in come back out. ZipOutputStream sets the
+            // UTF-8 flag only for UTF-8, so on a host whose native encoding is
+            // something else this is a genuinely unflagged archive.
+            java.nio.charset.Charset legacy = Archives.legacyEntryNames();
+            String awkward = "конфіг.txt";
+            if (legacy.newEncoder().canEncode(awkward)) {
+                java.nio.file.Path legacyZip = work.resolve("legacy-names.zip");
+                try (java.util.zip.ZipOutputStream out = new java.util.zip.ZipOutputStream(
+                        java.nio.file.Files.newOutputStream(legacyZip), legacy)) {
+                    out.putNextEntry(new java.util.zip.ZipEntry("pack/" + awkward));
+                    out.write("x".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    out.closeEntry();
+                }
+                java.nio.file.Path unpacked = work.resolve("legacy-names");
+                Archives.extract(legacyZip, unpacked, 1);
+                check("a zip name outside UTF-8 survives extraction",
+                        java.nio.file.Files.isRegularFile(unpacked.resolve(awkward)));
+            } else {
+                // Nothing to prove on a host that cannot write the name at all.
+                check("the fallback charset is a charset", legacy.canEncode());
+            }
         } catch (IOException e) {
             check("archive extraction ran: " + e.getMessage(), false);
         } finally {
@@ -2085,6 +2257,41 @@ public final class SelfCheck {
                 newcomer.groupOf(fresh.id()).isEmpty());
         check("and the group is untouched",
                 newcomer.membersOf(theirs.id()).equals(List.of(id.get("Mid"))));
+
+        // Moving a profile to another Minecraft version can invalidate its whole
+        // mods folder at once, and it is the only edit with nothing to go back
+        // to: the mods say which versions they take, but not which one they were
+        // put together for. So the version being left is written down as it is
+        // left, because after the write there is nowhere else to read it from.
+        Profile shifted = Profile.create("Moved", "1.20.1", LoaderType.FABRIC);
+        check("a new profile has no version behind it",
+                shifted.previousMinecraftVersion() == null);
+
+        shifted.minecraftVersion("1.21.1");
+        check("changing the version records the one left behind",
+                "1.20.1".equals(shifted.previousMinecraftVersion()));
+
+        // Saving the dialog without touching the version must not overwrite the
+        // way back with the version the profile is already on - which would make
+        // the record point at the broken state and the offer useless.
+        shifted.minecraftVersion("1.21.1");
+        check("setting the same version again changes nothing",
+                "1.20.1".equals(shifted.previousMinecraftVersion()));
+
+        shifted.minecraftVersion("26.2");
+        check("a second change records the second version, not the first",
+                "1.21.1".equals(shifted.previousMinecraftVersion()));
+
+        Profile reloaded = Profile.fromJson(shifted.toJson());
+        check("the way back survives the profile file",
+                "1.21.1".equals(reloaded.previousMinecraftVersion()));
+        check("a profile file without it loads all the same",
+                Profile.fromJson(fresh.toJson()).previousMinecraftVersion() == null);
+        check("and nothing is written for a profile that never moved",
+                !fresh.toJson().has("previousMinecraftVersion"));
+
+        shifted.clearPreviousMinecraftVersion();
+        check("the way back can be forgotten", shifted.previousMinecraftVersion() == null);
     }
 
     private static boolean cellUnchanged(ProfileLayout layout, String profileId, int[] expected) {
@@ -3356,6 +3563,43 @@ public final class SelfCheck {
         } finally {
             deleteRecursively(dir);
         }
+
+        // What a platform publishes a file for, which is the only thing that can
+        // answer the question when the request did not narrow it: a pack pinning
+        // a build fetches it by its own id, and the reply is whatever that build
+        // is, for whatever game it was made for.
+        com.hexadron.launcher.mods.ModFile forOneTwenty = new com.hexadron.launcher.mods.ModFile(
+                "AANobbMI", "sodium", "v1", "Sodium 0.5.13", "sodium-fabric-0.5.13.jar",
+                "https://example/sodium.jar", null, -1, java.util.List.of(),
+                com.hexadron.launcher.mods.ModProvider.Source.MODRINTH,
+                java.util.List.of("1.20.1", "1.20"));
+        check("a file is accepted by a version it lists", forOneTwenty.supports("1.20.1"));
+        check("and refused by one it does not", !forOneTwenty.supports("26.2"));
+
+        // Silence is not a "no". The launcher already refuses a lookup it cannot
+        // narrow to a version, and guessing on top of that would turn installs
+        // that work today into refusals for a field the platform never filled in.
+        com.hexadron.launcher.mods.ModFile saidNothing = new com.hexadron.launcher.mods.ModFile(
+                "abcd", "mystery", "v1", "Mystery", "mystery.jar",
+                "https://example/mystery.jar", null, -1, java.util.List.of(),
+                com.hexadron.launcher.mods.ModProvider.Source.MODRINTH);
+        check("a file that lists no versions is not refused", saidNothing.supports("1.20.1"));
+        check("the short form leaves the list empty", saidNothing.gameVersions().isEmpty());
+
+        // CurseForge puts loader names in the same array as the versions.
+        com.hexadron.launcher.mods.ModFile curseShaped = new com.hexadron.launcher.mods.ModFile(
+                "1", "x", "v1", "X", "x.jar", "https://example/x.jar", null, -1,
+                java.util.List.of(), com.hexadron.launcher.mods.ModProvider.Source.CURSEFORGE,
+                java.util.List.of("1.20.1", "Fabric", "Client"));
+        check("a loader name in the version list changes nothing",
+                curseShaped.supports("1.20.1") && !curseShaped.supports("Forge"));
+
+        com.hexadron.launcher.mods.ModFile round = com.hexadron.launcher.mods.ModFile.fromJson(
+                forOneTwenty.toJson());
+        check("the version list survives the lock file", round.supports("1.20.1")
+                && !round.supports("26.2"));
+        check("an empty list is left out of the lock file",
+                !saidNothing.toJson().has("gameVersions"));
     }
 
 

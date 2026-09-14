@@ -112,11 +112,22 @@ public final class GameLauncher {
         sendSecrets(process, command.secrets());
 
         Thread pump = new Thread(() -> {
+            // Said once. Each of these failures prints several lines - the JVM's
+            // own memory report runs to five - and repeating the explanation
+            // after every one of them would bury it in the thing it explains.
+            boolean explained = false;
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     onOutput.accept(Redactor.scrub(line));
+                    if (!explained) {
+                        String explanation = explain(line);
+                        if (explanation != null) {
+                            explained = true;
+                            onOutput.accept("[launcher] " + explanation);
+                        }
+                    }
                 }
             } catch (IOException e) {
                 onOutput.accept("[launcher] stopped reading game output: " + Redactor.scrub(e.getMessage()));
@@ -171,6 +182,70 @@ public final class GameLauncher {
             stdin.write(handshake.toString().getBytes(StandardCharsets.UTF_8));
             stdin.flush();
         }
+    }
+
+    /**
+     * What one line of game output means, when it means something the user can
+     * act on. Null for every other line, which is nearly all of them.
+     *
+     * <h2>Why read the output at all</h2>
+     *
+     * <p>All three of these end the same way: the process stops and the launcher
+     * reports exit code 1. That code says a crash happened and nothing about
+     * what, so the cause has to be read out of the output - and the user is the
+     * one least equipped to do it. The lines matched here are the ones that
+     * carry an unambiguous cause, printed by the JVM or by the mod loader in
+     * words that never appear in ordinary play.
+     *
+     * <p>Only causes with a next step are listed. A line that would produce
+     * "something went wrong" is left alone: it displaces nothing and teaches the
+     * user to skip the launcher's notes.
+     *
+     * <p>Pure and static so it can be tested against real output without
+     * starting a game.
+     */
+    public static String explain(String line) {
+        if (line == null || line.isBlank()) {
+            return null;
+        }
+
+        // Windows refuses a commit when RAM plus the page file are exhausted, and
+        // names the page file when it does. The heap is only part of it: every
+        // other running program counts against the same limit, which is why this
+        // arrives on a machine that looks like it has memory to spare.
+        if (line.contains("The paging file is too small for this operation to complete")) {
+            return "Minecraft could not get the memory it asked for. Windows reports that "
+                    + "the page file is too small, which means the system has reached its "
+                    + "commit limit - this profile's memory setting plus everything else "
+                    + "already running. Let Windows manage the page file size, close other "
+                    + "programs, or lower this profile's memory, then start the game again.";
+        }
+        if (line.contains("There is insufficient memory for the Java Runtime Environment to continue")
+                || (line.contains("Native memory allocation") && line.contains("failed"))) {
+            return "Minecraft could not get the memory it asked for from the operating "
+                    + "system. Close other programs or lower this profile's memory setting, "
+                    + "then start the game again.";
+        }
+
+        // The opposite case, and the opposite fix: the heap this profile allows
+        // was filled, and the system was never asked for more.
+        if (line.contains("java.lang.OutOfMemoryError")) {
+            return "Minecraft used all the memory this profile allows. Raise the profile's "
+                    + "memory setting, or play with fewer mods.";
+        }
+
+        // The game and the loader are listed as mods like any other, so the
+        // loader names them here when the files that carry them are absent. Any
+        // mod can be missing for ordinary reasons; these two cannot.
+        if (line.contains("[MISSING]")
+                && (line.contains("'minecraft'") || line.contains("'forge'")
+                        || line.contains("'neoforge'") || line.contains("'fabricloader'"))) {
+            return "This profile's installation is incomplete - the game or the mod loader "
+                    + "itself is missing, not a mod. Install the loader for this profile "
+                    + "again; the mods folder does not need to be touched.";
+        }
+
+        return null;
     }
 
     /** Human-readable interpretation of a Minecraft exit code. */
