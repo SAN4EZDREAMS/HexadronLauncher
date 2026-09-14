@@ -685,6 +685,47 @@ public final class LauncherService {
         return com.hexadron.launcher.mods.ModScan.wrongVersion(modsIn(profile));
     }
 
+    /** How many of the offending mods to name before counting the rest. */
+    private static final int WRONG_VERSION_NAMES_SHOWN = 5;
+
+    /**
+     * What to tell the user about mods that cannot load, and what to do next.
+     *
+     * <p>Names the files rather than the projects: the fix is carried out in the
+     * mods folder, and the file name is what identifies a jar there.
+     */
+    private static String wrongVersionMessage(
+            Profile profile, java.util.List<com.hexadron.launcher.mods.ModEntry> wrongVersion) {
+
+        boolean one = wrongVersion.size() == 1;
+        StringBuilder message = new StringBuilder();
+        message.append(wrongVersion.size())
+                .append(one ? " mod in this profile is" : " mods in this profile are")
+                .append(" not for Minecraft ").append(profile.minecraftVersion())
+                .append(", and the game will not start while ")
+                .append(one ? "it is" : "they are")
+                .append(" switched on:");
+
+        int named = 0;
+        for (com.hexadron.launcher.mods.ModEntry entry : wrongVersion) {
+            if (named == WRONG_VERSION_NAMES_SHOWN) {
+                message.append("\n  and ").append(wrongVersion.size() - named).append(" more");
+                break;
+            }
+            message.append("\n  ").append(entry.fileName());
+            if (entry.requires() != null && !entry.requires().isBlank()) {
+                message.append(" (needs ").append(entry.requires()).append(')');
+            }
+            named++;
+        }
+
+        message.append(one
+                        ? "\nSwitch it off, or replace it with a build for Minecraft "
+                        : "\nSwitch them off, or replace them with builds for Minecraft ")
+                .append(profile.minecraftVersion()).append('.');
+        return message.toString();
+    }
+
     /**
      * Turns one file in the mods folder on or off by renaming it.
      *
@@ -1366,6 +1407,17 @@ public final class LauncherService {
         player = SkinSession.identity(player, skin, skinCredentials, progress);
 
         VersionJson version = installProfile(profile, progress);
+
+        // Every jar in the folder names the Minecraft versions it accepts, so
+        // this is decided from files already on disk, in the same terms the
+        // loader is about to decide it in. Left unasked, the answer arrives as
+        // the game exiting with code 1 and a page of resolution errors naming
+        // every mod in the set - which reads as "the launcher is broken" and
+        // takes an evening to trace back to one jar for the wrong version.
+        java.util.List<com.hexadron.launcher.mods.ModEntry> wrongVersion = wrongVersionMods(profile);
+        if (!wrongVersion.isEmpty()) {
+            throw new IOException(wrongVersionMessage(profile, wrongVersion));
+        }
 
         Path gameDir = profiles.gameDirectory(profile);
         AssetIndex index = AssetIndex.parse(version.assetsId(),

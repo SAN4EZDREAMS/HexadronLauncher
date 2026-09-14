@@ -573,6 +573,95 @@ public final class SelfCheck {
                 .forEach(argument -> argument.collectInto(mixedGame, Map.of()));
         check("a legacy parent keeps its arguments under a modern child",
                 mixedGame.contains("--username") && mixedGame.contains("example.Tweaker"));
+
+        // Before 1.19 a vanilla manifest lists one coordinate several times and
+        // tells the copies apart by their rules and by their role. Minecraft
+        // 1.18.2 carries four org.lwjgl:lwjgl entries - 3.2.1 and 3.2.2, each
+        // once as a classpath jar and once as a natives container - and none of
+        // them names a classifier, so all four share one dedupe key.
+        //
+        // Collapsing them, which is what deduplicating the parent's own list
+        // did, keeps whichever comes first. That is the macOS-only one, the
+        // rules then drop it everywhere else, and a Windows launch ends up with
+        // no LWJGL on the classpath and none downloaded either. The game gets
+        // as far as the renderer and stops at NoClassDefFoundError:
+        // org/lwjgl/system/MemoryUtil, naming nothing that points back here.
+        //
+        // A loader manifest that mentions no LWJGL at all must not be able to
+        // cause that, so the merge is asked to prove it keeps all four.
+        VersionJson legacyNativesVanilla = VersionJson.parse(Json.parse("""
+                {
+                  "id": "1.18.2",
+                  "mainClass": "net.minecraft.client.main.Main",
+                  "libraries": [
+                    {"name": "org.lwjgl:lwjgl:3.2.1",
+                     "downloads": {"artifact": {"path": "org/lwjgl/lwjgl/3.2.1/lwjgl-3.2.1.jar",
+                                                "url": "https://libraries.minecraft.net/lwjgl-3.2.1.jar",
+                                                "sha1": "a1", "size": 1}},
+                     "rules": [{"action": "allow", "os": {"name": "osx"}}]},
+                    {"name": "org.lwjgl:lwjgl:3.2.2",
+                     "downloads": {"artifact": {"path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
+                                                "url": "https://libraries.minecraft.net/lwjgl-3.2.2.jar",
+                                                "sha1": "a2", "size": 2}},
+                     "rules": [{"action": "allow"}, {"action": "disallow", "os": {"name": "osx"}}]},
+                    {"name": "org.lwjgl:lwjgl:3.2.1",
+                     "downloads": {"artifact": {"path": "org/lwjgl/lwjgl/3.2.1/lwjgl-3.2.1.jar",
+                                                "url": "https://libraries.minecraft.net/lwjgl-3.2.1.jar",
+                                                "sha1": "a1", "size": 1},
+                                   "classifiers": {"natives-macos":
+                                       {"path": "org/lwjgl/lwjgl/3.2.1/lwjgl-3.2.1-natives-macos.jar",
+                                        "url": "https://libraries.minecraft.net/lwjgl-3.2.1-natives-macos.jar",
+                                        "sha1": "a3", "size": 3}}},
+                     "natives": {"osx": "natives-macos"},
+                     "rules": [{"action": "allow", "os": {"name": "osx"}}]},
+                    {"name": "org.lwjgl:lwjgl:3.2.2",
+                     "downloads": {"artifact": {"path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2.jar",
+                                                "url": "https://libraries.minecraft.net/lwjgl-3.2.2.jar",
+                                                "sha1": "a2", "size": 2},
+                                   "classifiers": {
+                                     "natives-linux":
+                                       {"path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-linux.jar",
+                                        "url": "https://libraries.minecraft.net/lwjgl-3.2.2-natives-linux.jar",
+                                        "sha1": "a4", "size": 4},
+                                     "natives-windows":
+                                       {"path": "org/lwjgl/lwjgl/3.2.2/lwjgl-3.2.2-natives-windows.jar",
+                                        "url": "https://libraries.minecraft.net/lwjgl-3.2.2-natives-windows.jar",
+                                        "sha1": "a5", "size": 5}}},
+                     "natives": {"linux": "natives-linux", "windows": "natives-windows"},
+                     "rules": [{"action": "allow"}, {"action": "disallow", "os": {"name": "osx"}}]}
+                  ]
+                }"""));
+
+        VersionJson loaderOverLegacyNatives = VersionJson.parse(Json.parse("""
+                {
+                  "id": "1.18.2-forge-40.1.0",
+                  "inheritsFrom": "1.18.2",
+                  "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+                  "libraries": [
+                    {"name": "net.minecraftforge:fmlloader:1.18.2-40.1.0",
+                     "url": "https://maven.minecraftforge.net/"}
+                  ]
+                }"""));
+
+        List<Library> everyLwjgl =
+                VersionJson.merge(loaderOverLegacyNatives, legacyNativesVanilla).libraries().stream()
+                        .filter(library ->
+                                library.coordinate().groupArtifact().equals("org.lwjgl:lwjgl"))
+                        .toList();
+        check("every LWJGL variant survives the merge", everyLwjgl.size() == 4);
+
+        // Host-independent on purpose: macOS keeps the 3.2.1 pair and every other
+        // platform the 3.2.2 pair, so the counts are the same wherever this runs.
+        List<Library> lwjglHere = everyLwjgl.stream()
+                .filter(Library::appliesToThisHost)
+                .toList();
+        check("exactly one LWJGL pair applies to this host", lwjglHere.size() == 2);
+        check("one of the pair is the classpath jar",
+                lwjglHere.stream().filter(library -> library.classpathArtifact() != null).count() == 1);
+        check("the other is the natives container",
+                lwjglHere.stream().filter(library ->
+                        library.isLegacyNativeContainer() && library.nativeArtifact() != null)
+                        .count() == 1);
     }
 
     // ---------------------------------------------------------------- legacy
