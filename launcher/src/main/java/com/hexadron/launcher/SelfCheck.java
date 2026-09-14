@@ -2257,6 +2257,41 @@ public final class SelfCheck {
                 newcomer.groupOf(fresh.id()).isEmpty());
         check("and the group is untouched",
                 newcomer.membersOf(theirs.id()).equals(List.of(id.get("Mid"))));
+
+        // Moving a profile to another Minecraft version can invalidate its whole
+        // mods folder at once, and it is the only edit with nothing to go back
+        // to: the mods say which versions they take, but not which one they were
+        // put together for. So the version being left is written down as it is
+        // left, because after the write there is nowhere else to read it from.
+        Profile shifted = Profile.create("Moved", "1.20.1", LoaderType.FABRIC);
+        check("a new profile has no version behind it",
+                shifted.previousMinecraftVersion() == null);
+
+        shifted.minecraftVersion("1.21.1");
+        check("changing the version records the one left behind",
+                "1.20.1".equals(shifted.previousMinecraftVersion()));
+
+        // Saving the dialog without touching the version must not overwrite the
+        // way back with the version the profile is already on - which would make
+        // the record point at the broken state and the offer useless.
+        shifted.minecraftVersion("1.21.1");
+        check("setting the same version again changes nothing",
+                "1.20.1".equals(shifted.previousMinecraftVersion()));
+
+        shifted.minecraftVersion("26.2");
+        check("a second change records the second version, not the first",
+                "1.21.1".equals(shifted.previousMinecraftVersion()));
+
+        Profile reloaded = Profile.fromJson(shifted.toJson());
+        check("the way back survives the profile file",
+                "1.21.1".equals(reloaded.previousMinecraftVersion()));
+        check("a profile file without it loads all the same",
+                Profile.fromJson(fresh.toJson()).previousMinecraftVersion() == null);
+        check("and nothing is written for a profile that never moved",
+                !fresh.toJson().has("previousMinecraftVersion"));
+
+        shifted.clearPreviousMinecraftVersion();
+        check("the way back can be forgotten", shifted.previousMinecraftVersion() == null);
     }
 
     private static boolean cellUnchanged(ProfileLayout layout, String profileId, int[] expected) {

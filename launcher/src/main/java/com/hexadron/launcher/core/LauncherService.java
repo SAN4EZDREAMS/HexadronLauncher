@@ -656,8 +656,114 @@ public final class LauncherService {
     public java.util.List<com.hexadron.launcher.mods.ModEntry> modsIn(Profile profile) {
         // Judged against this profile's Minecraft version, so a jar left behind
         // by a change of version is a row that says so rather than a crash.
+        return modsIn(profile, profile.minecraftVersion());
+    }
+
+    /**
+     * The same list, judged against a Minecraft version the profile is not on.
+     *
+     * <p>Asked before the change rather than after it. Moving a profile to
+     * another Minecraft version is the one edit that can invalidate the whole
+     * mods folder at once, and it is carried out silently: the dialog closes, the
+     * client is reinstalled, and the damage appears at the next launch as a wall
+     * of loader errors. With this the question can be put while the answer still
+     * costs nothing - "twelve of these forty publish no build for 1.21.1" - and
+     * the user decides knowing it.
+     *
+     * <p>Also what makes a way back offerable. The launcher records the version a
+     * profile came from; this says whether going back would actually help, so the
+     * offer is only made when it would.
+     */
+    public java.util.List<com.hexadron.launcher.mods.ModEntry> modsIn(
+            Profile profile, String minecraftVersion) {
         return com.hexadron.launcher.mods.ModScan.scan(
-                profiles.modsDirectory(profile), profile.minecraftVersion());
+                profiles.modsDirectory(profile), minecraftVersion);
+    }
+
+    /**
+     * The mods that would stop loading if this profile moved to
+     * {@code minecraftVersion}, in the order they are listed.
+     *
+     * <p>Only jars that rule the version out themselves. One that names no
+     * versions is not counted: the launcher does not know, and reporting a guess
+     * as a casualty would talk people out of changes that would have worked.
+     */
+    public java.util.List<com.hexadron.launcher.mods.ModEntry> modsBrokenBy(
+            Profile profile, String minecraftVersion) {
+        return com.hexadron.launcher.mods.ModScan.wrongVersion(
+                modsIn(profile, minecraftVersion));
+    }
+
+    /**
+     * The version to offer going back to, or empty when there is nothing worth
+     * offering.
+     *
+     * <p>Three conditions, and all have to hold. There has to be a recorded
+     * previous version - the launcher does not infer one from the mods' own
+     * ranges, which would at best name a range and at worst name a version the
+     * profile was never on. Something has to be broken now. And going back has
+     * to fix it without breaking anything else.
+     *
+     * <p>So a folder whose mods are wrong for both versions produces no offer,
+     * which is right: going back would swap one failure for another, and the
+     * user would have been told it was a fix.
+     */
+    public java.util.Optional<String> versionToGoBackTo(Profile profile) {
+        String previous = profile.previousMinecraftVersion();
+        if (previous == null || previous.isBlank()
+                || previous.equals(profile.minecraftVersion())) {
+            return java.util.Optional.empty();
+        }
+        if (modsBrokenBy(profile, profile.minecraftVersion()).isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        if (!modsBrokenBy(profile, previous).isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(previous);
+    }
+
+    /**
+     * Moves a profile to another Minecraft version, taking its mods with it.
+     *
+     * <p>Two halves, and only one of them can be done exactly. Mods the launcher
+     * installed are looked up again for the new version and replaced - that is
+     * {@link ModInstaller#migrateMods}, and it works from project ids. Jars the
+     * player put in the folder themselves have no project to look up, so they are
+     * judged the only way left: on what the jar itself says it accepts. One that
+     * rules the new version out is switched off; one that says nothing is left
+     * alone, because a guess that switches off a working mod is worse than a mod
+     * that turns out not to load.
+     *
+     * <p>The version is written to the profile first. Everything after it reads
+     * the profile's new version, and a half-moved profile - new mods, old version
+     * - is the state that is hardest to explain afterwards.
+     *
+     * @return what happened to each mod, for the caller to show
+     */
+    public ModInstaller.Migration moveToVersion(Profile profile, String minecraftVersion,
+                                                Progress progress)
+            throws IOException, InterruptedException {
+
+        profile.minecraftVersion(minecraftVersion);
+        profiles.save();
+
+        Path modsDir = profiles.modsDirectory(profile);
+        ModInstaller.Migration migration =
+                modInstaller.migrateMods(minecraftVersion, profile.loader(), modsDir, progress);
+
+        java.util.List<String> switchedOff = new java.util.ArrayList<>(migration.switchedOff());
+        for (com.hexadron.launcher.mods.ModEntry entry : modsBrokenBy(profile, minecraftVersion)) {
+            try {
+                setModEnabled(profile, entry, false);
+                switchedOff.add(entry.title() + " - this one was added by hand, and it says it "
+                        + "needs " + entry.requires());
+            } catch (IOException e) {
+                progress.log("%s could not be switched off: %s", entry.fileName(), e.getMessage());
+            }
+        }
+        return new ModInstaller.Migration(
+                migration.updated(), switchedOff, migration.kept());
     }
 
     /**
@@ -694,7 +800,7 @@ public final class LauncherService {
      * <p>Names the files rather than the projects: the fix is carried out in the
      * mods folder, and the file name is what identifies a jar there.
      */
-    private static String wrongVersionMessage(
+    private String wrongVersionMessage(
             Profile profile, java.util.List<com.hexadron.launcher.mods.ModEntry> wrongVersion) {
 
         boolean one = wrongVersion.size() == 1;
@@ -723,6 +829,16 @@ public final class LauncherService {
                         ? "\nSwitch it off, or replace it with a build for Minecraft "
                         : "\nSwitch them off, or replace them with builds for Minecraft ")
                 .append(profile.minecraftVersion()).append('.');
+
+        // The way back, when there is one that works. Named only after it has
+        // been checked against the mods themselves, so this is never the advice
+        // that trades one broken version for another.
+        versionToGoBackTo(profile).ifPresent(previous -> message
+                .append("\nThis profile was on Minecraft ").append(previous)
+                .append(" before, and every one of these loads there.")
+                .append(" Setting it back to ").append(previous)
+                .append(" is the other way out."));
+
         return message.toString();
     }
 

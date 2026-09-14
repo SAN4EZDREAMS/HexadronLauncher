@@ -148,6 +148,40 @@ public final class HexadronCli {
                 service.installProfile(profile, progress);
                 System.out.println("installed " + profile.effectiveVersionId());
             }
+            // Answers, from files already on disk, the question a launch answers
+            // by crashing: will these mods load. With a version given it answers
+            // it about a move that has not been made yet, which is the only
+            // moment at which the move is still free to reconsider.
+            case "check" -> {
+                requireArgs(args, 2, "check <profile> [mcVersion]");
+                Profile profile = requireProfile(service, args[1]);
+                String against = args.length > 2 ? args[2] : profile.minecraftVersion();
+                boolean hypothetical = !against.equals(profile.minecraftVersion());
+
+                List<com.hexadron.launcher.mods.ModEntry> installed =
+                        service.modsIn(profile, against);
+                List<com.hexadron.launcher.mods.ModEntry> broken =
+                        service.modsBrokenBy(profile, against);
+
+                System.out.println(profile.name() + "  " + installed.size() + " mod(s), judged "
+                        + (hypothetical ? "against Minecraft " + against + " (not installed)"
+                                        : "against Minecraft " + against));
+                if (broken.isEmpty()) {
+                    System.out.println("  every mod that says which versions it takes accepts "
+                            + against);
+                } else {
+                    System.out.println("  " + broken.size() + " would not load:");
+                    for (com.hexadron.launcher.mods.ModEntry entry : broken) {
+                        System.out.println("    " + entry.fileName()
+                                + (entry.requires() == null ? "" : "  (needs " + entry.requires() + ")"));
+                    }
+                }
+
+                service.versionToGoBackTo(profile).ifPresent(previous -> System.out.println(
+                        "  this profile was on " + previous
+                                + " before, and everything broken here loads there"));
+                return broken.isEmpty() ? 0 : 1;
+            }
             case "mods" -> {
                 requireArgs(args, 2, "mods <profile> [pack.json]");
                 Profile profile = requireProfile(service, args[1]);
@@ -270,6 +304,7 @@ public final class HexadronCli {
                   profiles                             list profiles
                   create <name> <mcVersion> [loader]   create a profile
                   install <profile>                    download everything the profile needs
+                  check <profile> [mcVersion]          say which mods would not load
                   mods <profile> [pack.json]           install a mod pack (default: Hexadron Optimise)
                   addjar <profile> <jar>               copy a locally built mod jar into the profile
                   search <query> <mcVersion> <loader>  search Modrinth and CurseForge

@@ -61,6 +61,27 @@ public final class ModInstaller {
     }
 
     /**
+     * What moving a mods folder to another Minecraft version did to it.
+     *
+     * @param updated     mods replaced with a build for the new version
+     * @param switchedOff mods with no build for it, renamed out of the way, each
+     *                    with the reason
+     * @param kept        mods whose current file already serves the new version
+     */
+    public record Migration(List<String> updated, List<String> switchedOff, List<String> kept) {
+        public Migration {
+            updated = List.copyOf(updated);
+            switchedOff = List.copyOf(switchedOff);
+            kept = List.copyOf(kept);
+        }
+
+        /** True when nothing had to be switched off to make the move. */
+        public boolean isClean() {
+            return switchedOff.isEmpty();
+        }
+    }
+
+    /**
      * Whether a pack can be installed for a given version and loader at all.
      *
      * <p>The two ways of failing are kept apart because they are answers to
@@ -909,6 +930,124 @@ public final class ModInstaller {
             // the caller falls back to telling the user to fetch it by hand.
             return Optional.empty();
         }
+    }
+
+    /**
+     * Moves an installed mods folder to another Minecraft version.
+     *
+     * <h2>What this is for</h2>
+     *
+     * <p>A set of mods is assembled for one Minecraft version. Changing a
+     * profile's version leaves every one of them where it is, and the ones with
+     * no build for the new version stop loading - which the player finds out at
+     * the next launch, as a page of loader errors naming mods that were working
+     * an hour ago. This does the work that change implies: each mod the launcher
+     * installed is looked up again for the new version and replaced, and the ones
+     * that have no build there are switched off rather than left to fail.
+     *
+     * <h2>Switched off, not deleted</h2>
+     *
+     * <p>A mod with no build for the new version may well get one next month, and
+     * the player may be moving versions to try something and moving back. Renaming
+     * is reversible from the mod list with one click; deleting is a download the
+     * player has to find again, and for a jar they built themselves it is not
+     * recoverable at all.
+     *
+     * <h2>What it does not touch</h2>
+     *
+     * <p>Jars the launcher did not install. They are not in the lock file, so
+     * there is no project to look up and nothing to replace them with. The caller
+     * deals with those - it has the folder scan, which reads each jar's own
+     * declared versions - and this stays the half that can be done exactly.
+     *
+     * @param minecraftVersion the version being moved to
+     * @param loader           the profile's loader, unchanged by the move
+     * @return what happened, per mod, in the order the folder lists them
+     */
+    public Migration migrateMods(String minecraftVersion, LoaderType loader, Path modsDir,
+                                 Progress progress) throws IOException, InterruptedException {
+
+        ModLibrary library = ModLibrary.read(modsDir);
+        List<String> updated = new ArrayList<>();
+        List<String> switchedOff = new ArrayList<>();
+        List<String> kept = new ArrayList<>();
+
+        for (InstalledMod installed : List.copyOf(library.all())) {
+            ModFile current = installed.file();
+            ModProvider provider = providers.get(current.source());
+
+            if (provider == null || !provider.isAvailable()) {
+                // Not knowing is not the same as knowing it will not work. The
+                // file is left alone and named, and the folder scan the caller
+                // runs afterwards decides it on the jar's own terms.
+                kept.add(installed.title() + " (" + current.source().displayName()
+                        + " is not configured, so it was left as it is)");
+                continue;
+            }
+
+            Optional<ModFile> replacement;
+            try {
+                replacement = provider.resolveLatest(current.projectId(), minecraftVersion, loader);
+            } catch (IOException e) {
+                kept.add(installed.title() + " (" + current.source().displayName()
+                        + " could not be reached, so it was left as it is)");
+                continue;
+            }
+
+            if (replacement.isEmpty()) {
+                if (disable(modsDir, current.fileName())) {
+                    switchedOff.add(installed.title() + " - no build for Minecraft "
+                            + minecraftVersion + " on " + loader.displayName());
+                }
+                continue;
+            }
+
+            ModFile next = replacement.get();
+            if (next.fileName().equals(current.fileName())) {
+                kept.add(installed.title());
+                continue;
+            }
+            if (!next.isDownloadable()) {
+                // The same wall the ordinary install runs into: the author has
+                // turned off third-party downloads. Switching the old one off
+                // would leave the player with neither.
+                kept.add(installed.title() + " (the author does not allow this build to be "
+                        + "downloaded here, so the old one was left in place)");
+                continue;
+            }
+
+            downloader.run(List.of(DownloadTask.of(next.url(), modsDir.resolve(next.fileName()),
+                    next.sha1(), next.size(), next.fileName())), progress);
+            Files.deleteIfExists(modsDir.resolve(current.fileName()));
+            // Everything but the file itself is carried over. The shorter
+            // constructors drop the artwork, the page link, the categories and
+            // the data pack that owns the mod - an update would quietly strip a
+            // row in the mod list of everything that identifies it.
+            library.put(new InstalledMod(installed.title(), next, installed.origin(),
+                    installed.packId(), installed.iconUrl(), installed.pageUrl(),
+                    installed.categories(), installed.datapack()));
+            updated.add(installed.title() + " -> " + next.fileName());
+            progress.log("%s updated for Minecraft %s", installed.title(), minecraftVersion);
+        }
+
+        library.write();
+        return new Migration(updated, switchedOff, kept);
+    }
+
+    /**
+     * Renames a jar so the loader ignores it.
+     *
+     * @return false when there was nothing there to rename, which is not a
+     *         failure: the lock file can name a file a player has already removed
+     */
+    private static boolean disable(Path modsDir, String fileName) throws IOException {
+        Path enabled = modsDir.resolve(fileName);
+        if (!Files.isRegularFile(enabled)) {
+            return false;
+        }
+        Files.move(enabled, modsDir.resolve(fileName + ModScan.DISABLED_SUFFIX),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        return true;
     }
 
     private Optional<ModFile> resolve(ModProvider provider, Pending pending,
