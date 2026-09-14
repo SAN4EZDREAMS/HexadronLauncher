@@ -1619,7 +1619,14 @@ public final class MainWindow implements ProfileHost {
             ModEntry mod = wrong.get(i);
             detail.append("\n  · ").append(mod.title());
             if (mod.requires() != null) {
-                detail.append(I18n.t("mods.wrongVersion.needs", mod.requires()));
+                // The separator is put here rather than left to the translation.
+                // Every one of them begins with a space, and every one of them
+                // loses it: a properties file strips leading whitespace from a
+                // value, so the line came out as "EntityCulling- needs 26.2".
+                // Trimmed first, so this reads the same whether the file is
+                // fixed later or not.
+                detail.append(' ')
+                        .append(I18n.t("mods.wrongVersion.needs", mod.requires()).trim());
             }
         }
         if (wrong.size() > listed) {
@@ -1643,8 +1650,65 @@ public final class MainWindow implements ProfileHost {
         javafx.scene.control.ButtonType cancel =
                 new javafx.scene.control.ButtonType(I18n.t("action.cancel"),
                         javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
-        alert.getButtonTypes().setAll(cancel, launch);
-        return alert.showAndWait().filter(launch::equals).isPresent();
+
+        // The way back, offered only when the launcher has one to offer: a
+        // recorded previous version that every one of these mods loads on. It is
+        // the answer to what actually happened in nearly every case - the
+        // instance was moved to another Minecraft version and its mods were
+        // left where they were - and without it the two buttons on offer are
+        // "start something that will not start" and "give up".
+        java.util.Optional<String> goBack;
+        try {
+            goBack = service.versionToGoBackTo(profile);
+        } catch (RuntimeException e) {
+            goBack = java.util.Optional.empty();
+        }
+        javafx.scene.control.ButtonType back = goBack
+                .map(version -> new javafx.scene.control.ButtonType(
+                        I18n.t("mods.wrongVersion.goBack", version),
+                        javafx.scene.control.ButtonBar.ButtonData.OTHER))
+                .orElse(null);
+
+        if (back == null) {
+            alert.getButtonTypes().setAll(cancel, launch);
+        } else {
+            alert.getButtonTypes().setAll(cancel, back, launch);
+        }
+
+        java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
+        if (answer.isEmpty()) {
+            return false;
+        }
+        if (back != null && answer.get() == back) {
+            goBackToVersion(profile, goBack.orElseThrow());
+            // Not this launch. The move downloads mods and the version it moves
+            // to is not installed yet, both of which take longer than a player
+            // will sit watching a dialog they have already dismissed. Pressing
+            // Play again afterwards installs and starts in one go.
+            return false;
+        }
+        return answer.get() == launch;
+    }
+
+    /**
+     * Puts a profile back on the Minecraft version it came from, mods and all.
+     *
+     * <p>The mods are the point. Setting the version back alone would leave the
+     * folder holding builds for the version being left, which is the same
+     * failure in the other direction - so each one the launcher installed is
+     * looked up again for the version being returned to.
+     */
+    private void goBackToVersion(Profile profile, String version) {
+        runInBackground(I18n.t("mods.wrongVersion.goBack", version), () -> {
+            var migration = service.moveToVersion(profile, version, progress);
+            migration.updated().forEach(note -> progress.log("  %s", note));
+            migration.switchedOff().forEach(note -> progress.log("  %s", note));
+            Platform.runLater(() -> {
+                refreshProfiles();
+                showInfo(I18n.t("mods.wrongVersion.header"),
+                        I18n.t("mods.wrongVersion.goBack.done", profile.name(), version));
+            });
+        });
     }
 
     /** How many offending mods the warning names before it starts counting. */
