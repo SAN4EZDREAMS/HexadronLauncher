@@ -1374,7 +1374,13 @@ public final class MainWindow implements ProfileHost {
                             setBusy(false);
                             showProfile(shown);
                         });
-                    });
+                    },
+                    // The question has been put already, by
+                    // confirmWrongVersionMods above, and answered "start it".
+                    // Without this the service asks it again with no one to
+                    // answer, and refuses - which turns that button into one
+                    // that does nothing.
+                    true);
             progress.finish(I18n.t("status.playing"));
             Platform.runLater(() -> {
                 playing = true;

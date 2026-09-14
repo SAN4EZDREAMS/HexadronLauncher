@@ -163,9 +163,16 @@ public final class HexadronCli {
                 List<com.hexadron.launcher.mods.ModEntry> broken =
                         service.modsBrokenBy(profile, against);
 
-                System.out.println(profile.name() + "  " + installed.size() + " mod(s), judged "
-                        + (hypothetical ? "against Minecraft " + against + " (not installed)"
-                                        : "against Minecraft " + against));
+                // A switched-off jar is counted but never faulted, so say how
+                // many there are: without it a folder holding a mod that is
+                // plainly wrong for this version reads as a clean bill of health,
+                // and the next question is whether the check itself works.
+                long switchedOff = installed.stream()
+                        .filter(entry -> !entry.enabled()).count();
+                System.out.println(profile.name() + "  " + installed.size() + " mod(s)"
+                        + (switchedOff == 0 ? "" : " (" + switchedOff + " switched off)")
+                        + ", judged against Minecraft " + against
+                        + (hypothetical ? " (not installed)" : ""));
                 if (broken.isEmpty()) {
                     System.out.println("  every mod that says which versions it takes accepts "
                             + against);
@@ -181,6 +188,34 @@ public final class HexadronCli {
                         "  this profile was on " + previous
                                 + " before, and everything broken here loads there"));
                 return broken.isEmpty() ? 0 : 1;
+            }
+            // The move the dialog will make, with the same call behind it. It
+            // writes to the mods folder, so it exists here first: a thing that
+            // rewrites a player's folder should be run by hand a few times before
+            // a button is put in front of it.
+            case "move" -> {
+                requireArgs(args, 3, "move <profile> <mcVersion>");
+                Profile profile = requireProfile(service, args[1]);
+                String from = profile.minecraftVersion();
+                if (from.equals(args[2])) {
+                    System.out.println(profile.name() + " is already on " + args[2]);
+                    return 0;
+                }
+
+                ModInstaller.Migration migration =
+                        service.moveToVersion(profile, args[2], progress);
+
+                System.out.println(profile.name() + ": " + from + " -> " + args[2]);
+                migration.updated().forEach(note -> System.out.println("  updated: " + note));
+                migration.switchedOff().forEach(note -> System.out.println("  switched off: " + note));
+                migration.kept().forEach(note -> System.out.println("  kept: " + note));
+                if (migration.isClean()) {
+                    System.out.println("  every mod came across");
+                }
+                // Changing the version cleared the installed version id, so the
+                // client for the new one is not on disk yet.
+                System.out.println("  run: install " + profile.id());
+                return 0;
             }
             case "mods" -> {
                 requireArgs(args, 2, "mods <profile> [pack.json]");
@@ -305,6 +340,7 @@ public final class HexadronCli {
                   create <name> <mcVersion> [loader]   create a profile
                   install <profile>                    download everything the profile needs
                   check <profile> [mcVersion]          say which mods would not load
+                  move <profile> <mcVersion>           change the version, taking the mods along
                   mods <profile> [pack.json]           install a mod pack (default: Hexadron Optimise)
                   addjar <profile> <jar>               copy a locally built mod jar into the profile
                   search <query> <mcVersion> <loader>  search Modrinth and CurseForge

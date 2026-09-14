@@ -1500,6 +1500,27 @@ public final class LauncherService {
     public GameLauncher.GameSession launch(Profile profile, Account account, Progress progress,
                                            Consumer<String> onOutput, IntConsumer onExit)
             throws IOException, InterruptedException {
+        return launch(profile, account, progress, onOutput, onExit, false);
+    }
+
+    /**
+     * The same, for a caller that has already put the question to the user.
+     *
+     * <p>Mods that name a Minecraft version this profile is not on will not
+     * load, and the launch stops rather than spending two minutes to arrive at a
+     * loader error. That is right when there is nobody to ask - a scripted run,
+     * the command line - and wrong as a rule: a version range is written by a
+     * mod author and can be out of date, and a player who knows their pack works
+     * is not to be argued with. So an interface that has asked and been told to
+     * go ahead says so here, and is believed.
+     *
+     * @param modsAlreadyConfirmed true when the caller has shown the user which
+     *                             mods will not load and been told to start anyway
+     */
+    public GameLauncher.GameSession launch(Profile profile, Account account, Progress progress,
+                                           Consumer<String> onOutput, IntConsumer onExit,
+                                           boolean modsAlreadyConfirmed)
+            throws IOException, InterruptedException {
 
         // Checked before anything is downloaded. An unusable name otherwise
         // surfaces minutes later, inside the game, as the player being dropped
@@ -1530,9 +1551,12 @@ public final class LauncherService {
         // the game exiting with code 1 and a page of resolution errors naming
         // every mod in the set - which reads as "the launcher is broken" and
         // takes an evening to trace back to one jar for the wrong version.
-        java.util.List<com.hexadron.launcher.mods.ModEntry> wrongVersion = wrongVersionMods(profile);
-        if (!wrongVersion.isEmpty()) {
-            throw new IOException(wrongVersionMessage(profile, wrongVersion));
+        if (!modsAlreadyConfirmed) {
+            java.util.List<com.hexadron.launcher.mods.ModEntry> wrongVersion =
+                    wrongVersionMods(profile);
+            if (!wrongVersion.isEmpty()) {
+                throw new IOException(wrongVersionMessage(profile, wrongVersion));
+            }
         }
 
         Path gameDir = profiles.gameDirectory(profile);
