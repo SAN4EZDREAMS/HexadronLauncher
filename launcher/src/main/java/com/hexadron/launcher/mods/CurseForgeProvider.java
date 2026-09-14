@@ -710,8 +710,6 @@ public final class CurseForgeProvider implements ModProvider {
                                          String minecraftVersion, LoaderType loader)
             throws IOException, InterruptedException {
 
-        ModProvider.requireVersionForFileLookup(kind, minecraftVersion);
-
         String version = kind.isFilteredByVersion() ? minecraftVersion : null;
 
         // Every tag this loader can actually run, most specific first. On Quilt
@@ -808,6 +806,18 @@ public final class CurseForgeProvider implements ModProvider {
             }
         }
 
+        // The platform puts loader names in this array beside the Minecraft
+        // versions - "Fabric", "Client", "1.20.1". Kept as published rather than
+        // filtered: the installer only ever asks whether one version is in the
+        // list, and an entry that is not a version cannot answer yes to that.
+        List<String> gameVersions = new ArrayList<>();
+        for (Json gameVersion : file.get("gameVersions").elements()) {
+            String value = gameVersion.asString(null);
+            if (value != null) {
+                gameVersions.add(value);
+            }
+        }
+
         return new ModFile(
                 projectId,
                 null,
@@ -818,7 +828,8 @@ public final class CurseForgeProvider implements ModProvider {
                 sha1Of(file),
                 file.get("fileLength").asLong(-1),
                 dependencies,
-                Source.CURSEFORGE);
+                Source.CURSEFORGE,
+                gameVersions);
     }
 
     /** CurseForge reports hashes as a list with algo 1 = SHA-1, 2 = MD5. */

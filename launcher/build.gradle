@@ -147,6 +147,12 @@ tasks.register('selfCheck', JavaExec) {
 	description = 'Runs the dependency-free self-check over the launch core.'
 	classpath = sourceSets.main.runtimeClasspath
 	mainClass = 'com.hexadron.launcher.SelfCheck'
+
+	// Same reason as the cli task below: the check names translations and
+	// profiles, and a mangled name in a failure report costs the time it takes
+	// to work out that the report itself is what is broken.
+	systemProperty 'stdout.encoding', 'UTF-8'
+	systemProperty 'stderr.encoding', 'UTF-8'
 }
 
 tasks.named('check') {
@@ -162,6 +168,16 @@ tasks.register('cli', JavaExec) {
 	description = 'Runs the launcher headlessly.'
 	classpath = sourceSets.main.runtimeClasspath
 	mainClass = 'com.hexadron.launcher.cli.HexadronCli'
+
+	// Gradle reads the child's output as UTF-8, and a JVM whose stdout is a pipe
+	// rather than a console does not write UTF-8 - from Java 19 it falls back to
+	// native.encoding, which on a Windows machine is a legacy code page. The two
+	// disagree, Gradle's decoder replaces every byte it cannot read, and a
+	// profile called "Більбао" is listed as a row of U+FFFD. Nothing is wrong
+	// with the data: run the packaged launcher and the name is intact. This only
+	// affects output read through Gradle, which is to say all of development.
+	systemProperty 'stdout.encoding', 'UTF-8'
+	systemProperty 'stderr.encoding', 'UTF-8'
 }
 
 // ----------------------------------------------------------------- packaging

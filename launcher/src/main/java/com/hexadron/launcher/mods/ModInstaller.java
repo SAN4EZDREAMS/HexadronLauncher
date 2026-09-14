@@ -916,7 +916,15 @@ public final class ModInstaller {
             throws IOException, InterruptedException {
 
         if (pending.versionId != null && provider instanceof ModrinthProvider modrinth) {
-            return modrinth.resolveVersion(pending.projectId, pending.versionId);
+            // A pinned build is fetched by its own id, so nothing in the request
+            // narrows it to this instance's Minecraft version - the pack decided
+            // that when it was written, possibly for another version entirely.
+            // The file says which versions it is for, and an answer that does not
+            // include this one is dropped here rather than written into mods/,
+            // where it would surface at the next launch as a loader error naming
+            // every mod in the folder.
+            return modrinth.resolveVersion(pending.projectId, pending.versionId)
+                    .filter(file -> file.supports(minecraftVersion));
         }
         return provider.resolveLatest(pending.projectId, minecraftVersion, loader);
     }

@@ -31,17 +31,58 @@ import java.util.List;
  * @param size         bytes, or -1
  * @param dependencies required project ids that must also be installed
  * @param source       which provider produced this
+ * @param gameVersions the Minecraft versions the platform publishes this file
+ *                     for. Empty when nothing was said about them, which is not
+ *                     the same as "none" - see {@link #supports}
  */
 public record ModFile(String projectId, String projectSlug, String versionId, String displayName,
                       String fileName, String url, String sha1, long size,
-                      List<String> dependencies, ModProvider.Source source) {
+                      List<String> dependencies, ModProvider.Source source,
+                      List<String> gameVersions) {
 
     public ModFile {
         dependencies = List.copyOf(dependencies);
+        gameVersions = gameVersions == null ? List.of() : List.copyOf(gameVersions);
+    }
+
+    /**
+     * The form for callers that are rebuilding a file rather than reading one
+     * from a platform - a mirrored download, a name parsed out of a pack.
+     *
+     * <p>Those have no version list of their own to pass, and inventing one
+     * would be worse than having none: {@link #supports} treats an empty list as
+     * "not known", and that is exactly what it is.
+     */
+    public ModFile(String projectId, String projectSlug, String versionId, String displayName,
+                   String fileName, String url, String sha1, long size,
+                   List<String> dependencies, ModProvider.Source source) {
+        this(projectId, projectSlug, versionId, displayName, fileName, url, sha1, size,
+                dependencies, source, List.of());
     }
 
     public boolean isDownloadable() {
         return url != null && !url.isBlank();
+    }
+
+    /**
+     * Whether this file is published for {@code minecraftVersion}.
+     *
+     * <p>True when the platform listed no versions at all. An unknown answer
+     * must not block an install: the launcher already refuses a lookup that
+     * cannot be narrowed to a version, and a second guess on top of that would
+     * only turn a working install into a false refusal. What this catches is the
+     * case where the platform <em>did</em> say, and said something else - a file
+     * pinned by a pack, or one carried over from a profile on another version.
+     *
+     * <p>CurseForge lists loader names in the same array as the versions, which
+     * costs nothing here: a containment test cannot be confused by an extra
+     * entry that is not a version.
+     */
+    public boolean supports(String minecraftVersion) {
+        if (gameVersions.isEmpty() || minecraftVersion == null || minecraftVersion.isBlank()) {
+            return true;
+        }
+        return gameVersions.contains(minecraftVersion);
     }
 
     public Json toJson() {
@@ -64,6 +105,13 @@ public record ModFile(String projectId, String projectSlug, String versionId, St
         if (sha1 != null) {
             json.put("sha1", sha1);
         }
+        // Written only when there is something to write, so a lock file from a
+        // build that predates this field stays byte-identical after a rewrite.
+        if (!gameVersions.isEmpty()) {
+            Json versions = Json.array();
+            gameVersions.forEach(versions::add);
+            json.put("gameVersions", versions);
+        }
         return json;
     }
 
@@ -73,6 +121,13 @@ public record ModFile(String projectId, String projectSlug, String versionId, St
             String value = dep.asString(null);
             if (value != null) {
                 dependencies.add(value);
+            }
+        }
+        List<String> gameVersions = new java.util.ArrayList<>();
+        for (Json version : json.get("gameVersions").elements()) {
+            String value = version.asString(null);
+            if (value != null) {
+                gameVersions.add(value);
             }
         }
         return new ModFile(
@@ -85,6 +140,7 @@ public record ModFile(String projectId, String projectSlug, String versionId, St
                 json.get("sha1").asString(null),
                 json.get("size").asLong(-1),
                 dependencies,
-                ModProvider.Source.valueOf(json.get("source").asString("MODRINTH")));
+                ModProvider.Source.valueOf(json.get("source").asString("MODRINTH")),
+                gameVersions);
     }
 }

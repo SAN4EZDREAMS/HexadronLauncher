@@ -56,6 +56,26 @@ public final class ProcessorRunner {
 
     private static final Pattern SHA1 = Pattern.compile("[0-9a-fA-F]{40}");
 
+    /**
+     * Heap ceiling for one processor.
+     *
+     * <p>Given rather than left to the JVM, because the default is a quarter of
+     * physical RAM and is reserved whether or not it is used. On a 16 GB machine
+     * that is a four-gigabyte reservation for a program whose job is to merge two
+     * mapping files, and on Windows it counts against the commit limit in full.
+     * An install then fails at
+     *
+     * <pre>net.minecraftforge:installertools:1.4.1 failed with exit code 1</pre>
+     *
+     * with the reason buried in the tool's own output, on a machine with memory
+     * to spare - and it fails first, before the game ever gets a chance to.
+     *
+     * <p>These are mapping merges, jar splits, remaps and binary patches over
+     * files of a few tens of megabytes. The ceiling is generous for that and
+     * small enough to leave the system alone.
+     */
+    private static final String MAX_HEAP = "-Xmx1536M";
+
     private final Path javaExecutable;
     private final Path librariesDir;
     private final Path workDir;
@@ -127,6 +147,7 @@ public final class ProcessorRunner {
 
         List<String> command = new ArrayList<>();
         command.add(javaExecutable.toAbsolutePath().toString());
+        command.add(MAX_HEAP);
         command.add("-cp");
         command.add(String.join(File.pathSeparator, classpath));
         command.add(mainClassOf(jar));

@@ -936,6 +936,59 @@ public final class SelfCheck {
         check("a clean exit is not blamed on the wrapper",
                 com.hexadron.launcher.launch.GameLauncher.describeExit(0, "bwrap")
                         .equals(com.hexadron.launcher.launch.GameLauncher.describeExit(0)));
+
+        // Read out of a real crash. Every one of these ends as exit code 1, which
+        // says a crash happened and nothing about what, so the cause has to come
+        // out of the output. The lines are copied verbatim from a session that
+        // took an evening to work out by hand.
+        String pageFile = com.hexadron.launcher.launch.GameLauncher.explain(
+                "OpenJDK 64-Bit Server VM warning: INFO: os::commit_memory(0x0000000720000000, "
+                        + "633339904, 0) failed; error='The paging file is too small for this "
+                        + "operation to complete' (DOS error/errno=1455)");
+        check("the page file limit is recognised", pageFile != null);
+        check("the page file answer says what to change",
+                pageFile != null && pageFile.contains("page file")
+                        && pageFile.contains("memory setting"));
+
+        check("a native memory failure is recognised",
+                com.hexadron.launcher.launch.GameLauncher.explain(
+                        "# There is insufficient memory for the Java Runtime Environment "
+                                + "to continue.") != null);
+
+        String heap = com.hexadron.launcher.launch.GameLauncher.explain(
+                "Exception in thread \"main\" java.lang.OutOfMemoryError: Java heap space");
+        check("a filled heap is recognised", heap != null);
+        // The two run out of memory in opposite directions, and the fixes are
+        // opposite too. Telling a user to raise the heap while the system is
+        // already at its commit limit makes the next attempt fail sooner.
+        check("a filled heap is answered by raising the limit",
+                heap != null && heap.contains("Raise"));
+        check("the system running out is not answered by raising it",
+                pageFile != null && !pageFile.contains("Raise"));
+
+        check("a missing game is recognised as a broken install",
+                com.hexadron.launcher.launch.GameLauncher.explain(
+                        "\tMod ID: 'minecraft', Requested by: 'swem', Expected range: "
+                                + "'[1.21.1,1.21.1]', Actual version: '[MISSING]'") != null);
+        check("a broken install does not send the user to the mods folder",
+                com.hexadron.launcher.launch.GameLauncher.explain(
+                        "\tMod ID: 'neoforge', Requested by: 'swem', Expected range: "
+                                + "'[21.1.240,)', Actual version: '[MISSING]'")
+                        .contains("does not need to be touched"));
+
+        // An ordinary missing mod is the user's to fix and is reported elsewhere;
+        // calling the installation broken would send them to reinstall a loader
+        // that is perfectly fine.
+        check("an ordinary missing dependency is left alone",
+                com.hexadron.launcher.launch.GameLauncher.explain(
+                        "\tMod ID: 'flywheel', Requested by: 'create', Expected range: "
+                                + "'[0.6.8,)', Actual version: '[MISSING]'") == null);
+        check("ordinary output explains nothing",
+                com.hexadron.launcher.launch.GameLauncher.explain(
+                        "[Render thread/INFO]: Loading Xaero's Minimap - Stage 2/2") == null);
+        check("a blank line explains nothing",
+                com.hexadron.launcher.launch.GameLauncher.explain("") == null
+                        && com.hexadron.launcher.launch.GameLauncher.explain(null) == null);
     }
 
     // ---------------------------------------------------------------- assets
@@ -3445,6 +3498,43 @@ public final class SelfCheck {
         } finally {
             deleteRecursively(dir);
         }
+
+        // What a platform publishes a file for, which is the only thing that can
+        // answer the question when the request did not narrow it: a pack pinning
+        // a build fetches it by its own id, and the reply is whatever that build
+        // is, for whatever game it was made for.
+        com.hexadron.launcher.mods.ModFile forOneTwenty = new com.hexadron.launcher.mods.ModFile(
+                "AANobbMI", "sodium", "v1", "Sodium 0.5.13", "sodium-fabric-0.5.13.jar",
+                "https://example/sodium.jar", null, -1, java.util.List.of(),
+                com.hexadron.launcher.mods.ModProvider.Source.MODRINTH,
+                java.util.List.of("1.20.1", "1.20"));
+        check("a file is accepted by a version it lists", forOneTwenty.supports("1.20.1"));
+        check("and refused by one it does not", !forOneTwenty.supports("26.2"));
+
+        // Silence is not a "no". The launcher already refuses a lookup it cannot
+        // narrow to a version, and guessing on top of that would turn installs
+        // that work today into refusals for a field the platform never filled in.
+        com.hexadron.launcher.mods.ModFile saidNothing = new com.hexadron.launcher.mods.ModFile(
+                "abcd", "mystery", "v1", "Mystery", "mystery.jar",
+                "https://example/mystery.jar", null, -1, java.util.List.of(),
+                com.hexadron.launcher.mods.ModProvider.Source.MODRINTH);
+        check("a file that lists no versions is not refused", saidNothing.supports("1.20.1"));
+        check("the short form leaves the list empty", saidNothing.gameVersions().isEmpty());
+
+        // CurseForge puts loader names in the same array as the versions.
+        com.hexadron.launcher.mods.ModFile curseShaped = new com.hexadron.launcher.mods.ModFile(
+                "1", "x", "v1", "X", "x.jar", "https://example/x.jar", null, -1,
+                java.util.List.of(), com.hexadron.launcher.mods.ModProvider.Source.CURSEFORGE,
+                java.util.List.of("1.20.1", "Fabric", "Client"));
+        check("a loader name in the version list changes nothing",
+                curseShaped.supports("1.20.1") && !curseShaped.supports("Forge"));
+
+        com.hexadron.launcher.mods.ModFile round = com.hexadron.launcher.mods.ModFile.fromJson(
+                forOneTwenty.toJson());
+        check("the version list survives the lock file", round.supports("1.20.1")
+                && !round.supports("26.2"));
+        check("an empty list is left out of the lock file",
+                !saidNothing.toJson().has("gameVersions"));
     }
 
 

@@ -134,8 +134,6 @@ public final class ModrinthProvider implements ModProvider {
                                          List<String> loaderTags)
             throws IOException, InterruptedException {
 
-        ModProvider.requireVersionForFileLookup(kind, minecraftVersion);
-
         StringBuilder url = new StringBuilder(API)
                 .append("/project/").append(encode(projectId)).append("/version");
         List<String> params = new ArrayList<>();
@@ -486,6 +484,18 @@ public final class ModrinthProvider implements ModProvider {
             }
         }
 
+        // Carried rather than discarded: a file resolved by an exact version id -
+        // a pack that pins a build, a mirror looked up by hash - reaches the
+        // installer with no request parameters to have narrowed it, and this
+        // list is then the only thing that can say which game it is for.
+        List<String> gameVersions = new ArrayList<>();
+        for (Json gameVersion : version.get("game_versions").elements()) {
+            String value = gameVersion.asString(null);
+            if (value != null) {
+                gameVersions.add(value);
+            }
+        }
+
         return new ModFile(
                 version.get("project_id").asString(projectId),
                 null,
@@ -496,7 +506,8 @@ public final class ModrinthProvider implements ModProvider {
                 chosenFile.get("hashes").get("sha1").asString(null),
                 chosenFile.get("size").asLong(-1),
                 dependencies,
-                Source.MODRINTH);
+                Source.MODRINTH,
+                gameVersions);
     }
 
     private static String encode(String value) {
