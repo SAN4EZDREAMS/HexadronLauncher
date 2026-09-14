@@ -318,15 +318,25 @@ public final class VersionJson {
      * @param parent the manifest it inherits from
      */
     public static VersionJson merge(VersionJson child, VersionJson parent) {
-        List<Library> mergedLibraries = new ArrayList<>();
-        Set<String> seen = new LinkedHashSet<>();
+        // Only the child may displace a parent entry. Collapsing entries within
+        // one manifest's own list is never right: before 1.19 a vanilla manifest
+        // legitimately carries several entries under one coordinate, told apart
+        // only by their rules and by their role. Minecraft 1.18.2 lists
+        // org.lwjgl:lwjgl four times - 3.2.1 and 3.2.2, each once as a classpath
+        // jar and once as a natives container - and keeping merely the first
+        // leaves the macOS-only variant, which appliesToThisHost() then drops.
+        // On Windows the launch ends up with no LWJGL at all and dies as
+        // NoClassDefFoundError: org/lwjgl/system/MemoryUtil the moment the game
+        // touches the renderer. Rules are evaluated downstream, in
+        // LaunchCommandBuilder.buildClasspath and in VersionInstaller, and that
+        // is where the choice between these variants belongs.
+        List<Library> mergedLibraries = new ArrayList<>(child.libraries);
+        Set<String> displaced = new LinkedHashSet<>();
         for (Library library : child.libraries) {
-            if (seen.add(library.dedupeKey())) {
-                mergedLibraries.add(library);
-            }
+            displaced.add(overrideKey(library));
         }
         for (Library library : parent.libraries) {
-            if (seen.add(library.dedupeKey())) {
+            if (!displaced.contains(overrideKey(library))) {
                 mergedLibraries.add(library);
             }
         }
@@ -372,6 +382,18 @@ public final class VersionJson {
                 child.logging.exists() ? child.logging : parent.logging,
                 Math.max(child.complianceLevel, parent.complianceLevel),
                 child.raw);
+    }
+
+    /**
+     * Identity a child library entry uses to displace a parent one.
+     *
+     * <p>The coordinate alone is not enough. A classpath jar and a natives
+     * container can share it - 1.18.2's {@code org.lwjgl:lwjgl} does - and a
+     * loader that overrides the jar must not thereby delete the natives.
+     */
+    private static String overrideKey(Library library) {
+        return (library.isLegacyNativeContainer() ? "natives " : "classpath ")
+                + library.dedupeKey();
     }
 
     @Override
