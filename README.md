@@ -11,7 +11,8 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 |---|---|
 | Minecraft versions | Every version in Mojang's `version_manifest_v2` - releases, snapshots, old_beta, old_alpha |
 | Loaders | Fabric, Quilt, Forge and NeoForge all install and launch. The version picker offers only versions the chosen loader has builds for |
-| Accounts | Offline accounts work and can be removed. Microsoft sign-in is implemented and needs an approved Azure client ID |
+| Accounts | Offline accounts work and can be removed. Microsoft sign-in is implemented and needs an approved Azure client ID. The account chosen in the box is saved at once, so the launcher opens on it next time |
+| Builds | A profile exports to one `.hexbuild` file - version, loader, settings, mods, packs, configs, optionally worlds - and imports as a new profile on any machine. Files from Modrinth and CurseForge travel as links; the player's own files travel only when they say so |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments and Java path |
 | Mods | One content window per instance, with a rail of kinds down the left - icons until the pointer is on it, names while it is. Mods: search, sort, filter by category, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically, and the launcher asks before you switch off or delete something other mods depend on |
 | Modpacks | Modrinth `.mrpack` and CurseForge modpack zips, from either platform's catalogue or from a file on disk. The window asks first whether the pack should become a new instance or take over this one, and every file it writes is recorded so removing it deletes exactly those |
@@ -1649,6 +1650,39 @@ selected, stay where the game and Iris keep them - `options.txt` and
 `config/iris.properties` - and the launcher does not write to either. It manages
 the folder; the game manages its own settings.
 
+## Build files
+
+**Export build** (sidebar, or the profile's right-click menu) writes a profile
+out as a `.hexbuild` file; **Import** makes a new profile from one. A build is a
+zip:
+
+| Entry | What it holds |
+|---|---|
+| `hexadron-build.json` | Minecraft version, loader and loader build, memory, window size, launch arguments, and every file that can be downloaded again - its path, address and SHA-1 - with the launcher's own record of it |
+| `files/<path>` | Files carried inside the build: configs and `options.txt`, worlds when chosen, and the player's own files when they said yes |
+| `icon/<name>` | The profile's own picture |
+
+**What is a custom file.** A file the launcher recorded when it downloaded it is
+named by its address. A file it did not download is hashed and Modrinth is asked
+whether it publishes those exact bytes; if it does, it is named by that address.
+Anything left - a jar the player built, a pack from a forum, an unpacked resource
+pack folder - can only travel inside the build, and the launcher asks first:
+"The build contains personal custom mods with no information about them. Export
+them too?". The import asks the same question the other way round.
+
+**Data packs** belong to worlds, so they travel with the **Worlds** option. Off
+by default: a world is often the largest and most personal thing in an instance.
+
+**Never exported:** accounts, the Java path (a path on one machine) and the
+wrapper command (a program the launcher runs). **Checked on import:** every path
+must land inside the new instance, every address must be HTTPS, and every
+download must match the SHA-1 the exporting launcher recorded. Launch arguments
+from a build are shown and left off until ticked - a JVM argument can load code
+or run a command.
+
+An import always makes a new profile. Importing over an existing one would mean
+deciding whose copy of each file wins, and the loser could be a world.
+
 ## Updating itself
 
 The launcher checks its own repository for a newer build while the start-up
@@ -1930,10 +1964,9 @@ field is for `mangohud`-style tools, not for isolation.
 ## Not done yet
 
 - Export of a working instance as a Modrinth `.mrpack` or a CurseForge modpack.
-  Reading both and installing from them is done - see **Modpacks** above - and
-  writing one is the other half: it means deciding which of an instance's files
-  are the set and which are the player's, which is a question the launcher can
-  only answer for the files it recorded.
+  The launcher's own `.hexbuild` format does this already - see **Build files** -
+  and sorts an instance's files into the set and the player's own; writing the
+  two platform formats from the same sort is what is left.
 - Browser-assisted downloads for the mods whose authors disabled third-party
   distribution. Today those are named, skipped, and left to be fetched by hand
   after the Modrinth mirror has been tried. The other half would be: open each

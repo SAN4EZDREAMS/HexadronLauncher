@@ -1042,6 +1042,83 @@ public final class LauncherService {
         return modpackInstaller.install(pack, card, profiles.gameDirectory(profile), progress);
     }
 
+    // ---------------------------------------------------------------- builds
+
+    /**
+     * Reads a profile for export and sorts its files.
+     *
+     * <p>The first half of an export: nothing is written. What it returns says
+     * which files are the player's own, so the interface can ask about them
+     * before {@link #writeBuild} puts anything on disk.
+     */
+    public com.hexadron.launcher.share.BuildExport.Plan planBuild(
+            Profile profile, com.hexadron.launcher.share.BuildExport.Options options,
+            Progress progress) throws InterruptedException {
+
+        Path icon = profile.hasCustomIcon() ? dirs.icons().resolve(profile.customIcon()) : null;
+        return com.hexadron.launcher.share.BuildExport.plan(profile,
+                profiles.gameDirectory(profile), icon, options,
+                modrinth, progress);
+    }
+
+    /** The second half of an export. */
+    public int writeBuild(com.hexadron.launcher.share.BuildExport.Plan plan,
+                          boolean includeCustom, Path target, Progress progress)
+            throws IOException, InterruptedException {
+        return com.hexadron.launcher.share.BuildExport.write(plan, includeCustom, target,
+                "Hexadron Launcher " + com.hexadron.launcher.BuildConfig.version(), progress);
+    }
+
+    /** Reads a build file without installing anything. */
+    public com.hexadron.launcher.share.BuildImport readBuild(Path archive) throws IOException {
+        return com.hexadron.launcher.share.BuildImport.read(archive);
+    }
+
+    /** A profile made from a build, and what came of filling it. */
+    public record ImportedBuild(Profile profile,
+                                com.hexadron.launcher.share.BuildImport.Result result) {
+    }
+
+    /**
+     * Makes a new profile out of a build.
+     *
+     * <p>Always a new one. Importing over an existing instance would mean
+     * deciding, file by file, whose copy wins - and the loser would be a world
+     * or a config the player had not backed up. A new profile has nothing to
+     * lose.
+     *
+     * <p>Created and saved before anything is downloaded, for the same reason as
+     * {@link #createProfileForModpack}: an import that fails half-way leaves an
+     * instance the player can see, retry into, or delete.
+     *
+     * @param name          what to call it; made unique if it is taken
+     * @param includeCustom whether the player's own files are taken out of the build
+     * @param withArguments whether the build's JVM and game arguments are used
+     */
+    public ImportedBuild importBuild(com.hexadron.launcher.share.BuildImport build, String name,
+                                     boolean includeCustom, boolean withArguments,
+                                     Progress progress)
+            throws IOException, InterruptedException {
+
+        Profile profile = Profile.create(freeProfileName(name == null || name.isBlank()
+                ? build.name() : name), build.minecraftVersion(), build.loader());
+        if (build.loaderVersion() != null) {
+            profile.loaderVersion(build.loaderVersion());
+        }
+        build.applySettings(profile, withArguments);
+        profiles.add(profile);
+        profiles.save();
+
+        // Before the files, as for a modpack: the version is known now and
+        // nothing large has been fetched yet.
+        settleJava(profile, build.minecraftVersion(), progress);
+
+        com.hexadron.launcher.share.BuildImport.Result result =
+                build.install(profiles.gameDirectory(profile), includeCustom, downloader, progress);
+        profiles.save();
+        return new ImportedBuild(profile, result);
+    }
+
     /**
      * The major Java version a Minecraft version asks for.
      *

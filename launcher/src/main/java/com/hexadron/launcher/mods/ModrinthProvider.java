@@ -419,6 +419,47 @@ public final class ModrinthProvider implements ModProvider {
         return found;
     }
 
+    /**
+     * Where each of these files can be downloaded from Modrinth, in one request.
+     *
+     * <p>For a build being exported: a jar the player copied into the folder by
+     * hand is still one anybody can fetch, if Modrinth publishes the identical
+     * bytes. Only a file whose SHA-1 matches is returned, so what the importing
+     * launcher downloads is the file this one has, not a newer build of it.
+     *
+     * @param sha1s digests of the files to ask about
+     * @return digest to the matching file, containing only the ones Modrinth has
+     *         and lets be downloaded
+     */
+    public java.util.Map<String, ModFile> filesByHash(java.util.Collection<String> sha1s)
+            throws IOException, InterruptedException {
+
+        java.util.Map<String, ModFile> found = new java.util.LinkedHashMap<>();
+        if (sha1s.isEmpty()) {
+            return found;
+        }
+        Json hashes = Json.array();
+        sha1s.forEach(hash -> hashes.add(hash.toLowerCase(Locale.ROOT)));
+        Json body = Json.object().put("hashes", hashes).put("algorithm", "sha1");
+
+        Json response = Http.postJson(API + "/version_files", body,
+                java.util.Map.of("Accept", "application/json"));
+        response.fields().forEach((hash, version) -> {
+            String wanted = hash.toLowerCase(Locale.ROOT);
+            for (Json file : version.get("files").elements()) {
+                if (!wanted.equalsIgnoreCase(file.get("hashes").get("sha1").asString(""))) {
+                    continue;
+                }
+                ModFile match = toModFile(version.get("project_id").asString(""), version, file);
+                if (match.isDownloadable()) {
+                    found.put(wanted, match);
+                }
+                break;
+            }
+        });
+        return found;
+    }
+
     /** Several projects in one request, for the same reason as {@link #projectsByHash}. */
     public List<ProjectCard> projects(java.util.Collection<String> projectIds)
             throws IOException, InterruptedException {

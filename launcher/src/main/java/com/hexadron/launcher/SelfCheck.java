@@ -136,6 +136,7 @@ public final class SelfCheck {
         wrapperCommand();
         assetIndexParsing();
         accounts();
+        accountSelection();
         securityHardening();
         javaVersionParsing();
         javaRuntimeSelection();
@@ -175,6 +176,7 @@ public final class SelfCheck {
         modpackPaths();
         datapackFolder();
         worldList();
+        buildFiles();
         stylesheet();
         launcherLog();
         about();
@@ -1087,6 +1089,89 @@ public final class SelfCheck {
                 "t", "r", System.currentTimeMillis() + 3_600_000, "0");
         check("fresh microsoft token does not", !fresh.needsRefresh());
         check("microsoft user type is msa", "msa".equals(fresh.type().userType()));
+    }
+
+    /**
+     * The account the launcher opens with.
+     *
+     * <p>The box used to change what was shown without telling the store, so
+     * the file kept whichever account was added first and every restart went
+     * back to it.
+     */
+    private static void accountSelection() {
+        section("Account selection");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-account-check");
+            GameDirs dirs = new GameDirs(dir);
+            Map<String, String> vault = new java.util.HashMap<>();
+            int[] writes = {0};
+            com.hexadron.launcher.auth.secret.SecretStore memory =
+                    new com.hexadron.launcher.auth.secret.SecretStore() {
+                        public String id() { return "memory"; }
+                        public String displayName() { return "memory"; }
+                        public boolean isAvailable() { return true; }
+                        public boolean isOsProtected() { return false; }
+                        public void store(String key, String value) {
+                            writes[0]++;
+                            vault.put(key, value);
+                        }
+                        public java.util.Optional<String> load(String key) {
+                            return java.util.Optional.ofNullable(vault.get(key));
+                        }
+                        public void delete(String key) {
+                            vault.remove(key);
+                        }
+                    };
+
+            com.hexadron.launcher.auth.AccountStore store =
+                    new com.hexadron.launcher.auth.AccountStore(dirs, memory).load();
+            Account steve = Account.offline("Steve");
+            Account alex = Account.offline("Alex");
+            Account notch = new Account(Account.AccountType.MICROSOFT, "Notch",
+                    UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5"),
+                    "access", "refresh", System.currentTimeMillis() + 3_600_000L, "2535");
+            store.add(steve);
+            store.add(alex);
+            store.add(notch);
+            store.save();
+            int afterSave = writes[0];
+
+            check("choosing another account is a change", store.select(alex));
+            check("choosing the same one again is not", !store.select(alex));
+            store.saveSelection();
+            check("saving the selection does not rewrite stored credentials",
+                    writes[0] == afterSave);
+
+            com.hexadron.launcher.auth.AccountStore reopened =
+                    new com.hexadron.launcher.auth.AccountStore(dirs, memory).load();
+            check("the launcher reopens on the account it was closed on",
+                    reopened.selected().map(Account::id).orElse("").equals(alex.id()));
+            check("a Microsoft account keeps its session across a selection save",
+                    reopened.all().stream().filter(account -> !account.isOffline())
+                            .anyMatch(account -> "refresh".equals(account.refreshToken())));
+
+            Account fresh = new Account(Account.AccountType.MICROSOFT, "Notch", notch.uuid(),
+                    "access-2", "refresh-2", System.currentTimeMillis() + 3_600_000L, "2535");
+            reopened.update(fresh);
+            reopened.select(steve);
+            reopened.saveSelection();
+            com.hexadron.launcher.auth.AccountStore third =
+                    new com.hexadron.launcher.auth.AccountStore(dirs, memory).load();
+            check("a refreshed session is written with the next selection save",
+                    third.all().stream().anyMatch(account -> "refresh-2".equals(account.refreshToken())));
+            check("and the new selection with it",
+                    third.selected().map(Account::id).orElse("").equals(steve.id()));
+            check("an account the store does not hold cannot be selected",
+                    !third.select(Account.offline("Nobody")));
+        } catch (IOException e) {
+            check("account selection check could not run: " + e.getMessage(), false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- java
@@ -6015,6 +6100,166 @@ public final class SelfCheck {
     }
 
     /** Builds a jar with the given entries, so the readers can be checked offline. */
+    /**
+     * Build files: what goes in, what is asked about, and what an import
+     * refuses. Offline - nothing here downloads.
+     */
+    private static void buildFiles() {
+        section("Build files");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-build-check");
+            Path source = dir.resolve("source");
+            Path mods = source.resolve("mods");
+            java.nio.file.Files.createDirectories(mods);
+
+            // A jar the launcher downloaded and recorded, one it knows nothing about.
+            writeJar(mods.resolve("sodium.jar"), Map.of("fabric.mod.json",
+                    "{\"schemaVersion\":1,\"id\":\"sodium\",\"version\":\"1\"}"));
+            writeJar(mods.resolve("my-own-mod.jar"), Map.of("fabric.mod.json",
+                    "{\"schemaVersion\":1,\"id\":\"mine\",\"version\":\"1\"}"));
+            String sodiumSha1 = Hashes.sha1(mods.resolve("sodium.jar"));
+            ModLibrary library = ModLibrary.read(mods);
+            ModFile sodiumFile = new ModFile("AANobbMI", "sodium", "v1", "Sodium", "sodium.jar",
+                    "https://cdn.modrinth.com/data/AANobbMI/versions/v1/sodium.jar", sodiumSha1,
+                    java.nio.file.Files.size(mods.resolve("sodium.jar")), List.of(),
+                    ModProvider.Source.MODRINTH);
+            library.put(new InstalledMod("Sodium", sodiumFile, ModOrigin.MANUAL, null));
+            library.write();
+
+            java.nio.file.Files.createDirectories(source.resolve("config"));
+            java.nio.file.Files.writeString(source.resolve("config/sodium.json"), "{}");
+            java.nio.file.Files.writeString(source.resolve("options.txt"), "fov:0.5");
+            java.nio.file.Files.createDirectories(source.resolve("saves/World/datapacks"));
+            java.nio.file.Files.writeString(source.resolve("saves/World/level.dat"), "level");
+            java.nio.file.Files.writeString(source.resolve("saves/World/session.lock"), "lock");
+            writeJar(source.resolve("saves/World/datapacks/terrain.zip"),
+                    Map.of("pack.mcmeta", "{\"pack\":{\"pack_format\":48}}"));
+
+            Profile profile = Profile.create("My Build", "1.21.1", LoaderType.FABRIC)
+                    .loaderVersion("0.16.0")
+                    .wrapperCommand("gamemoderun")
+                    .javaPath("C:/Java/bin/javaw.exe");
+            profile.extraJvmArguments(List.of("-XX:+UseZGC"));
+
+            var plan = com.hexadron.launcher.share.BuildExport.plan(profile, source, null,
+                    com.hexadron.launcher.share.BuildExport.Options.defaults(), null, Progress.NOOP);
+            check("a recorded download is named by its address", plan.remoteCount() == 1);
+            check("a jar nothing is known about is custom",
+                    plan.custom().size() == 1
+                            && plan.custom().get(0).path().equals("mods/my-own-mod.jar"));
+            check("configuration is carried", plan.extrasCount() == 2);
+            check("worlds stay out unless asked for",
+                    plan.custom().stream().noneMatch(entry -> entry.path().startsWith("saves/")));
+            check("the file name offered is the profile's",
+                    "My Build.hexbuild".equals(plan.suggestedFileName()));
+
+            Path withCustom = dir.resolve("with.hexbuild");
+            Path without = dir.resolve("without.hexbuild");
+            com.hexadron.launcher.share.BuildExport.write(plan, true, withCustom, "check", Progress.NOOP);
+            com.hexadron.launcher.share.BuildExport.write(plan, false, without, "check", Progress.NOOP);
+
+            var read = com.hexadron.launcher.share.BuildImport.read(withCustom);
+            check("the build is recognised as one",
+                    com.hexadron.launcher.share.BuildImport.looksLikeBuild(withCustom));
+            check("the version and loader come back",
+                    "1.21.1".equals(read.minecraftVersion()) && read.loader() == LoaderType.FABRIC
+                            && "0.16.0".equals(read.loaderVersion()));
+            check("the custom jar travels when the player said yes", read.bundledCustom().size() == 1);
+            check("launch arguments are offered, not applied", read.hasArguments());
+
+            String manifest;
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(withCustom.toFile())) {
+                manifest = new String(zip.getInputStream(zip.getEntry(
+                        com.hexadron.launcher.share.BuildFormat.MANIFEST)).readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                check("the launcher's own record files are not carried",
+                        zip.stream().noneMatch(entry -> entry.getName().contains(".hexadron-")));
+            }
+            check("no wrapper command leaves the machine", !manifest.contains("gamemoderun"));
+            check("no Java path leaves the machine", !manifest.contains("javaw.exe"));
+
+            var left = com.hexadron.launcher.share.BuildImport.read(without);
+            check("when the player said no, the custom jar is not in the build",
+                    left.bundledCustom().isEmpty() && left.missingCustom().size() == 1);
+
+            // An import with nothing to download, so it runs offline.
+            var offline = com.hexadron.launcher.share.BuildExport.plan(profile, source, null,
+                    new com.hexadron.launcher.share.BuildExport.Options(false, false, false, true, true),
+                    null, Progress.NOOP);
+            Path worldBuild = dir.resolve("world.hexbuild");
+            com.hexadron.launcher.share.BuildExport.write(offline, true, worldBuild, "check", Progress.NOOP);
+            Path target = dir.resolve("target");
+            var imported = com.hexadron.launcher.share.BuildImport.read(worldBuild)
+                    .install(target, true, new com.hexadron.launcher.net.Downloader(1), Progress.NOOP);
+            check("carried files arrive", java.nio.file.Files.isRegularFile(target.resolve("config/sodium.json"))
+                    && java.nio.file.Files.isRegularFile(target.resolve("saves/World/level.dat")));
+            check("a data pack in a world travels with the world",
+                    java.nio.file.Files.isRegularFile(target.resolve("saves/World/datapacks/terrain.zip")));
+            check("the lock the game held is not copied",
+                    !java.nio.file.Files.exists(target.resolve("saves/World/session.lock")));
+            check("nothing was downloaded for a build that names nothing", imported.downloaded() == 0);
+
+            Path skipTarget = dir.resolve("skip");
+            com.hexadron.launcher.share.BuildImport.read(worldBuild)
+                    .install(skipTarget, false, new com.hexadron.launcher.net.Downloader(1), Progress.NOOP);
+            check("custom files stay out of an import when the player says no",
+                    !java.nio.file.Files.exists(skipTarget.resolve("saves/World/datapacks/terrain.zip"))
+                            && java.nio.file.Files.isRegularFile(skipTarget.resolve("options.txt")));
+
+            // A hostile build: a path out of the instance, an address that is
+            // not HTTPS, and a manifest from the future.
+            Path hostile = dir.resolve("hostile.hexbuild");
+            try (var zip = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(hostile))) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(com.hexadron.launcher.share.BuildFormat.MANIFEST));
+                zip.write(("{\"format\":\"hexadron-build\",\"formatVersion\":1,"
+                        + "\"profile\":{\"minecraftVersion\":\"1.21.1\"},"
+                        + "\"files\":[{\"path\":\"../mods/x.jar\",\"kind\":\"MOD\",\"folder\":\"mods\","
+                        + "\"sha1\":\"" + "a".repeat(40) + "\",\"urls\":[\"https://example.com/x.jar\"]},"
+                        + "{\"path\":\"mods/y.jar\",\"kind\":\"MOD\",\"folder\":\"mods\","
+                        + "\"sha1\":\"" + "b".repeat(40) + "\",\"urls\":[\"http://example.com/y.jar\"]}]}")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+                zip.putNextEntry(new java.util.zip.ZipEntry("files/../../escaped.txt"));
+                zip.write("x".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+            var hostileBuild = com.hexadron.launcher.share.BuildImport.read(hostile);
+            check("a file outside its folder or without HTTPS is refused",
+                    hostileBuild.remoteCount() == 0 && hostileBuild.refused().size() == 2);
+            Path hostileTarget = dir.resolve("hostile-target");
+            var hostileResult = hostileBuild.install(hostileTarget, true,
+                    new com.hexadron.launcher.net.Downloader(1), Progress.NOOP);
+            check("a carried path out of the instance is not written",
+                    !java.nio.file.Files.exists(dir.resolve("escaped.txt"))
+                            && !java.nio.file.Files.exists(hostileTarget.getParent().getParent().resolve("escaped.txt"))
+                            && !hostileResult.skipped().isEmpty());
+
+            Path future = dir.resolve("future.hexbuild");
+            try (var zip = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(future))) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(com.hexadron.launcher.share.BuildFormat.MANIFEST));
+                zip.write("{\"format\":\"hexadron-build\",\"formatVersion\":99,\"profile\":{\"minecraftVersion\":\"1.21.1\"}}"
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+            boolean refusedFuture;
+            try {
+                com.hexadron.launcher.share.BuildImport.read(future);
+                refusedFuture = false;
+            } catch (IOException expected) {
+                refusedFuture = expected.getMessage().contains("newer");
+            }
+            check("a build from a newer launcher is refused with a reason", refusedFuture);
+        } catch (IOException | InterruptedException e) {
+            check("build file check could not run: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
     private static void writeJar(Path path, Map<String, String> entries) throws IOException {
         try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(
                 java.nio.file.Files.newOutputStream(path))) {

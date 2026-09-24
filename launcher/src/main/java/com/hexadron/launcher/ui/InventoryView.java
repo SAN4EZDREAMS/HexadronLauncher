@@ -609,7 +609,9 @@ public final class InventoryView {
 
         MenuItem newProfile = new MenuItem(I18n.t("profiles.new"));
         newProfile.setOnAction(event -> host.createProfile());
-        menu.getItems().add(newProfile);
+        MenuItem importBuild = new MenuItem(I18n.t("action.importBuild"));
+        importBuild.setOnAction(event -> host.importBuild());
+        menu.getItems().addAll(newProfile, importBuild);
 
         if (host.layout().rowGroup(row).isEmpty()) {
             MenuItem newGroup = new MenuItem(I18n.t("grid.newGroupHere"));
