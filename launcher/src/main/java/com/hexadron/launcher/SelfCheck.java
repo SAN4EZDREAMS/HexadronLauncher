@@ -6830,7 +6830,8 @@ public final class SelfCheck {
                 "check-box", "combo-box", "section-title", "form-label", "detail-title",
                 "detail-icon", "skin-viewer", "viewer-button", "swatch", "swatch-add",
                 "chooser-field", "chooser-hue", "chooser-thumb", "chooser-preview",
-                "scroll-pane", "scroll-bar", "profile-scroll", "inv-scroll"}) {
+                "scroll-pane", "scroll-bar", "profile-scroll", "inv-scroll",
+                "build-drop", "build-drop-text"}) {
             check("." + styleClass + " is styled", css.contains("." + styleClass));
         }
 

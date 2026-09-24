@@ -1653,8 +1653,11 @@ the folder; the game manages its own settings.
 ## Build files
 
 **Export build** (sidebar, or the profile's right-click menu) writes a profile
-out as a `.hexbuild` file; **Import** makes a new profile from one. A build is a
-zip:
+out as a `.hexbuild` file; **Import** makes a new profile from one. A
+`.hexbuild` file dragged from Explorer, Finder or a file manager and dropped
+anywhere on the window does the same as **Import** - the window dims and says so
+while the file is held over it. Several dropped at once are imported one at a
+time, starting with the first. A build is a zip:
 
 | Entry | What it holds |
 |---|---|

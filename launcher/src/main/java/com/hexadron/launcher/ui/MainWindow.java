@@ -130,6 +130,10 @@ public final class MainWindow implements ProfileHost {
      * leave in order to press Play would be a worse grid.
      */
     private final StackPane content = new StackPane();
+
+    /** Shown over the window while a build file is held over it. */
+    private final StackPane dropOverlay = new StackPane();
+    private final Label dropLabel = new Label();
     private final VBox inventoryPanel = new VBox();
 
     /** True while the cover animation runs, so a second click cannot interrupt it. */
@@ -381,7 +385,7 @@ public final class MainWindow implements ProfileHost {
         inventoryPanel.setVisible(false);
         inventoryPanel.setManaged(false);
 
-        content.getChildren().setAll(upper, inventoryPanel, buildToast());
+        content.getChildren().setAll(upper, inventoryPanel, buildToast(), buildDropOverlay());
         // Clipped, because the grid is slid in from above its own top edge, and
         // an unclipped child in JavaFX paints outside its parent quite happily -
         // which during the animation means over the title bar.
@@ -396,6 +400,7 @@ public final class MainWindow implements ProfileHost {
 
         Scene scene = new Scene(root, 1180, 760);
         Theme.apply(scene);
+        acceptDroppedBuilds(scene);
         // A floor rather than a preference: below this the toolbars cannot show
         // their own labels, and the grid starts scrolling sideways at nine
         // columns. Both are worse than a window that refuses to get smaller.
@@ -2304,9 +2309,24 @@ public final class MainWindow implements ProfileHost {
         if (chosen == null) {
             return;
         }
+        importBuildFrom(chosen.toPath());
+    }
+
+    /**
+     * Imports one build file: the file chooser's way in and the drop's.
+     *
+     * <p>Refused at once while the launcher is busy. The import would be
+     * refused anyway, but only after the player had answered two dialogs about
+     * it.
+     */
+    private void importBuildFrom(Path file) {
+        if (busy) {
+            showWarning(I18n.t("build.import.title"), I18n.t("build.drop.busy"));
+            return;
+        }
         BuildImport build;
         try {
-            build = service.readBuild(chosen.toPath());
+            build = service.readBuild(file);
         } catch (IOException e) {
             showError(I18n.t("build.import.failed"), e);
             return;
@@ -2375,6 +2395,100 @@ public final class MainWindow implements ProfileHost {
                 }
             });
         });
+    }
+
+    // ---------------------------------------------------------------- build drop
+
+    private StackPane buildDropOverlay() {
+        dropLabel.getStyleClass().add("build-drop-text");
+        dropLabel.setWrapText(true);
+        dropLabel.setMaxWidth(560);
+        dropOverlay.getChildren().setAll(dropLabel);
+        dropOverlay.getStyleClass().add("build-drop");
+        // Never in the way of the drop itself, which is delivered to whatever
+        // is under the pointer and caught on the scene on its way there.
+        dropOverlay.setMouseTransparent(true);
+        dropOverlay.setVisible(false);
+        return dropOverlay;
+    }
+
+    /**
+     * Lets a build file be dropped anywhere on the window.
+     *
+     * <p>Caught on the scene, before it reaches the list or the grid: those take
+     * drags of their own - profiles and groups being moved - and a file dropped
+     * on a profile cell must not be read as one of those. Only a drag that
+     * carries a {@code .hexbuild} file is taken here, so every other drag goes
+     * where it went before.
+     *
+     * <p>The import itself starts after the drop has been answered, not inside
+     * it. The import opens dialogs, and a dialog that waits inside a drop keeps
+     * the file manager it came from waiting too - on Windows, frozen until the
+     * dialog is closed.
+     */
+    private void acceptDroppedBuilds(Scene scene) {
+        scene.addEventFilter(javafx.scene.input.DragEvent.DRAG_OVER, event -> {
+            List<Path> builds = droppedBuilds(event.getDragboard());
+            if (builds.isEmpty()) {
+                return;
+            }
+            if (!busy) {
+                event.acceptTransferModes(javafx.scene.input.TransferMode.COPY);
+            }
+            showDropOverlay();
+            event.consume();
+        });
+        scene.addEventFilter(javafx.scene.input.DragEvent.DRAG_DROPPED, event -> {
+            List<Path> builds = droppedBuilds(event.getDragboard());
+            if (builds.isEmpty()) {
+                return;
+            }
+            hideDropOverlay();
+            boolean accepted = !busy;
+            event.setDropCompleted(accepted);
+            event.consume();
+            if (!accepted) {
+                progress.log(I18n.t("build.drop.busy"));
+                return;
+            }
+            // One at a time: each import asks its own questions, and a second
+            // one started under the first would be refused as busy anyway.
+            if (builds.size() > 1) {
+                progress.log(I18n.t("build.drop.onlyFirst", builds.size() - 1,
+                        builds.get(0).getFileName().toString()));
+            }
+            Path first = builds.get(0);
+            Platform.runLater(() -> {
+                stage.toFront();
+                importBuildFrom(first);
+            });
+        });
+        scene.setOnDragExited(event -> hideDropOverlay());
+    }
+
+    /** The build files a drag carries, in the order they were picked. */
+    private static List<Path> droppedBuilds(javafx.scene.input.Dragboard board) {
+        if (board == null || !board.hasFiles()) {
+            return List.of();
+        }
+        return board.getFiles().stream()
+                .filter(java.io.File::isFile)
+                .filter(file -> file.getName().toLowerCase(Locale.ROOT)
+                        .endsWith(BuildFormat.EXTENSION))
+                .map(java.io.File::toPath)
+                .toList();
+    }
+
+    private void showDropOverlay() {
+        dropLabel.setText(I18n.t(busy ? "build.drop.busy" : "build.drop.hint"));
+        if (!dropOverlay.isVisible()) {
+            dropOverlay.setVisible(true);
+            dropOverlay.toFront();
+        }
+    }
+
+    private void hideDropOverlay() {
+        dropOverlay.setVisible(false);
     }
 
     /**
