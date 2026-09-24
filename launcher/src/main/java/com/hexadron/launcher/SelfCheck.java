@@ -6542,6 +6542,27 @@ public final class SelfCheck {
             check("and no game file was touched", java.nio.file.Files.exists(world)
                     && java.nio.file.Files.exists(orphanInstance));
 
+            // ------------------------------------------------ the profile list follows the disk
+            check("an instance folder knows its profile, so deleting it whole removes the profile",
+                    instances.children().stream().anyMatch(node -> node.name().equals("Kept")
+                            && kept.id().equals(node.profileId()))
+                            && instances.children().stream().noneMatch(node ->
+                            node.name().equals("left-behind") && node.profileId() != null));
+            check("a whole-profile action names the profile to remove",
+                    com.hexadron.launcher.cleanup.CleanupAction.profile(kept.id(),
+                            store.gameDirectory(kept), 1).profileIds().equals(List.of(kept.id())));
+            Profile stale = Profile.create("Stale", "1.20.1", LoaderType.VANILLA);
+            stale.versionId("1.20.1");
+            stale.customIcon("gone.png");
+            store.add(stale);
+            var resolver = new com.hexadron.launcher.meta.VersionResolver(dirs);
+            check("a profile whose version was deleted is brought back in line with the disk",
+                    store.reconcileWithDisk(resolver::isFullyInstalled) && stale.versionId() == null
+                            && !stale.hasCustomIcon());
+            check("and one whose version is still there is left alone",
+                    "1.21.1".equals(kept.versionId()) && !store.reconcileWithDisk(resolver::isFullyInstalled));
+            store.remove(stale);
+
             // ------------------------------------------------ when it cannot know
             Profile broken = Profile.create("Broken", "1.19.2", LoaderType.FABRIC);
             broken.versionId("fabric-loader-0.15-1.19.2");

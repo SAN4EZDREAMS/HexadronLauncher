@@ -42,6 +42,7 @@ public final class StorageNode {
     private Object[] noteArgs = new Object[0];
     private long size;
     private long files;
+    private String profileId;
 
     StorageNode(String name, StorageCategory category, Path path, boolean deletable,
                 String descriptionKey, Object... descriptionArgs) {
@@ -70,6 +71,11 @@ public final class StorageNode {
     StorageNode note(String key, Object... args) {
         this.noteKey = key;
         this.noteArgs = args == null ? new Object[0] : args;
+        return this;
+    }
+
+    StorageNode profile(String id) {
+        this.profileId = id;
         return this;
     }
 
@@ -137,6 +143,16 @@ public final class StorageNode {
 
     public long size() {
         return size;
+    }
+
+    /**
+     * The profile this is the instance folder of, or null.
+     *
+     * <p>Set only on the folder itself. Deleting it whole removes the profile as
+     * well; deleting something inside it leaves the profile where it is.
+     */
+    public String profileId() {
+        return profileId;
     }
 
     public long files() {

@@ -1714,7 +1714,12 @@ library and asset suggestions. It never offers anything inside an instance.
 
 **Advanced mode** shows the whole data folder as a tree - instances down to
 worlds and mod jars - with a size bar per row. It is off until the box under
-the red warning is ticked, and deleting asks again with a second box. The
+the red warning is ticked, and deleting asks again with a second box. An
+instance folder ticked whole removes its profile too, the same way the Remove
+button does, and after every cleanup the remaining profiles are checked against
+the disk: one whose version was deleted reads as not installed, one whose
+picture was deleted gets its loader mark back, and content windows of removed
+profiles close. The
 launcher's settings, accounts, credentials, launch wrapper and the log being
 written are shown but cannot be ticked, and the cleaner refuses them again
 itself. Cleanup refuses to start while the game is running or the launcher is

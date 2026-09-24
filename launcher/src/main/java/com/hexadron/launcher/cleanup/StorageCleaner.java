@@ -50,13 +50,18 @@ public final class StorageCleaner {
     /**
      * What came of it.
      *
-     * @param deleted what was removed, files and folders together
-     * @param failed  what was left: refused, or locked by another program
+     * @param deleted         what was removed, files and folders together
+     * @param failed          what was left: refused, or locked by another program
+     * @param profilesRemoved profiles taken out of the list with their folders
      */
-    public record Result(int deleted, List<Path> failed) {
+    public record Result(int deleted, List<Path> failed, int profilesRemoved) {
 
         public Result {
             failed = List.copyOf(failed);
+        }
+
+        public Result(int deleted, List<Path> failed) {
+            this(deleted, failed, 0);
         }
 
         public boolean isComplete() {

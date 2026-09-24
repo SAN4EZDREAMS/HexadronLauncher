@@ -190,6 +190,35 @@ public final class ProfileStore {
         }
     }
 
+    /**
+     * Makes the profiles agree with the disk after files were deleted under them.
+     *
+     * <p>A recorded version id that no longer resolves is cleared, so the
+     * profile reads as "not installed" and the next Play installs it, instead
+     * of showing an installed version that is not there. A chosen picture whose
+     * file is gone is dropped, so the loader mark comes back instead of an empty
+     * square.
+     *
+     * @return true when a profile changed and the list should be saved
+     */
+    public synchronized boolean reconcileWithDisk(
+            java.util.function.Predicate<String> versionInstalled) {
+        boolean changed = false;
+        for (Profile profile : profiles.values()) {
+            String versionId = profile.versionId();
+            if (versionId != null && !versionInstalled.test(versionId)) {
+                profile.versionId(null);
+                changed = true;
+            }
+            if (profile.hasCustomIcon()
+                    && !Files.isRegularFile(dirs.icons().resolve(profile.customIcon()))) {
+                profile.customIcon(null);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
     /** Where folders wait to be deleted. Under the instances folder, so on the same drive. */
     public static final String DELETING_DIR = ".deleting";
 

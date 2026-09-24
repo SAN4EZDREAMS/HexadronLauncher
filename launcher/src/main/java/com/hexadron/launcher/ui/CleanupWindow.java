@@ -1065,11 +1065,19 @@ final class CleanupWindow {
         List<String> names = new ArrayList<>();
         long bytes = 0;
         boolean gameData = false;
+        List<String> profiles = new ArrayList<>();
         if (advanced) {
             List<StorageNode> nodes = new ArrayList<>();
             collect(report.root(), nodes);
             for (StorageNode node : nodes) {
-                actions.add(CleanupAction.tree(node.path(), node.size()));
+                // A whole profile folder is a whole profile: it leaves the list
+                // too, rather than staying there pointing at nothing.
+                if (node.profileId() != null) {
+                    actions.add(CleanupAction.profile(node.profileId(), node.path(), node.size()));
+                    profiles.add(label(node));
+                } else {
+                    actions.add(CleanupAction.tree(node.path(), node.size()));
+                }
                 names.add(label(node) + "  (" + BuildDialogs.size(node.size()) + ")");
                 bytes += node.size();
                 gameData |= node.category() == StorageCategory.INSTANCES;
@@ -1084,7 +1092,7 @@ final class CleanupWindow {
         if (actions.isEmpty()) {
             return;
         }
-        if (!confirm(names, bytes, gameData)) {
+        if (!confirm(names, bytes, gameData, profiles)) {
             return;
         }
         long before = report.totalBytes();
@@ -1117,10 +1125,13 @@ final class CleanupWindow {
             alert(Alert.AlertType.ERROR, I18n.t("cleanup.failed"), I18n.t("cleanup.failed.body"));
             return;
         }
-        status.setText(I18n.t("cleanup.done", BuildDialogs.size(freed)));
+        String profiles = result.profilesRemoved() > 0
+                ? "\n" + I18n.t("cleanup.done.profiles", result.profilesRemoved()) : "";
+        status.setText(I18n.t("cleanup.done", BuildDialogs.size(freed)) + profiles.replace('\n', ' '));
         if (!result.isComplete()) {
             StringBuilder text = new StringBuilder(I18n.t("cleanup.partial.body",
                     BuildDialogs.size(freed), result.failed().size()));
+            text.insert(0, profiles.isEmpty() ? "" : profiles.substring(1) + "\n\n");
             result.failed().stream().limit(12).forEach(path -> text.append("\n• ").append(path));
             if (result.failed().size() > 12) {
                 text.append("\n").append(I18n.t("build.custom.more", result.failed().size() - 12));
@@ -1128,7 +1139,7 @@ final class CleanupWindow {
             alert(Alert.AlertType.WARNING, I18n.t("cleanup.partial.header"), text.toString());
         } else {
             alert(Alert.AlertType.INFORMATION, I18n.t("cleanup.done.header"),
-                    I18n.t("cleanup.done.body", BuildDialogs.size(freed)));
+                    I18n.t("cleanup.done.body", BuildDialogs.size(freed)) + profiles);
         }
     }
 
@@ -1139,7 +1150,7 @@ final class CleanupWindow {
      * deletes stays off until the box under the list is ticked, because a
      * dialog that one key dismisses is a dialog that gets dismissed unread.
      */
-    private boolean confirm(List<String> names, long bytes, boolean gameData) {
+    private boolean confirm(List<String> names, long bytes, boolean gameData, List<String> profiles) {
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.initOwner(stage);
         dialog.setTitle(I18n.t("cleanup.confirm.title"));
@@ -1165,6 +1176,13 @@ final class CleanupWindow {
                 VBox box = new VBox(danger);
                 box.getStyleClass().add("cleanup-danger");
                 content.getChildren().add(0, box);
+            }
+            if (!profiles.isEmpty()) {
+                Label removed = new Label(I18n.t("cleanup.confirm.profiles", String.join(", ", profiles)));
+                removed.setWrapText(true);
+                removed.setMinHeight(Region.USE_PREF_SIZE);
+                removed.getStyleClass().add("cleanup-notice");
+                content.getChildren().add(removed);
             }
             content.getChildren().add(sure);
         }

@@ -2492,6 +2492,13 @@ public final class MainWindow implements ProfileHost {
                 setBusy(false);
                 stageLabel.setText(I18n.t("status.ready"));
                 progressBar.setProgress(1);
+                // A profile the cleanup removed takes its content window with it;
+                // the others are told their folders may have changed.
+                java.util.Set<String> alive = new java.util.HashSet<>();
+                service.profiles().all().forEach(profile -> alive.add(profile.id()));
+                new ArrayList<>(browsers.keySet()).stream()
+                        .filter(id -> !alive.contains(id))
+                        .forEach(MainWindow.this::closeBrowser);
                 refreshProfiles();
                 browsers.values().forEach(ContentBrowserWindow::contentChanged);
             }

@@ -1061,12 +1061,70 @@ public final class LauncherService {
                 progress);
     }
 
-    /** Deletes what the storage window chose. See {@link com.hexadron.launcher.cleanup.StorageCleaner}. */
+    /**
+     * Deletes what the storage window chose, and brings the profile list up to
+     * date with it.
+     *
+     * <p>Three steps. A profile chosen whole is removed the way the Remove
+     * button removes one - out of the list, its folder with it, its Java given
+     * back if nothing else wants it - because a folder deleted from under a
+     * profile left the profile in the list, pointing at nothing. Then the rest
+     * goes through {@link com.hexadron.launcher.cleanup.StorageCleaner}. Then
+     * every remaining profile is checked against what is left on disk, so one
+     * whose version was deleted says "not installed" rather than naming a
+     * version that is gone.
+     */
     public com.hexadron.launcher.cleanup.StorageCleaner.Result cleanStorage(
             List<com.hexadron.launcher.cleanup.CleanupAction> actions, Progress progress)
             throws InterruptedException {
-        return com.hexadron.launcher.cleanup.StorageCleaner.clean(dirs, LauncherLog.file(),
-                javaRuntimes.provisioner(), actions, progress);
+
+        List<Path> failed = new java.util.ArrayList<>();
+        List<com.hexadron.launcher.cleanup.CleanupAction> rest = new java.util.ArrayList<>();
+        int removed = 0;
+        int deleted = 0;
+        for (com.hexadron.launcher.cleanup.CleanupAction action : actions) {
+            Set<Path> handled = new java.util.HashSet<>();
+            for (String id : action.profileIds()) {
+                java.util.Optional<Profile> found = profiles.byId(id);
+                if (found.isEmpty()) {
+                    continue;
+                }
+                Profile profile = found.get();
+                Path folder = profiles.gameDirectory(profile).toAbsolutePath().normalize();
+                progress.stage("delete:" + profile.name());
+                try {
+                    failed.addAll(deleteProfile(profile, true, progress));
+                    handled.add(folder);
+                    removed++;
+                } catch (IOException e) {
+                    failed.add(folder);
+                    handled.add(folder);
+                }
+            }
+            List<Path> trees = action.trees().stream()
+                    .filter(path -> !handled.contains(path.toAbsolutePath().normalize()))
+                    .toList();
+            if (!trees.isEmpty() || !action.files().isEmpty() || !action.javaMajors().isEmpty()) {
+                rest.add(new com.hexadron.launcher.cleanup.CleanupAction(trees, action.files(),
+                        action.filesRoot(), action.javaMajors(), action.size()));
+            }
+        }
+
+        com.hexadron.launcher.cleanup.StorageCleaner.Result result =
+                com.hexadron.launcher.cleanup.StorageCleaner.clean(dirs, LauncherLog.file(),
+                        javaRuntimes.provisioner(), rest, progress);
+        failed.addAll(result.failed());
+        deleted += result.deleted();
+
+        if (profiles.reconcileWithDisk(versionInstaller.resolver()::isFullyInstalled)) {
+            try {
+                profiles.save();
+            } catch (IOException e) {
+                progress.log("The profile list could not be saved: %s",
+                        e.getMessage() == null ? e.toString() : e.getMessage());
+            }
+        }
+        return new com.hexadron.launcher.cleanup.StorageCleaner.Result(deleted + removed, failed, removed);
     }
 
     // ---------------------------------------------------------------- builds

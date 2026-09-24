@@ -27,14 +27,29 @@ import java.util.List;
  * @param javaMajors Java runtimes the launcher downloaded, uninstalled through
  *                  the launcher's own uninstall so its records stay right
  * @param size      what it frees, as measured when it was planned
+ * @param profileIds profiles removed from the list along with their instance
+ *                  folder. Removed through the launcher, not deleted as a folder:
+ *                  a profile whose folder is gone is still a row in the list,
+ *                  and pressing Play on it would quietly make an empty instance
  */
 public record CleanupAction(List<Path> trees, List<Path> files, Path filesRoot,
-                            List<Integer> javaMajors, long size) {
+                            List<Integer> javaMajors, long size, List<String> profileIds) {
 
     public CleanupAction {
         trees = List.copyOf(trees);
         files = List.copyOf(files);
         javaMajors = List.copyOf(javaMajors);
+        profileIds = List.copyOf(profileIds);
+    }
+
+    public CleanupAction(List<Path> trees, List<Path> files, Path filesRoot,
+                         List<Integer> javaMajors, long size) {
+        this(trees, files, filesRoot, javaMajors, size, List.of());
+    }
+
+    /** A whole profile: out of the list, and its instance folder with it. */
+    public static CleanupAction profile(String profileId, Path folder, long size) {
+        return new CleanupAction(List.of(folder), List.of(), null, List.of(), size, List.of(profileId));
     }
 
     /** One folder or file, whole. */

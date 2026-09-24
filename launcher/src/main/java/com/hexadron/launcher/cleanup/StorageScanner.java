@@ -409,7 +409,7 @@ public final class StorageScanner {
                 Profile profile = byFolder.get(name);
                 StorageNode node = category.add(new StorageNode(profile.name(),
                         StorageCategory.INSTANCES, entry, true, "cleanup.desc.profile", profile.name())
-                        .note("cleanup.note.folder", name));
+                        .note("cleanup.note.folder", name).profile(profile.id()));
                 expandInstance(node, entry);
             } else if (directory) {
                 StorageNode node = category.add(new StorageNode(name, StorageCategory.INSTANCES,
