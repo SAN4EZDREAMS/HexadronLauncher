@@ -245,6 +245,9 @@ public final class MainWindow implements ProfileHost {
     private volatile boolean busy;
     private boolean playing;
 
+    /** The profile whose game is running, or null. Its files are not deleted under it. */
+    private volatile String runningProfileId;
+
     /** True while a Microsoft sign-in is waiting for the browser. */
     private volatile boolean signingIn;
 
@@ -1312,6 +1315,13 @@ public final class MainWindow implements ProfileHost {
         if (profile == null) {
             return;
         }
+        // Asked before the question, not after it: the removal runs as a task,
+        // and a task refused as busy after the player has chosen what to delete
+        // is an answer thrown away.
+        if (busy) {
+            showWarning(I18n.t("profiles.remove.header"), I18n.t("profiles.remove.busy"));
+            return;
+        }
         // Three answers, not two. "Remove" on its own had to mean one of them,
         // and whichever it meant was wrong half the time: a player clearing out
         // an old instance wants the disk space back, a player who misclicked
@@ -1338,17 +1348,43 @@ public final class MainWindow implements ProfileHost {
             return;
         }
 
+        boolean withFiles = answer.get() == deleteFiles;
+        if (withFiles && profile.id().equals(runningProfileId)
+                && session != null && session.isRunning()) {
+            showWarning(I18n.t("profiles.remove.header"),
+                    I18n.t("profiles.remove.running", profile.name()));
+            return;
+        }
+
         closeBrowser(profile.id());
+        // Off the interface thread, with the bar. It used to run right here, on
+        // the thread that draws the window, so a modpack instance of forty
+        // thousand files was a window that stopped answering until they were
+        // gone - and nothing on it said why.
+        //
         // Through the service rather than the store, because removing a profile
         // is also the moment to give back a downloaded Java runtime that nothing
         // asks for any more - and only the service can see the whole profile
         // list to know whether anything still does.
-        try {
-            List<Path> undeleted =
-                    service.deleteProfile(profile, answer.get() == deleteFiles, progress);
-            if (answer.get() == deleteFiles) {
+        String name = profile.name();
+        runInBackground(I18n.t("task.removeProfile", name), () -> {
+            progress.stage(I18n.t("profiles.remove.stage", name));
+            List<Path> undeleted = service.deleteProfile(profile, withFiles, progress,
+                    new LauncherService.DeletionSteps() {
+                        @Override
+                        public void removed() {
+                            // Out of the list at once; the files follow.
+                            Platform.runLater(() -> refreshProfiles());
+                        }
+
+                        @Override
+                        public void counted(int files) {
+                            progress.stage(I18n.t("profiles.remove.stageFiles", name, files));
+                        }
+                    });
+            if (withFiles) {
                 if (undeleted.isEmpty()) {
-                    progress.log(I18n.t("profiles.remove.deleted", profile.name()));
+                    progress.log(I18n.t("profiles.remove.deleted", name));
                 } else {
                     // Named, not swallowed. A folder still sitting there after
                     // "delete files" needs a reason, and on Windows the reason is
@@ -1357,11 +1393,20 @@ public final class MainWindow implements ProfileHost {
                     undeleted.stream().limit(10).forEach(path -> progress.log("  " + path));
                 }
             }
-        } catch (IOException e) {
-            showError(I18n.t("profiles.remove.header"), e);
-        }
-        saveProfilesQuietly();
-        refreshProfiles();
+            String done = I18n.t(withFiles && undeleted.isEmpty()
+                    ? "profiles.remove.deleted"
+                    : withFiles ? "profiles.remove.deleteFailed" : "profiles.remove.done",
+                    withFiles && !undeleted.isEmpty() ? undeleted.size() : name);
+            // Closed off here rather than by the task runner, which would put
+            // "Ready" over the line that says what was deleted.
+            Platform.runLater(() -> {
+                saveProfilesQuietly();
+                refreshProfiles();
+                stageLabel.setText(done);
+                progressBar.setProgress(1);
+                setBusy(false);
+            });
+        }, false);
     }
 
     private void closeBrowser(String profileId) {
@@ -1393,6 +1438,7 @@ public final class MainWindow implements ProfileHost {
         }
         runInBackground(I18n.t("task.play"), () -> {
             Profile profile = requireSelected();
+            runningProfileId = profile.id();
             // Where the game writes its own log. That file answered the last
             // three questions about this launcher, and nothing pointed at it.
             progress.log(I18n.t("log.gameLog",
@@ -1412,6 +1458,7 @@ public final class MainWindow implements ProfileHost {
                         // notification area after the game has closed is a window
                         // the player has to go and find.
                         tray.restore();
+                        runningProfileId = null;
                         Platform.runLater(() -> {
                             playing = false;
                             playButton.setText(I18n.t("action.play"));

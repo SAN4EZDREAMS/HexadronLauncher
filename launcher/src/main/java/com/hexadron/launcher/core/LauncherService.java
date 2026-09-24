@@ -209,6 +209,10 @@ public final class LauncherService {
             } catch (RuntimeException ignored) {
                 // A warm-up that fails costs nothing; the real call will report.
             }
+            // A profile deleted while the launcher was closing leaves its files
+            // in the instances folder's .deleting. Finished here, where nobody
+            // is waiting for it.
+            profiles.purgeLeftovers();
         }, "hexadron-warmup");
         warm.setDaemon(true);
         warm.setPriority(Thread.MIN_PRIORITY);
@@ -1210,15 +1214,47 @@ public final class LauncherService {
      * @return the paths that could not be deleted, empty when everything went
      */
     public List<Path> deleteProfile(Profile profile, boolean deleteFiles, Progress progress)
-            throws IOException {
+            throws IOException, InterruptedException {
+        return deleteProfile(profile, deleteFiles, progress, new DeletionSteps() {
+        });
+    }
 
-        List<Path> undeleted = List.of();
-        if (deleteFiles) {
-            undeleted = profiles.removeWithFiles(profile);
-        } else {
-            profiles.remove(profile);
+    /**
+     * What a profile deletion tells the interface on the way.
+     *
+     * <p>Both on the deleting thread.
+     */
+    public interface DeletionSteps {
+
+        /** The profile is out of the list and the list is saved. The files may still be there. */
+        default void removed() {
         }
+
+        /** The files have been counted and the first is about to go. */
+        default void counted(int files) {
+        }
+    }
+
+    /**
+     * Removes a profile, and its files when asked.
+     *
+     * <p>The list first, then the files. The profile leaves the list the moment
+     * the player confirms - that part is one small file - and the folder, which
+     * can be tens of thousands of files, is emptied after, with {@code steps}
+     * told how many so the bar can say so.
+     */
+    public List<Path> deleteProfile(Profile profile, boolean deleteFiles, Progress progress,
+                                    DeletionSteps steps)
+            throws IOException, InterruptedException {
+
+        Path directory = profiles.gameDirectory(profile);
+        profiles.remove(profile);
         profiles.save();
+        steps.removed();
+
+        List<Path> undeleted = deleteFiles
+                ? profiles.deleteInstanceFolder(directory, progress, steps::counted)
+                : List.of();
 
         Set<Integer> stillWanted = javaMajorsInUse();
         if (stillWanted == null) {

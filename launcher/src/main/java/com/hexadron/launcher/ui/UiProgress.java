@@ -140,7 +140,7 @@ public final class UiProgress implements Progress {
         });
     }
 
-    private boolean shouldUpdate() {
+    private synchronized boolean shouldUpdate() {
         long now = System.currentTimeMillis();
         if (now - lastUpdate < MIN_UPDATE_INTERVAL_MILLIS) {
             return false;

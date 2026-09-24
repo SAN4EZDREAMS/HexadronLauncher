@@ -55,9 +55,29 @@ final class BrowserProgress implements Progress {
     public void bytes(long completed, long total) {
     }
 
+    /**
+     * The bar at most this often.
+     *
+     * <p>A removal reports once per file, from several threads, and a few
+     * thousand {@code runLater} calls queued at once kept the window from
+     * repainting until they were through - the freeze the bar was meant to
+     * explain.
+     */
+    private static final long MIN_UPDATE_INTERVAL_MILLIS = 60;
+
+    private final java.util.concurrent.atomic.AtomicLong lastUpdate =
+            new java.util.concurrent.atomic.AtomicLong();
+
     @Override
     public void items(int completed, int total) {
         if (total <= 0) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        long last = lastUpdate.get();
+        // The last one always goes through, so the bar cannot stop at 99%.
+        if (completed < total
+                && (now - last < MIN_UPDATE_INTERVAL_MILLIS || !lastUpdate.compareAndSet(last, now))) {
             return;
         }
         double fraction = (double) completed / total;

@@ -177,6 +177,7 @@ public final class SelfCheck {
         datapackFolder();
         worldList();
         buildFiles();
+        treeDeletion();
         stylesheet();
         launcherLog();
         about();
@@ -6253,6 +6254,121 @@ public final class SelfCheck {
             check("a build from a newer launcher is refused with a reason", refusedFuture);
         } catch (IOException | InterruptedException e) {
             check("build file check could not run: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
+    /**
+     * Deleting an instance: all of it, quickly, with a count, and never through
+     * a link into something else.
+     */
+    private static void treeDeletion() {
+        section("Deleting many files");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-delete-check");
+
+            // ------------------------------------------------ a whole tree
+            Path tree = dir.resolve("tree");
+            for (int i = 0; i < 300; i++) {
+                Path file = tree.resolve("d" + (i % 7)).resolve("e" + (i % 3)).resolve("f" + i + ".txt");
+                java.nio.file.Files.createDirectories(file.getParent());
+                java.nio.file.Files.writeString(file, "x");
+            }
+            Path readOnly = tree.resolve("locked.txt");
+            java.nio.file.Files.writeString(readOnly, "x");
+            readOnly.toFile().setWritable(false);
+            Path outside = dir.resolve("shared");
+            java.nio.file.Files.createDirectories(outside);
+            java.nio.file.Files.writeString(outside.resolve("keep.txt"), "keep");
+            boolean linked;
+            try {
+                java.nio.file.Files.createSymbolicLink(tree.resolve("link"), outside);
+                linked = true;
+            } catch (IOException | UnsupportedOperationException e) {
+                linked = false;
+            }
+
+            int[] counted = {-1};
+            int[] lastItems = {-1, -1};
+            Progress watching = new Progress() {
+                public void stage(String name) { }
+                public void bytes(long completed, long total) { }
+                public synchronized void items(int completed, int total) {
+                    lastItems[0] = Math.max(lastItems[0], completed);
+                    lastItems[1] = total;
+                }
+                public void log(String message) { }
+            };
+            var outcome = com.hexadron.launcher.util.TreeDeleter.deleteTree(tree, watching,
+                    files -> counted[0] = files);
+            check("every file and folder of a tree is deleted", outcome.isComplete()
+                    && !java.nio.file.Files.exists(tree));
+            check("the files are counted before they go", counted[0] >= 301);
+            check("and the count reaches its end", lastItems[1] > 0 && lastItems[0] == lastItems[1]);
+            check("a read-only file does not stop it", !java.nio.file.Files.exists(readOnly));
+            if (linked) {
+                check("a link is deleted as a link, and what it points at stays",
+                        java.nio.file.Files.isRegularFile(outside.resolve("keep.txt")));
+            }
+
+            // ------------------------------------------------ named files only
+            Path instance = dir.resolve("instance");
+            Path owned = instance.resolve("config/pack/a.toml");
+            Path alsoOwned = instance.resolve("config/pack/b.toml");
+            Path players = instance.resolve("config/mine.toml");
+            for (Path file : List.of(owned, alsoOwned, players)) {
+                java.nio.file.Files.createDirectories(file.getParent());
+                java.nio.file.Files.writeString(file, "x");
+            }
+            var named = com.hexadron.launcher.util.TreeDeleter.deleteFiles(
+                    List.of(owned, alsoOwned, owned), instance, Progress.NOOP);
+            check("named files are deleted, each once", named.deleted() == 2 && named.isComplete());
+            check("a folder they leave empty goes with them",
+                    !java.nio.file.Files.exists(instance.resolve("config/pack")));
+            check("a folder with the player's file in it stays",
+                    java.nio.file.Files.isRegularFile(players));
+            check("and the folder it stops at is never removed", java.nio.file.Files.isDirectory(instance));
+
+            // ------------------------------------------------ an instance folder
+            GameDirs dirs = new GameDirs(dir.resolve("root"));
+            dirs.createBaseDirectories();
+            com.hexadron.launcher.profile.ProfileStore store =
+                    new com.hexadron.launcher.profile.ProfileStore(dirs).load();
+            Profile doomed = Profile.create("Doomed", "1.21.1", LoaderType.VANILLA);
+            store.add(doomed);
+            Path folder = store.gameDirectory(doomed);
+            java.nio.file.Files.writeString(folder.resolve("mods/a.jar"), "x");
+            store.remove(doomed);
+            List<Path> left = store.deleteInstanceFolder(folder, Progress.NOOP, null);
+            check("an instance folder is deleted", left.isEmpty() && !java.nio.file.Files.exists(folder));
+            check("and nothing waits in the deletion folder afterwards",
+                    !java.nio.file.Files.exists(dirs.instances().resolve(
+                            com.hexadron.launcher.profile.ProfileStore.DELETING_DIR)));
+
+            Path leftover = dirs.instances().resolve(
+                    com.hexadron.launcher.profile.ProfileStore.DELETING_DIR).resolve("old-1/saves/x.dat");
+            java.nio.file.Files.createDirectories(leftover.getParent());
+            java.nio.file.Files.writeString(leftover, "x");
+            store.purgeLeftovers();
+            check("a deletion an earlier run did not finish is finished at start-up",
+                    !java.nio.file.Files.exists(leftover.getParent().getParent()));
+
+            boolean refused;
+            try {
+                store.deleteInstanceFolder(outside, Progress.NOOP, null);
+                refused = false;
+            } catch (IOException expected) {
+                refused = true;
+            }
+            check("a folder outside the instances folder is refused",
+                    refused && java.nio.file.Files.isRegularFile(outside.resolve("keep.txt")));
+        } catch (IOException | InterruptedException e) {
+            check("deletion check could not run: " + e, false);
         } finally {
             if (dir != null) {
                 com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
