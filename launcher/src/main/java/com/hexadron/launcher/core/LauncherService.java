@@ -1046,6 +1046,29 @@ public final class LauncherService {
         return modpackInstaller.install(pack, card, profiles.gameDirectory(profile), progress);
     }
 
+    // ---------------------------------------------------------------- storage
+
+    /**
+     * Reads the data folder for the storage window: what is there, what uses it,
+     * and what the safe mode may offer. Reads only.
+     */
+    public com.hexadron.launcher.cleanup.StorageReport scanStorage(Progress progress)
+            throws InterruptedException {
+        return com.hexadron.launcher.cleanup.StorageScanner.scan(
+                new com.hexadron.launcher.cleanup.StorageScanner.Inputs(dirs, profiles.all(),
+                        profiles::gameDirectory, versionInstaller.resolver(),
+                        javaRuntimes.provisioner(), javaMajorsInUse(), LauncherLog.file()),
+                progress);
+    }
+
+    /** Deletes what the storage window chose. See {@link com.hexadron.launcher.cleanup.StorageCleaner}. */
+    public com.hexadron.launcher.cleanup.StorageCleaner.Result cleanStorage(
+            List<com.hexadron.launcher.cleanup.CleanupAction> actions, Progress progress)
+            throws InterruptedException {
+        return com.hexadron.launcher.cleanup.StorageCleaner.clean(dirs, LauncherLog.file(),
+                javaRuntimes.provisioner(), actions, progress);
+    }
+
     // ---------------------------------------------------------------- builds
 
     /**

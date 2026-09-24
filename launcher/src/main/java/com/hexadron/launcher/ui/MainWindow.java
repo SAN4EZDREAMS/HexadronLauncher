@@ -206,6 +206,11 @@ public final class MainWindow implements ProfileHost {
     private final Button aboutButton = new Button();
     private final Button gridAboutButton = new Button();
     private final Button bugButton = new Button();
+    private final Button cleanupButton = new Button();
+    private final Button gridCleanupButton = new Button();
+
+    /** The storage window, while it is open. One at a time. */
+    private CleanupWindow cleanupWindow;
     private final Button gridBugButton = new Button();
     private final Button modeButton = new Button();
     private final Button gridModeButton = new Button();
@@ -441,6 +446,8 @@ public final class MainWindow implements ProfileHost {
         asIcon(aboutButton, Glyphs.about(), "about.open");
         bugButton.setOnAction(event -> openBugReport());
         asIcon(bugButton, Glyphs.bug(), "bug.open");
+        cleanupButton.setOnAction(event -> openCleanup());
+        asIcon(cleanupButton, Glyphs.broom(), "cleanup.open");
 
         // No language box here. The setting lives in the settings window, and a
         // setting with two homes is a setting that disagrees with itself; the
@@ -451,7 +458,7 @@ public final class MainWindow implements ProfileHost {
         // has used, and moving it to make room for a new button is a change to
         // something people no longer look at before clicking.
         HBox header = new HBox(10, mark, brandLabel, searchField, spacer(),
-                modeButton, bugButton, aboutButton, settingsButton);
+                modeButton, cleanupButton, bugButton, aboutButton, settingsButton);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         keepLabels(header);
@@ -541,12 +548,14 @@ public final class MainWindow implements ProfileHost {
         asIcon(gridAboutButton, Glyphs.about(), "about.open");
         gridBugButton.setOnAction(event -> openBugReport());
         asIcon(gridBugButton, Glyphs.bug(), "bug.open");
+        gridCleanupButton.setOnAction(event -> openCleanup());
+        asIcon(gridCleanupButton, Glyphs.broom(), "cleanup.open");
 
         gridHint.getStyleClass().add("muted");
 
         HBox bar = new HBox(10, mark, gridTitle, gridSearchField, gridNewButton, gridImportBuildButton,
                 gridNewGroupButton, gridSortButton, spacer(), gridHint,
-                gridModeButton, gridBugButton, gridAboutButton, gridSettingsButton);
+                gridModeButton, gridCleanupButton, gridBugButton, gridAboutButton, gridSettingsButton);
         bar.getStyleClass().addAll("header", "inventory-bar");
         bar.setAlignment(Pos.CENTER_LEFT);
         keepLabels(bar);
@@ -2442,6 +2451,52 @@ public final class MainWindow implements ProfileHost {
                 }
             });
         });
+    }
+
+    // ---------------------------------------------------------------- storage
+
+    /**
+     * Opens the storage window, or brings the open one forward.
+     *
+     * <p>While it deletes, the launcher is busy: nothing may install into or
+     * launch from the folders being emptied. It refuses to start at all while a
+     * game is running, because the running game holds its version, its
+     * libraries and its Java open.
+     */
+    private void openCleanup() {
+        if (cleanupWindow != null && cleanupWindow.isShowing()) {
+            cleanupWindow.toFront();
+            return;
+        }
+        cleanupWindow = new CleanupWindow(stage, service, new CleanupWindow.Host() {
+            @Override
+            public String blockedReason() {
+                if (session != null && session.isRunning()) {
+                    return I18n.t("cleanup.blocked.playing");
+                }
+                if (busy) {
+                    return I18n.t("cleanup.blocked.busy");
+                }
+                return null;
+            }
+
+            @Override
+            public void cleaningStarted() {
+                setBusy(true);
+                stageLabel.setText(I18n.t("cleanup.cleaning"));
+                progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+            }
+
+            @Override
+            public void cleaningFinished() {
+                setBusy(false);
+                stageLabel.setText(I18n.t("status.ready"));
+                progressBar.setProgress(1);
+                refreshProfiles();
+                browsers.values().forEach(ContentBrowserWindow::contentChanged);
+            }
+        });
+        cleanupWindow.show();
     }
 
     // ---------------------------------------------------------------- build drop

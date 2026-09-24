@@ -12,6 +12,7 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Minecraft versions | Every version in Mojang's `version_manifest_v2` - releases, snapshots, old_beta, old_alpha |
 | Loaders | Fabric, Quilt, Forge and NeoForge all install and launch. The version picker offers only versions the chosen loader has builds for |
 | Accounts | Offline accounts work and can be removed. Microsoft sign-in is implemented and needs an approved Azure client ID. The account chosen in the box is saved at once, so the launcher opens on it next time |
+| Storage | A storage window (broom button) shows what the launcher keeps on disk as a chart, tiles and a tree. **Safe** mode deletes only what no profile uses and never enters an instance folder; **Advanced** mode lets anything be ticked, behind a red warning and a second confirmation |
 | Builds | A profile exports to one `.hexbuild` file - version, loader, settings, mods, packs, configs, optionally worlds - and imports as a new profile on any machine. Files from Modrinth and CurseForge travel as links; the player's own files travel only when they say so |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments and Java path |
 | Mods | One content window per instance, with a rail of kinds down the left - icons until the pointer is on it, names while it is. Mods: search, sort, filter by category, install and remove, filtered to that instance's version and loader. Modrinth needs no key; CurseForge needs one, and says so when it has none. Required dependencies resolve automatically, and the launcher asks before you switch off or delete something other mods depend on |
@@ -1685,6 +1686,39 @@ or run a command.
 
 An import always makes a new profile. Importing over an existing one would mean
 deciding whose copy of each file wins, and the loser could be a world.
+
+## Storage and cleanup
+
+The broom button in the header opens a window that measures the data folder
+and says where the space goes: four tiles (total, safe to free, free on the
+drive, largest category), a ring chart by category with a legend, the largest
+single items, and a hover description on every card, row and slice.
+
+**Safe mode** (the default) works out what is in use from the profiles
+outwards and offers only what is provably not:
+
+| Offered | Why it is safe |
+|---|---|
+| Versions and their natives | No profile runs them and no used version inherits from them |
+| Libraries | No installed version names them. Groups Forge and NeoForge write into (`net/minecraftforge`, `net/neoforged`, `net/minecraft`, `de/oceanlabs`, `cpw/mods`) are kept while either is installed |
+| Game assets | No installed version's asset index lists them |
+| Java runtimes | Downloaded by the launcher (marker file) and no profile asks for that major |
+| Cache | Modpack archives, loader installers and Java archives already unpacked; mod icons |
+| Leftovers | Partial downloads older than 15 minutes, logs of earlier runs, unused profile icons, `instances/.deleting` |
+
+It holds back whenever it cannot know: a profile whose version will not read
+stops library and asset suggestions, a missing asset index stops asset
+suggestions, an unknown Java version stops Java suggestions, and a data folder
+that also has `launcher_profiles.json` (a shared `.minecraft`) stops version,
+library and asset suggestions. It never offers anything inside an instance.
+
+**Advanced mode** shows the whole data folder as a tree - instances down to
+worlds and mod jars - with a size bar per row. It is off until the box under
+the red warning is ticked, and deleting asks again with a second box. The
+launcher's settings, accounts, credentials, launch wrapper and the log being
+written are shown but cannot be ticked, and the cleaner refuses them again
+itself. Cleanup refuses to start while the game is running or the launcher is
+busy, and keeps the launcher busy while it deletes.
 
 ## Updating itself
 

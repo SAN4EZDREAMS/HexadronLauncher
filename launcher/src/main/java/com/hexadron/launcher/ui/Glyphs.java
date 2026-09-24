@@ -301,6 +301,18 @@ final class Glyphs {
         return sized(sun, 16);
     }
 
+    /** A broom: the storage window, where the launcher is swept out. */
+    static Group broom() {
+        SVGPath broom = new SVGPath();
+        broom.setFillRule(FillRule.NON_ZERO);
+        broom.setContent(
+                "M18.6 2.2 L21.8 5.4 L14.9 12.3 L11.7 9.1 Z "
+                        + "M10.5 10.3 L13.7 13.5 L12.6 14.6 C11.8 15.4 11.7 16.9 12.3 18.9 L13.1 21.6 "
+                        + "C9.3 22.3 5.2 21.2 2.4 18.6 L5.6 17.3 L3.3 15.9 "
+                        + "C4.2 13.9 5.9 12.6 8.1 12.1 Z");
+        return sized(broom, 16);
+    }
+
     /**
      * Scales a path to a height in pixels and wraps it so layout can measure it.
      *

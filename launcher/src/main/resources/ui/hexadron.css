@@ -1928,3 +1928,334 @@
     -fx-font-weight: bold;
     -fx-text-alignment: center;
 }
+
+/* ------------------------------------------------------------ storage window */
+
+/* The storage window. One panel colour for both halves, tiles a step lighter,
+   and red kept for the one mode that can lose a world. The chart colours are
+   set by the window itself, from a palette validated against this panel. */
+.cleanup-root {
+    -fx-background-color: -fx-base-0;
+}
+
+.cleanup-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+}
+
+.cleanup-mode {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 9;
+    -fx-padding: 3;
+}
+
+.cleanup-mode .toggle-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: -fx-text-1;
+    -fx-background-radius: 7;
+    -fx-padding: 6 18 6 18;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+
+.cleanup-mode .toggle-button:hover {
+    -fx-text-fill: -fx-text-0;
+}
+
+.cleanup-mode .toggle-button:selected {
+    -fx-background-color: -fx-accent-0;
+    -fx-text-fill: white;
+}
+
+.cleanup-mode .toggle-button.cleanup-mode-advanced:selected {
+    -fx-background-color: -fx-danger-0;
+}
+
+.cleanup-tile {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 12;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 12;
+    -fx-padding: 12 16 12 16;
+}
+
+.cleanup-tile-name {
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 12px;
+}
+
+.cleanup-tile-value {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.cleanup-tile-good {
+    -fx-text-fill: #4cc07a;
+}
+
+.cleanup-free-bar {
+    -fx-pref-height: 8;
+}
+
+.cleanup-panel {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 12;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 12;
+    -fx-padding: 14;
+}
+
+.cleanup-section-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.cleanup-intro {
+    -fx-text-fill: -fx-text-1;
+}
+
+.cleanup-donut-value {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.cleanup-donut-caption {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-1;
+}
+
+.cleanup-swatch {
+    -fx-background-radius: 3;
+}
+
+.cleanup-legend-row {
+    -fx-background-radius: 7;
+    -fx-padding: 4 6 4 6;
+    -fx-cursor: hand;
+}
+
+.cleanup-legend-row:hover,
+.cleanup-legend-row:lifted {
+    -fx-background-color: -fx-base-2;
+}
+
+.cleanup-legend-name {
+    -fx-text-fill: -fx-text-0;
+}
+
+.cleanup-legend-reclaim {
+    -fx-text-fill: #4cc07a;
+    -fx-font-size: 11px;
+}
+
+.cleanup-size {
+    -fx-text-fill: -fx-text-0;
+    -fx-font-weight: bold;
+}
+
+.cleanup-top-row {
+    -fx-background-radius: 7;
+    -fx-padding: 5 6 5 6;
+}
+
+.cleanup-top-row:hover {
+    -fx-background-color: -fx-base-2;
+}
+
+.cleanup-top-name {
+    -fx-text-fill: -fx-text-0;
+}
+
+.cleanup-bar-track {
+    -fx-background-color: -fx-base-3;
+    -fx-background-radius: 3;
+}
+
+.cleanup-bar-fill {
+    -fx-background-radius: 3;
+}
+
+.cleanup-card {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 10;
+    -fx-padding: 12 14 12 0;
+}
+
+.cleanup-card:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+.cleanup-card-flash {
+    -fx-border-color: -fx-accent-1;
+    -fx-border-radius: 10;
+    -fx-border-width: 2;
+}
+
+.cleanup-card-stripe {
+    -fx-min-width: 4;
+    -fx-max-width: 4;
+    -fx-background-radius: 0 3 3 0;
+}
+
+.cleanup-card-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.cleanup-card-reason {
+    -fx-text-fill: -fx-text-1;
+}
+
+.cleanup-card-size {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -fx-text-0;
+}
+
+.cleanup-chip {
+    -fx-border-width: 1;
+    -fx-border-radius: 9;
+    -fx-padding: 1 7 1 7;
+    -fx-font-size: 10px;
+    -fx-text-fill: -fx-text-1;
+}
+
+.cleanup-details {
+    -fx-background-color: -fx-base-1;
+    -fx-background-radius: 8;
+    -fx-padding: 8 10 8 10;
+}
+
+.cleanup-detail-name {
+    -fx-text-fill: -fx-text-0;
+    -fx-font-family: "Consolas", "JetBrains Mono", monospace;
+    -fx-font-size: 11px;
+}
+
+.cleanup-empty {
+    -fx-font-size: 15px;
+    -fx-text-fill: #4cc07a;
+    -fx-padding: 24 8 24 8;
+}
+
+.cleanup-notice {
+    -fx-background-color: rgba(216, 161, 60, 0.12);
+    -fx-border-color: -fx-warning-0;
+    -fx-border-width: 0 0 0 3;
+    -fx-padding: 8 10 8 10;
+    -fx-text-fill: -fx-text-0;
+}
+
+.cleanup-danger {
+    -fx-background-color: rgba(179, 64, 58, 0.16);
+    -fx-background-radius: 10;
+    -fx-border-color: -fx-danger-0;
+    -fx-border-radius: 10;
+    -fx-border-width: 1.5;
+    -fx-padding: 12 14 12 14;
+}
+
+.cleanup-danger-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #ff8a80;
+}
+
+.cleanup-danger-text {
+    -fx-text-fill: -fx-text-0;
+}
+
+.cleanup-danger-check {
+    -fx-font-weight: bold;
+}
+
+.cleanup-tree {
+    -fx-background-color: -fx-base-1;
+}
+
+.cleanup-tree .list-cell {
+    -fx-padding: 4 8 4 8;
+}
+
+.cleanup-arrow {
+    -fx-text-fill: -fx-text-1;
+    -fx-cursor: hand;
+    -fx-font-size: 12px;
+}
+
+.cleanup-dot {
+    -fx-min-width: 8;
+    -fx-min-height: 8;
+    -fx-max-width: 8;
+    -fx-max-height: 8;
+    -fx-background-radius: 4;
+}
+
+.cleanup-row-name {
+    -fx-text-fill: -fx-text-0;
+}
+
+.cleanup-row-heading {
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+}
+
+.cleanup-row-sub {
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 11px;
+}
+
+.cleanup-row-unused {
+    -fx-text-fill: #d8a13c;
+}
+
+.cleanup-locked {
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 10px;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 8;
+    -fx-padding: 0 6 0 6;
+}
+
+.cleanup-status {
+    -fx-text-fill: -fx-text-1;
+}
+
+.cleanup-tooltip {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 8;
+    -fx-border-color: -fx-base-3;
+    -fx-border-radius: 8;
+    -fx-text-fill: -fx-text-0;
+    -fx-font-size: 12px;
+    -fx-padding: 8 10 8 10;
+}
+
+.hyperlink {
+    -fx-text-fill: -fx-accent-1;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.hyperlink:hover {
+    -fx-underline: true;
+}
+
+.hyperlink:visited {
+    -fx-text-fill: -fx-accent-1;
+}
+
+/* The one button in the launcher that deletes game data. Solid red, not a red
+   hover: it should look like what it does before the pointer reaches it. */
+.button.cleanup-danger-button,
+.button.cleanup-danger-button:hover {
+    -fx-background-color: -fx-danger-0;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
+.button.cleanup-danger-button:disabled {
+    -fx-background-color: -fx-base-3;
+}
