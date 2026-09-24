@@ -31,11 +31,20 @@ Public API VirusTotal: 4 запити на хвилину, 500 на добу. Т
 
 ОПИС РЕЛІЗУ
 
-Розділ дописується В КІНЕЦЬ опису і починається рядком SECTION_HEAD. Повторний
-запуск спершу відрізає старий розділ (і заглушку «триває»), тож розділ завжди
-один. Опис читає ще й лаунчер у вікні оновлення як ЗВИЧАЙНИЙ ТЕКСТ, тому тут
-немає таблиць, емодзі й markdown-розмітки: лише рядки й голі посилання, які
-GitHub сам робить клікабельними.
+Розділ дописується В КІНЕЦЬ опису між двома HTML-коментарями, MARK_START і
+MARK_END. GitHub коментарів не показує, а скрипт за ними знаходить і замінює
+свій розділ, тож при повторному запуску розділ лишається один. Старий текстовий
+формат (рядок SECTION_HEAD) теж прибирається.
+
+Що бачить людина на сторінці релізу:
+  * один значок-підсумок (shields.io): вердикт, виявлення, скільки файлів;
+  * по значку на кожну систему — клік відкриває звіт по повному архіву;
+  * таблиця всіх файлів, згорнута в <details>, щоб не займати сторінку.
+
+Лаунчер читає той самий опис у вікні оновлення. Він вирізає розділ між
+коментарями й замість нього показує одну кольорову плашку, взявши вердикт з
+атрибутів MARK_START (див. update/ScanReport.java). Формат цих атрибутів —
+контракт між скриптом і лаунчером.
 """
 
 import datetime
@@ -50,8 +59,12 @@ import urllib.error
 import urllib.request
 import uuid
 
-# Рядок, з якого починається розділ. Його ж шукає крок "write the notes" у
-# release-launcher.yml, коли ставить заглушку. Міняти — в обох місцях.
+# Межі розділу в описі. Ті самі рядки пише заглушка в release-launcher.yml і
+# читає лаунчер (update/ScanReport.java). Міняти — у всіх трьох місцях.
+MARK_START = "<!-- virustotal:start"
+MARK_END = "<!-- virustotal:end -->"
+# Заголовок старого, текстового формату. Лише для того, щоб прибрати його з
+# релізів, які вийшли до значків.
 SECTION_HEAD = "Перевірка VirusTotal"
 
 VT_API = os.environ.get("VT_API_BASE", "https://www.virustotal.com/api/v3")
@@ -240,43 +253,124 @@ def scan(vt, files):
     return results
 
 
+# Коди вердикту в MARK_START. Англійською й малими літерами: їх розбирає код.
+CODES = {CLEAN: "clean", WARN: "warning", DANGER: "danger",
+         PENDING: "pending", UNCHECKED: "unchecked", ERROR: "error"}
+ICONS = {CLEAN: "✅", WARN: "⚠️", DANGER: "⛔",
+         PENDING: "⏳", UNCHECKED: "➖", ERROR: "❌"}
+COLOURS = {CLEAN: "2ea44f", WARN: "d8a13c", DANGER: "b3403a",
+           PENDING: "9e9e9e", UNCHECKED: "9e9e9e", ERROR: "9e9e9e"}
+PLATFORMS = ("Windows", "Linux", "macOS", "Flatpak")
+
+
+def platform(name):
+    """Система, для якої файл, за тими самими словами, що пише ManifestTool."""
+    lower = name.lower()
+    if lower.endswith(".flatpak"):
+        return "Flatpak"
+    for words, label in ((("windows", "-win-"), "Windows"),
+                         (("linux", "-lnx-"), "Linux"),
+                         (("macos", "-darwin-"), "macOS")):
+        if any(w in lower for w in words):
+            return label
+    return ""
+
+
+def is_full(name):
+    """Повний архів — те, що людина качає руками. Частини — для оновлення."""
+    return "-parts-" not in name.lower()
+
+
+def badge(label, message, colour, logo=False):
+    """URL значка shields.io. У його шляху дефіс і підкреслення службові,
+    тому подвоюються; решту кодує quote."""
+    from urllib.parse import quote
+
+    def part(text):
+        return quote(text.replace("-", "--").replace("_", "__"), safe="")
+
+    url = f"https://img.shields.io/badge/{part(label)}-{part(message)}-{colour}"
+    return url + ("?logo=virustotal&logoColor=white" if logo else "")
+
+
+def score(r):
+    return f"{r['found']}/{r['engines']}" if r["engines"] else "—"
+
+
 def section(results, when):
     worst = max((r["mark"] for r in results), key=SEVERITY.index, default=UNCHECKED)
     found = sum(r["found"] for r in results)
     done = sum(1 for r in results if r["engines"])
+    total = len(results)
+
+    words = {CLEAN: "чисто", WARN: "увага", DANGER: "небезпечно",
+             PENDING: "перевірка триває", UNCHECKED: "перевірено не все",
+             ERROR: "помилка перевірки"}[worst]
+    summary = f"{words} · виявлень: {found} · файлів: {done}/{total}"
+
     lines = [
+        f"{MARK_START} verdict={CODES[worst]} found={found} checked={done} total={total} -->",
+        "",
         "---",
         "",
-        f"{SECTION_HEAD}: {worst}",
-        f"Файлів перевірено: {done} з {len(results)}; виявлень разом: {found}. "
-        f"Дата: {when:%Y-%m-%d %H:%M} UTC.",
-        "",
+        f"![VirusTotal: {summary}]({badge('VirusTotal', summary, COLOURS[worst], logo=True)})",
     ]
-    for r in results:
-        score = f"{r['found']}/{r['engines']}" if r["engines"] else "-"
-        tail = f" ({r['note']})" if r["note"] else ""
-        lines.append(f"- {r['mark']} · {score} · {r['name']}{tail}")
-        lines.append(f"  {VT_GUI}{r['sha']}")
+
+    # По значку на систему: повний архів, бо саме його качають люди.
+    row = []
+    for label in PLATFORMS:
+        full = [r for r in results if is_full(r["name"]) and platform(r["name"]) == label]
+        if not full:
+            continue
+        r = full[0]
+        row.append(f"[![{label}: {score(r)}]({badge(label, score(r), COLOURS[r['mark']])})]"
+                   f"({VT_GUI}{r['sha']})")
+    if row:
+        lines += ["", " ".join(row)]
+
+    ordered = sorted(results, key=lambda r: (
+        not is_full(r["name"]),
+        PLATFORMS.index(platform(r["name"])) if platform(r["name"]) else len(PLATFORMS),
+        r["name"]))
     lines += [
         "",
-        f"{CLEAN} — жоден антивірус нічого не знайшов. "
-        f"{UNCHECKED}/{ERROR}/{PENDING} — дивіться звіт за посиланням. "
-        f"{WARN} — 1–{DANGER_AT - 1} спрацювання, для лаунчерів на Java це "
-        f"зазвичай хибна тривога. {DANGER} — {DANGER_AT} і більше.",
+        "<details>",
+        f"<summary>Усі файли ({total}) і звіти VirusTotal · {when:%Y-%m-%d %H:%M} UTC</summary>",
+        "",
+        "| | Файл | Система | Виявлень | Звіт |",
+        "|:-:|---|---|:-:|:-:|",
+    ]
+    for r in ordered:
+        name = r["name"] if is_full(r["name"]) else f"{r['name']} <sub>частина оновлення</sub>"
+        note = f"<br><sub>{r['note']}</sub>" if r["note"] else ""
+        lines.append(f"| {ICONS[r['mark']]} | {name}{note} | {platform(r['name']) or '—'} "
+                     f"| {score(r)} | [відкрити]({VT_GUI}{r['sha']}) |")
+    lines += [
+        "",
+        f"<sub>✅ жоден антивірус нічого не знайшов · ⚠️ 1–{DANGER_AT - 1} спрацювання, "
+        f"для лаунчерів на Java це зазвичай хибна тривога · ⛔ {DANGER_AT} і більше · "
+        "⏳/➖/❌ результату немає, дивіться звіт</sub>",
+        "",
+        "</details>",
+        "",
+        MARK_END,
     ]
     return "\n".join(lines)
 
 
-# Старий розділ разом із лінією перед ним, і так само заглушка «триває».
-# Лише з початку рядка: у списку комітів ці слова можуть трапитися посеред
-# рядка, і відрізати опис від того місця було б помилкою.
+# Новий розділ: від MARK_START до MARK_END, або до кінця, якщо кінця немає
+# (обірваний запуск). Разом із порожніми рядками перед ним.
+_BLOCK = re.compile(
+    r"(?:\r?\n)*" + re.escape(MARK_START) + r"[\s\S]*?(?:" + re.escape(MARK_END) + r"|\Z)[ \t]*")
+# Старий текстовий розділ разом із лінією перед ним. Лише з початку рядка: у
+# списку комітів ці слова можуть трапитися посеред рядка.
 _OLD_SECTION = re.compile(
     r"(?:\r?\n)*(?:^---[ \t]*\r?\n(?:[ \t]*\r?\n)*)?^" + re.escape(SECTION_HEAD) + r"[\s\S]*\Z",
     re.MULTILINE)
 
 
 def merge(body, block):
-    kept = _OLD_SECTION.sub("", body or "").rstrip()
+    kept = _OLD_SECTION.sub("", _BLOCK.sub("", body or "")).rstrip()
     return f"{kept}\n\n{block}\n" if kept else f"{block}\n"
 
 
@@ -325,7 +419,7 @@ def main():
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
-            handle.write(block.replace("\n", "  \n") + "\n")
+            handle.write(block + "\n")
 
     # Червоний job — щоб автор побачив проблему. Сам реліз уже опублікований і
     # від цього не зникає.

@@ -1144,6 +1144,44 @@
     -fx-text-fill: -fx-danger-0;
 }
 
+/*
+ * The VirusTotal result under the version line of the update window.
+ *
+ * The same colours as the badges on the release page, so the two places read
+ * alike: green clean, amber a detection or two, red more. Grey when there is no
+ * result yet or the scan did not finish - that is not a finding, and painting it
+ * red would teach people to click past the red one.
+ */
+.scan-badge {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-padding: 3 10 3 10;
+}
+
+.scan-clean {
+    -fx-background-color: -fx-accent-0;
+    -fx-border-color: derive(-fx-accent-0, -20%);
+    -fx-text-fill: white;
+}
+
+.scan-warning {
+    -fx-background-color: -fx-warning-0;
+    -fx-border-color: derive(-fx-warning-0, -20%);
+    -fx-text-fill: #1b1206;
+}
+
+.scan-danger {
+    -fx-background-color: -fx-danger-0;
+    -fx-border-color: derive(-fx-danger-0, -20%);
+    -fx-text-fill: white;
+}
+
+.scan-pending,
+.scan-unchecked,
+.scan-error {
+    -fx-text-fill: -fx-text-1;
+}
+
 /* ------------------------------------------------------------- mod icons */
 
 /*

@@ -73,9 +73,19 @@ public final class Updates {
     public record Available(AppVersion from, AppVersion to, ReleaseFeed.Release release,
                             ReleaseFeed.Asset asset) {
 
-        /** The notes the author wrote, or an empty string. */
+        /**
+         * The notes the author wrote, or an empty string.
+         *
+         * <p>Without the VirusTotal block: it is badges and a table for the
+         * release page, and the window shows {@link #scan()} in its place.
+         */
         public String notes() {
-            return release.notes() == null ? "" : release.notes();
+            return ScanReport.without(release.notes());
+        }
+
+        /** The VirusTotal result the release carries, if it carries one. */
+        public Optional<ScanReport> scan() {
+            return ScanReport.in(release.notes());
         }
 
         /** How much there is to download. */

@@ -309,14 +309,23 @@ jobs:
           } > notes.md
           # Порожній опис виглядав би у вікні оновлення як помилка лаунчера.
           [ -s notes.md ] || echo "- без опису" > notes.md
-          # Заглушка, поки job virustotal не допише справжній результат. Він
-          # сам її замінить: шукає рядок "Перевірка VirusTotal" — див.
-          # SECTION_HEAD у .github/scripts/virustotal_scan.py. Без ключа
-          # перевірки не буде, тож і обіцяти її в описі не варто.
+          # Заглушка, поки job virustotal не допише справжній результат: сірий
+          # значок "перевірка триває". Скрипт замінить усе між двома
+          # коментарями, а лаунчер за verdict=pending покаже свою плашку —
+          # див. MARK_START у .github/scripts/virustotal_scan.py і
+          # update/ScanReport.java. Без ключа перевірки не буде, тож і обіцяти
+          # її в описі не варто.
           if [ -n "${VT_API_KEY:-}" ]; then
-            printf '\n---\n\n%s\n' \
-              "Перевірка VirusTotal: ТРИВАЄ. Результат і посилання на звіт з'являться тут за 15-40 хвилин." \
-              >> notes.md
+            {
+              echo
+              echo '<!-- virustotal:start verdict=pending found=0 checked=0 total=0 -->'
+              echo
+              echo '---'
+              echo
+              echo '![VirusTotal: перевірка триває](https://img.shields.io/badge/VirusTotal-%D0%BF%D0%B5%D1%80%D0%B5%D0%B2%D1%96%D1%80%D0%BA%D0%B0%20%D1%82%D1%80%D0%B8%D0%B2%D0%B0%D1%94%20%C2%B7%2015%E2%80%9340%20%D1%85%D0%B2-9e9e9e?logo=virustotal&logoColor=white)'
+              echo
+              echo '<!-- virustotal:end -->'
+            } >> notes.md
           fi
           cat notes.md
         env:

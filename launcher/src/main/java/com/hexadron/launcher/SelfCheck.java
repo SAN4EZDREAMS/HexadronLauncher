@@ -61,6 +61,7 @@ import com.hexadron.launcher.update.DeltaUpdate;
 import com.hexadron.launcher.update.ImageManifest;
 import com.hexadron.launcher.update.ManifestTool;
 import com.hexadron.launcher.update.ReleaseFeed;
+import com.hexadron.launcher.update.ScanReport;
 import com.hexadron.launcher.update.UpdateChannel;
 import com.hexadron.launcher.update.UpdateInstall;
 import com.hexadron.launcher.update.Updates;
@@ -3815,6 +3816,39 @@ public final class SelfCheck {
                         && "v1.0.0".equals(offer.to().text())
                         && offer.size() == 11
                         && offer.notes().contains("first"));
+
+        // ------------------------------------------------------ the scan block
+        // What .github/scripts/virustotal_scan.py appends. The update window
+        // shows the notes as text, so the block is cut and read, not shown.
+        String scanned = "- a change\n\n"
+                + "<!-- virustotal:start verdict=clean found=0 checked=16 total=16 -->\n\n"
+                + "---\n\n![VirusTotal](https://example.invalid/b.svg)\n\n"
+                + "<details>\n\n| | file |\n|:-:|---|\n</details>\n\n"
+                + "<!-- virustotal:end -->\n";
+        check("the scan block is cut out of the notes",
+                "- a change".equals(ScanReport.without(scanned)));
+        ScanReport scan = ScanReport.in(scanned).orElse(null);
+        check("and its result is read from the marker",
+                scan != null && scan.verdict() == ScanReport.Verdict.CLEAN
+                        && scan.found() == 0 && scan.checked() == 16 && scan.total() == 16);
+        // "Перевірка VirusTotal": the plain-text section of the first format.
+        String head = "\u041f\u0435\u0440\u0435\u0432\u0456\u0440\u043a\u0430 VirusTotal";
+        String legacy = "- fix: " + head + " in a commit\n\n---\n\n" + head
+                + ": CLEAN\n\n- CLEAN \u00b7 0/61 \u00b7 HexadronLauncher-linux.flatpak\n";
+        check("the older text section is cut too, and a commit that names it is kept",
+                ("- fix: " + head + " in a commit").equals(ScanReport.without(legacy)));
+        check("notes with no block carry no result and stay as they are",
+                ScanReport.in("- a change").isEmpty()
+                        && "- a change".equals(ScanReport.without("- a change")));
+        check("an unknown verdict is not guessed at",
+                ScanReport.in("<!-- virustotal:start verdict=maybe found=1 -->").isEmpty());
+        check("a block that was cut off is cut to the end",
+                "- a".equals(ScanReport.without("- a\n\n<!-- virustotal:start verdict=pending -->\n---\n")));
+        check("the offer shows the notes without the block",
+                !Updates.compare("0.9.4.5", new ReleaseFeed.Release(stable.tag(), stable.name(), scanned,
+                                stable.prerelease(), stable.draft(), stable.publishedAt(),
+                                stable.pageUrl(), stable.assets()), Platform.OsFamily.LINUX)
+                        .orElseThrow().notes().contains("virustotal"));
 
         // ------------------------------------------------------------- layouts
         Path dir = null;
