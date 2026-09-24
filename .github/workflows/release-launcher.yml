@@ -235,9 +235,48 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish:
+  # The Linux client wrapped as a Flatpak: the same application image, in a
+  # sandbox on the GNOME runtime, as one file that installs on any distribution
+  # with Flatpak. Built from the image the build job already made, so what is
+  # inside is byte for byte the tar.gz users download.
+  flatpak:
     needs: [plan, build]
     if: needs.plan.outputs.proceed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v6
+        with:
+          name: client-linux
+          path: linux
+      - name: install the flatpak tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder appstream desktop-file-utils
+          # Ubuntu 24.04 keeps unprivileged user namespaces from programs that
+          # have no AppArmor profile, and bubblewrap - which flatpak-builder runs
+          # every build step in - cannot sandbox anything without one.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: build the flatpak
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          bash launcher/packaging/flatpak/build-flatpak.sh \
+            linux/HexadronLauncher-linux.tar.gz "${{ needs.plan.outputs.version }}" release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: client-flatpak
+          path: release/HexadronLauncher-linux.flatpak
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [plan, build, flatpak]
+    # A failed Flatpak must not hold back the three clients that did build: the
+    # release goes out without it, and the flatpak job shows red on its own.
+    if: always() && needs.plan.outputs.proceed == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-24.04
     steps:
       # Уся історія: опис релізу — це список комітів від попереднього релізу,

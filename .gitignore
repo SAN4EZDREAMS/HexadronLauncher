@@ -49,3 +49,8 @@ hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
+
+# flatpak-builder, when run by hand in the packaging folder
+.flatpak-builder/
+launcher/packaging/flatpak/HexadronLauncher-linux.tar.gz
+*.flatpak

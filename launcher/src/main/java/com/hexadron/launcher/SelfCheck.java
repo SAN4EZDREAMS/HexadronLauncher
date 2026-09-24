@@ -179,6 +179,7 @@ public final class SelfCheck {
         buildFiles();
         treeDeletion();
         storageCleanup();
+        flatpakSandbox();
         stylesheet();
         launcherLog();
         about();
@@ -6586,6 +6587,43 @@ public final class SelfCheck {
                             .noneMatch(candidate -> candidate.id().equals("versions")));
         } catch (IOException | InterruptedException | RuntimeException e) {
             check("storage check could not run: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
+    /**
+     * Knowing it is in a Flatpak, and not mistaking the .flatpak for the image
+     * the updater replaces itself with.
+     */
+    private static void flatpakSandbox() {
+        section("Flatpak sandbox");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-flatpak-check");
+            Path info = dir.resolve(".flatpak-info");
+            check("no info file and no variable is not a sandbox",
+                    Platform.detectFlatpak(info, null) == null);
+            java.nio.file.Files.writeString(info,
+                    "[Application]\nname=io.github.san4ezdreams.HexadronLauncher\nruntime=runtime/org.gnome.Platform\n");
+            check("the info file names the application",
+                    "io.github.san4ezdreams.HexadronLauncher".equals(Platform.detectFlatpak(info, null)));
+            check("the variable wins when it is set",
+                    "io.example.App".equals(Platform.detectFlatpak(info, "io.example.App")));
+            java.nio.file.Files.writeString(info, "[Instance]\n");
+            check("an info file with no name is still a sandbox",
+                    "flatpak".equals(Platform.detectFlatpak(info, null)));
+            check("this test run itself is not taken for one",
+                    Platform.isFlatpak() == (System.getenv("FLATPAK_ID") != null
+                            || java.nio.file.Files.exists(Path.of("/.flatpak-info"))));
+            check("the .flatpak is never taken for the Linux image the updater unpacks",
+                    !ReleaseFeed.matches("HexadronLauncher-linux.flatpak", Platform.OsFamily.LINUX)
+                            && ReleaseFeed.matches("HexadronLauncher-linux.tar.gz", Platform.OsFamily.LINUX));
+        } catch (IOException e) {
+            check("flatpak check could not run: " + e, false);
         } finally {
             if (dir != null) {
                 com.hexadron.launcher.util.Archives.deleteWhatCan(dir);

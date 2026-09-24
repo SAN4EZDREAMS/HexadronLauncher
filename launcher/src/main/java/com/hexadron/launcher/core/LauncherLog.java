@@ -141,6 +141,10 @@ public final class LauncherLog {
                 + " " + System.getProperty("os.arch")
                 + ", locale " + Locale.getDefault());
         write("INFO", "Data folder: " + dirs.root());
+        if (com.hexadron.launcher.util.Platform.isFlatpak()) {
+            write("INFO", "Packaging: Flatpak (" + com.hexadron.launcher.util.Platform.flatpakId()
+                    + "), sandboxed");
+        }
     }
 
     public static void info(String message) {

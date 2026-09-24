@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Name=Hexadron Launcher
+GenericName=Minecraft Launcher
+GenericName[uk]=Лаунчер Minecraft
+GenericName[ru]=Лаунчер Minecraft
+GenericName[de]=Minecraft-Launcher
+GenericName[pl]=Launcher Minecrafta
+Comment=Play Minecraft with mods, modpacks, shaders and separate profiles
+Comment[uk]=Грайте в Minecraft з модами, модпаками, шейдерами та окремими профілями
+Comment[ru]=Играйте в Minecraft с модами, модпаками, шейдерами и отдельными профилями
+Comment[de]=Minecraft mit Mods, Modpacks, Shadern und eigenen Profilen spielen
+Comment[pl]=Graj w Minecrafta z modami, modpakami, shaderami i osobnymi profilami
+Exec=hexadron-launcher
+Icon=io.github.san4ezdreams.HexadronLauncher
+Terminal=false
+Categories=Game;
+Keywords=minecraft;launcher;mods;modpack;fabric;forge;neoforge;quilt;
+StartupNotify=true

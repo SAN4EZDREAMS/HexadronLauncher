@@ -101,6 +101,67 @@ runtime. An image archived without them unpacks into something that will not
 start, and it fails at the user's end rather than in CI. One extra unpack is the
 cheaper of the two problems.
 
+## Linux: Flatpak
+
+The Linux client also ships as **`HexadronLauncher-linux.flatpak`**: one file that
+installs on any distribution with Flatpak - Ubuntu, Fedora, Debian, Arch, Mint,
+openSUSE, SteamOS and the rest - whatever versions of GTK, glibc or Java that
+distribution happens to have. It is the same application image as the tar.gz,
+wrapped in a sandbox on the **GNOME 50 runtime** (GTK 3 for JavaFX, libsecret,
+Mesa), so everything it depends on comes with it rather than from the system.
+
+```
+flatpak install --user HexadronLauncher-linux.flatpak   # or open it in GNOME Software / Discover
+flatpak run io.github.san4ezdreams.HexadronLauncher
+```
+
+The bundle names Flathub as the place to fetch the runtime from, so the first
+install downloads it by itself.
+
+| Inside the sandbox | Why |
+|---|---|
+| Network, X11, PulseAudio, `--device=all` | Downloads and sign-in; JavaFX and LWJGL draw through X11 (XWayland on Wayland); sound and voice chat; the GPU and gamepads |
+| `xdg-download` | Mods, packs, skins and builds are imported from Downloads, and exported there |
+| Discord sockets | Rich Presence mods, for Discord installed natively or as a Flatpak |
+| Nothing else of the home folder | A mod in the game cannot read `~/.ssh`, browser profiles or wallets - see [Sandboxing](#sandboxing-and-what-it-is-actually-for) |
+
+What behaves differently:
+
+- **Data** lives in `~/.var/app/io.github.san4ezdreams.HexadronLauncher/data/hexadronlauncher`,
+  not in `~/.local/share/hexadronlauncher`. To move an existing install, copy
+  that folder across while the launcher is closed. `flatpak uninstall --delete-data`
+  removes it cleanly.
+- **Updates** come from Flatpak. `/app` is read-only, so the launcher never
+  replaces itself there: its update window offers the new `.flatpak` instead,
+  and installing it over the old one keeps profiles, worlds and accounts.
+- **Other folders** are not visible until granted, per user:
+  `flatpak override --user --filesystem=~/Games io.github.san4ezdreams.HexadronLauncher`,
+  or with Flatseal.
+- **The wrapper command** runs inside the sandbox, so host programs such as
+  `gamemoderun` or `mangohud` are not there unless installed as Flatpak
+  extensions.
+- **Credentials** go through libsecret, which in a sandbox uses the Secret
+  portal; where no portal answers, the launcher's encrypted file store takes
+  over, as on any system without a keyring.
+
+Build it locally from an application image:
+
+```
+./gradlew :launcher:appImage
+tar czf HexadronLauncher-linux.tar.gz -C launcher/build/jpackage .
+launcher/packaging/flatpak/build-flatpak.sh HexadronLauncher-linux.tar.gz 0.9.8
+```
+
+CI does the same: `build-launcher.yml` builds a bundle per push, and
+`release-launcher.yml` attaches `HexadronLauncher-linux.flatpak` to every
+release. A failed Flatpak build never holds back the other three clients.
+
+`launcher/packaging/flatpak/flathub/` holds the manifest for a Flathub
+submission - the same one, fetching the release archive by URL and checksum,
+with `x-checker-data` so Flathub's bot follows new releases. Publishing there
+turns updates into an ordinary `flatpak update` and puts the launcher in every
+software centre.
+
 ## Icons
 
 There are two sets and they are not interchangeable.
@@ -1926,6 +1987,13 @@ in the ecosystem, and it grants `--device=all` and `--socket=x11` for exactly
 those reasons.
 
 So the launcher does not choose for you. It gives you the field.
+
+The Flatpak build is that boundary, drawn for you: the game, its mods and the
+launcher run in one sandbox that sees the launcher's own data and the
+Downloads folder, and nothing else of the home folder. It keeps
+`--device=all` and X11 for the reasons above, so nothing that works natively
+stops working. It does not change what was said about the session token - that
+is still in the game's memory.
 
 ### The wrapper command
 

@@ -61,6 +61,12 @@ public record UpdateInstall(Path root, Platform.OsFamily os) {
      * @return empty for a development run, which is not an error
      */
     public static Optional<UpdateInstall> detect() {
+        // A Flatpak's /app is read-only and belongs to Flatpak: the new version
+        // is installed by Flatpak, and a launcher that tried to replace its own
+        // image there would only find out half-way through that it cannot.
+        if (Platform.isFlatpak()) {
+            return Optional.empty();
+        }
         return currentJar().flatMap(jar -> detect(jar, Platform.os()));
     }
 

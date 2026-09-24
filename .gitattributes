@@ -7,3 +7,7 @@
 # These are Windows script files and should use crlf
 *.bat           text eol=crlf
 
+# Flatpak packaging is read on Linux only
+*.sh            text eol=lf
+*.desktop       text eol=lf
+*.metainfo.xml  text eol=lf

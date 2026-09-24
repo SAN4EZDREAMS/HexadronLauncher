@@ -152,6 +152,23 @@ final class UpdateDialog {
         installButton.getStyleClass().add("primary");
         installButton.setDisable(blocked != null);
         installButton.setOnAction(event -> begin());
+        if (com.hexadron.launcher.util.Platform.isFlatpak()) {
+            // Not a blocked update but a different one: the new .flatpak is
+            // downloaded, and the software centre or `flatpak install` puts it
+            // over this one - same id, so profiles and worlds stay where they
+            // are. Opened in the browser, which is outside the sandbox.
+            String bundle = update.release().assets().stream()
+                    .filter(asset -> FLATPAK_ASSET.equalsIgnoreCase(asset.name()))
+                    .map(com.hexadron.launcher.update.ReleaseFeed.Asset::url)
+                    .findFirst()
+                    .orElse(update.release().pageUrl());
+            installButton.setText(I18n.t("update.action.flatpak"));
+            installButton.setDisable(!SystemBrowser.isWebPage(bundle));
+            installButton.setOnAction(event -> {
+                SystemBrowser.open(bundle);
+                stage.close();
+            });
+        }
 
         laterButton.setText(I18n.t("update.action.later"));
         laterButton.setOnAction(event -> stage.close());
@@ -188,8 +205,14 @@ final class UpdateDialog {
         stage.showAndWait();
     }
 
+    /** The file a release publishes for Flatpak. */
+    static final String FLATPAK_ASSET = "HexadronLauncher-linux.flatpak";
+
     /** Why this launcher cannot replace itself here, or null when it can. */
     private String blockedReason() {
+        if (com.hexadron.launcher.util.Platform.isFlatpak()) {
+            return I18n.t("update.manual.flatpak");
+        }
         if (install.isEmpty()) {
             return I18n.t("update.manual.notImage");
         }

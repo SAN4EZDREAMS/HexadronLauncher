@@ -42,6 +42,8 @@ public final class Platform {
     }
 
     private static final OsFamily OS = detectOs();
+    private static final String FLATPAK_ID = detectFlatpak(
+            java.nio.file.Path.of("/.flatpak-info"), System.getenv("FLATPAK_ID"));
     private static final String ARCH = detectArch();
     private static final String OS_VERSION = System.getProperty("os.version", "");
 
@@ -80,6 +82,56 @@ public final class Platform {
 
     public static boolean isLinux() {
         return OS == OsFamily.LINUX;
+    }
+
+    /**
+     * True when the launcher runs inside a Flatpak sandbox.
+     *
+     * <p>What changes there: {@code /app} is read-only, so the launcher cannot
+     * replace itself and updates come from Flatpak; the data folder is the
+     * sandbox's own under {@code ~/.var/app}; and only the folders the sandbox
+     * was granted are visible - the downloads folder, not the whole home.
+     */
+    public static boolean isFlatpak() {
+        return FLATPAK_ID != null;
+    }
+
+    /** The Flatpak application id, or null outside a sandbox. */
+    public static String flatpakId() {
+        return FLATPAK_ID;
+    }
+
+    /**
+     * Whether this is a Flatpak sandbox, from the two things Flatpak itself
+     * provides: the {@code /.flatpak-info} file every sandbox has at its root,
+     * and the {@code FLATPAK_ID} variable. Either is enough - the file is the
+     * one that cannot be missing, the variable is the one that names the app.
+     *
+     * <p>Package-visible arguments so the self-check can put both to it without
+     * being inside a sandbox.
+     *
+     * @return the application id, "flatpak" when only the file says so, or
+     *         null when this is not a sandbox
+     */
+    public static String detectFlatpak(java.nio.file.Path infoFile, String envId) {
+        if (envId != null && !envId.isBlank()) {
+            return envId.trim();
+        }
+        try {
+            if (infoFile != null && java.nio.file.Files.isRegularFile(infoFile)) {
+                for (String line : java.nio.file.Files.readAllLines(infoFile)) {
+                    String trimmed = line.trim();
+                    if (trimmed.startsWith("name=")) {
+                        return trimmed.substring(5).trim();
+                    }
+                }
+                return "flatpak";
+            }
+        } catch (java.io.IOException | RuntimeException ignored) {
+            // A file that exists but cannot be read is still a sandbox.
+            return "flatpak";
+        }
+        return null;
     }
 
     /** Path separator for the {@code -cp} argument: ';' on Windows, ':' elsewhere. */
