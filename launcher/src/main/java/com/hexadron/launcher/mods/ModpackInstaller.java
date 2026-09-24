@@ -23,7 +23,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -303,38 +302,33 @@ public final class ModpackInstaller {
                 () -> new IOException("no modpack recorded under " + id));
         Path root = gameDirectory.toAbsolutePath().normalize();
 
-        int deleted = 0;
-        List<Path> directories = new ArrayList<>();
+        List<Path> files = new ArrayList<>();
         for (String relative : pack.paths()) {
             String safe = safeRelative(root, relative);
-            if (safe == null) {
-                continue;
-            }
-            Path file = root.resolve(safe);
-            try {
-                if (Files.deleteIfExists(file)) {
-                    deleted++;
-                }
-            } catch (IOException e) {
-                // A file the game still has open on Windows. Reported, not
-                // fatal: the rest of the pack still comes out.
-                progress.log("Could not delete %s: %s", safe,
-                        e.getMessage() == null ? e.toString() : e.getMessage());
-            }
-            Path parent = file.getParent();
-            while (parent != null && !parent.equals(root) && parent.startsWith(root)) {
-                directories.add(parent);
-                parent = parent.getParent();
+            if (safe != null) {
+                files.add(root.resolve(safe));
             }
         }
 
-        directories.sort(Comparator.comparingInt(Path::getNameCount).reversed());
-        for (Path directory : directories) {
-            try {
-                Files.deleteIfExists(directory);
-            } catch (IOException e) {
-                // Not empty, which is the normal case and not a problem.
-            }
+        // On several threads, with a count the bar can follow. One at a time, a
+        // pack of a few thousand files was long enough to look like a hang -
+        // and the folders were tried once per file under them, so the same
+        // "config" was asked to go away hundreds of times.
+        progress.stage("Removing " + pack.name() + ": " + files.size() + " file(s)");
+        com.hexadron.launcher.util.TreeDeleter.Outcome outcome;
+        try {
+            outcome = com.hexadron.launcher.util.TreeDeleter.deleteFiles(files, root, progress);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("removing " + pack.name() + " was interrupted", e);
+        }
+        int deleted = outcome.deleted();
+        // A file the game still has open on Windows. Reported, not fatal: the
+        // rest of the pack still comes out.
+        outcome.failed().stream().limit(20).forEach(path ->
+                progress.log("Could not delete %s", root.relativize(path.toAbsolutePath().normalize())));
+        if (outcome.failed().size() > 20) {
+            progress.log("... and %d more that could not be deleted", outcome.failed().size() - 20);
         }
 
         // And each list's own record of the files, so a folder and the record

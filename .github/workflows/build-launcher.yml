@@ -227,3 +227,41 @@ jobs:
           path: release/*
           if-no-files-found: error
           retention-days: 30
+
+  # The Linux image as a Flatpak bundle, per push, so a change that breaks the
+  # sandbox shows up here rather than on release day.
+  flatpak:
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+      - name: fetch the linux client
+        uses: actions/download-artifact@v6
+        with:
+          name: hexadron-launcher-linux
+          path: linux
+      - name: install the flatpak tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder appstream desktop-file-utils
+          # Ubuntu 24.04 keeps unprivileged user namespaces from programs that
+          # have no AppArmor profile, and bubblewrap - which flatpak-builder runs
+          # every build step in - cannot sandbox anything without one.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: build the flatpak
+        run: |
+          set -euo pipefail
+          base=$(grep -m1 -oP "(?<=\?: ')[0-9][^']*" launcher/build.gradle)
+          mkdir -p release
+          bash launcher/packaging/flatpak/build-flatpak.sh \
+            linux/HexadronLauncher-linux.tar.gz "${base}-ci.${{ github.run_number }}" release
+      - name: capture the flatpak
+        uses: actions/upload-artifact@v7
+        with:
+          name: hexadron-launcher-flatpak
+          path: release/HexadronLauncher-linux.flatpak
+          if-no-files-found: error
+          retention-days: 30

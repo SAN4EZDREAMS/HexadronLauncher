@@ -176,42 +176,131 @@ public final class ProfileStore {
      *
      * @return the paths that could not be deleted, empty when the folder is gone
      */
-    public synchronized List<Path> removeWithFiles(Profile profile) throws IOException {
-        Path directory = gameDirectory(profile);
-        remove(profile);
-        return deleteRecursively(directory);
+    public List<Path> removeWithFiles(Profile profile) throws IOException {
+        Path directory;
+        synchronized (this) {
+            directory = gameDirectory(profile);
+            remove(profile);
+        }
+        try {
+            return deleteInstanceFolder(directory, com.hexadron.launcher.core.Progress.NOOP, null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("deleting " + directory + " was interrupted", e);
+        }
     }
 
     /**
-     * Deletes a directory tree, deepest entry first.
+     * Makes the profiles agree with the disk after files were deleted under them.
      *
-     * <p>Refuses anything that is not inside the instances folder. Profile ids
-     * are generated, but {@code profiles.json} is an editable file on disk, and
-     * the one thing this method must never do is accept a hand-edited id that
-     * resolves somewhere else.
+     * <p>A recorded version id that no longer resolves is cleared, so the
+     * profile reads as "not installed" and the next Play installs it, instead
+     * of showing an installed version that is not there. A chosen picture whose
+     * file is gone is dropped, so the loader mark comes back instead of an empty
+     * square.
+     *
+     * @return true when a profile changed and the list should be saved
      */
-    private List<Path> deleteRecursively(Path root) throws IOException {
+    public synchronized boolean reconcileWithDisk(
+            java.util.function.Predicate<String> versionInstalled) {
+        boolean changed = false;
+        for (Profile profile : profiles.values()) {
+            String versionId = profile.versionId();
+            if (versionId != null && !versionInstalled.test(versionId)) {
+                profile.versionId(null);
+                changed = true;
+            }
+            if (profile.hasCustomIcon()
+                    && !Files.isRegularFile(dirs.icons().resolve(profile.customIcon()))) {
+                profile.customIcon(null);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    /** Where folders wait to be deleted. Under the instances folder, so on the same drive. */
+    public static final String DELETING_DIR = ".deleting";
+
+    /**
+     * Deletes an instance folder, reporting as it goes.
+     *
+     * <p>Not synchronized, deliberately. The old version held this store's lock
+     * for the whole deletion, and the window asks this store for the profile
+     * list on every repaint - so the launcher froze for as long as the files
+     * took, even with the deletion on a background thread.
+     *
+     * <p>The folder is first renamed into {@link #DELETING_DIR}. A rename on the
+     * same drive is instant, so the instance is gone from where it was at once;
+     * what is left is emptying a folder nothing refers to, and if the launcher
+     * is closed half-way, {@link #purgeLeftovers} finishes it on the next start.
+     * When the rename is refused - on Windows, a file in the folder is open - the
+     * files are deleted where they are, and whatever is locked is reported.
+     *
+     * @param counted told how many files there are before the first is deleted;
+     *                may be null
+     * @return the paths that could not be deleted, empty when the folder is gone
+     */
+    public List<Path> deleteInstanceFolder(Path directory, com.hexadron.launcher.core.Progress progress,
+                                           java.util.function.IntConsumer counted)
+            throws IOException, InterruptedException {
+        Path target = checkedInstanceFolder(directory);
+        if (!Files.exists(target, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return List.of();
+        }
+        Path doomed = moveAside(target);
+        List<Path> failed = com.hexadron.launcher.util.TreeDeleter
+                .deleteTree(doomed, progress, counted).failed();
+        if (!doomed.equals(target)) {
+            try {
+                Files.deleteIfExists(doomed.getParent());
+            } catch (IOException e) {
+                // Another deletion is still using it, or something is left in it.
+            }
+        }
+        return failed;
+    }
+
+    /**
+     * Finishes deletions an earlier run did not get to the end of.
+     *
+     * <p>Called once in the background at start-up. Never throws.
+     */
+    public void purgeLeftovers() {
+        Path deleting = dirs.instances().resolve(DELETING_DIR);
+        if (!Files.isDirectory(deleting, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        try {
+            com.hexadron.launcher.util.TreeDeleter.deleteTree(deleting,
+                    com.hexadron.launcher.core.Progress.NOOP, null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private Path moveAside(Path target) {
+        Path deleting = dirs.instances().resolve(DELETING_DIR);
+        try {
+            Files.createDirectories(deleting);
+            Path aside = deleting.resolve(target.getFileName() + "-" + System.nanoTime());
+            Files.move(target, aside, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            return aside;
+        } catch (IOException | RuntimeException e) {
+            return target;
+        }
+    }
+
+    /** The same refusal as before: nothing outside the instances folder is ever deleted. */
+    private Path checkedInstanceFolder(Path root) throws IOException {
         Path instances = dirs.instances().toAbsolutePath().normalize();
         Path target = root.toAbsolutePath().normalize();
-        if (!target.startsWith(instances) || target.equals(instances)) {
+        if (!target.startsWith(instances) || target.equals(instances)
+                || target.equals(instances.resolve(DELETING_DIR))) {
             throw new IOException("refusing to delete " + target
                     + ": it is not an instance folder under " + instances);
         }
-        if (!Files.exists(target)) {
-            return List.of();
-        }
-
-        List<Path> failed = new ArrayList<>();
-        try (var entries = Files.walk(target)) {
-            for (Path path : entries.sorted(Comparator.reverseOrder()).toList()) {
-                try {
-                    Files.deleteIfExists(path);
-                } catch (IOException e) {
-                    failed.add(path);
-                }
-            }
-        }
-        return List.copyOf(failed);
+        return target;
     }
 
     public synchronized boolean isEmpty() {

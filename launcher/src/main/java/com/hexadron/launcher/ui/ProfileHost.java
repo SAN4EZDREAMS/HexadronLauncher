@@ -78,6 +78,12 @@ public interface ProfileHost {
     /** Drops a chosen picture, so the loader mark comes back. */
     void clearIcon(Profile profile);
 
+    /** Writes the profile out as a build file another launcher can import. */
+    void exportBuild(Profile profile);
+
+    /** Makes a new profile from a build file. */
+    void importBuild();
+
     // ------------------------------------------------------------ arrangement
 
     /**

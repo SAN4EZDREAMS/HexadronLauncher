@@ -487,7 +487,7 @@ public final class Archives {
     }
 
     /** Takes off whatever is refusing the delete, on either kind of system. */
-    private static void makeWritable(Path path) {
+    static void makeWritable(Path path) {
         try {
             Files.setAttribute(path, "dos:readonly", Boolean.FALSE, LinkOption.NOFOLLOW_LINKS);
         } catch (IOException | UnsupportedOperationException | IllegalArgumentException ignored) {

@@ -1,0 +1,87 @@
+# Template for a Flathub submission (github.com/flathub/io.github.san4ezdreams.HexadronLauncher).
+#
+# The same manifest as ../io.github.san4ezdreams.HexadronLauncher.yml, with one difference: the application image
+# comes from the GitHub release, by URL and SHA-256, because Flathub builds
+# without access to this repository's CI. The .desktop file, the metainfo
+# (with @VERSION@ and @DATE@ filled in), the start script and the three icons
+# are copied next to this file in the Flathub repository.
+#
+# x-checker-data lets Flathub's bot open a pull request by itself whenever a
+# new release is published.
+
+id: io.github.san4ezdreams.HexadronLauncher
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: hexadron-launcher
+
+finish-args:
+  # Downloads, Modrinth, CurseForge, Microsoft sign-in, multiplayer.
+  - --share=network
+  # X11 shared memory. JavaFX and Minecraft (LWJGL / GLFW) both draw through X11;
+  # on a Wayland session that is XWayland, which every desktop provides.
+  - --share=ipc
+  - --socket=x11
+  # Game sound, and the microphone for voice-chat mods.
+  - --socket=pulseaudio
+  # The GPU (OpenGL), and gamepads for controller mods. `dri` alone covers the
+  # GPU but not /dev/input, and Controllable-style mods then see no pad.
+  - --device=all
+  # Mods, resource packs, skins and builds are usually downloaded here, and an
+  # exported build is saved here. Nothing else in the home folder is visible -
+  # which is the point: a mod running in the game cannot read ~/.ssh or the
+  # browser profile. More can be granted per user with Flatseal or
+  # `flatpak override --user --filesystem=... io.github.san4ezdreams.HexadronLauncher`.
+  - --filesystem=xdg-download
+  # Discord Rich Presence mods: the socket of Discord as a Flatpak, and of
+  # Discord installed natively.
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+  - --filesystem=xdg-run/discord-ipc-0
+  # Lets the JVM see whether large pages are available. Read-only.
+  - --filesystem=/sys/kernel/mm/hugepages:ro
+  - --filesystem=/sys/kernel/mm/transparent_hugepage:ro
+
+modules:
+  - name: hexadron-launcher
+    buildsystem: simple
+    build-commands:
+      # The image as jpackage made it: bin/HexadronLauncher, lib/app, lib/runtime.
+      - mkdir -p /app/lib
+      - cp -a image/HexadronLauncher /app/lib/HexadronLauncher
+      - install -Dm755 hexadron-launcher.sh /app/bin/hexadron-launcher
+      - install -Dm644 io.github.san4ezdreams.HexadronLauncher.desktop
+        /app/share/applications/io.github.san4ezdreams.HexadronLauncher.desktop
+      - install -Dm644 io.github.san4ezdreams.HexadronLauncher.metainfo.xml
+        /app/share/metainfo/io.github.san4ezdreams.HexadronLauncher.metainfo.xml
+      - install -Dm644 icon.png
+        /app/share/icons/hicolor/512x512/apps/io.github.san4ezdreams.HexadronLauncher.png
+      - install -Dm644 icon-128.png
+        /app/share/icons/hicolor/128x128/apps/io.github.san4ezdreams.HexadronLauncher.png
+      - install -Dm644 icon-64.png
+        /app/share/icons/hicolor/64x64/apps/io.github.san4ezdreams.HexadronLauncher.png
+    sources:
+      # Not stripped: the archive is made with `tar -C jpackage .`, so every
+      # entry starts with ./HexadronLauncher, and keeping the tree as it is
+      # lands the image at image/HexadronLauncher whatever tar made of the dot.
+      - type: archive
+        url: https://github.com/SAN4EZDREAMS/HexadronLauncher/releases/download/v@VERSION@/HexadronLauncher-linux.tar.gz
+        sha256: '@SHA256@'
+        strip-components: 0
+        dest: image
+        x-checker-data:
+          type: json
+          url: https://api.github.com/repos/SAN4EZDREAMS/HexadronLauncher/releases/latest
+          version-query: .tag_name | sub("^v"; "")
+          url-query: .assets[] | select(.name=="HexadronLauncher-linux.tar.gz") | .browser_download_url
+      - type: file
+        path: hexadron-launcher.sh
+      - type: file
+        path: io.github.san4ezdreams.HexadronLauncher.desktop
+      - type: file
+        path: io.github.san4ezdreams.HexadronLauncher.metainfo.xml
+      - type: file
+        path: icon.png
+      - type: file
+        path: icon-128.png
+      - type: file
+        path: icon-64.png

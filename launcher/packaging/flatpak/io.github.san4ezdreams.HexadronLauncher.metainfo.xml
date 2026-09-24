@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata: what software centres (GNOME Software, KDE Discover,
+     Flathub) show about the launcher. @VERSION@ and @DATE@ are filled in by
+     build-flatpak.sh. -->
+<component type="desktop-application">
+  <id>io.github.san4ezdreams.HexadronLauncher</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary=https://github.com/SAN4EZDREAMS/HexadronLauncher/blob/HEAD/LICENSE.md</project_license>
+
+  <name>Hexadron Launcher</name>
+  <summary>Play Minecraft with mods, modpacks and separate profiles</summary>
+  <developer id="io.github.san4ezdreams">
+    <name>Oleksii Radchuk (SAN4EZDREAMS)</name>
+  </developer>
+
+  <description>
+    <p>
+      A Minecraft launcher that keeps every profile in its own folder, with its own
+      version, loader, mods and worlds.
+    </p>
+    <ul>
+      <li>Every Minecraft version, with Fabric, Quilt, Forge and NeoForge</li>
+      <li>Mods, modpacks, resource packs, shaders and data packs from Modrinth and CurseForge</li>
+      <li>Profiles exported to one file and imported on another computer</li>
+      <li>Microsoft and offline accounts, skins and capes</li>
+      <li>A storage window that shows what takes space and frees what nothing uses</li>
+      <li>The right Java for each version, downloaded when it is missing</li>
+    </ul>
+    <p>
+      In the Flatpak sandbox the game and its mods see only the downloads folder of
+      your home, not the rest of it.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.san4ezdreams.HexadronLauncher.desktop</launchable>
+  <provides>
+    <binary>hexadron-launcher</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/SAN4EZDREAMS/HexadronLauncher</url>
+  <url type="bugtracker">https://github.com/SAN4EZDREAMS/HexadronLauncher/issues</url>
+  <url type="vcs-browser">https://github.com/SAN4EZDREAMS/HexadronLauncher</url>
+
+  <categories>
+    <category>Game</category>
+  </categories>
+  <keywords>
+    <keyword>minecraft</keyword>
+    <keyword>launcher</keyword>
+    <keyword>mods</keyword>
+    <keyword>modpack</keyword>
+  </keywords>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#8fd4a3</color>
+    <color type="primary" scheme_preference="dark">#1f5c33</color>
+  </branding>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

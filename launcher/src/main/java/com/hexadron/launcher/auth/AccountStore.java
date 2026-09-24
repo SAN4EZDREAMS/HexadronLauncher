@@ -23,10 +23,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Persists accounts: metadata to {@code accounts.json}, credentials to the
@@ -73,6 +75,18 @@ public final class AccountStore {
     private String selectedId;
     private boolean migratedFromPlaintext;
 
+    /**
+     * Accounts whose credentials have not reached the credential store yet.
+     *
+     * <p>Kept so that {@link #saveSelection()} can rewrite {@code accounts.json}
+     * without a round trip to the keychain for every account. On Windows each
+     * store is a PowerShell process, and the selection is saved every time the
+     * account box changes - five signed-in accounts would be five processes per
+     * click. The credentials only change on sign-in and refresh, and those are
+     * the calls that put an account in here.
+     */
+    private final Set<String> unsavedSecrets = new HashSet<>();
+
     public AccountStore(GameDirs dirs, SecretStore secrets) {
         this.file = dirs.accountsFile();
         this.secrets = secrets;
@@ -90,6 +104,7 @@ public final class AccountStore {
 
     public synchronized AccountStore load() throws IOException {
         accounts.clear();
+        unsavedSecrets.clear();
         selectedId = null;
         migratedFromPlaintext = false;
         if (!Files.isRegularFile(file)) {
@@ -131,15 +146,33 @@ public final class AccountStore {
     }
 
     public synchronized void save() throws IOException {
+        writeFile(true);
+    }
+
+    /**
+     * Writes which account is selected, and the list it is selected from.
+     *
+     * <p>The same file as {@link #save()}, but credentials are only written for
+     * accounts that have new ones. This is what the account box calls on every
+     * change, so the launcher opens on the account it was closed on.
+     */
+    public synchronized void saveSelection() throws IOException {
+        writeFile(false);
+    }
+
+    private void writeFile(boolean allSecrets) throws IOException {
         Json array = Json.array();
         for (Account account : accounts.values()) {
             Json metadata = account.toMetadataJson();
             if (!account.isOffline()) {
-                writeSecret(account);
+                if (allSecrets || unsavedSecrets.contains(account.id())) {
+                    writeSecret(account);
+                }
                 metadata.put("secretKey", secretKey(account));
             }
             array.add(metadata);
         }
+        unsavedSecrets.clear();
 
         Json root = Json.object().put("accounts", array);
         if (selectedId != null) {
@@ -166,6 +199,7 @@ public final class AccountStore {
     public synchronized void add(Account account) {
         registerSecrets(account);
         accounts.put(account.id(), account);
+        unsavedSecrets.add(account.id());
         if (selectedId == null) {
             selectedId = account.id();
         }
@@ -180,6 +214,7 @@ public final class AccountStore {
         }
         registerSecrets(account);
         accounts.put(account.id(), account);
+        unsavedSecrets.add(account.id());
     }
 
     /**
@@ -191,6 +226,7 @@ public final class AccountStore {
      */
     public synchronized void remove(Account account) throws IOException {
         accounts.remove(account.id());
+        unsavedSecrets.remove(account.id());
         Redactor.forget(account.accessToken());
         Redactor.forget(account.refreshToken());
         if (!account.isOffline()) {
@@ -201,10 +237,19 @@ public final class AccountStore {
         }
     }
 
-    public synchronized void select(Account account) {
-        if (accounts.containsKey(account.id())) {
-            selectedId = account.id();
+    /**
+     * Makes an account the one the launcher opens with.
+     *
+     * @return true when this changed the selection, which is when it is worth
+     *         {@link #saveSelection() saving}
+     */
+    public synchronized boolean select(Account account) {
+        if (account == null || !accounts.containsKey(account.id())
+                || account.id().equals(selectedId)) {
+            return false;
         }
+        selectedId = account.id();
+        return true;
     }
 
     public synchronized boolean isEmpty() {

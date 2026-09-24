@@ -25,6 +25,9 @@ import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.ModOrigin;
 import com.hexadron.launcher.profile.Profile;
 import com.hexadron.launcher.profile.ProfileLayout;
+import com.hexadron.launcher.share.BuildExport;
+import com.hexadron.launcher.share.BuildFormat;
+import com.hexadron.launcher.share.BuildImport;
 
 import javafx.animation.FadeTransition;
 import javafx.animation.Interpolator;
@@ -71,6 +74,7 @@ import java.time.format.FormatStyle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * The launcher window.
@@ -126,6 +130,10 @@ public final class MainWindow implements ProfileHost {
      * leave in order to press Play would be a worse grid.
      */
     private final StackPane content = new StackPane();
+
+    /** Shown over the window while a build file is held over it. */
+    private final StackPane dropOverlay = new StackPane();
+    private final Label dropLabel = new Label();
     private final VBox inventoryPanel = new VBox();
 
     /** True while the cover animation runs, so a second click cannot interrupt it. */
@@ -133,6 +141,15 @@ public final class MainWindow implements ProfileHost {
 
     private final TextField searchField = new TextField();
     private final ComboBox<Account> accountBox = new ComboBox<>();
+
+    /**
+     * True while the account box is being refilled from the store.
+     *
+     * <p>Refilling passes through "nothing selected" and then back to the
+     * store's own choice. Neither is the user choosing an account, and neither
+     * should be written back as one.
+     */
+    private boolean syncingAccounts;
 
     /**
      * The profile's picture, beside its name.
@@ -189,12 +206,20 @@ public final class MainWindow implements ProfileHost {
     private final Button aboutButton = new Button();
     private final Button gridAboutButton = new Button();
     private final Button bugButton = new Button();
+    private final Button cleanupButton = new Button();
+    private final Button gridCleanupButton = new Button();
+
+    /** The storage window, while it is open. One at a time. */
+    private CleanupWindow cleanupWindow;
     private final Button gridBugButton = new Button();
     private final Button modeButton = new Button();
     private final Button gridModeButton = new Button();
     private final Button newGroupButton = new Button();
     private final Button sortButton = new Button();
     private final Button gridNewButton = new Button();
+    private final Button importBuildButton = new Button();
+    private final Button exportBuildButton = new Button();
+    private final Button gridImportBuildButton = new Button();
     private final Button gridNewGroupButton = new Button();
     private final Button gridSortButton = new Button();
     private final TextField gridSearchField = new TextField();
@@ -224,6 +249,9 @@ public final class MainWindow implements ProfileHost {
     private GameLauncher.GameSession session;
     private volatile boolean busy;
     private boolean playing;
+
+    /** The profile whose game is running, or null. Its files are not deleted under it. */
+    private volatile String runningProfileId;
 
     /** True while a Microsoft sign-in is waiting for the browser. */
     private volatile boolean signingIn;
@@ -365,7 +393,7 @@ public final class MainWindow implements ProfileHost {
         inventoryPanel.setVisible(false);
         inventoryPanel.setManaged(false);
 
-        content.getChildren().setAll(upper, inventoryPanel, buildToast());
+        content.getChildren().setAll(upper, inventoryPanel, buildToast(), buildDropOverlay());
         // Clipped, because the grid is slid in from above its own top edge, and
         // an unclipped child in JavaFX paints outside its parent quite happily -
         // which during the animation means over the title bar.
@@ -380,6 +408,7 @@ public final class MainWindow implements ProfileHost {
 
         Scene scene = new Scene(root, 1180, 760);
         Theme.apply(scene);
+        acceptDroppedBuilds(scene);
         // A floor rather than a preference: below this the toolbars cannot show
         // their own labels, and the grid starts scrolling sideways at nine
         // columns. Both are worse than a window that refuses to get smaller.
@@ -417,6 +446,8 @@ public final class MainWindow implements ProfileHost {
         asIcon(aboutButton, Glyphs.about(), "about.open");
         bugButton.setOnAction(event -> openBugReport());
         asIcon(bugButton, Glyphs.bug(), "bug.open");
+        cleanupButton.setOnAction(event -> openCleanup());
+        asIcon(cleanupButton, Glyphs.broom(), "cleanup.open");
 
         // No language box here. The setting lives in the settings window, and a
         // setting with two homes is a setting that disagrees with itself; the
@@ -427,7 +458,7 @@ public final class MainWindow implements ProfileHost {
         // has used, and moving it to make room for a new button is a change to
         // something people no longer look at before clicking.
         HBox header = new HBox(10, mark, brandLabel, searchField, spacer(),
-                modeButton, bugButton, aboutButton, settingsButton);
+                modeButton, cleanupButton, bugButton, aboutButton, settingsButton);
         header.getStyleClass().add("header");
         header.setAlignment(Pos.CENTER_LEFT);
         keepLabels(header);
@@ -468,9 +499,19 @@ public final class MainWindow implements ProfileHost {
         HBox.setHgrow(newGroupButton, Priority.ALWAYS);
         HBox.setHgrow(sortButton, Priority.ALWAYS);
 
+        // Moving a whole instance between machines, or handing it to a friend:
+        // with the list, because it is about the list - one comes in, one goes out.
+        importBuildButton.setMaxWidth(Double.MAX_VALUE);
+        importBuildButton.setOnAction(event -> importBuild());
+        exportBuildButton.setMaxWidth(Double.MAX_VALUE);
+        exportBuildButton.setOnAction(event -> exportBuild(selectedProfile));
+        HBox share = new HBox(6, importBuildButton, exportBuildButton);
+        HBox.setHgrow(importBuildButton, Priority.ALWAYS);
+        HBox.setHgrow(exportBuildButton, Priority.ALWAYS);
+
         instancesTitle.getStyleClass().add("section-title");
 
-        VBox pane = new VBox(8, instancesTitle, list, buttons, arrange);
+        VBox pane = new VBox(8, instancesTitle, list, buttons, arrange, share);
         pane.getStyleClass().add("sidebar");
         VBox.setVgrow(list, Priority.ALWAYS);
         return pane;
@@ -496,6 +537,7 @@ public final class MainWindow implements ProfileHost {
         gridSearchField.textProperty().bindBidirectional(searchField.textProperty());
 
         gridNewButton.setOnAction(event -> createProfile());
+        gridImportBuildButton.setOnAction(event -> importBuild());
         gridNewGroupButton.setOnAction(event -> createGroup(null));
         gridSortButton.setOnAction(event -> sortAlphabetically());
         gridModeButton.setOnAction(event -> toggleMode());
@@ -506,12 +548,14 @@ public final class MainWindow implements ProfileHost {
         asIcon(gridAboutButton, Glyphs.about(), "about.open");
         gridBugButton.setOnAction(event -> openBugReport());
         asIcon(gridBugButton, Glyphs.bug(), "bug.open");
+        gridCleanupButton.setOnAction(event -> openCleanup());
+        asIcon(gridCleanupButton, Glyphs.broom(), "cleanup.open");
 
         gridHint.getStyleClass().add("muted");
 
-        HBox bar = new HBox(10, mark, gridTitle, gridSearchField, gridNewButton,
+        HBox bar = new HBox(10, mark, gridTitle, gridSearchField, gridNewButton, gridImportBuildButton,
                 gridNewGroupButton, gridSortButton, spacer(), gridHint,
-                gridModeButton, gridBugButton, gridAboutButton, gridSettingsButton);
+                gridModeButton, gridCleanupButton, gridBugButton, gridAboutButton, gridSettingsButton);
         bar.getStyleClass().addAll("header", "inventory-bar");
         bar.setAlignment(Pos.CENTER_LEFT);
         keepLabels(bar);
@@ -1040,6 +1084,15 @@ public final class MainWindow implements ProfileHost {
                 removeAccountButton.setDisable(value == null));
         accountBox.valueProperty().addListener((observable, previous, value) ->
                 editAccountButton.setDisable(value == null));
+        // The account chosen here is the account the launcher opens with next
+        // time. It is written as soon as it changes rather than on exit: a
+        // launcher closed from the task manager, a crash or a Windows update
+        // restart never reaches the exit handler.
+        accountBox.valueProperty().addListener((observable, previous, value) -> {
+            if (!syncingAccounts) {
+                rememberAccount(value);
+            }
+        });
         editAccountButton.setDisable(accountBox.getValue() == null);
 
         HBox controls = new HBox(8, accountTitle, accountBox, addAccountButton, signInButton,
@@ -1132,6 +1185,9 @@ public final class MainWindow implements ProfileHost {
         newGroupButton.setText(I18n.t("groups.new"));
         sortButton.setText(I18n.t("profiles.sort"));
         gridNewButton.setText(I18n.t("profiles.new"));
+        gridImportBuildButton.setText(I18n.t("action.importBuild.short"));
+        importBuildButton.setText(I18n.t("action.importBuild.short"));
+        exportBuildButton.setText(I18n.t("action.exportBuild.short"));
         gridNewGroupButton.setText(I18n.t("groups.new"));
         gridSortButton.setText(I18n.t("profiles.sort"));
         // No text on these: they are shapes, and the word lives in the tooltip -
@@ -1268,6 +1324,13 @@ public final class MainWindow implements ProfileHost {
         if (profile == null) {
             return;
         }
+        // Asked before the question, not after it: the removal runs as a task,
+        // and a task refused as busy after the player has chosen what to delete
+        // is an answer thrown away.
+        if (busy) {
+            showWarning(I18n.t("profiles.remove.header"), I18n.t("profiles.remove.busy"));
+            return;
+        }
         // Three answers, not two. "Remove" on its own had to mean one of them,
         // and whichever it meant was wrong half the time: a player clearing out
         // an old instance wants the disk space back, a player who misclicked
@@ -1294,17 +1357,43 @@ public final class MainWindow implements ProfileHost {
             return;
         }
 
+        boolean withFiles = answer.get() == deleteFiles;
+        if (withFiles && profile.id().equals(runningProfileId)
+                && session != null && session.isRunning()) {
+            showWarning(I18n.t("profiles.remove.header"),
+                    I18n.t("profiles.remove.running", profile.name()));
+            return;
+        }
+
         closeBrowser(profile.id());
+        // Off the interface thread, with the bar. It used to run right here, on
+        // the thread that draws the window, so a modpack instance of forty
+        // thousand files was a window that stopped answering until they were
+        // gone - and nothing on it said why.
+        //
         // Through the service rather than the store, because removing a profile
         // is also the moment to give back a downloaded Java runtime that nothing
         // asks for any more - and only the service can see the whole profile
         // list to know whether anything still does.
-        try {
-            List<Path> undeleted =
-                    service.deleteProfile(profile, answer.get() == deleteFiles, progress);
-            if (answer.get() == deleteFiles) {
+        String name = profile.name();
+        runInBackground(I18n.t("task.removeProfile", name), () -> {
+            progress.stage(I18n.t("profiles.remove.stage", name));
+            List<Path> undeleted = service.deleteProfile(profile, withFiles, progress,
+                    new LauncherService.DeletionSteps() {
+                        @Override
+                        public void removed() {
+                            // Out of the list at once; the files follow.
+                            Platform.runLater(() -> refreshProfiles());
+                        }
+
+                        @Override
+                        public void counted(int files) {
+                            progress.stage(I18n.t("profiles.remove.stageFiles", name, files));
+                        }
+                    });
+            if (withFiles) {
                 if (undeleted.isEmpty()) {
-                    progress.log(I18n.t("profiles.remove.deleted", profile.name()));
+                    progress.log(I18n.t("profiles.remove.deleted", name));
                 } else {
                     // Named, not swallowed. A folder still sitting there after
                     // "delete files" needs a reason, and on Windows the reason is
@@ -1313,11 +1402,20 @@ public final class MainWindow implements ProfileHost {
                     undeleted.stream().limit(10).forEach(path -> progress.log("  " + path));
                 }
             }
-        } catch (IOException e) {
-            showError(I18n.t("profiles.remove.header"), e);
-        }
-        saveProfilesQuietly();
-        refreshProfiles();
+            String done = I18n.t(withFiles && undeleted.isEmpty()
+                    ? "profiles.remove.deleted"
+                    : withFiles ? "profiles.remove.deleteFailed" : "profiles.remove.done",
+                    withFiles && !undeleted.isEmpty() ? undeleted.size() : name);
+            // Closed off here rather than by the task runner, which would put
+            // "Ready" over the line that says what was deleted.
+            Platform.runLater(() -> {
+                saveProfilesQuietly();
+                refreshProfiles();
+                stageLabel.setText(done);
+                progressBar.setProgress(1);
+                setBusy(false);
+            });
+        }, false);
     }
 
     private void closeBrowser(String profileId) {
@@ -1349,6 +1447,7 @@ public final class MainWindow implements ProfileHost {
         }
         runInBackground(I18n.t("task.play"), () -> {
             Profile profile = requireSelected();
+            runningProfileId = profile.id();
             // Where the game writes its own log. That file answered the last
             // three questions about this launcher, and nothing pointed at it.
             progress.log(I18n.t("log.gameLog",
@@ -1368,6 +1467,7 @@ public final class MainWindow implements ProfileHost {
                         // notification area after the game has closed is a window
                         // the player has to go and find.
                         tray.restore();
+                        runningProfileId = null;
                         Platform.runLater(() -> {
                             playing = false;
                             playButton.setText(I18n.t("action.play"));
@@ -1816,9 +1916,33 @@ public final class MainWindow implements ProfileHost {
     }
 
     private void refreshAccounts() {
-        accountBox.setItems(FXCollections.observableArrayList(service.accounts().all()));
-        service.accounts().selected().ifPresent(accountBox.getSelectionModel()::select);
+        syncingAccounts = true;
+        try {
+            accountBox.setItems(FXCollections.observableArrayList(service.accounts().all()));
+            service.accounts().selected().ifPresent(accountBox.getSelectionModel()::select);
+        } finally {
+            syncingAccounts = false;
+        }
         removeAccountButton.setDisable(accountBox.getValue() == null);
+    }
+
+    /**
+     * Records the account in the box as the selected one, and saves that.
+     *
+     * <p>Only the selection is written - see {@link
+     * com.hexadron.launcher.auth.AccountStore#saveSelection()} - so a click in
+     * the box does not start a credential store process per account.
+     */
+    private void rememberAccount(Account account) {
+        if (account == null || !service.accounts().select(account)) {
+            return;
+        }
+        try {
+            service.accounts().saveSelection();
+        } catch (IOException e) {
+            progress.log(I18n.t("account.selection.saveFailed",
+                    e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
     }
 
     /** Renders the selected instance. Read-only: every value here is changed in the dialog. */
@@ -1831,6 +1955,7 @@ public final class MainWindow implements ProfileHost {
             detailEdit.setDisable(!present);
         }
         removeButton.setDisable(!present);
+        exportBuildButton.setDisable(!present);
         installButton.setDisable(!present || busy);
         modsButton.setDisable(!present);
         playButton.setDisable(!present || busy);
@@ -2150,6 +2275,345 @@ public final class MainWindow implements ProfileHost {
         openGameFolder();
     }
 
+    // ---------------------------------------------------------------- builds
+
+    /**
+     * Exports a profile as a build file.
+     *
+     * <p>Four steps: what goes in, reading the instance (in the background - it
+     * hashes every jar and asks Modrinth about the ones the launcher did not
+     * download), the question about the player's own files if there are any,
+     * and where to save it. Nothing is written until the last one, so every
+     * step before it can be cancelled for free.
+     */
+    @Override
+    public void exportBuild(Profile profile) {
+        if (profile == null) {
+            showWarning(I18n.t("build.export.title"), I18n.t("profiles.selectFirst"));
+            return;
+        }
+        int worlds = service.worldsIn(profile).size();
+        Optional<BuildExport.Options> options = BuildDialogs.exportOptions(stage, profile, worlds);
+        if (options.isEmpty()) {
+            return;
+        }
+        runInBackground(I18n.t("task.exportBuild"), () -> {
+            BuildExport.Plan plan = service.planBuild(profile, options.get(), progress);
+            plan.notes().forEach(note -> progress.log(I18n.t("build.log.note", note)));
+            Platform.runLater(() -> {
+                endBackgroundStep();
+                saveBuild(plan);
+            });
+        }, false);
+    }
+
+    /** The question about custom files, then the file chooser, then the write. */
+    private void saveBuild(BuildExport.Plan plan) {
+        boolean includeCustom = false;
+        if (plan.hasCustom()) {
+            Optional<Boolean> answer = BuildDialogs.askAboutCustom(stage,
+                    plan.custom().stream().map(entry -> entry.title() + "  (" + entry.path() + ")")
+                            .toList(),
+                    plan.customBytes(), true);
+            if (answer.isEmpty()) {
+                progress.log(I18n.t("build.export.cancelled"));
+                return;
+            }
+            includeCustom = answer.get();
+        }
+
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(I18n.t("build.export.chooser"));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
+                I18n.t("build.filter"), "*" + BuildFormat.EXTENSION));
+        chooser.setInitialFileName(plan.suggestedFileName());
+        java.io.File chosen = chooser.showSaveDialog(stage);
+        if (chosen == null) {
+            progress.log(I18n.t("build.export.cancelled"));
+            return;
+        }
+        Path target = chosen.toPath();
+        if (!target.getFileName().toString().toLowerCase(java.util.Locale.ROOT)
+                .endsWith(BuildFormat.EXTENSION)) {
+            target = target.resolveSibling(target.getFileName() + BuildFormat.EXTENSION);
+        }
+
+        boolean withCustom = includeCustom;
+        Path destination = target;
+        runInBackground(I18n.t("task.exportBuild"), () -> {
+            int carried = service.writeBuild(plan, withCustom, destination, progress);
+            progress.log(I18n.t("build.exported", destination, plan.remoteCount(), carried));
+            Platform.runLater(() -> showInfo(I18n.t("build.exported.header"),
+                    I18n.t("build.exported", destination, plan.remoteCount(), carried)));
+        });
+    }
+
+    /**
+     * Makes a new profile from a build file.
+     *
+     * <p>The file is read before anything is asked, so a file that is not a
+     * build is refused at once rather than after a dialog about its contents.
+     */
+    @Override
+    public void importBuild() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(I18n.t("build.import.chooser"));
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter(I18n.t("build.filter"), "*" + BuildFormat.EXTENSION),
+                new FileChooser.ExtensionFilter(I18n.t("build.filter.any"), "*.*"));
+        java.io.File chosen = chooser.showOpenDialog(stage);
+        if (chosen == null) {
+            return;
+        }
+        importBuildFrom(chosen.toPath());
+    }
+
+    /**
+     * Imports one build file: the file chooser's way in and the drop's.
+     *
+     * <p>Refused at once while the launcher is busy. The import would be
+     * refused anyway, but only after the player had answered two dialogs about
+     * it.
+     */
+    private void importBuildFrom(Path file) {
+        if (busy) {
+            showWarning(I18n.t("build.import.title"), I18n.t("build.drop.busy"));
+            return;
+        }
+        BuildImport build;
+        try {
+            build = service.readBuild(file);
+        } catch (IOException e) {
+            showError(I18n.t("build.import.failed"), e);
+            return;
+        }
+
+        Optional<BuildDialogs.ImportChoice> choice = BuildDialogs.importOptions(stage, build);
+        if (choice.isEmpty()) {
+            return;
+        }
+
+        boolean includeCustom = false;
+        List<BuildImport.Custom> custom = build.bundledCustom();
+        if (!custom.isEmpty()) {
+            long bytes = custom.stream().anyMatch(entry -> entry.size() < 0)
+                    ? -1 : custom.stream().mapToLong(BuildImport.Custom::size).sum();
+            Optional<Boolean> answer = BuildDialogs.askAboutCustom(stage,
+                    custom.stream().map(entry -> entry.title() + "  (" + entry.path() + ")").toList(),
+                    bytes, false);
+            if (answer.isEmpty()) {
+                return;
+            }
+            includeCustom = answer.get();
+        }
+
+        boolean withCustom = includeCustom;
+        runInBackground(I18n.t("task.importBuild"), () -> {
+            LauncherService.ImportedBuild imported = service.importBuild(build,
+                    choice.get().name(), withCustom, choice.get().withArguments(), progress);
+            byte[] icon = null;
+            try {
+                icon = build.icon();
+            } catch (IOException e) {
+                progress.log(I18n.t("build.log.note", e.getMessage()));
+            }
+            byte[] picture = icon;
+            BuildImport.Result result = imported.result();
+            result.failed().forEach(line -> progress.log(I18n.t("build.log.note", line)));
+            result.skipped().forEach(line -> progress.log(I18n.t("build.log.note", line)));
+            Platform.runLater(() -> {
+                Profile profile = imported.profile();
+                if (picture != null) {
+                    try {
+                        profile.customIcon(ProfileIcons.storeFetched(picture, service.dirs()));
+                        saveProfilesQuietly();
+                    } catch (IOException e) {
+                        progress.log(I18n.t("build.log.note", e.getMessage()));
+                    }
+                }
+                refreshProfiles();
+                select(profile);
+                if (result.isClean()) {
+                    showInfo(I18n.t("build.imported.header"), I18n.t("build.imported.body",
+                            profile.name(), result.downloaded(), result.copied()));
+                } else {
+                    List<String> lines = new java.util.ArrayList<>(result.failed());
+                    lines.addAll(result.skipped());
+                    StringBuilder text = new StringBuilder();
+                    lines.stream().limit(20).forEach(line -> text.append("\u2022 ").append(line).append('\n'));
+                    if (lines.size() > 20) {
+                        text.append(I18n.t("build.custom.more", lines.size() - 20));
+                    }
+                    logPane.setExpanded(true);
+                    showWarning(I18n.t("build.imported.header"), I18n.t("build.imported.problems",
+                            profile.name(), result.downloaded(), result.copied(),
+                            text.toString().stripTrailing()));
+                }
+            });
+        });
+    }
+
+    // ---------------------------------------------------------------- storage
+
+    /**
+     * Opens the storage window, or brings the open one forward.
+     *
+     * <p>While it deletes, the launcher is busy: nothing may install into or
+     * launch from the folders being emptied. It refuses to start at all while a
+     * game is running, because the running game holds its version, its
+     * libraries and its Java open.
+     */
+    private void openCleanup() {
+        if (cleanupWindow != null && cleanupWindow.isShowing()) {
+            cleanupWindow.toFront();
+            return;
+        }
+        cleanupWindow = new CleanupWindow(stage, service, new CleanupWindow.Host() {
+            @Override
+            public String blockedReason() {
+                if (session != null && session.isRunning()) {
+                    return I18n.t("cleanup.blocked.playing");
+                }
+                if (busy) {
+                    return I18n.t("cleanup.blocked.busy");
+                }
+                return null;
+            }
+
+            @Override
+            public void cleaningStarted() {
+                setBusy(true);
+                stageLabel.setText(I18n.t("cleanup.cleaning"));
+                progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+            }
+
+            @Override
+            public void cleaningFinished() {
+                setBusy(false);
+                stageLabel.setText(I18n.t("status.ready"));
+                progressBar.setProgress(1);
+                // A profile the cleanup removed takes its content window with it;
+                // the others are told their folders may have changed.
+                java.util.Set<String> alive = new java.util.HashSet<>();
+                service.profiles().all().forEach(profile -> alive.add(profile.id()));
+                new ArrayList<>(browsers.keySet()).stream()
+                        .filter(id -> !alive.contains(id))
+                        .forEach(MainWindow.this::closeBrowser);
+                refreshProfiles();
+                browsers.values().forEach(ContentBrowserWindow::contentChanged);
+            }
+        });
+        cleanupWindow.show();
+    }
+
+    // ---------------------------------------------------------------- build drop
+
+    private StackPane buildDropOverlay() {
+        dropLabel.getStyleClass().add("build-drop-text");
+        dropLabel.setWrapText(true);
+        dropLabel.setMaxWidth(560);
+        dropOverlay.getChildren().setAll(dropLabel);
+        dropOverlay.getStyleClass().add("build-drop");
+        // Never in the way of the drop itself, which is delivered to whatever
+        // is under the pointer and caught on the scene on its way there.
+        dropOverlay.setMouseTransparent(true);
+        dropOverlay.setVisible(false);
+        return dropOverlay;
+    }
+
+    /**
+     * Lets a build file be dropped anywhere on the window.
+     *
+     * <p>Caught on the scene, before it reaches the list or the grid: those take
+     * drags of their own - profiles and groups being moved - and a file dropped
+     * on a profile cell must not be read as one of those. Only a drag that
+     * carries a {@code .hexbuild} file is taken here, so every other drag goes
+     * where it went before.
+     *
+     * <p>The import itself starts after the drop has been answered, not inside
+     * it. The import opens dialogs, and a dialog that waits inside a drop keeps
+     * the file manager it came from waiting too - on Windows, frozen until the
+     * dialog is closed.
+     */
+    private void acceptDroppedBuilds(Scene scene) {
+        scene.addEventFilter(javafx.scene.input.DragEvent.DRAG_OVER, event -> {
+            List<Path> builds = droppedBuilds(event.getDragboard());
+            if (builds.isEmpty()) {
+                return;
+            }
+            if (!busy) {
+                event.acceptTransferModes(javafx.scene.input.TransferMode.COPY);
+            }
+            showDropOverlay();
+            event.consume();
+        });
+        scene.addEventFilter(javafx.scene.input.DragEvent.DRAG_DROPPED, event -> {
+            List<Path> builds = droppedBuilds(event.getDragboard());
+            if (builds.isEmpty()) {
+                return;
+            }
+            hideDropOverlay();
+            boolean accepted = !busy;
+            event.setDropCompleted(accepted);
+            event.consume();
+            if (!accepted) {
+                progress.log(I18n.t("build.drop.busy"));
+                return;
+            }
+            // One at a time: each import asks its own questions, and a second
+            // one started under the first would be refused as busy anyway.
+            if (builds.size() > 1) {
+                progress.log(I18n.t("build.drop.onlyFirst", builds.size() - 1,
+                        builds.get(0).getFileName().toString()));
+            }
+            Path first = builds.get(0);
+            Platform.runLater(() -> {
+                stage.toFront();
+                importBuildFrom(first);
+            });
+        });
+        scene.setOnDragExited(event -> hideDropOverlay());
+    }
+
+    /** The build files a drag carries, in the order they were picked. */
+    private static List<Path> droppedBuilds(javafx.scene.input.Dragboard board) {
+        if (board == null || !board.hasFiles()) {
+            return List.of();
+        }
+        return board.getFiles().stream()
+                .filter(java.io.File::isFile)
+                .filter(file -> file.getName().toLowerCase(Locale.ROOT)
+                        .endsWith(BuildFormat.EXTENSION))
+                .map(java.io.File::toPath)
+                .toList();
+    }
+
+    private void showDropOverlay() {
+        dropLabel.setText(I18n.t(busy ? "build.drop.busy" : "build.drop.hint"));
+        if (!dropOverlay.isVisible()) {
+            dropOverlay.setVisible(true);
+            dropOverlay.toFront();
+        }
+    }
+
+    private void hideDropOverlay() {
+        dropOverlay.setVisible(false);
+    }
+
+    /**
+     * Closes off a background step whose work goes on in a dialog.
+     *
+     * <p>What {@link #runInBackground} does itself after a task, done here
+     * instead, before the next dialog: the task's own clean-up would run after
+     * that dialog is already open, and the step after the dialog would find
+     * the launcher still busy and refuse to start.
+     */
+    private void endBackgroundStep() {
+        stageLabel.setText(I18n.t("status.ready"));
+        progressBar.setProgress(1);
+        setBusy(false);
+    }
+
     /**
      * Puts a picture of the user's choosing on a profile.
      *
@@ -2352,6 +2816,10 @@ public final class MainWindow implements ProfileHost {
 
     /** Called when the window closes: drop the tray icon and stop the game if wanted. */
     public void shutdown() {
+        // Once more on the way out, for the case the listener cannot see: an
+        // account box that was never touched but whose store fell back to the
+        // first account because the saved one was removed elsewhere.
+        rememberAccount(accountBox.getValue());
         tray.dispose();
         if (session != null && session.isRunning() && !service.settings().keepOpenWhilePlaying()) {
             session.terminate();

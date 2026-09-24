@@ -136,6 +136,7 @@ public final class SelfCheck {
         wrapperCommand();
         assetIndexParsing();
         accounts();
+        accountSelection();
         securityHardening();
         javaVersionParsing();
         javaRuntimeSelection();
@@ -175,6 +176,10 @@ public final class SelfCheck {
         modpackPaths();
         datapackFolder();
         worldList();
+        buildFiles();
+        treeDeletion();
+        storageCleanup();
+        flatpakSandbox();
         stylesheet();
         launcherLog();
         about();
@@ -1087,6 +1092,89 @@ public final class SelfCheck {
                 "t", "r", System.currentTimeMillis() + 3_600_000, "0");
         check("fresh microsoft token does not", !fresh.needsRefresh());
         check("microsoft user type is msa", "msa".equals(fresh.type().userType()));
+    }
+
+    /**
+     * The account the launcher opens with.
+     *
+     * <p>The box used to change what was shown without telling the store, so
+     * the file kept whichever account was added first and every restart went
+     * back to it.
+     */
+    private static void accountSelection() {
+        section("Account selection");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-account-check");
+            GameDirs dirs = new GameDirs(dir);
+            Map<String, String> vault = new java.util.HashMap<>();
+            int[] writes = {0};
+            com.hexadron.launcher.auth.secret.SecretStore memory =
+                    new com.hexadron.launcher.auth.secret.SecretStore() {
+                        public String id() { return "memory"; }
+                        public String displayName() { return "memory"; }
+                        public boolean isAvailable() { return true; }
+                        public boolean isOsProtected() { return false; }
+                        public void store(String key, String value) {
+                            writes[0]++;
+                            vault.put(key, value);
+                        }
+                        public java.util.Optional<String> load(String key) {
+                            return java.util.Optional.ofNullable(vault.get(key));
+                        }
+                        public void delete(String key) {
+                            vault.remove(key);
+                        }
+                    };
+
+            com.hexadron.launcher.auth.AccountStore store =
+                    new com.hexadron.launcher.auth.AccountStore(dirs, memory).load();
+            Account steve = Account.offline("Steve");
+            Account alex = Account.offline("Alex");
+            Account notch = new Account(Account.AccountType.MICROSOFT, "Notch",
+                    UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5"),
+                    "access", "refresh", System.currentTimeMillis() + 3_600_000L, "2535");
+            store.add(steve);
+            store.add(alex);
+            store.add(notch);
+            store.save();
+            int afterSave = writes[0];
+
+            check("choosing another account is a change", store.select(alex));
+            check("choosing the same one again is not", !store.select(alex));
+            store.saveSelection();
+            check("saving the selection does not rewrite stored credentials",
+                    writes[0] == afterSave);
+
+            com.hexadron.launcher.auth.AccountStore reopened =
+                    new com.hexadron.launcher.auth.AccountStore(dirs, memory).load();
+            check("the launcher reopens on the account it was closed on",
+                    reopened.selected().map(Account::id).orElse("").equals(alex.id()));
+            check("a Microsoft account keeps its session across a selection save",
+                    reopened.all().stream().filter(account -> !account.isOffline())
+                            .anyMatch(account -> "refresh".equals(account.refreshToken())));
+
+            Account fresh = new Account(Account.AccountType.MICROSOFT, "Notch", notch.uuid(),
+                    "access-2", "refresh-2", System.currentTimeMillis() + 3_600_000L, "2535");
+            reopened.update(fresh);
+            reopened.select(steve);
+            reopened.saveSelection();
+            com.hexadron.launcher.auth.AccountStore third =
+                    new com.hexadron.launcher.auth.AccountStore(dirs, memory).load();
+            check("a refreshed session is written with the next selection save",
+                    third.all().stream().anyMatch(account -> "refresh-2".equals(account.refreshToken())));
+            check("and the new selection with it",
+                    third.selected().map(Account::id).orElse("").equals(steve.id()));
+            check("an account the store does not hold cannot be selected",
+                    !third.select(Account.offline("Nobody")));
+        } catch (IOException e) {
+            check("account selection check could not run: " + e.getMessage(), false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- java
@@ -6015,6 +6103,534 @@ public final class SelfCheck {
     }
 
     /** Builds a jar with the given entries, so the readers can be checked offline. */
+    /**
+     * Build files: what goes in, what is asked about, and what an import
+     * refuses. Offline - nothing here downloads.
+     */
+    private static void buildFiles() {
+        section("Build files");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-build-check");
+            Path source = dir.resolve("source");
+            Path mods = source.resolve("mods");
+            java.nio.file.Files.createDirectories(mods);
+
+            // A jar the launcher downloaded and recorded, one it knows nothing about.
+            writeJar(mods.resolve("sodium.jar"), Map.of("fabric.mod.json",
+                    "{\"schemaVersion\":1,\"id\":\"sodium\",\"version\":\"1\"}"));
+            writeJar(mods.resolve("my-own-mod.jar"), Map.of("fabric.mod.json",
+                    "{\"schemaVersion\":1,\"id\":\"mine\",\"version\":\"1\"}"));
+            String sodiumSha1 = Hashes.sha1(mods.resolve("sodium.jar"));
+            ModLibrary library = ModLibrary.read(mods);
+            ModFile sodiumFile = new ModFile("AANobbMI", "sodium", "v1", "Sodium", "sodium.jar",
+                    "https://cdn.modrinth.com/data/AANobbMI/versions/v1/sodium.jar", sodiumSha1,
+                    java.nio.file.Files.size(mods.resolve("sodium.jar")), List.of(),
+                    ModProvider.Source.MODRINTH);
+            library.put(new InstalledMod("Sodium", sodiumFile, ModOrigin.MANUAL, null));
+            library.write();
+
+            java.nio.file.Files.createDirectories(source.resolve("config"));
+            java.nio.file.Files.writeString(source.resolve("config/sodium.json"), "{}");
+            java.nio.file.Files.writeString(source.resolve("options.txt"), "fov:0.5");
+            java.nio.file.Files.createDirectories(source.resolve("saves/World/datapacks"));
+            java.nio.file.Files.writeString(source.resolve("saves/World/level.dat"), "level");
+            java.nio.file.Files.writeString(source.resolve("saves/World/session.lock"), "lock");
+            writeJar(source.resolve("saves/World/datapacks/terrain.zip"),
+                    Map.of("pack.mcmeta", "{\"pack\":{\"pack_format\":48}}"));
+
+            Profile profile = Profile.create("My Build", "1.21.1", LoaderType.FABRIC)
+                    .loaderVersion("0.16.0")
+                    .wrapperCommand("gamemoderun")
+                    .javaPath("C:/Java/bin/javaw.exe");
+            profile.extraJvmArguments(List.of("-XX:+UseZGC"));
+
+            var plan = com.hexadron.launcher.share.BuildExport.plan(profile, source, null,
+                    com.hexadron.launcher.share.BuildExport.Options.defaults(), null, Progress.NOOP);
+            check("a recorded download is named by its address", plan.remoteCount() == 1);
+            check("a jar nothing is known about is custom",
+                    plan.custom().size() == 1
+                            && plan.custom().get(0).path().equals("mods/my-own-mod.jar"));
+            check("configuration is carried", plan.extrasCount() == 2);
+            check("worlds stay out unless asked for",
+                    plan.custom().stream().noneMatch(entry -> entry.path().startsWith("saves/")));
+            check("the file name offered is the profile's",
+                    "My Build.hexbuild".equals(plan.suggestedFileName()));
+
+            Path withCustom = dir.resolve("with.hexbuild");
+            Path without = dir.resolve("without.hexbuild");
+            com.hexadron.launcher.share.BuildExport.write(plan, true, withCustom, "check", Progress.NOOP);
+            com.hexadron.launcher.share.BuildExport.write(plan, false, without, "check", Progress.NOOP);
+
+            var read = com.hexadron.launcher.share.BuildImport.read(withCustom);
+            check("the build is recognised as one",
+                    com.hexadron.launcher.share.BuildImport.looksLikeBuild(withCustom));
+            check("the version and loader come back",
+                    "1.21.1".equals(read.minecraftVersion()) && read.loader() == LoaderType.FABRIC
+                            && "0.16.0".equals(read.loaderVersion()));
+            check("the custom jar travels when the player said yes", read.bundledCustom().size() == 1);
+            check("launch arguments are offered, not applied", read.hasArguments());
+
+            String manifest;
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(withCustom.toFile())) {
+                manifest = new String(zip.getInputStream(zip.getEntry(
+                        com.hexadron.launcher.share.BuildFormat.MANIFEST)).readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                check("the launcher's own record files are not carried",
+                        zip.stream().noneMatch(entry -> entry.getName().contains(".hexadron-")));
+            }
+            check("no wrapper command leaves the machine", !manifest.contains("gamemoderun"));
+            check("no Java path leaves the machine", !manifest.contains("javaw.exe"));
+
+            var left = com.hexadron.launcher.share.BuildImport.read(without);
+            check("when the player said no, the custom jar is not in the build",
+                    left.bundledCustom().isEmpty() && left.missingCustom().size() == 1);
+
+            // An import with nothing to download, so it runs offline.
+            var offline = com.hexadron.launcher.share.BuildExport.plan(profile, source, null,
+                    new com.hexadron.launcher.share.BuildExport.Options(false, false, false, true, true),
+                    null, Progress.NOOP);
+            Path worldBuild = dir.resolve("world.hexbuild");
+            com.hexadron.launcher.share.BuildExport.write(offline, true, worldBuild, "check", Progress.NOOP);
+            Path target = dir.resolve("target");
+            var imported = com.hexadron.launcher.share.BuildImport.read(worldBuild)
+                    .install(target, true, new com.hexadron.launcher.net.Downloader(1), Progress.NOOP);
+            check("carried files arrive", java.nio.file.Files.isRegularFile(target.resolve("config/sodium.json"))
+                    && java.nio.file.Files.isRegularFile(target.resolve("saves/World/level.dat")));
+            check("a data pack in a world travels with the world",
+                    java.nio.file.Files.isRegularFile(target.resolve("saves/World/datapacks/terrain.zip")));
+            check("the lock the game held is not copied",
+                    !java.nio.file.Files.exists(target.resolve("saves/World/session.lock")));
+            check("nothing was downloaded for a build that names nothing", imported.downloaded() == 0);
+
+            Path skipTarget = dir.resolve("skip");
+            com.hexadron.launcher.share.BuildImport.read(worldBuild)
+                    .install(skipTarget, false, new com.hexadron.launcher.net.Downloader(1), Progress.NOOP);
+            check("custom files stay out of an import when the player says no",
+                    !java.nio.file.Files.exists(skipTarget.resolve("saves/World/datapacks/terrain.zip"))
+                            && java.nio.file.Files.isRegularFile(skipTarget.resolve("options.txt")));
+
+            // A hostile build: a path out of the instance, an address that is
+            // not HTTPS, and a manifest from the future.
+            Path hostile = dir.resolve("hostile.hexbuild");
+            try (var zip = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(hostile))) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(com.hexadron.launcher.share.BuildFormat.MANIFEST));
+                zip.write(("{\"format\":\"hexadron-build\",\"formatVersion\":1,"
+                        + "\"profile\":{\"minecraftVersion\":\"1.21.1\"},"
+                        + "\"files\":[{\"path\":\"../mods/x.jar\",\"kind\":\"MOD\",\"folder\":\"mods\","
+                        + "\"sha1\":\"" + "a".repeat(40) + "\",\"urls\":[\"https://example.com/x.jar\"]},"
+                        + "{\"path\":\"mods/y.jar\",\"kind\":\"MOD\",\"folder\":\"mods\","
+                        + "\"sha1\":\"" + "b".repeat(40) + "\",\"urls\":[\"http://example.com/y.jar\"]}]}")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+                zip.putNextEntry(new java.util.zip.ZipEntry("files/../../escaped.txt"));
+                zip.write("x".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+            var hostileBuild = com.hexadron.launcher.share.BuildImport.read(hostile);
+            check("a file outside its folder or without HTTPS is refused",
+                    hostileBuild.remoteCount() == 0 && hostileBuild.refused().size() == 2);
+            Path hostileTarget = dir.resolve("hostile-target");
+            var hostileResult = hostileBuild.install(hostileTarget, true,
+                    new com.hexadron.launcher.net.Downloader(1), Progress.NOOP);
+            check("a carried path out of the instance is not written",
+                    !java.nio.file.Files.exists(dir.resolve("escaped.txt"))
+                            && !java.nio.file.Files.exists(hostileTarget.getParent().getParent().resolve("escaped.txt"))
+                            && !hostileResult.skipped().isEmpty());
+
+            Path future = dir.resolve("future.hexbuild");
+            try (var zip = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(future))) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(com.hexadron.launcher.share.BuildFormat.MANIFEST));
+                zip.write("{\"format\":\"hexadron-build\",\"formatVersion\":99,\"profile\":{\"minecraftVersion\":\"1.21.1\"}}"
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+            boolean refusedFuture;
+            try {
+                com.hexadron.launcher.share.BuildImport.read(future);
+                refusedFuture = false;
+            } catch (IOException expected) {
+                refusedFuture = expected.getMessage().contains("newer");
+            }
+            check("a build from a newer launcher is refused with a reason", refusedFuture);
+        } catch (IOException | InterruptedException e) {
+            check("build file check could not run: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
+    /**
+     * Deleting an instance: all of it, quickly, with a count, and never through
+     * a link into something else.
+     */
+    private static void treeDeletion() {
+        section("Deleting many files");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-delete-check");
+
+            // ------------------------------------------------ a whole tree
+            Path tree = dir.resolve("tree");
+            for (int i = 0; i < 300; i++) {
+                Path file = tree.resolve("d" + (i % 7)).resolve("e" + (i % 3)).resolve("f" + i + ".txt");
+                java.nio.file.Files.createDirectories(file.getParent());
+                java.nio.file.Files.writeString(file, "x");
+            }
+            Path readOnly = tree.resolve("locked.txt");
+            java.nio.file.Files.writeString(readOnly, "x");
+            readOnly.toFile().setWritable(false);
+            Path outside = dir.resolve("shared");
+            java.nio.file.Files.createDirectories(outside);
+            java.nio.file.Files.writeString(outside.resolve("keep.txt"), "keep");
+            boolean linked;
+            try {
+                java.nio.file.Files.createSymbolicLink(tree.resolve("link"), outside);
+                linked = true;
+            } catch (IOException | UnsupportedOperationException e) {
+                linked = false;
+            }
+
+            int[] counted = {-1};
+            int[] lastItems = {-1, -1};
+            Progress watching = new Progress() {
+                public void stage(String name) { }
+                public void bytes(long completed, long total) { }
+                public synchronized void items(int completed, int total) {
+                    lastItems[0] = Math.max(lastItems[0], completed);
+                    lastItems[1] = total;
+                }
+                public void log(String message) { }
+            };
+            var outcome = com.hexadron.launcher.util.TreeDeleter.deleteTree(tree, watching,
+                    files -> counted[0] = files);
+            check("every file and folder of a tree is deleted", outcome.isComplete()
+                    && !java.nio.file.Files.exists(tree));
+            check("the files are counted before they go", counted[0] >= 301);
+            check("and the count reaches its end", lastItems[1] > 0 && lastItems[0] == lastItems[1]);
+            check("a read-only file does not stop it", !java.nio.file.Files.exists(readOnly));
+            if (linked) {
+                check("a link is deleted as a link, and what it points at stays",
+                        java.nio.file.Files.isRegularFile(outside.resolve("keep.txt")));
+            }
+
+            // ------------------------------------------------ named files only
+            Path instance = dir.resolve("instance");
+            Path owned = instance.resolve("config/pack/a.toml");
+            Path alsoOwned = instance.resolve("config/pack/b.toml");
+            Path players = instance.resolve("config/mine.toml");
+            for (Path file : List.of(owned, alsoOwned, players)) {
+                java.nio.file.Files.createDirectories(file.getParent());
+                java.nio.file.Files.writeString(file, "x");
+            }
+            var named = com.hexadron.launcher.util.TreeDeleter.deleteFiles(
+                    List.of(owned, alsoOwned, owned), instance, Progress.NOOP);
+            check("named files are deleted, each once", named.deleted() == 2 && named.isComplete());
+            check("a folder they leave empty goes with them",
+                    !java.nio.file.Files.exists(instance.resolve("config/pack")));
+            check("a folder with the player's file in it stays",
+                    java.nio.file.Files.isRegularFile(players));
+            check("and the folder it stops at is never removed", java.nio.file.Files.isDirectory(instance));
+
+            // ------------------------------------------------ an instance folder
+            GameDirs dirs = new GameDirs(dir.resolve("root"));
+            dirs.createBaseDirectories();
+            com.hexadron.launcher.profile.ProfileStore store =
+                    new com.hexadron.launcher.profile.ProfileStore(dirs).load();
+            Profile doomed = Profile.create("Doomed", "1.21.1", LoaderType.VANILLA);
+            store.add(doomed);
+            Path folder = store.gameDirectory(doomed);
+            java.nio.file.Files.writeString(folder.resolve("mods/a.jar"), "x");
+            store.remove(doomed);
+            List<Path> left = store.deleteInstanceFolder(folder, Progress.NOOP, null);
+            check("an instance folder is deleted", left.isEmpty() && !java.nio.file.Files.exists(folder));
+            check("and nothing waits in the deletion folder afterwards",
+                    !java.nio.file.Files.exists(dirs.instances().resolve(
+                            com.hexadron.launcher.profile.ProfileStore.DELETING_DIR)));
+
+            Path leftover = dirs.instances().resolve(
+                    com.hexadron.launcher.profile.ProfileStore.DELETING_DIR).resolve("old-1/saves/x.dat");
+            java.nio.file.Files.createDirectories(leftover.getParent());
+            java.nio.file.Files.writeString(leftover, "x");
+            store.purgeLeftovers();
+            check("a deletion an earlier run did not finish is finished at start-up",
+                    !java.nio.file.Files.exists(leftover.getParent().getParent()));
+
+            boolean refused;
+            try {
+                store.deleteInstanceFolder(outside, Progress.NOOP, null);
+                refused = false;
+            } catch (IOException expected) {
+                refused = true;
+            }
+            check("a folder outside the instances folder is refused",
+                    refused && java.nio.file.Files.isRegularFile(outside.resolve("keep.txt")));
+        } catch (IOException | InterruptedException e) {
+            check("deletion check could not run: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
+    /**
+     * The storage window's analysis: what the safe mode offers, and above all
+     * what it never does.
+     */
+    private static void storageCleanup() {
+        section("Storage cleanup");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-storage-check");
+            GameDirs dirs = new GameDirs(dir);
+            dirs.createBaseDirectories();
+            java.util.function.BiConsumer<Path, String> write = (path, text) -> {
+                try {
+                    java.nio.file.Files.createDirectories(path.getParent());
+                    java.nio.file.Files.writeString(path, text);
+                } catch (IOException e) {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            };
+
+            // ------------------------------------------------ profiles
+            com.hexadron.launcher.profile.ProfileStore store =
+                    new com.hexadron.launcher.profile.ProfileStore(dirs).load();
+            Profile kept = Profile.create("Kept", "1.21.1", LoaderType.VANILLA);
+            kept.versionId("1.21.1");
+            store.add(kept);
+            Profile forge = Profile.create("Forged", "1.21.1", LoaderType.FORGE);
+            forge.versionId("1.21.1-forge-52");
+            store.add(forge);
+
+            // ------------------------------------------------ versions
+            write.accept(dirs.versionJson("1.21.1"), "{\"id\":\"1.21.1\",\"assets\":\"17\","
+                    + "\"assetIndex\":{\"id\":\"17\"},\"mainClass\":\"net.minecraft.client.main.Main\","
+                    + "\"libraries\":[{\"name\":\"org.lwjgl:lwjgl:3.3.3\",\"downloads\":{\"artifact\":"
+                    + "{\"path\":\"org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar\"}}}]}");
+            write.accept(dirs.versionJar("1.21.1"), "jar");
+            write.accept(dirs.versionJson("1.21.1-forge-52"), "{\"id\":\"1.21.1-forge-52\","
+                    + "\"inheritsFrom\":\"1.21.1\",\"mainClass\":\"cpw.mods.bootstraplauncher.BootstrapLauncher\","
+                    + "\"libraries\":[]}");
+            write.accept(dirs.versionJson("1.20.1"), "{\"id\":\"1.20.1\",\"libraries\":[]}");
+            write.accept(dirs.versionJar("1.20.1"), "old jar");
+            write.accept(dirs.natives("1.21.1").resolve("lwjgl.dll"), "n");
+            write.accept(dirs.natives("1.20.1").resolve("lwjgl.dll"), "n");
+
+            // ------------------------------------------------ libraries and assets
+            Path usedLibrary = dirs.library("org/lwjgl/lwjgl/3.3.3/lwjgl-3.3.3.jar");
+            Path orphanLibrary = dirs.library("com/old/thing/1/thing-1.jar");
+            Path forgeWritten = dirs.library("net/minecraftforge/forge/52/forge-52-client.jar");
+            write.accept(usedLibrary, "lib");
+            write.accept(orphanLibrary, "old lib");
+            write.accept(forgeWritten, "patched");
+            String usedHash = "aa" + "1".repeat(38);
+            String orphanHash = "bb" + "2".repeat(38);
+            write.accept(dirs.assetIndexFile("17"), "{\"objects\":{\"a\":{\"hash\":\"" + usedHash
+                    + "\",\"size\":1}}}");
+            write.accept(dirs.assetIndexFile("5"), "{\"objects\":{}}");
+            write.accept(dirs.assetObject(usedHash), "a");
+            write.accept(dirs.assetObject(orphanHash), "b");
+
+            // ------------------------------------------------ game files, which must survive
+            Path world = store.gameDirectory(kept).resolve("saves/World/level.dat");
+            write.accept(world, "world");
+            Path orphanInstance = dirs.instances().resolve("left-behind/mods/mine.jar");
+            write.accept(orphanInstance, "mod");
+            write.accept(dirs.instances().resolve(".deleting/old-1/x.dat"), "x");
+
+            // ------------------------------------------------ cache, logs, service files
+            write.accept(dirs.cache().resolve("modpacks/pack.mrpack"), "zip");
+            Path verified = dirs.cache().resolve("verified.index");
+            write.accept(verified, "ledger");
+            Path currentLog = dirs.logs().resolve("launcher.log");
+            write.accept(currentLog, "now");
+            write.accept(dirs.logs().resolve("launcher-1.log"), "then");
+            write.accept(dirs.accountsFile(), "{}");
+            write.accept(dirs.settingsFile(), "{}");
+            Path partial = dirs.library("org/half/done.jar.part");
+            write.accept(partial, "half");
+            java.nio.file.Files.setLastModifiedTime(partial, java.nio.file.attribute.FileTime.fromMillis(
+                    System.currentTimeMillis() - 3_600_000L));
+
+            var inputs = new com.hexadron.launcher.cleanup.StorageScanner.Inputs(dirs, store.all(),
+                    store::gameDirectory, new com.hexadron.launcher.meta.VersionResolver(dirs),
+                    new JavaProvisioner(dirs, new JavaLocator(dirs)), Set.of(), currentLog);
+            var report = com.hexadron.launcher.cleanup.StorageScanner.scan(inputs, Progress.NOOP);
+            Map<String, com.hexadron.launcher.cleanup.CleanupCandidate> byId = new java.util.HashMap<>();
+            report.candidates().forEach(candidate -> byId.put(candidate.id(), candidate));
+
+            check("an unused version is offered, a used one is not",
+                    byId.containsKey("versions") && byId.get("versions").details().size() == 1
+                            && byId.get("versions").details().get(0).name().equals("1.20.1"));
+            check("so are the natives of the unused version only",
+                    byId.containsKey("natives") && byId.get("natives").details().size() == 1);
+            check("a library no version names is offered",
+                    byId.containsKey("libraries") && byId.get("libraries").action().files().stream()
+                            .anyMatch(path -> path.endsWith("thing-1.jar")));
+            check("a library a version names is not",
+                    byId.get("libraries").action().files().stream().noneMatch(path -> path.endsWith("lwjgl-3.3.3.jar")));
+            check("nor one Forge writes without naming it, while Forge is installed",
+                    byId.get("libraries").action().files().stream().noneMatch(path -> path.endsWith("forge-52-client.jar")));
+            check("an asset no index lists is offered, with the index no version uses",
+                    byId.containsKey("assets") && byId.get("assets").files() == 2);
+            check("leftovers of deleted profiles, old logs, archives and partial downloads are offered",
+                    byId.containsKey("deleting") && byId.containsKey("logs")
+                            && byId.containsKey("cache-modpacks") && byId.containsKey("partial"));
+
+            List<Path> offered = new ArrayList<>();
+            report.candidates().forEach(candidate -> {
+                offered.addAll(candidate.action().trees());
+                offered.addAll(candidate.action().files());
+            });
+            Path deletingDir = dirs.instances().resolve(".deleting").toAbsolutePath().normalize();
+            check("the safe mode offers nothing inside an instance folder",
+                    offered.stream().map(path -> path.toAbsolutePath().normalize())
+                            .filter(path -> path.startsWith(dirs.instances().toAbsolutePath().normalize()))
+                            .allMatch(path -> path.startsWith(deletingDir)));
+            check("nor the log being written, nor the verification record",
+                    offered.stream().noneMatch(path -> path.endsWith("launcher.log")
+                            || path.endsWith("verified.index")));
+
+            var instances = report.root().children().stream()
+                    .filter(node -> node.category() == com.hexadron.launcher.cleanup.StorageCategory.INSTANCES)
+                    .findFirst().orElseThrow();
+            check("the tree names an instance after its profile",
+                    instances.children().stream().anyMatch(node -> node.name().equals("Kept")));
+            check("and marks a folder no profile owns",
+                    instances.children().stream().anyMatch(node -> node.name().equals("left-behind")
+                            && "cleanup.note.noProfile".equals(node.noteKey())));
+            var other = report.root().children().stream()
+                    .filter(node -> node.category() == com.hexadron.launcher.cleanup.StorageCategory.OTHER)
+                    .findFirst().orElseThrow();
+            check("account and settings files are shown but cannot be ticked",
+                    other.children().stream().filter(node -> node.name().equals("accounts.json")
+                            || node.name().equals("launcher.json")).noneMatch(
+                            com.hexadron.launcher.cleanup.StorageNode::isDeletable));
+
+            // ------------------------------------------------ the last line of defence
+            Path root = dirs.root().toAbsolutePath().normalize();
+            Set<Path> guarded = com.hexadron.launcher.cleanup.StorageScanner.protectedPaths(dirs, currentLog);
+            check("the cleaner refuses the data folder itself",
+                    !com.hexadron.launcher.cleanup.StorageCleaner.isAllowed(root, guarded, root));
+            check("and the accounts file",
+                    !com.hexadron.launcher.cleanup.StorageCleaner.isAllowed(root, guarded, dirs.accountsFile()));
+            check("and a folder holding a protected file",
+                    !com.hexadron.launcher.cleanup.StorageCleaner.isAllowed(root, guarded, dirs.logs()));
+            check("and anything outside the data folder",
+                    !com.hexadron.launcher.cleanup.StorageCleaner.isAllowed(root, guarded, dir.getParent()));
+
+            List<com.hexadron.launcher.cleanup.CleanupAction> all = new ArrayList<>();
+            report.candidates().forEach(candidate -> all.add(candidate.action()));
+            var result = com.hexadron.launcher.cleanup.StorageCleaner.clean(dirs, currentLog,
+                    inputs.java(), all, Progress.NOOP);
+            check("the safe cleanup completes", result.isComplete());
+            check("what it offered is gone", !java.nio.file.Files.exists(orphanLibrary)
+                    && !java.nio.file.Files.exists(dirs.versionDir("1.20.1"))
+                    && !java.nio.file.Files.exists(dirs.assetObject(orphanHash))
+                    && !java.nio.file.Files.exists(partial));
+            check("what is used is still there", java.nio.file.Files.exists(usedLibrary)
+                    && java.nio.file.Files.exists(forgeWritten)
+                    && java.nio.file.Files.exists(dirs.versionJar("1.21.1"))
+                    && java.nio.file.Files.exists(dirs.assetObject(usedHash))
+                    && java.nio.file.Files.exists(verified) && java.nio.file.Files.exists(currentLog));
+            check("and no game file was touched", java.nio.file.Files.exists(world)
+                    && java.nio.file.Files.exists(orphanInstance));
+
+            // ------------------------------------------------ the profile list follows the disk
+            check("an instance folder knows its profile, so deleting it whole removes the profile",
+                    instances.children().stream().anyMatch(node -> node.name().equals("Kept")
+                            && kept.id().equals(node.profileId()))
+                            && instances.children().stream().noneMatch(node ->
+                            node.name().equals("left-behind") && node.profileId() != null));
+            check("a whole-profile action names the profile to remove",
+                    com.hexadron.launcher.cleanup.CleanupAction.profile(kept.id(),
+                            store.gameDirectory(kept), 1).profileIds().equals(List.of(kept.id())));
+            Profile stale = Profile.create("Stale", "1.20.1", LoaderType.VANILLA);
+            stale.versionId("1.20.1");
+            stale.customIcon("gone.png");
+            store.add(stale);
+            var resolver = new com.hexadron.launcher.meta.VersionResolver(dirs);
+            check("a profile whose version was deleted is brought back in line with the disk",
+                    store.reconcileWithDisk(resolver::isFullyInstalled) && stale.versionId() == null
+                            && !stale.hasCustomIcon());
+            check("and one whose version is still there is left alone",
+                    "1.21.1".equals(kept.versionId()) && !store.reconcileWithDisk(resolver::isFullyInstalled));
+            store.remove(stale);
+
+            // ------------------------------------------------ when it cannot know
+            Profile broken = Profile.create("Broken", "1.19.2", LoaderType.FABRIC);
+            broken.versionId("fabric-loader-0.15-1.19.2");
+            store.add(broken);
+            write.accept(orphanLibrary, "old lib");
+            var unsure = com.hexadron.launcher.cleanup.StorageScanner.scan(
+                    new com.hexadron.launcher.cleanup.StorageScanner.Inputs(dirs, store.all(),
+                            store::gameDirectory, new com.hexadron.launcher.meta.VersionResolver(dirs),
+                            inputs.java(), null, currentLog), Progress.NOOP);
+            check("a profile whose version cannot be read holds back libraries and assets",
+                    unsure.unresolved() && unsure.candidates().stream().noneMatch(candidate ->
+                            candidate.id().equals("libraries") || candidate.id().equals("assets")));
+            check("and says so", unsure.notes().contains("cleanup.notice.unresolved"));
+            check("unknown Java use holds back Java", unsure.notes().contains("cleanup.notice.javaUnknown"));
+
+            write.accept(dirs.versionJson("1.16.5"), "{\"id\":\"1.16.5\",\"libraries\":[]}");
+            write.accept(dirs.root().resolve("launcher_profiles.json"), "{}");
+            var shared = com.hexadron.launcher.cleanup.StorageScanner.scan(inputs, Progress.NOOP);
+            check("a folder the official launcher also uses holds back versions",
+                    shared.sharedStore() && shared.candidates().stream()
+                            .noneMatch(candidate -> candidate.id().equals("versions")));
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            check("storage check could not run: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
+    /**
+     * Knowing it is in a Flatpak, and not mistaking the .flatpak for the image
+     * the updater replaces itself with.
+     */
+    private static void flatpakSandbox() {
+        section("Flatpak sandbox");
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-flatpak-check");
+            Path info = dir.resolve(".flatpak-info");
+            check("no info file and no variable is not a sandbox",
+                    Platform.detectFlatpak(info, null) == null);
+            java.nio.file.Files.writeString(info,
+                    "[Application]\nname=io.github.san4ezdreams.HexadronLauncher\nruntime=runtime/org.gnome.Platform\n");
+            check("the info file names the application",
+                    "io.github.san4ezdreams.HexadronLauncher".equals(Platform.detectFlatpak(info, null)));
+            check("the variable wins when it is set",
+                    "io.example.App".equals(Platform.detectFlatpak(info, "io.example.App")));
+            java.nio.file.Files.writeString(info, "[Instance]\n");
+            check("an info file with no name is still a sandbox",
+                    "flatpak".equals(Platform.detectFlatpak(info, null)));
+            check("this test run itself is not taken for one",
+                    Platform.isFlatpak() == (System.getenv("FLATPAK_ID") != null
+                            || java.nio.file.Files.exists(Path.of("/.flatpak-info"))));
+            check("the .flatpak is never taken for the Linux image the updater unpacks",
+                    !ReleaseFeed.matches("HexadronLauncher-linux.flatpak", Platform.OsFamily.LINUX)
+                            && ReleaseFeed.matches("HexadronLauncher-linux.tar.gz", Platform.OsFamily.LINUX));
+        } catch (IOException e) {
+            check("flatpak check could not run: " + e, false);
+        } finally {
+            if (dir != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(dir);
+            }
+        }
+    }
+
     private static void writeJar(Path path, Map<String, String> entries) throws IOException {
         try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(
                 java.nio.file.Files.newOutputStream(path))) {
@@ -6585,7 +7201,8 @@ public final class SelfCheck {
                 "check-box", "combo-box", "section-title", "form-label", "detail-title",
                 "detail-icon", "skin-viewer", "viewer-button", "swatch", "swatch-add",
                 "chooser-field", "chooser-hue", "chooser-thumb", "chooser-preview",
-                "scroll-pane", "scroll-bar", "profile-scroll", "inv-scroll"}) {
+                "scroll-pane", "scroll-bar", "profile-scroll", "inv-scroll",
+                "build-drop", "build-drop-text"}) {
             check("." + styleClass + " is styled", css.contains("." + styleClass));
         }
 

@@ -209,6 +209,10 @@ public final class LauncherService {
             } catch (RuntimeException ignored) {
                 // A warm-up that fails costs nothing; the real call will report.
             }
+            // A profile deleted while the launcher was closing leaves its files
+            // in the instances folder's .deleting. Finished here, where nobody
+            // is waiting for it.
+            profiles.purgeLeftovers();
         }, "hexadron-warmup");
         warm.setDaemon(true);
         warm.setPriority(Thread.MIN_PRIORITY);
@@ -1042,6 +1046,164 @@ public final class LauncherService {
         return modpackInstaller.install(pack, card, profiles.gameDirectory(profile), progress);
     }
 
+    // ---------------------------------------------------------------- storage
+
+    /**
+     * Reads the data folder for the storage window: what is there, what uses it,
+     * and what the safe mode may offer. Reads only.
+     */
+    public com.hexadron.launcher.cleanup.StorageReport scanStorage(Progress progress)
+            throws InterruptedException {
+        return com.hexadron.launcher.cleanup.StorageScanner.scan(
+                new com.hexadron.launcher.cleanup.StorageScanner.Inputs(dirs, profiles.all(),
+                        profiles::gameDirectory, versionInstaller.resolver(),
+                        javaRuntimes.provisioner(), javaMajorsInUse(), LauncherLog.file()),
+                progress);
+    }
+
+    /**
+     * Deletes what the storage window chose, and brings the profile list up to
+     * date with it.
+     *
+     * <p>Three steps. A profile chosen whole is removed the way the Remove
+     * button removes one - out of the list, its folder with it, its Java given
+     * back if nothing else wants it - because a folder deleted from under a
+     * profile left the profile in the list, pointing at nothing. Then the rest
+     * goes through {@link com.hexadron.launcher.cleanup.StorageCleaner}. Then
+     * every remaining profile is checked against what is left on disk, so one
+     * whose version was deleted says "not installed" rather than naming a
+     * version that is gone.
+     */
+    public com.hexadron.launcher.cleanup.StorageCleaner.Result cleanStorage(
+            List<com.hexadron.launcher.cleanup.CleanupAction> actions, Progress progress)
+            throws InterruptedException {
+
+        List<Path> failed = new java.util.ArrayList<>();
+        List<com.hexadron.launcher.cleanup.CleanupAction> rest = new java.util.ArrayList<>();
+        int removed = 0;
+        int deleted = 0;
+        for (com.hexadron.launcher.cleanup.CleanupAction action : actions) {
+            Set<Path> handled = new java.util.HashSet<>();
+            for (String id : action.profileIds()) {
+                java.util.Optional<Profile> found = profiles.byId(id);
+                if (found.isEmpty()) {
+                    continue;
+                }
+                Profile profile = found.get();
+                Path folder = profiles.gameDirectory(profile).toAbsolutePath().normalize();
+                progress.stage("delete:" + profile.name());
+                try {
+                    failed.addAll(deleteProfile(profile, true, progress));
+                    handled.add(folder);
+                    removed++;
+                } catch (IOException e) {
+                    failed.add(folder);
+                    handled.add(folder);
+                }
+            }
+            List<Path> trees = action.trees().stream()
+                    .filter(path -> !handled.contains(path.toAbsolutePath().normalize()))
+                    .toList();
+            if (!trees.isEmpty() || !action.files().isEmpty() || !action.javaMajors().isEmpty()) {
+                rest.add(new com.hexadron.launcher.cleanup.CleanupAction(trees, action.files(),
+                        action.filesRoot(), action.javaMajors(), action.size()));
+            }
+        }
+
+        com.hexadron.launcher.cleanup.StorageCleaner.Result result =
+                com.hexadron.launcher.cleanup.StorageCleaner.clean(dirs, LauncherLog.file(),
+                        javaRuntimes.provisioner(), rest, progress);
+        failed.addAll(result.failed());
+        deleted += result.deleted();
+
+        if (profiles.reconcileWithDisk(versionInstaller.resolver()::isFullyInstalled)) {
+            try {
+                profiles.save();
+            } catch (IOException e) {
+                progress.log("The profile list could not be saved: %s",
+                        e.getMessage() == null ? e.toString() : e.getMessage());
+            }
+        }
+        return new com.hexadron.launcher.cleanup.StorageCleaner.Result(deleted + removed, failed, removed);
+    }
+
+    // ---------------------------------------------------------------- builds
+
+    /**
+     * Reads a profile for export and sorts its files.
+     *
+     * <p>The first half of an export: nothing is written. What it returns says
+     * which files are the player's own, so the interface can ask about them
+     * before {@link #writeBuild} puts anything on disk.
+     */
+    public com.hexadron.launcher.share.BuildExport.Plan planBuild(
+            Profile profile, com.hexadron.launcher.share.BuildExport.Options options,
+            Progress progress) throws InterruptedException {
+
+        Path icon = profile.hasCustomIcon() ? dirs.icons().resolve(profile.customIcon()) : null;
+        return com.hexadron.launcher.share.BuildExport.plan(profile,
+                profiles.gameDirectory(profile), icon, options,
+                modrinth, progress);
+    }
+
+    /** The second half of an export. */
+    public int writeBuild(com.hexadron.launcher.share.BuildExport.Plan plan,
+                          boolean includeCustom, Path target, Progress progress)
+            throws IOException, InterruptedException {
+        return com.hexadron.launcher.share.BuildExport.write(plan, includeCustom, target,
+                "Hexadron Launcher " + com.hexadron.launcher.BuildConfig.version(), progress);
+    }
+
+    /** Reads a build file without installing anything. */
+    public com.hexadron.launcher.share.BuildImport readBuild(Path archive) throws IOException {
+        return com.hexadron.launcher.share.BuildImport.read(archive);
+    }
+
+    /** A profile made from a build, and what came of filling it. */
+    public record ImportedBuild(Profile profile,
+                                com.hexadron.launcher.share.BuildImport.Result result) {
+    }
+
+    /**
+     * Makes a new profile out of a build.
+     *
+     * <p>Always a new one. Importing over an existing instance would mean
+     * deciding, file by file, whose copy wins - and the loser would be a world
+     * or a config the player had not backed up. A new profile has nothing to
+     * lose.
+     *
+     * <p>Created and saved before anything is downloaded, for the same reason as
+     * {@link #createProfileForModpack}: an import that fails half-way leaves an
+     * instance the player can see, retry into, or delete.
+     *
+     * @param name          what to call it; made unique if it is taken
+     * @param includeCustom whether the player's own files are taken out of the build
+     * @param withArguments whether the build's JVM and game arguments are used
+     */
+    public ImportedBuild importBuild(com.hexadron.launcher.share.BuildImport build, String name,
+                                     boolean includeCustom, boolean withArguments,
+                                     Progress progress)
+            throws IOException, InterruptedException {
+
+        Profile profile = Profile.create(freeProfileName(name == null || name.isBlank()
+                ? build.name() : name), build.minecraftVersion(), build.loader());
+        if (build.loaderVersion() != null) {
+            profile.loaderVersion(build.loaderVersion());
+        }
+        build.applySettings(profile, withArguments);
+        profiles.add(profile);
+        profiles.save();
+
+        // Before the files, as for a modpack: the version is known now and
+        // nothing large has been fetched yet.
+        settleJava(profile, build.minecraftVersion(), progress);
+
+        com.hexadron.launcher.share.BuildImport.Result result =
+                build.install(profiles.gameDirectory(profile), includeCustom, downloader, progress);
+        profiles.save();
+        return new ImportedBuild(profile, result);
+    }
+
     /**
      * The major Java version a Minecraft version asks for.
      *
@@ -1133,15 +1295,47 @@ public final class LauncherService {
      * @return the paths that could not be deleted, empty when everything went
      */
     public List<Path> deleteProfile(Profile profile, boolean deleteFiles, Progress progress)
-            throws IOException {
+            throws IOException, InterruptedException {
+        return deleteProfile(profile, deleteFiles, progress, new DeletionSteps() {
+        });
+    }
 
-        List<Path> undeleted = List.of();
-        if (deleteFiles) {
-            undeleted = profiles.removeWithFiles(profile);
-        } else {
-            profiles.remove(profile);
+    /**
+     * What a profile deletion tells the interface on the way.
+     *
+     * <p>Both on the deleting thread.
+     */
+    public interface DeletionSteps {
+
+        /** The profile is out of the list and the list is saved. The files may still be there. */
+        default void removed() {
         }
+
+        /** The files have been counted and the first is about to go. */
+        default void counted(int files) {
+        }
+    }
+
+    /**
+     * Removes a profile, and its files when asked.
+     *
+     * <p>The list first, then the files. The profile leaves the list the moment
+     * the player confirms - that part is one small file - and the folder, which
+     * can be tens of thousands of files, is emptied after, with {@code steps}
+     * told how many so the bar can say so.
+     */
+    public List<Path> deleteProfile(Profile profile, boolean deleteFiles, Progress progress,
+                                    DeletionSteps steps)
+            throws IOException, InterruptedException {
+
+        Path directory = profiles.gameDirectory(profile);
+        profiles.remove(profile);
         profiles.save();
+        steps.removed();
+
+        List<Path> undeleted = deleteFiles
+                ? profiles.deleteInstanceFolder(directory, progress, steps::counted)
+                : List.of();
 
         Set<Integer> stillWanted = javaMajorsInUse();
         if (stillWanted == null) {
