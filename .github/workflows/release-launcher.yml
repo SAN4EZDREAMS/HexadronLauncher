@@ -309,9 +309,19 @@ jobs:
           } > notes.md
           # Порожній опис виглядав би у вікні оновлення як помилка лаунчера.
           [ -s notes.md ] || echo "- без опису" > notes.md
+          # Заглушка, поки job virustotal не допише справжній результат. Він
+          # сам її замінить: шукає рядок "Перевірка VirusTotal" — див.
+          # SECTION_HEAD у .github/scripts/virustotal_scan.py. Без ключа
+          # перевірки не буде, тож і обіцяти її в описі не варто.
+          if [ -n "${VT_API_KEY:-}" ]; then
+            printf '\n---\n\n%s\n' \
+              "Перевірка VirusTotal: ТРИВАЄ. Результат і посилання на звіт з'являться тут за 15-40 хвилин." \
+              >> notes.md
+          fi
           cat notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
       - name: publish the release
         run: |
           set -euo pipefail
@@ -353,3 +363,24 @@ jobs:
               done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ПЕРЕВІРКА НА VIRUSTOTAL — ПІСЛЯ ПУБЛІКАЦІЇ, НЕ ДО НЕЇ
+  #
+  # Кожен реліз і кожна нічна збірка (prerelease) проходять VirusTotal, а в
+  # кінець опису релізу дописується позначка й посилання на звіт для кожного
+  # файлу. Уся логіка — у virustotal.yml; той самий workflow можна запустити
+  # руками для старого тега.
+  #
+  # Окремим job'ом після publish свідомо: аналіз триває від кількох хвилин до
+  # пів години, і тримати через нього реліз не варто. Червоний virustotal
+  # (знахідка або збій) реліз не знімає — лише показує, що треба подивитись.
+  virustotal:
+    needs: [plan, publish]
+    if: always() && needs.publish.result == 'success'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/virustotal.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag }}
+    secrets:
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}

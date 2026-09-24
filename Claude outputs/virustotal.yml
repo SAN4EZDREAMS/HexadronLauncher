@@ -1,0 +1,83 @@
+# Перевіряє файли опублікованого релізу на VirusTotal і дописує результат —
+# позначку й посилання на звіт для кожного файлу — в кінець опису релізу.
+#
+# ДВА СПОСОБИ ЗАПУСКУ
+#
+# 1. Сам, після кожної публікації: release-launcher.yml викликає цей workflow
+#    job'ом `virustotal` — і для Release, і для Nightly (prerelease).
+#
+#    Подія `release: published` тут не годиться: реліз створює GITHUB_TOKEN, а
+#    дії цього токена навмисно НЕ запускають інших workflow. Тому виклик —
+#    прямий, через workflow_call.
+#
+# 2. Руками: Actions → virustotal → Run workflow, ввести тег. Для релізів, що
+#    вийшли до цієї інтеграції, або якщо минулий запуск уперся в ліміт.
+#
+# ЩО ПОТРІБНО
+#
+# Секрет VT_API_KEY (Settings → Secrets and variables → Actions) — ключ
+# безкоштовного акаунта VirusTotal. Немає секрету (наприклад, у форку) —
+# перевірка тихо пропускається, реліз не страждає.
+#
+# ЛІМІТИ
+#
+# Public API: 4 запити на хвилину, 500 на добу. Скрипт тримає паузу між
+# запитами й шукає кожен файл спершу за хешем, тож незмінні частини (вбудована
+# Java, бібліотеки) коштують один запит. Реліз із ~16 файлів — це близько
+# 15–40 хвилин і кількох десятків запитів.
+
+name: virustotal
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Тег релізу, файли якого перевіряти'
+        type: string
+        required: true
+    secrets:
+      VT_API_KEY:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Тег релізу, наприклад v0.9.8.1 або v0.9.8-nightly.42'
+        type: string
+        required: true
+
+# Один запуск на тег: два одночасні зайвий раз з'їдають ліміт і дописують
+# розділ навперегони.
+concurrency:
+  group: virustotal-${{ inputs.tag }}
+  cancel-in-progress: false
+
+# Запис — рівно для одного: оновити опис релізу.
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    # Опитування аналізу обмежене в скрипті 45 хвилинами; решта — завантаження
+    # і паузи між запитами.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+      # Перевіряється те, що реально лежить у релізі, а не артефакти збірки:
+      # саме ці файли качають люди і сам лаунчер.
+      - name: download the release files
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh release download "${{ inputs.tag }}" --repo "$GITHUB_REPOSITORY" --dir assets
+          ls -la assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: scan on virustotal and update the notes
+        run: python3 .github/scripts/virustotal_scan.py assets
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
