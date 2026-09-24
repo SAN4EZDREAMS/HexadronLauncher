@@ -23,7 +23,7 @@ A Minecraft launcher and an umbrella performance mod, in one repository.
 | Updating itself | Checks the project's own releases at start-up, on the Release or the Nightly channel, and offers the new version with its notes. Downloads, unpacks and replaces the installed folder, then starts again |
 | Java | The launcher finds the installed runtimes - PATH, the registry, the vendor folders, the official launcher's own downloads - and picks the one the version asks for. If the machine has none, it offers to download an Eclipse Temurin JRE |
 | Assets | Modern, `virtual` (1.6) and `map_to_resources` (pre-1.6) layouts |
-| Languages | English, Ukrainian, Russian, Polish, German. The picker changes the window immediately, without a restart |
+| Languages | English, Ukrainian, Russian, Polish, German, Spanish, French, Italian, Portuguese (Brazil), Turkish, Indonesian, Vietnamese, Hindi, Chinese (Simplified), Japanese, Korean. The picker changes the window immediately, without a restart |
 | Interface | Searchable instance list, read-only instance summary, one Play button. Instances are edited in a dialog with Save and Cancel |
 | While playing | The launcher hides to the notification area and returns by itself when the game closes |
 | Start-up | A splash screen appears first and the work happens behind it, on a background thread. Each stage is listed with the time it took, and the same list goes into the log |
@@ -1895,6 +1895,11 @@ another file is missing a key, carries an extra one, has a blank value, or has
 lost a `{0}` placeholder that the English string uses. A missing key falls back
 to English per key, so a half-finished translation shows English words rather
 than a broken screen.
+
+The Spanish, French, Italian, Portuguese (Brazil), Turkish, Indonesian,
+Vietnamese, Hindi, Chinese, Japanese and Korean files were machine-translated
+in September 2026 and have not yet had a review by native speakers. A
+correction is a change to one line of one file, and it is welcome.
 
 To add a language: copy `en.properties` to the new code, translate it, and add
 one entry to `com.hexadron.launcher.i18n.Language`. Nothing else changes - the
