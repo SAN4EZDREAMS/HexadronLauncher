@@ -54,3 +54,6 @@ replay_*.log
 .flatpak-builder/
 launcher/packaging/flatpak/HexadronLauncher-linux.tar.gz
 *.flatpak
+
+# Local output folder of the Claude desktop app; never part of the project
+/Claude outputs/
