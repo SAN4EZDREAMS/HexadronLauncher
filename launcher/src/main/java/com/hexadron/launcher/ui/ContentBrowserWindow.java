@@ -265,8 +265,8 @@ public final class ContentBrowserWindow implements ContentSection.Host {
      *
      * <p>Buttons in a box rather than a {@link ListView}, and that is not a
      * stylistic preference. The rail has to be exactly as wide as its widest
-     * <em>translated</em> name when it opens - "Data packs", "Датапаки" and
-     * "Datenpakete" are three different widths - and a box of buttons computes
+     * <em>translated</em> name when it opens - "Data packs" in English, Ukrainian
+     * and German ("Datenpakete") are three different widths - and a box of buttons computes
      * that for itself from the text in them, while a list view reports a width of
      * its own that has nothing to do with its rows. Three rows is also not a list
      * worth a list's machinery: no scrolling, no selection model, no cell reuse.

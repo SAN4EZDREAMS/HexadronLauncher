@@ -1,8 +1,8 @@
-# Збирає ЛИШЕ мод.
+# Builds ONLY the mod.
 #
-# Набір оптимізаційних модів (Sodium, Lithium, ...) тут навмисно НЕ вмикається:
-# він потрібен лише для runClient і керується прапорцем -Phexadron.devMods=true.
-# Інакше зелена збірка нашого коду залежала б від доступності Modrinth.
+# The set of optimisation mods (Sodium, Lithium, ...) is intentionally NOT enabled
+# here. Only runClient needs it, and the -Phexadron.devMods=true flag controls it.
+# Otherwise a green build of our code would depend on Modrinth being available.
 
 name: build-mod
 on:

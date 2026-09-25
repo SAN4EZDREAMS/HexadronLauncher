@@ -1,51 +1,54 @@
-# Публікує готові клієнти як релізи GitHub — те, звідки лаунчер оновлює сам себе.
+# Publishes the ready clients as GitHub releases - the place the launcher updates
+# itself from.
 #
-# ДВА КАНАЛИ, ОДИН СПИСОК РЕЛІЗІВ
+# TWO CHANNELS, ONE LIST OF RELEASES
 #
-# Release  — тег виду v0.9.5. Звичайний реліз, не prerelease.
-# Nightly  — тег виду v0.9.5-nightly.<номер запуску>, позначений prerelease.
+# Release  - a tag like v0.9.5. A normal release, not a prerelease.
+# Nightly  - a tag like v0.9.5-nightly.<run number>, marked as prerelease.
 #
-# Лаунчер читає той самий список і фільтрує його за каналом: канал Release
-# бере лише не-prerelease, канал Nightly — найновіше з усього. Порівнюються
-# саме теги, тому суфікс -nightly.N обов'язковий і обов'язково зростає:
-# 0.9.5-nightly.42 новіше за 0.9.5-nightly.41 і СТАРІШЕ за 0.9.5.
+# The launcher reads the same list and filters it by channel: the Release channel
+# takes only non-prereleases, the Nightly channel takes the newest of all. The
+# launcher compares tags, so the -nightly.N suffix is required and must always
+# increase: 0.9.5-nightly.42 is newer than 0.9.5-nightly.41 and OLDER than 0.9.5.
 #
-# ІМЕНА ФАЙЛІВ — ЦЕ КОНТРАКТ
+# FILE NAMES ARE A CONTRACT
 #
-# ReleaseFeed.matches() шукає файл для своєї системи за назвою:
+# ReleaseFeed.matches() finds the file for its system by name:
 #   HexadronLauncher-windows.zip
 #   HexadronLauncher-linux.tar.gz
 #   HexadronLauncher-macos.tar.gz
-# Перейменуєте тут — оновлення тихо перестане знаходити збірку для системи.
+# Rename them here, and the update silently stops finding the build for a system.
 #
-# ОНОВЛЕННЯ ЧАСТИНАМИ
+# UPDATES IN PARTS
 #
-# Поруч із повним архівом кожна збірка публікує ще й опис самої себе:
-#   HexadronLauncher-<система>.manifest.json       — кожен файл образу з SHA-256
-#   HexadronLauncher-parts-<токен>-runtime.<арх>   — вбудована Java
-#   HexadronLauncher-parts-<токен>-libs.<арх>      — JavaFX і решта залежностей
-#   HexadronLauncher-parts-<токен>-app.<арх>       — власний jar лаунчера
-#   HexadronLauncher-parts-<токен>-base.<арх>      — виконуваний файл і корінь
+# Next to the full archive, each build also publishes a description of itself:
+#   HexadronLauncher-<system>.manifest.json       - each image file with SHA-256
+#   HexadronLauncher-parts-<token>-runtime.<ext>  - the bundled Java
+#   HexadronLauncher-parts-<token>-libs.<ext>     - JavaFX and the other dependencies
+#   HexadronLauncher-parts-<token>-app.<ext>      - the launcher's own jar
+#   HexadronLauncher-parts-<token>-base.<ext>     - the executable and the root
 #
-# Токен — win / lnx / darwin, і це НЕ те саме слово, що в повному архіві. Так
-# зроблено навмисно: лаунчери, які вже стоять у людей, шукали свій архів за
-# "у назві є windows і закінчується на .zip", тому частина з назвою
-# HexadronLauncher-windows-app.zip ставала для них "новою версією" і оновлення
-# падало з "the downloaded archive holds no application image". Виправити це в
-# уже встановлених лаунчерах неможливо — можна лише ніколи не публікувати
-# частину під назвою, яку їхнє правило впізнає.
+# The token is win / lnx / darwin, and it is NOT the same word as in the full
+# archive. This is intentional: launchers that people already have found their
+# archive by the rule "the name contains windows and ends with .zip", so a part
+# named HexadronLauncher-windows-app.zip became a "new version" for them, and the
+# update failed with "the downloaded archive holds no application image". It is
+# not possible to fix this in launchers that are already installed - the only
+# option is to never publish a part under a name that their rule recognises.
 #
-# Лаунчер бере з манифеста ті частини, файлів яких у нього ще немає (звіряючи
-# ЗА ХЕШЕМ, не за іменем чи датою), решту копіює зі своєї теки, а потім звіряє
-# зібраний образ із манифестом файл за файлом. Якщо манифеста немає, він
-# нечитабельний або хоч один хеш не збігся — качається повний архів, як раніше.
-# Тому імена вище теж контракт: їх пише ManifestTool, і він же єдине джерело
-# правди про те, який файл до якої частини належить.
+# The launcher takes from the manifest the parts whose files it does not have yet
+# (it compares BY HASH, not by name or date), copies the rest from its own folder,
+# and then checks the assembled image against the manifest file by file. When
+# there is no manifest, it cannot be read, or even one hash does not match, the
+# launcher downloads the full archive, as before. So the names above are a
+# contract too: ManifestTool writes them, and it is the single source of truth
+# about which file belongs to which part.
 #
-# Архіви робить сам workflow, а не upload-artifact: до релізу файли додаються
-# як є, тож подвійної упаковки, через яку Windows отримував zip у zip, тут
-# немає взагалі. tar на Linux і macOS лишається обов'язковим — zip не переносить
-# біт запуску й симлінки, без яких образ не стартує.
+# The workflow makes the archives itself, not upload-artifact: files are added to
+# the release as they are, so the double packaging that gave Windows a zip inside
+# a zip does not happen here at all. tar stays required on Linux and macOS - zip
+# does not keep the executable bit and symlinks, and the image does not start
+# without them.
 
 name: release-launcher
 
@@ -56,13 +59,13 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: 'Який канал публікувати'
+        description: 'Which channel to publish'
         type: choice
         required: true
         default: nightly
         options: [nightly, release]
-  # Нічна збірка раз на добу. Якщо за добу не було жодного коміту, крок
-  # перевірки зупиняє запуск — сорок релізів однакового коду нікому не потрібні.
+  # A nightly build once a day. When there was no commit in the last day, the check
+  # step stops the run - nobody needs forty releases of the same code.
   schedule:
     - cron: '0 3 * * *'
 
@@ -70,13 +73,13 @@ concurrency:
   group: release-launcher-${{ github.ref }}
   cancel-in-progress: false
 
-# Запис потрібен рівно для одного: створити реліз і покласти в нього файли.
+# Write access is needed for exactly one thing: create the release and put the files in it.
 permissions:
   contents: write
 
 jobs:
-  # Що саме публікуємо і під яким тегом. Один раз, щоб три збірки не рахували
-  # це кожна по-своєму.
+  # What we publish and under which tag. Decided once, so that the three builds do
+  # not each calculate it in their own way.
   plan:
     runs-on: ubuntu-24.04
     outputs:
@@ -98,7 +101,7 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then
             tag="${GITHUB_REF#refs/tags/}"
             version="${tag#v}"
-            # Тег із дефісом — це заздалегідь нестабільна версія.
+            # A tag with a hyphen is an unstable version by definition.
             case "$tag" in *-*) pre=true;; *) pre=false;; esac
             proceed=true
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ] \
@@ -113,9 +116,9 @@ jobs:
             pre=true
             proceed=true
             if [ "${{ github.event_name }}" = "schedule" ]; then
-              # Коміти за останню добу. Немає — немає й нічної збірки.
+              # Commits in the last day. No commits - no nightly build.
               if [ -z "$(git log --since='24 hours ago' --oneline)" ]; then
-                echo "за добу змін не було, нічна збірка пропускається"
+                echo "no changes in the last day, skipping the nightly build"
                 proceed=false
               fi
             fi
@@ -154,18 +157,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
-      # ЛІЦЕНЗІЙНІ ЗАГОЛОВКИ — ПЕРШИМ КРОКОМ, ДО БУДЬ-ЯКОЇ ЗБІРКИ
+      # LICENCE HEADERS - THE FIRST STEP, BEFORE ANY BUILD
       #
-      # Кожен файл із кодом мусить починатися блоком із LICENSE-HEADER.txt.
-      # Якщо десь блок прибрали або переписали — збірка падає ТУТ і називає
-      # файли. Це не стиль: заголовок несе авторство й умови ліцензії, і зняти
-      # його "заодно" з якоюсь іншою правкою не має бути тихою операцією.
+      # Every source file must start with the block from tools/license-header.txt.
+      # When a block is removed or rewritten anywhere, the build fails HERE and names
+      # the files. This is not about style: the header carries the authorship and the
+      # licence terms, and removing it "along with" some other edit must not be silent.
       #
-      # Перевірка стоїть перед усім іншим свідомо: немає сенсу компілювати й
-      # пакувати те, що вже порушує ліцензію проєкту.
+      # This check runs before everything else on purpose: there is no point in
+      # compiling and packaging code that already breaks the project licence.
       - name: verify the licence headers
         run: ./gradlew --configure-on-demand :launcher:licenseHeaders
-      # Ядро перевіряється один раз, на Linux: воно однакове на всіх трьох.
+      # The core is checked once, on Linux: it is the same on all three systems.
       - name: verify the launch core
         if: matrix.label == 'linux'
         run: ./gradlew --configure-on-demand :launcher:selfCheck -PlauncherVersion=${{ needs.plan.outputs.version }}
@@ -173,7 +176,7 @@ jobs:
         run: ./gradlew --configure-on-demand :launcher:appImage -PlauncherVersion=${{ needs.plan.outputs.version }}
         env:
           CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
-      # Імена нижче читає сам лаунчер. Див. коментар угорі.
+      # The launcher itself reads the names below. See the comment at the top.
       - name: pack the client
         run: |
           set -euo pipefail
@@ -184,17 +187,17 @@ jobs:
           else
             tar czf "$GITHUB_WORKSPACE/release/HexadronLauncher-${{ matrix.label }}.tar.gz" .
           fi
-      # ОПИС ЗБІРКИ Й ЇЇ ЧАСТИНИ
+      # BUILD DESCRIPTION AND ITS PARTS
       #
-      # Манифест пише ManifestTool — той самий код, яким лаунчер його потім
-      # читає. Він же вирішує, який файл до якої частини належить, і кладе
-      # поруч списки імен; пакують ці списки tar і 7z, бо вони вже пакують
-      # повний архів у кроці вище і вміють зберігати симлінки та біт запуску.
+      # ManifestTool writes the manifest - the same code the launcher later reads it
+      # with. It also decides which file belongs to which part, and writes lists of
+      # names next to it. tar and 7z pack these lists, because they already pack the
+      # full archive in the step above and can keep symlinks and the executable bit.
       - name: describe the build and pack its parts
         run: |
           set -euo pipefail
-          # $PWD, а не $GITHUB_WORKSPACE: на Windows остання — шлях зі зворотними
-          # скісними (D:\a\...), а в bash цієї машини зворотна скісна — це екран.
+          # $PWD, not $GITHUB_WORKSPACE: on Windows the latter is a path with backslashes
+          # (D:\a\...), and in bash on this machine a backslash is an escape character.
           root="$PWD"
           label="${{ matrix.label }}"
           out="$root/manifest"
@@ -203,19 +206,18 @@ jobs:
           else
             archive="$root/release/HexadronLauncher-$label.tar.gz"
           fi
-          # Образ — єдина тека всередині build/jpackage; на macOS це .app.
+          # The image is the only folder inside build/jpackage; on macOS it is the .app.
           image=$(ls -d launcher/build/jpackage/*/ | head -1)
           image="${image%/}"
-          echo "образ: $image"
+          echo "image: $image"
 
           java -cp "launcher/build/libs/*" \
             com.hexadron.launcher.update.ManifestTool \
             "$root/$image" "$label" "${{ needs.plan.outputs.version }}" \
             "$out" "$archive" "$(basename "$archive")"
 
-          # Кожен список названий іменем файлу, яким має стати. Як саме
-          # називаються частини, вирішує ManifestTool і тільки він: тут лишається
-          # прибрати ".list" і спакувати за розширенням.
+          # Each list has the name of the file it must become. Only ManifestTool decides
+          # what the parts are called: here we only remove ".list" and pack by extension.
           cd "$root/$image"
           for list in "$out"/*.list; do
             [ -s "$list" ] || continue
@@ -223,7 +225,7 @@ jobs:
             case "$name" in
               *.zip)    7z a -tzip -mx=5 "$root/release/$name" "@$list" >/dev/null ;;
               *.tar.gz) tar czf "$root/release/$name" -T "$list" ;;
-              *) echo "невідоме розширення: $name"; exit 1 ;;
+              *) echo "unknown extension: $name"; exit 1 ;;
             esac
           done
           cp "$out"/HexadronLauncher-*.manifest.json "$root/release/"
@@ -279,8 +281,8 @@ jobs:
     if: always() && needs.plan.outputs.proceed == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-24.04
     steps:
-      # Уся історія: опис релізу — це список комітів від попереднього релізу,
-      # а з поверхневим клоном такого діапазону просто немає.
+      # Full history: the release notes are the list of commits since the previous
+      # release, and a shallow clone does not have that range.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -290,9 +292,9 @@ jobs:
           merge-multiple: true
       - name: list what will be published
         run: ls -la downloaded
-      # Опис релізу — це те, що користувач читає у вікні оновлення. Для тега
-      # з push беремо повідомлення тега, якщо воно є; для нічної збірки —
-      # список комітів від попереднього релізу.
+      # The release notes are what the user reads in the update window. For a pushed
+      # tag, take the tag message if there is one; for a nightly build, take the list
+      # of commits since the previous release.
       - name: write the notes
         id: notes
         run: |
@@ -300,21 +302,21 @@ jobs:
           previous=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' || true)
           {
             if [ -n "$previous" ]; then
-              echo "Зміни від $previous:"
+              echo "Changes since $previous:"
               echo
               git log --pretty='- %s' "$previous..HEAD" 2>/dev/null | head -50 || true
             else
               git log --pretty='- %s' -20
             fi
           } > notes.md
-          # Порожній опис виглядав би у вікні оновлення як помилка лаунчера.
-          [ -s notes.md ] || echo "- без опису" > notes.md
-          # Заглушка, поки job virustotal не допише справжній результат: сірий
-          # значок "перевірка триває". Скрипт замінить усе між двома
-          # коментарями, а лаунчер за verdict=pending покаже свою плашку —
-          # див. MARK_START у .github/scripts/virustotal_scan.py і
-          # update/ScanReport.java. Без ключа перевірки не буде, тож і обіцяти
-          # її в описі не варто.
+          # Empty notes would look like a launcher error in the update window.
+          [ -s notes.md ] || echo "- no description" > notes.md
+          # A placeholder until the virustotal job writes the real result: a grey
+          # "scan in progress" badge. The script replaces everything between the two
+          # comments, and for verdict=pending the launcher shows its own banner -
+          # see MARK_START in .github/scripts/virustotal_scan.py and
+          # update/ScanReport.java. Without the key there is no scan, so the notes must
+          # not promise one.
           if [ -n "${VT_API_KEY:-}" ]; then
             {
               echo
@@ -322,7 +324,7 @@ jobs:
               echo
               echo '---'
               echo
-              echo '![VirusTotal: перевірка триває](https://img.shields.io/badge/VirusTotal-%D0%BF%D0%B5%D1%80%D0%B5%D0%B2%D1%96%D1%80%D0%BA%D0%B0%20%D1%82%D1%80%D0%B8%D0%B2%D0%B0%D1%94%20%C2%B7%2015%E2%80%9340%20%D1%85%D0%B2-9e9e9e?logo=virustotal&logoColor=white)'
+              echo '![VirusTotal: scan in progress](https://img.shields.io/badge/VirusTotal-scan%20in%20progress%20%C2%B7%2015%E2%80%9340%20min-9e9e9e?logo=virustotal&logoColor=white)'
               echo
               echo '<!-- virustotal:end -->'
             } >> notes.md
@@ -338,16 +340,16 @@ jobs:
           if [ "${{ needs.plan.outputs.prerelease }}" = "true" ]; then
             flags="--prerelease"
           fi
-          # Три повні архіви — обов'язкові: без них оновитися нічим. Частини й
-          # манифести додаються тим самим шаблоном, тож нова частина не вимагає
-          # правити цей крок.
+          # The three full archives are required: without them there is nothing to update
+          # with. Parts and manifests are added with the same pattern, so a new part does
+          # not need a change to this step.
           for required in \
             downloaded/HexadronLauncher-windows.zip \
             downloaded/HexadronLauncher-linux.tar.gz \
             downloaded/HexadronLauncher-macos.tar.gz; do
-            [ -f "$required" ] || { echo "немає $required"; exit 1; }
+            [ -f "$required" ] || { echo "missing $required"; exit 1; }
           done
-          # Перезапис того самого тега — щоб повторний запуск не падав.
+          # Overwrite the same tag, so that a repeated run does not fail.
           gh release delete "${{ needs.plan.outputs.tag }}" --yes --cleanup-tag 2>/dev/null || true
           gh release create "${{ needs.plan.outputs.tag }}" \
             --title "HexadronLauncher ${{ needs.plan.outputs.version }}" \
@@ -357,9 +359,9 @@ jobs:
             downloaded/HexadronLauncher-*
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Нічних збірок за місяць набирається тридцять, і жодна з них нікому не
-      # потрібна після наступної. П'ять останніх лишаються — на випадок, коли
-      # треба відкотитися на вчорашню.
+      # About thirty nightly builds collect in a month, and nobody needs any of them
+      # after the next one. The last five stay, in case a rollback to yesterday's
+      # build is necessary.
       - name: prune old nightlies
         if: needs.plan.outputs.prerelease == 'true'
         run: |
@@ -367,22 +369,23 @@ jobs:
           gh release list --limit 100 --json tagName,isPrerelease,createdAt \
             --jq '[.[] | select(.isPrerelease) | .tagName][5:] | .[]' \
             | while read -r old; do
-                echo "видаляємо $old"
+                echo "deleting $old"
                 gh release delete "$old" --yes --cleanup-tag || true
               done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ПЕРЕВІРКА НА VIRUSTOTAL — ПІСЛЯ ПУБЛІКАЦІЇ, НЕ ДО НЕЇ
+  # VIRUSTOTAL SCAN - AFTER PUBLICATION, NOT BEFORE
   #
-  # Кожен реліз і кожна нічна збірка (prerelease) проходять VirusTotal, а в
-  # кінець опису релізу дописується позначка й посилання на звіт для кожного
-  # файлу. Уся логіка — у virustotal.yml; той самий workflow можна запустити
-  # руками для старого тега.
+  # Each release and each nightly build (prerelease) goes through VirusTotal, and a
+  # badge and a report link for each file are added to the end of the release
+  # notes. All the logic is in virustotal.yml; the same workflow can be run
+  # manually for an old tag.
   #
-  # Окремим job'ом після publish свідомо: аналіз триває від кількох хвилин до
-  # пів години, і тримати через нього реліз не варто. Червоний virustotal
-  # (знахідка або збій) реліз не знімає — лише показує, що треба подивитись.
+  # A separate job after publish, on purpose: the analysis takes from a few minutes
+  # to half an hour, and the release must not wait for it. A red virustotal job (a
+  # detection or a failure) does not remove the release - it only shows that
+  # somebody must take a look.
   virustotal:
     needs: [plan, publish]
     if: always() && needs.publish.result == 'success'

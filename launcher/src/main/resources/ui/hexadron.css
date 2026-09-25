@@ -320,7 +320,7 @@
  * The names are not shortened here either, and that was the other half of the
  * same fault: a scrolling list is fitted to its viewport - the scroller less
  * the bar down its side - so the longest names lost their last letters to an
- * ellipsis ("Ігрові механі..."). A grid takes the width its widest name asks
+ * ellipsis (for example, the Ukrainian "Game mechanics"). A grid takes the width its widest name asks
  * for.
  */
 .category-list {

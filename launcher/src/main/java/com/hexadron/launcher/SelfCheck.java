@@ -3831,7 +3831,7 @@ public final class SelfCheck {
         check("and its result is read from the marker",
                 scan != null && scan.verdict() == ScanReport.Verdict.CLEAN
                         && scan.found() == 0 && scan.checked() == 16 && scan.total() == 16);
-        // "Перевірка VirusTotal": the plain-text section of the first format.
+        // The Ukrainian "VirusTotal check" heading: the plain-text section of the first format.
         String head = "\u041f\u0435\u0440\u0435\u0432\u0456\u0440\u043a\u0430 VirusTotal";
         String legacy = "- fix: " + head + " in a commit\n\n---\n\n" + head
                 + ": CLEAN\n\n- CLEAN \u00b7 0/61 \u00b7 HexadronLauncher-linux.flatpak\n";
@@ -4721,9 +4721,10 @@ public final class SelfCheck {
      * <p>A list of names is sorted with the alphabet of whoever is reading it,
      * and the obvious tool gets that wrong in three of the five languages this
      * launcher speaks. {@code String.CASE_INSENSITIVE_ORDER} compares code
-     * points after lowering the case, and Ukrainian і and ї live at U+0456 and
-     * U+0457 - above the whole of а-я - so they came out after the last word in
-     * the menu instead of between "Економіка" and "Керування". Polish ą, ć, ł
+     * points after lowering the case, and the Ukrainian letters U+0456 and U+0457
+     * live above the whole U+0430-U+044F block - so they came out after the last
+     * word in the menu instead of between the words for "Economy" and
+     * "Management". Polish ą, ć, ł
      * and German ä, ö, ü are outside their alphabet's block for the same reason.
      *
      * <p>Checked against the real translation files rather than made-up strings,
@@ -4735,12 +4736,12 @@ public final class SelfCheck {
         check("English is in English order",
                 orderIn(Language.ENGLISH).startsWith("Adventure, Cursed, Decoration, Economy"));
 
-        // The one the bug was found in. І and Ї belong after Е and before К.
+        // The one the bug was found in. U+0406 and U+0407 belong after U+0415 and before U+041A.
         String ukrainian = orderIn(byCode("uk"));
-        check("Ukrainian starts at Б", ukrainian.startsWith("Бібліотека, Взаємодія"));
-        check("Ukrainian puts І and Ї in the alphabet, not after it",
+        check("Ukrainian starts at U+0411", ukrainian.startsWith("Бібліотека, Взаємодія"));
+        check("Ukrainian puts U+0406 and U+0407 in the alphabet, not after it",
                 ukrainian.contains("Економіка, Ігрові механіки, Їжа, Керування"));
-        check("Ukrainian ends at Ч", ukrainian.endsWith("Технології, Чаклунство"));
+        check("Ukrainian ends at U+0427", ukrainian.endsWith("Технології, Чаклунство"));
         check("nothing is lost or repeated by the sort",
                 ukrainian.split(", ").length
                         == ModCategory.forKind(ContentKind.MOD).size());
@@ -4781,9 +4782,9 @@ public final class SelfCheck {
         check("and ends at T", packsEnglish.endsWith("Quests, Technology"));
 
         String packsUkrainian = orderIn(byCode("uk"), ContentKind.MODPACK);
-        check("Ukrainian modpack order starts at Б",
+        check("Ukrainian modpack order starts at U+0411",
                 packsUkrainian.startsWith("Бої, Все в одному, Квести"));
-        check("and ends at Ч", packsUkrainian.endsWith("Технології, Чаклунство"));
+        check("and ends at U+0427", packsUkrainian.endsWith("Технології, Чаклунство"));
     }
 
     /** The mod category names of one language, in the order the menu offers them. */

@@ -247,10 +247,10 @@ public enum ModCategory {
      *
      * <p>Sorted with the language's own collator, and that is not a detail. The
      * obvious tool, {@code String.CASE_INSENSITIVE_ORDER}, compares code points
-     * after lowering the case - and Ukrainian і and ї sit at U+0456 and U+0457,
-     * above the whole of а-я, so a list sorted with it puts them after the last
-     * word rather than between "Економіка" and "Керування" where the alphabet
-     * puts them. Ukrainian is not a special case: Polish ą, ć and ł and German
+     * after lowering the case - and the Ukrainian letters U+0456 and U+0457 sit
+     * above the whole U+0430-U+044F block, so a list sorted with it puts them
+     * after the last word rather than between the words for "Economy" and
+     * "Management", where the alphabet puts them. Ukrainian is not a special case: Polish ą, ć and ł and German
      * ä, ö and ü are all outside the block their alphabet places them in, and
      * every one of them would be wrong the same way. A collator is the thing
      * that knows where a letter belongs in the alphabet somebody actually reads.

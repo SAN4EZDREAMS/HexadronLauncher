@@ -269,7 +269,7 @@ public final class CurseForgeCategories {
      * The chosen categories this platform has no words for.
      *
      * <p>Named rather than counted, because "the categories you chose do not
-     * exist here" is a different message from "Низьке навантаження does not
+     * exist here" is a different message from "Low impact does not
      * exist here", and only the second one tells somebody which box to untick.
      */
     public static List<ModCategory> unexpressible(ContentKind kind,

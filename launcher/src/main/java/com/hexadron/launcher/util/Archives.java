@@ -73,7 +73,7 @@ public final class Archives {
      * <p>The bytes are not valid UTF-8, the decoder replaces each one it cannot
      * read with U+FFFD, and the file is written to disk under a name of question
      * marks. No exception, no warning - a modpack whose overrides include
-     * {@code конфіг.txt} installs, and the mod that looks for it does not find
+     * a file with a Cyrillic name installs, and the mod that looks for it does not find
      * it.
      *
      * <h2>Why the system encoding</h2>

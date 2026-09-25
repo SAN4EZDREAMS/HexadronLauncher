@@ -8,43 +8,44 @@
 # project root. Provided without any warranty.
 #
 # SPDX-License-Identifier: LicenseRef-Hexadron-NC-1.0
-"""Перевіряє файли релізу на VirusTotal і дописує результат в опис релізу.
+"""Scans the release files on VirusTotal and adds the result to the release notes.
 
-Запуск (усе — зі змінних середовища, аргумент один — тека з файлами релізу):
+Usage (everything comes from environment variables; the only argument is the
+folder with the release files):
 
     VT_API_KEY=...  GITHUB_TOKEN=...  GITHUB_REPOSITORY=owner/repo \
     RELEASE_TAG=v0.9.8  python3 virustotal_scan.py assets/
 
-ЧОМУ БЕЗ СТОРОННІХ БІБЛІОТЕК
+WHY NO THIRD-PARTY LIBRARIES
 
-На бігуні GitHub є python3, а pip install — це ще одне місце, яке може впасти
-через мережу. Тут лише стандартна бібліотека.
+The GitHub runner has python3, and pip install is one more place that can fail
+because of the network. Only the standard library is used here.
 
-ЛІМІТИ БЕЗКОШТОВНОГО API
+FREE API LIMITS
 
-Public API VirusTotal: 4 запити на хвилину, 500 на добу. Тому:
-  * кожен файл спершу шукається ЗА ХЕШЕМ — вбудована Java й бібліотеки
-    між збірками зазвичай не змінюються, і такий файл коштує один запит;
-  * між будь-якими двома запитами до VirusTotal — щонайменше 15 секунд;
-  * якщо денний ліміт вичерпано, решта файлів позначається «не перевірено»,
-    а не валить реліз.
+VirusTotal Public API: 4 requests per minute, 500 per day. Because of this:
+  * each file is first looked up BY HASH - the bundled Java and the libraries
+    usually do not change between builds, and such a file costs one request;
+  * there are at least 15 seconds between any two requests to VirusTotal;
+  * when the daily limit is used up, the remaining files are marked "unchecked",
+    and the release does not fail.
 
-ОПИС РЕЛІЗУ
+RELEASE NOTES
 
-Розділ дописується В КІНЕЦЬ опису між двома HTML-коментарями, MARK_START і
-MARK_END. GitHub коментарів не показує, а скрипт за ними знаходить і замінює
-свій розділ, тож при повторному запуску розділ лишається один. Старий текстовий
-формат (рядок SECTION_HEAD) теж прибирається.
+The section is added AT THE END of the notes, between two HTML comments,
+MARK_START and MARK_END. GitHub does not show comments, and the script uses
+them to find and replace its section, so a repeated run still leaves one
+section. The old text format (the SECTION_HEAD line) is removed too.
 
-Що бачить людина на сторінці релізу:
-  * один значок-підсумок (shields.io): вердикт, виявлення, скільки файлів;
-  * по значку на кожну систему — клік відкриває звіт по повному архіву;
-  * таблиця всіх файлів, згорнута в <details>, щоб не займати сторінку.
+What a person sees on the release page:
+  * one summary badge (shields.io): verdict, detections, number of files;
+  * one badge per system - a click opens the report for the full archive;
+  * a table of all files, collapsed in <details> so that it does not fill the page.
 
-Лаунчер читає той самий опис у вікні оновлення. Він вирізає розділ між
-коментарями й замість нього показує одну кольорову плашку, взявши вердикт з
-атрибутів MARK_START (див. update/ScanReport.java). Формат цих атрибутів —
-контракт між скриптом і лаунчером.
+The launcher reads the same notes in the update window. It cuts out the section
+between the comments and shows one coloured banner instead, with the verdict
+taken from the MARK_START attributes (see update/ScanReport.java). The format
+of these attributes is a contract between the script and the launcher.
 """
 
 import datetime
@@ -59,44 +60,46 @@ import urllib.error
 import urllib.request
 import uuid
 
-# Межі розділу в описі. Ті самі рядки пише заглушка в release-launcher.yml і
-# читає лаунчер (update/ScanReport.java). Міняти — у всіх трьох місцях.
+# Section boundaries in the notes. The placeholder in release-launcher.yml writes
+# the same strings, and the launcher reads them (update/ScanReport.java). Change
+# them in all three places.
 MARK_START = "<!-- virustotal:start"
 MARK_END = "<!-- virustotal:end -->"
-# Заголовок старого, текстового формату. Лише для того, щоб прибрати його з
-# релізів, які вийшли до значків.
-SECTION_HEAD = "Перевірка VirusTotal"
+# The heading of the old text format (Ukrainian for "VirusTotal check", written
+# as escapes). It is here only to remove it from releases made before the badges.
+SECTION_HEAD = "\u041f\u0435\u0440\u0435\u0432\u0456\u0440\u043a\u0430 VirusTotal"
 
 VT_API = os.environ.get("VT_API_BASE", "https://www.virustotal.com/api/v3")
 VT_GUI = "https://www.virustotal.com/gui/file/"
 GH_API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
-# 60 / 4 = 15 секунд, і півсекунди запасу на різницю годинників.
+# 60 / 4 = 15 seconds, plus half a second of margin for clock differences.
 MIN_INTERVAL = float(os.environ.get("VT_MIN_INTERVAL", "15.5"))
-# Скільки чекати, поки аналіз завершиться. Великі архіви інколи стоять у черзі
-# довго; що не встигло — лишається з посиланням і позначкою «триває».
+# How long to wait for the analysis to finish. Large archives sometimes wait in
+# the queue for a long time; a file that does not finish in time keeps its link
+# and the "pending" mark.
 MAX_WAIT = float(os.environ.get("VT_MAX_WAIT", str(45 * 60)))
-# З якої кількості "malicious" файл вважається небезпечним, а не підозрілим.
-# Одне-два спрацювання на виконуваний файл jpackage — звична хибна тривога.
+# From how many "malicious" detections a file counts as dangerous, not suspicious.
+# One or two detections on a jpackage executable are a usual false alarm.
 DANGER_AT = int(os.environ.get("VT_DANGER_THRESHOLD", "3"))
 
 DIRECT_LIMIT = 32 * 1024 * 1024     # POST /files
-UPLOAD_LIMIT = 650 * 1024 * 1024    # POST на upload_url
+UPLOAD_LIMIT = 650 * 1024 * 1024    # POST to upload_url
 
-# Що не має сенсу слати антивірусам: опис збірки, а не програма.
+# Files that it makes no sense to send to antivirus engines: build descriptions, not programs.
 SKIP_SUFFIXES = (".json", ".txt", ".md", ".sha256")
 
-# Позначки. Порядок = серйозність, найгірша стає загальною позначкою релізу.
-CLEAN, WARN, DANGER = "ЧИСТО", "УВАГА", "НЕБЕЗПЕЧНО"
-PENDING, UNCHECKED, ERROR = "ТРИВАЄ", "НЕ ПЕРЕВІРЕНО", "ПОМИЛКА"
+# Marks. The order is the severity; the worst one becomes the mark of the release.
+CLEAN, WARN, DANGER = "CLEAN", "WARNING", "DANGER"
+PENDING, UNCHECKED, ERROR = "PENDING", "UNCHECKED", "ERROR"
 SEVERITY = [CLEAN, PENDING, UNCHECKED, ERROR, WARN, DANGER]
 
-# Результати двигунів, які рахуються як "двигун подивився на файл".
+# Engine results that count as "the engine looked at the file".
 COUNTED = ("malicious", "suspicious", "undetected", "harmless")
 
 
 class QuotaExceeded(Exception):
-    """Денний ліміт вичерпано — далі сьогодні нічого не вийде."""
+    """The daily limit is used up - nothing more can be done today."""
 
 
 class Vt:
@@ -113,7 +116,7 @@ class Vt:
         self.requests += 1
 
     def call(self, method, url, body=None, headers=None, timeout=120):
-        """Один запит з повторами на 429 і 5xx. Повертає (код, json)."""
+        """One request, retried on 429 and 5xx. Returns (code, json)."""
         if not url.startswith("http"):
             url = VT_API + url
         for attempt in range(5):
@@ -134,15 +137,15 @@ class Vt:
                 if err.code == 429 and code == "QuotaExceededError":
                     raise QuotaExceeded() from err
                 if err.code == 429 or err.code >= 500:
-                    # Хвилинне вікно ще не скинулось, або в них щось лягло.
+                    # The per-minute window has not reset yet, or something is down on their side.
                     time.sleep(60)
                     continue
                 raise RuntimeError(f"VirusTotal {err.code} {code}: {payload}") from err
             except (urllib.error.URLError, TimeoutError) as err:
                 if attempt == 4:
-                    raise RuntimeError(f"VirusTotal недосяжний: {err}") from err
+                    raise RuntimeError(f"VirusTotal is unreachable: {err}") from err
                 time.sleep(30)
-        raise RuntimeError(f"VirusTotal не відповів після повторів: {method} {url}")
+        raise RuntimeError(f"VirusTotal did not answer after retries: {method} {url}")
 
 
 def _json_or_empty(raw):
@@ -161,8 +164,8 @@ def sha256_of(path):
 
 
 def multipart(path):
-    """Тіло multipart/form-data з одним полем file. Файли до 650 МБ, пам'яті
-    на бігуні вистачає, а потокова відправка в urllib — окрема морока."""
+    """A multipart/form-data body with one field, file. Files are up to 650 MB,
+    the runner has enough memory, and streaming uploads in urllib are a separate problem."""
     boundary = uuid.uuid4().hex
     head = (
         f"--{boundary}\r\n"
@@ -175,7 +178,7 @@ def multipart(path):
 
 
 def verdict(stats):
-    """(позначка, виявлень, двигунів) зі stats VirusTotal."""
+    """(mark, detections, engines) from the VirusTotal stats."""
     malicious = int(stats.get("malicious", 0))
     suspicious = int(stats.get("suspicious", 0))
     engines = sum(int(stats.get(k, 0)) for k in COUNTED)
@@ -189,9 +192,9 @@ def verdict(stats):
 
 
 def scan(vt, files):
-    """Повертає список результатів у порядку файлів."""
+    """Returns the list of results in the order of the files."""
     results = []
-    pending = {}        # analysis id -> результат, що чекає на завершення
+    pending = {}        # analysis id -> result that waits for completion
     quota_hit = False
 
     for path in files:
@@ -201,7 +204,7 @@ def scan(vt, files):
                 "engines": 0, "note": ""}
         results.append(item)
         if quota_hit:
-            item["note"] = "денний ліміт VirusTotal вичерпано"
+            item["note"] = "the VirusTotal daily limit is used up"
             continue
         try:
             status, data = vt.call("GET", f"/files/{sha}")
@@ -209,10 +212,10 @@ def scan(vt, files):
             stats = attrs.get("last_analysis_stats")
             if status == 200 and stats and sum(stats.values()):
                 item["mark"], item["found"], item["engines"] = verdict(stats)
-                print(f"{path.name}: вже відомий, {item['mark']}")
+                print(f"{path.name}: already known, {item['mark']}")
                 continue
             if size > UPLOAD_LIMIT:
-                item["note"] = "більше 650 МБ, VirusTotal не приймає"
+                item["note"] = "larger than 650 MB, VirusTotal does not accept it"
                 continue
             if size > DIRECT_LIMIT:
                 _, data = vt.call("GET", "/files/upload_url")
@@ -224,11 +227,11 @@ def scan(vt, files):
             analysis = data["data"]["id"]
             item["mark"] = PENDING
             pending[analysis] = item
-            print(f"{path.name}: завантажено, аналіз {analysis}")
+            print(f"{path.name}: uploaded, analysis {analysis}")
         except QuotaExceeded:
             quota_hit = True
-            item["note"] = "денний ліміт VirusTotal вичерпано"
-        except Exception as err:  # один файл не має зупиняти решту
+            item["note"] = "the VirusTotal daily limit is used up"
+        except Exception as err:  # one file must not stop the others
             item["mark"], item["note"] = ERROR, str(err)[:200]
             print(f"{path.name}: {err}", file=sys.stderr)
 
@@ -249,11 +252,11 @@ def scan(vt, files):
                 print(f"{item['name']}: {item['mark']}")
                 del pending[analysis]
     for item in pending.values():
-        item["note"] = "аналіз ще йде, результат — за посиланням"
+        item["note"] = "the analysis is still running, the result is at the link"
     return results
 
 
-# Коди вердикту в MARK_START. Англійською й малими літерами: їх розбирає код.
+# Verdict codes in MARK_START. In English and in lower case: code parses them.
 CODES = {CLEAN: "clean", WARN: "warning", DANGER: "danger",
          PENDING: "pending", UNCHECKED: "unchecked", ERROR: "error"}
 ICONS = {CLEAN: "✅", WARN: "⚠️", DANGER: "⛔",
@@ -264,7 +267,7 @@ PLATFORMS = ("Windows", "Linux", "macOS", "Flatpak")
 
 
 def platform(name):
-    """Система, для якої файл, за тими самими словами, що пише ManifestTool."""
+    """The system the file is for, by the same words that ManifestTool writes."""
     lower = name.lower()
     if lower.endswith(".flatpak"):
         return "Flatpak"
@@ -277,13 +280,13 @@ def platform(name):
 
 
 def is_full(name):
-    """Повний архів — те, що людина качає руками. Частини — для оновлення."""
+    """A full archive is what a person downloads by hand. Parts are for updates."""
     return "-parts-" not in name.lower()
 
 
 def badge(label, message, colour, logo=False):
-    """URL значка shields.io. У його шляху дефіс і підкреслення службові,
-    тому подвоюються; решту кодує quote."""
+    """The URL of a shields.io badge. In its path the hyphen and the underscore are
+    special, so they are doubled; quote encodes the rest."""
     from urllib.parse import quote
 
     def part(text):
@@ -303,10 +306,10 @@ def section(results, when):
     done = sum(1 for r in results if r["engines"])
     total = len(results)
 
-    words = {CLEAN: "чисто", WARN: "увага", DANGER: "небезпечно",
-             PENDING: "перевірка триває", UNCHECKED: "перевірено не все",
-             ERROR: "помилка перевірки"}[worst]
-    summary = f"{words} · виявлень: {found} · файлів: {done}/{total}"
+    words = {CLEAN: "clean", WARN: "warning", DANGER: "dangerous",
+             PENDING: "scan in progress", UNCHECKED: "not all checked",
+             ERROR: "scan error"}[worst]
+    summary = f"{words} · detections: {found} · files: {done}/{total}"
 
     lines = [
         f"{MARK_START} verdict={CODES[worst]} found={found} checked={done} total={total} -->",
@@ -316,7 +319,7 @@ def section(results, when):
         f"![VirusTotal: {summary}]({badge('VirusTotal', summary, COLOURS[worst], logo=True)})",
     ]
 
-    # По значку на систему: повний архів, бо саме його качають люди.
+    # One badge per system: the full archive, because that is what people download.
     row = []
     for label in PLATFORMS:
         full = [r for r in results if is_full(r["name"]) and platform(r["name"]) == label]
@@ -335,21 +338,21 @@ def section(results, when):
     lines += [
         "",
         "<details>",
-        f"<summary>Усі файли ({total}) і звіти VirusTotal · {when:%Y-%m-%d %H:%M} UTC</summary>",
+        f"<summary>All files ({total}) and VirusTotal reports · {when:%Y-%m-%d %H:%M} UTC</summary>",
         "",
-        "| | Файл | Система | Виявлень | Звіт |",
+        "| | File | System | Detections | Report |",
         "|:-:|---|---|:-:|:-:|",
     ]
     for r in ordered:
-        name = r["name"] if is_full(r["name"]) else f"{r['name']} <sub>частина оновлення</sub>"
+        name = r["name"] if is_full(r["name"]) else f"{r['name']} <sub>update part</sub>"
         note = f"<br><sub>{r['note']}</sub>" if r["note"] else ""
         lines.append(f"| {ICONS[r['mark']]} | {name}{note} | {platform(r['name']) or '—'} "
-                     f"| {score(r)} | [відкрити]({VT_GUI}{r['sha']}) |")
+                     f"| {score(r)} | [open]({VT_GUI}{r['sha']}) |")
     lines += [
         "",
-        f"<sub>✅ жоден антивірус нічого не знайшов · ⚠️ 1–{DANGER_AT - 1} спрацювання, "
-        f"для лаунчерів на Java це зазвичай хибна тривога · ⛔ {DANGER_AT} і більше · "
-        "⏳/➖/❌ результату немає, дивіться звіт</sub>",
+        f"<sub>✅ no antivirus found anything · ⚠️ 1–{DANGER_AT - 1} detections, "
+        f"usually a false alarm for Java launchers · ⛔ {DANGER_AT} or more · "
+        "⏳/➖/❌ no result, see the report</sub>",
         "",
         "</details>",
         "",
@@ -358,12 +361,12 @@ def section(results, when):
     return "\n".join(lines)
 
 
-# Новий розділ: від MARK_START до MARK_END, або до кінця, якщо кінця немає
-# (обірваний запуск). Разом із порожніми рядками перед ним.
+# The new section: from MARK_START to MARK_END, or to the end when there is no end
+# (an interrupted run). Together with the blank lines before it.
 _BLOCK = re.compile(
     r"(?:\r?\n)*" + re.escape(MARK_START) + r"[\s\S]*?(?:" + re.escape(MARK_END) + r"|\Z)[ \t]*")
-# Старий текстовий розділ разом із лінією перед ним. Лише з початку рядка: у
-# списку комітів ці слова можуть трапитися посеред рядка.
+# The old text section, together with the line before it. Only from the start of a
+# line: the list of commits can contain these words in the middle of a line.
 _OLD_SECTION = re.compile(
     r"(?:\r?\n)*(?:^---[ \t]*\r?\n(?:[ \t]*\r?\n)*)?^" + re.escape(SECTION_HEAD) + r"[\s\S]*\Z",
     re.MULTILINE)
@@ -390,11 +393,11 @@ def github(method, path, payload=None):
 
 def main():
     if len(sys.argv) != 2:
-        sys.exit("використання: virustotal_scan.py <тека з файлами релізу>")
+        sys.exit("usage: virustotal_scan.py <folder with the release files>")
     key = os.environ.get("VT_API_KEY", "").strip()
     if not key:
-        # Форк або репозиторій без секрету: реліз від цього не страждає.
-        print("::warning::VT_API_KEY не задано, перевірку VirusTotal пропущено")
+        # A fork or a repository without the secret: the release is not affected.
+        print("::warning::VT_API_KEY is not set, VirusTotal scan skipped")
         return 0
     repo, tag = os.environ["GITHUB_REPOSITORY"], os.environ["RELEASE_TAG"]
 
@@ -402,27 +405,27 @@ def main():
     files = sorted(p for p in folder.iterdir()
                    if p.is_file() and not p.name.lower().endswith(SKIP_SUFFIXES))
     if not files:
-        sys.exit(f"у {folder} немає файлів для перевірки")
+        sys.exit(f"no files to scan in {folder}")
 
     vt = Vt(key)
     results = scan(vt, files)
     block = section(results, datetime.datetime.now(datetime.timezone.utc))
     print(block)
 
-    # Опис читається заново перед записом: за ті півгодини, що йшла перевірка,
-    # його могли поправити руками.
+    # Read the notes again before writing: somebody could edit them by hand during
+    # the half hour of the scan.
     release = github("GET", f"/repos/{repo}/releases/tags/{tag}")
     github("PATCH", f"/repos/{repo}/releases/{release['id']}",
            {"body": merge(release.get("body"), block)})
-    print(f"опис релізу {tag} оновлено; запитів до VirusTotal: {vt.requests}")
+    print(f"release notes for {tag} updated; requests to VirusTotal: {vt.requests}")
 
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write(block + "\n")
 
-    # Червоний job — щоб автор побачив проблему. Сам реліз уже опублікований і
-    # від цього не зникає.
+    # A red job, so that the author sees the problem. The release is already
+    # published and does not disappear because of this.
     bad = [r for r in results if r["mark"] in (DANGER, ERROR)]
     return 1 if bad else 0
 

@@ -1142,8 +1142,8 @@ keep the fifty-two pixels for ever and the open rail is drawn on top, with a
 shadow to say it is in front. Nothing reflows, and what it covers while it is
 open is the part of the window nobody is reading.
 
-**The open width is not a number.** "Data packs", "Датапаки" and "Datenpakete"
-are three different widths, and a rail set to a fixed one is either clipping a
+**The open width is not a number.** "Data packs" in English, Ukrainian and
+German ("Datenpakete") are three different widths, and a rail set to a fixed one is either clipping a
 name in German or wasting space in English. Opening it switches each row from
 showing its icon to showing its icon and its name, which makes the row ask for
 the space its own text needs and the box ask for the widest of the three -
@@ -1882,8 +1882,8 @@ only Latin letters, digits and underscore. The launcher refuses anything else
 when the account is added and again before a launch.
 
 This is not a preference. The integrated single-player server validates the
-local player's name exactly as it validates a remote one, so a name such as
-`Гравець` loads the world and then drops the player out of it with
+local player's name exactly as it validates a remote one, so a Cyrillic name (for
+example, the Ukrainian word for "Player") loads the world and then drops the player out of it with
 `Invalid characters in username` - a message that reads like a multiplayer
 fault and gives no hint that the account name caused it.
 

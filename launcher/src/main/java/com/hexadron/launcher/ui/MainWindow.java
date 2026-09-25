@@ -1115,8 +1115,8 @@ public final class MainWindow implements ProfileHost {
      *
      * <p>An HBox shrinks its children when the window is narrower than their
      * preferred widths, and a Button that has been shrunk shows an ellipsis - so
-     * at the default window size on a scaled display the bar read "Створ...",
-     * "Нова гр...", "За алфаві...". Fixing each button's minimum at its
+     * at the default window size on a scaled display the Ukrainian bar showed
+     * "Create", "New group" and "Alphabetical" cut to a few letters. Fixing each button's minimum at its
      * preferred width moves the shrinking onto the fields and the spacer, which
      * can afford it.
      */

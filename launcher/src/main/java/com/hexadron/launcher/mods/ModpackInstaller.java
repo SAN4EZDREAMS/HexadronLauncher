@@ -368,7 +368,7 @@ public final class ModpackInstaller {
         // Entry names decide the names these files get on disk, so an archive
         // that does not declare its names as UTF-8 is read the way the machine
         // that wrote it meant them - see Archives.legacyEntryNames. Left to the
-        // default, a pack carrying "конфіг.txt" installs it as question marks
+        // default, a pack carrying a file with a Cyrillic name installs it as question marks
         // and the mod that reads it never finds it.
         try (ZipFile zip = new ZipFile(archive.toFile(), Archives.legacyEntryNames())) {
             List<ZipEntry> entries = new ArrayList<>();

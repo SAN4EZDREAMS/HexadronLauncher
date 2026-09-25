@@ -1,30 +1,30 @@
-# Перевіряє файли опублікованого релізу на VirusTotal і дописує результат —
-# позначку й посилання на звіт для кожного файлу — в кінець опису релізу.
+# Scans the files of a published release on VirusTotal and adds the result -
+# a badge and a report link for each file - to the end of the release notes.
 #
-# ДВА СПОСОБИ ЗАПУСКУ
+# TWO WAYS TO RUN
 #
-# 1. Сам, після кожної публікації: release-launcher.yml викликає цей workflow
-#    job'ом `virustotal` — і для Release, і для Nightly (prerelease).
+# 1. Automatically, after each publication: release-launcher.yml calls this
+#    workflow as the `virustotal` job - for both Release and Nightly (prerelease).
 #
-#    Подія `release: published` тут не годиться: реліз створює GITHUB_TOKEN, а
-#    дії цього токена навмисно НЕ запускають інших workflow. Тому виклик —
-#    прямий, через workflow_call.
+#    The `release: published` event does not work here: GITHUB_TOKEN creates the
+#    release, and actions of this token intentionally do NOT start other
+#    workflows. So the call is direct, through workflow_call.
 #
-# 2. Руками: Actions → virustotal → Run workflow, ввести тег. Для релізів, що
-#    вийшли до цієї інтеграції, або якщо минулий запуск уперся в ліміт.
+# 2. Manually: Actions → virustotal → Run workflow, then enter the tag. Use this
+#    for releases made before this integration, or when the last run hit the limit.
 #
-# ЩО ПОТРІБНО
+# REQUIREMENTS
 #
-# Секрет VT_API_KEY (Settings → Secrets and variables → Actions) — ключ
-# безкоштовного акаунта VirusTotal. Немає секрету (наприклад, у форку) —
-# перевірка тихо пропускається, реліз не страждає.
+# The VT_API_KEY secret (Settings → Secrets and variables → Actions) - the key of
+# a free VirusTotal account. When there is no secret (for example, in a fork), the
+# scan is skipped silently and the release is not affected.
 #
-# ЛІМІТИ
+# LIMITS
 #
-# Public API: 4 запити на хвилину, 500 на добу. Скрипт тримає паузу між
-# запитами й шукає кожен файл спершу за хешем, тож незмінні частини (вбудована
-# Java, бібліотеки) коштують один запит. Реліз із ~16 файлів — це близько
-# 15–40 хвилин і кількох десятків запитів.
+# Public API: 4 requests per minute, 500 per day. The script pauses between
+# requests and first looks up each file by hash, so unchanged parts (the bundled
+# Java, the libraries) cost one request. A release of ~16 files takes about
+# 15–40 minutes and a few dozen requests.
 
 name: virustotal
 
@@ -32,7 +32,7 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: 'Тег релізу, файли якого перевіряти'
+        description: 'Tag of the release whose files to scan'
         type: string
         required: true
     secrets:
@@ -41,32 +41,32 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Тег релізу, наприклад v0.9.8.1 або v0.9.8-nightly.42'
+        description: 'Release tag, for example v0.9.8.1 or v0.9.8-nightly.42'
         type: string
         required: true
 
-# Один запуск на тег: два одночасні зайвий раз з'їдають ліміт і дописують
-# розділ навперегони.
+# One run per tag: two parallel runs waste the limit and race to write the
+# section.
 concurrency:
   group: virustotal-${{ inputs.tag }}
   cancel-in-progress: false
 
-# Запис — рівно для одного: оновити опис релізу.
+# Write access for exactly one thing: update the release notes.
 permissions:
   contents: write
 
 jobs:
   scan:
     runs-on: ubuntu-24.04
-    # Опитування аналізу обмежене в скрипті 45 хвилинами; решта — завантаження
-    # і паузи між запитами.
+    # The script limits the analysis polling to 45 minutes; the rest is downloads
+    # and pauses between requests.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
         with:
           sparse-checkout: .github/scripts
-      # Перевіряється те, що реально лежить у релізі, а не артефакти збірки:
-      # саме ці файли качають люди і сам лаунчер.
+      # Scan what is actually in the release, not the build artifacts: these are the
+      # files that people and the launcher itself download.
       - name: download the release files
         run: |
           set -euo pipefail

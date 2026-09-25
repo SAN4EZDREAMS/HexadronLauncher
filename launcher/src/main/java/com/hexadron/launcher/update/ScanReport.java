@@ -53,7 +53,7 @@ public record ScanReport(Verdict verdict, int found, int checked, int total) {
 
     static final String MARK_START = "<!-- virustotal:start";
     static final String MARK_END = "<!-- virustotal:end -->";
-    // "Перевірка VirusTotal" - the heading the script wrote before the badges.
+    // The Ukrainian "VirusTotal check" - the heading the script wrote before the badges.
     static final String LEGACY_HEAD = "\u041f\u0435\u0440\u0435\u0432\u0456\u0440\u043a\u0430 VirusTotal";
 
     private static final Pattern ATTRIBUTES = Pattern.compile(
