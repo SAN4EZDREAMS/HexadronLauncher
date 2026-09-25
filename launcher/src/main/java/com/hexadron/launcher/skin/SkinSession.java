@@ -59,6 +59,28 @@ public final class SkinSession implements AutoCloseable {
         this.arguments = arguments;
     }
 
+    /**
+     * The skin settings that a launch of this account uses.
+     *
+     * <p>Only an offline account gets its skin from the launcher or from a skin
+     * service. A Microsoft account's skin and cape are kept by Mojang, and the
+     * game reads them from there. Attaching authlib-injector to such a launch
+     * points the game at another service, and servers that check the account
+     * then refuse the player. The account window can still save a picture for
+     * a Microsoft account - it is the file offered for upload - so the settings
+     * are ignored here.
+     *
+     * @param account the account that was selected
+     * @param saved   the skin settings stored for that account
+     * @return {@code saved} for an offline account, otherwise an empty profile
+     */
+    public static SkinProfile forLaunch(Account account, SkinProfile saved) {
+        if (account == null || saved == null || !account.isOffline()) {
+            return SkinProfile.empty();
+        }
+        return saved;
+    }
+
     /** No skin service: nothing added to the command, nothing to close. */
     public static SkinSession none() {
         return NONE;

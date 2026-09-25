@@ -1767,7 +1767,8 @@ public final class LauncherService {
         // decides the name written into the world, the token that has to be
         // kept off the command line, and the UUID every other player resolves.
         // The settings themselves stay keyed to the account that was selected.
-        SkinProfile skin = skinStore.of(account.id());
+        // Only an offline account uses them; see SkinSession.forLaunch.
+        SkinProfile skin = SkinSession.forLaunch(account, skinStore.of(account.id()));
         player = SkinSession.identity(player, skin, skinCredentials, progress);
 
         VersionJson version = installProfile(profile, progress);

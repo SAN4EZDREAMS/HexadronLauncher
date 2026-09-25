@@ -620,12 +620,7 @@ public final class ContentBrowserWindow implements ContentSection.Host {
             panes[index].setVisible(visible);
             panes[index].setManaged(visible);
         }
-        // The pack button belongs to the mods section: it installs a set of mods.
-        boolean mods = chosen == Section.MODS;
-        packButton.setVisible(mods);
-        packButton.setManaged(mods);
-        packNote.setVisible(mods && packBlockedReason != null);
-        packNote.setManaged(mods && packBlockedReason != null);
+        showPackButton();
 
         if (!built || !changed) {
             return;
@@ -1112,13 +1107,14 @@ public final class ContentBrowserWindow implements ContentSection.Host {
             toggle.setOnAction(event -> toggleMod(mod));
 
             remove.setText(I18n.t("mods.remove"));
-            // A pack goes out whole, through its own button in the header; a
-            // data pack's mod goes out with the data pack, which is a button in
-            // another section - so the two locked rows say different things.
+            // A locked mod goes out with whatever brought it, and the tooltip
+            // names where to do that: Hexadron Optimise from the button in the
+            // header, a modpack in Modpacks, a data pack in Data packs.
             remove.setDisable(!mod.isRemovable() || busy);
-            tooltip(remove, removeTip, mod.isRemovable() ? null
-                    : I18n.t(mod.origin() == ModOrigin.DATAPACK
-                            ? "mods.remove.datapackLocked" : "mods.remove.packLocked"));
+            String locked = mod.origin() == ModOrigin.DATAPACK ? "mods.remove.datapackLocked"
+                    : owner != null ? "packs.pack.locked"
+                    : "mods.remove.packLocked";
+            tooltip(remove, removeTip, mod.isRemovable() ? null : I18n.t(locked));
             remove.setOnAction(event -> removeMod(mod));
             showRow();
         }
@@ -1775,12 +1771,25 @@ public final class ContentBrowserWindow implements ContentSection.Host {
         packButton.getStyleClass().removeAll("primary", "danger");
         packButton.getStyleClass().add(installed ? "danger" : "primary");
         packButton.setDisable(busy || (blocked && !installed));
-        packButton.setVisible(true);
-        packButton.setManaged(true);
-
         packNote.setText(blocked ? packBlockedReason : "");
-        packNote.setVisible(blocked);
-        packNote.setManaged(blocked);
+        showPackButton();
+    }
+
+    /**
+     * Shows the pack button and its note only while the Mods section is open.
+     *
+     * <p>The button installs a set of mods, so it belongs to that section. Both
+     * {@link #showSection} and {@link #updatePackButton} call this: a refresh
+     * after an install or a removal in another section must not bring the
+     * button back there.
+     */
+    private void showPackButton() {
+        boolean mods = current == Section.MODS;
+        boolean note = mods && packBlockedReason != null;
+        packButton.setVisible(mods);
+        packButton.setManaged(mods);
+        packNote.setVisible(note);
+        packNote.setManaged(note);
     }
 
     // ---------------------------------------------------------------- plumbing

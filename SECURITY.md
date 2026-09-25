@@ -185,7 +185,7 @@ The launcher replaces itself with builds from the project's GitHub releases ([do
 | Complete download | Length compared with the length GitHub published. A short file is deleted. |
 | Full archive content | SHA-256 compared with the release manifest, when the manifest names this archive. |
 | Delta update content | Every file of the assembled image, reused or downloaded, must match the manifest (size, SHA-256, link target). Any mismatch falls back to the full archive. |
-| Paths | Manifest paths that leave the image are refused. The archive reader refuses entries that resolve outside the target folder. |
+| Paths | Manifest paths that leave the image are refused. The archive reader refuses entries that resolve outside the target folder, symbolic links that lead outside it (absolute targets, and relative targets that climb out, also through linked folders), and writes through a link to outside. |
 | Application image | Runtime and jar folder must be where jpackage puts them, or nothing is replaced. |
 | Undo | The old folder is moved aside, not deleted, until the new build is in place. |
 

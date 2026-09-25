@@ -74,6 +74,25 @@ tasks.register('wrapperJar', Jar) {
 	from sourceSets.wrapper.output
 }
 
+// The product version as a resource, for runs from class folders: `run`,
+// `cli`, `selfCheck` and the IDE. They have no jar manifest, so BuildConfig
+// reads com/hexadron/launcher/version.properties instead. With this file there
+// is only one place that holds the version: `version` above.
+def versionResourceDir = layout.buildDirectory.dir('generated/version-resource')
+def generateVersionResource = tasks.register('generateVersionResource') {
+	group = 'build'
+	description = 'Writes the launcher version into a resource for runs from class folders.'
+	def out = versionResourceDir
+	def value = project.version.toString()
+	inputs.property('version', value)
+	outputs.dir(out)
+	doLast {
+		def file = out.get().file('com/hexadron/launcher/version.properties').asFile
+		file.parentFile.mkdirs()
+		file.text = "version=${value}\n"
+	}
+}
+
 // Embedded in the launcher's resources. LaunchWrapperJar extracts it to the
 // data folder on first launch, and re-extracts it whenever its hash changes.
 tasks.named('processResources') {
@@ -81,6 +100,7 @@ tasks.named('processResources') {
 	from(tasks.named('wrapperJar')) {
 		into 'wrapper'
 	}
+	from(generateVersionResource)
 }
 
 // Main, not Launcher, and this matters beyond jpackage.
@@ -120,9 +140,9 @@ tasks.named('jar') {
 	manifest {
 		attributes(
 			'Hexadron-CurseForge-Api-Key': curseForgeApiKey,
-			// Read back by Launcher for the line under the wordmark on the
-			// splash screen. Without it the splash falls back to a constant,
-			// which is the kind of version number that goes stale unnoticed.
+			// Read back by BuildConfig: the splash screen, the User-Agent and
+			// the update check all use it. Runs from class folders read
+			// version.properties instead (generateVersionResource).
 			'Implementation-Title': 'HexadronLauncher',
 			'Implementation-Version': project.version.toString())
 	}

@@ -36,6 +36,7 @@ Add `--configure-on-demand` to build one module without the other. Without it Gr
 | `selfCheck` | Runs `com.hexadron.launcher.SelfCheck`. `check` depends on it |
 | `cli` | Runs `com.hexadron.launcher.cli.HexadronCli` |
 | `run` | Starts `com.hexadron.launcher.Main` (from the `application` plugin) |
+| `generateVersionResource` | Writes `com/hexadron/launcher/version.properties` with the build version. `processResources` includes it |
 | `wrapperJar` | Builds `hexadron-launchwrapper.jar` from `src/wrapper/java` for Java 8. It goes into the launcher jar under `wrapper/` |
 | `jpackageInput`, `cleanAppImage` | Collect the runtime jars; delete the old image. `appImage` depends on both |
 | `appImage` | Runs `jpackage --type app-image` into `launcher/build/jpackage` |
@@ -168,7 +169,7 @@ The script uses the same colour (`#2d7d46`), corner radius (28%) and cap height 
 |---|---|
 | `launcher/build.gradle` | `0.9.8` by default; `-PlauncherVersion=<v>` overrides it. CI passes the version it publishes |
 | jar manifest `Implementation-Version` | the full version, for example `0.9.8-nightly.41`. `BuildConfig.version()` reads it for the User-Agent, splash screen, About window and update check |
-| `BuildConfig.FALLBACK_VERSION` | `0.9.5`. Used when there is no jar manifest: in the IDE and with `:launcher:run` |
+| `com/hexadron/launcher/version.properties` | the same version, written by the `generateVersionResource` task into the resources. `BuildConfig.version()` reads it when there is no jar manifest: with `run`, `cli`, `selfCheck` and in the IDE. With neither file nor manifest the version is `0.0.0-dev` |
 | `jpackage --app-version` | the numeric part only, because `jpackage` accepts only digits and dots |
 | macOS bundle | `1.0.0` when the version starts with `0.`, because Apple requires `CFBundleVersion` above zero. The build logs this |
 | `mod/gradle.properties` | mod `1.0.0`, Minecraft `26.2`, Fabric Loader `0.19.3`, Fabric API `0.157.0+26.2`, Loom `1.17-SNAPSHOT` |

@@ -1560,6 +1560,60 @@ public final class SelfCheck {
                 VersionRanges.Verdict.UNKNOWN, List.of());
     }
 
+    /** Extracts, and reports whether the extractor refused the archive. */
+    private static boolean refusedToExtract(java.nio.file.Path archive, java.nio.file.Path target) {
+        try {
+            Archives.extract(archive, target, 1);
+            return false;
+        } catch (IOException expected) {
+            return true;
+        }
+    }
+
+    /** One ustar entry: header, data, and the padding to a whole block. */
+    private static byte[] tarEntry(String name, char type, String link, String data) {
+        byte[] body = data.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] header = new byte[512];
+        tarField(header, 0, name);
+        tarField(header, 100, type == '5' ? "0000755" : "0000644");
+        tarField(header, 108, "0000000");
+        tarField(header, 116, "0000000");
+        tarField(header, 124, String.format("%011o", body.length));
+        tarField(header, 136, "00000000000");
+        header[156] = (byte) type;
+        tarField(header, 157, link);
+        tarField(header, 257, "ustar");
+        tarField(header, 263, "00");
+        java.util.Arrays.fill(header, 148, 156, (byte) ' ');
+        int sum = 0;
+        for (byte b : header) {
+            sum += b & 0xFF;
+        }
+        tarField(header, 148, String.format("%06o", sum));
+        header[154] = 0;
+        header[155] = ' ';
+        int padding = (512 - body.length % 512) % 512;
+        byte[] entry = new byte[512 + body.length + padding];
+        System.arraycopy(header, 0, entry, 0, 512);
+        System.arraycopy(body, 0, entry, 512, body.length);
+        return entry;
+    }
+
+    private static void tarField(byte[] header, int offset, String value) {
+        byte[] bytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        System.arraycopy(bytes, 0, header, offset, bytes.length);
+    }
+
+    /** Writes the entries as a gzip-compressed tar, with the end-of-archive blocks. */
+    private static void writeTarGz(java.nio.file.Path file, byte[]... entries) throws IOException {
+        try (var out = new java.util.zip.GZIPOutputStream(java.nio.file.Files.newOutputStream(file))) {
+            for (byte[] entry : entries) {
+                out.write(entry);
+            }
+            out.write(new byte[1024]);
+        }
+    }
+
     /**
      * Unpacking a runtime archive.
      *
@@ -1609,6 +1663,53 @@ public final class SelfCheck {
             check("an entry pointing outside the target is refused", refused);
             check("and nothing was written outside it",
                     !java.nio.file.Files.exists(work.resolve("escaped.txt")));
+
+            // Symbolic links in a tar. A link may point anywhere inside the
+            // target; one that leads outside is refused, so that no later entry
+            // can be written through it and the copy fallback cannot read a
+            // file from outside the archive.
+            java.nio.file.Path goodTar = work.resolve("links.tar.gz");
+            writeTarGz(goodTar,
+                    tarEntry("pkg/bin/java", '0', "", "binary"),
+                    tarEntry("pkg/lib/java", '2', "../bin/java", ""));
+            java.nio.file.Path linked = work.resolve("links");
+            Archives.extract(goodTar, linked, 1);
+            check("a symbolic link inside the target comes across",
+                    java.nio.file.Files.isRegularFile(linked.resolve("lib").resolve("java")));
+
+            java.nio.file.Path climbing = work.resolve("climbing.tar.gz");
+            writeTarGz(climbing,
+                    tarEntry("pkg/door", '2', "../..", ""),
+                    tarEntry("pkg/door/planted.txt", '0', "", "no"));
+            check("a symbolic link that climbs out of the target is refused",
+                    refusedToExtract(climbing, work.resolve("climbing")));
+            check("and nothing was written through it",
+                    !java.nio.file.Files.exists(work.getParent().resolve("planted.txt")));
+
+            java.nio.file.Path absolute = work.resolve("absolute.tar.gz");
+            writeTarGz(absolute, tarEntry("pkg/door", '2', work.toAbsolutePath().toString(), ""));
+            check("a symbolic link to an absolute path is refused",
+                    refusedToExtract(absolute, work.resolve("absolute")));
+
+            // A link inside a linked folder is judged by where it really is.
+            // Only where the file system can make symbolic links at all.
+            java.nio.file.Path probe = work.resolve("probe-link");
+            boolean links;
+            try {
+                java.nio.file.Files.createSymbolicLink(probe, java.nio.file.Path.of("."));
+                links = true;
+            } catch (IOException | UnsupportedOperationException | SecurityException e) {
+                links = false;
+            }
+            if (links) {
+                java.nio.file.Path chained = work.resolve("chained.tar.gz");
+                writeTarGz(chained,
+                        tarEntry("pkg/q/", '5', "", ""),
+                        tarEntry("pkg/a/b/p", '2', "../../q", ""),
+                        tarEntry("pkg/a/b/p/r", '2', "../../..", ""));
+                check("a link through a linked folder that leads outside is refused",
+                        refusedToExtract(chained, work.resolve("chained")));
+            }
 
             // A zip that does not declare its names as UTF-8, which is what any
             // ordinary archiver writes when the local code page can hold them.
@@ -3395,6 +3496,11 @@ public final class SelfCheck {
 
         check("a build with no key reports none",
                 BuildConfig.hasCurseForgeApiKey() == !BuildConfig.curseForgeApiKey().isEmpty());
+
+        // Gradle writes the version into the resources, so a run from class
+        // folders reports the version in launcher/build.gradle, not a constant.
+        check("the build version is known: " + BuildConfig.version(),
+                !BuildConfig.UNKNOWN_VERSION.equals(BuildConfig.version()));
     }
 
     // ---------------------------------------------------------------- search paging
@@ -8329,6 +8435,21 @@ public final class SelfCheck {
                 SkinSession.identity(offline, SkinProfile.empty()
                                 .withSource(SkinProfile.Source.REMOTE),
                         new SkinCredentials(null), quiet) == offline);
+
+        // A Microsoft account's skin is kept by Mojang. A picture saved for it in
+        // the account window (the file offered for upload) must not attach the
+        // loopback service or authlib-injector to its launch.
+        Account licensed = new Account(Account.AccountType.MICROSOFT, "Player",
+                java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"), "token", null, Long.MAX_VALUE, "0");
+        SkinProfile pictured = SkinProfile.empty().withSkin("skin-0123.png");
+        check("a Microsoft account launches with no skin settings, whatever was saved",
+                !SkinSession.forLaunch(licensed, pictured).needsService()
+                        && !SkinSession.forLaunch(licensed, remote).needsService());
+        check("an offline account launches with the settings saved for it",
+                SkinSession.forLaunch(offline, pictured) == pictured
+                        && SkinSession.forLaunch(offline, remote) == remote);
+        check("no account means no skin settings",
+                SkinSession.forLaunch(null, pictured).isEmpty());
 
         // A remote service is worth attaching with no local pictures at all;
         // a local one is not, because there would be nothing to serve.

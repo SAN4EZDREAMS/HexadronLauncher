@@ -69,7 +69,7 @@ When the window opens, the launcher reads the account's current skin and capes f
 
 These requests use the account's Minecraft access token and happen only when you click the button. **Cancel** does not undo them.
 
-The chosen file is also saved in `skins.json` for a Microsoft account. The launch code does not check the account type, so at launch it attaches the local skin service (below) to that account too. If you only want the skin at Mojang, click **Clear** before **Save** after the upload.
+The chosen file is also saved in `skins.json` for a Microsoft account, as the file offered for upload. A launch with a Microsoft account ignores these settings (`SkinSession.forLaunch`): the game gets the skin and cape from Mojang, and no skin service or authlib-injector is attached.
 
 ## Offline accounts: where the game gets the skin
 
