@@ -73,9 +73,19 @@ public final class Updates {
     public record Available(AppVersion from, AppVersion to, ReleaseFeed.Release release,
                             ReleaseFeed.Asset asset) {
 
-        /** The notes the author wrote, or an empty string. */
+        /**
+         * The notes the author wrote, or an empty string.
+         *
+         * <p>Without the VirusTotal block: it is badges and a table for the
+         * release page, and the window shows {@link #scan()} in its place.
+         */
         public String notes() {
-            return release.notes() == null ? "" : release.notes();
+            return ScanReport.without(release.notes());
+        }
+
+        /** The VirusTotal result the release carries, if it carries one. */
+        public Optional<ScanReport> scan() {
+            return ScanReport.in(release.notes());
         }
 
         /** How much there is to download. */
@@ -204,6 +214,25 @@ public final class Updates {
         Files.createDirectories(workDir);
         ImageManifest manifest = manifestFor(update, install.os(), progress);
 
+        // With a signing key built in, a manifest that is missing or does not
+        // verify is a refusal, not a reason to fall back to the archive: the
+        // fallback is exactly what an attacker who replaced the release would
+        // want. Without a key, the hash-only path of earlier versions remains.
+        if (UpdateSignature.isConfigured()) {
+            if (manifest == null) {
+                throw new IOException("the update has no signed description of its files,"
+                        + " so it cannot be shown to come from the author - refusing it");
+            }
+            if (manifest.archive() == null
+                    || !manifest.archive().asset().equalsIgnoreCase(update.asset().name())) {
+                throw new IOException("the signed description of the update does not cover"
+                        + " the file offered for download - refusing it");
+            }
+        } else {
+            progress.log("update signing is not configured in this build:"
+                    + " the update is checked by hash only");
+        }
+
         if (manifest != null) {
             try {
                 progress.stage("reuse");
@@ -241,14 +270,42 @@ public final class Updates {
      */
     static ImageManifest manifestFor(Available update, Platform.OsFamily os, Progress progress) {
         String wanted = "HexadronLauncher-" + label(os) + ImageManifest.SUFFIX;
+        ReleaseFeed.Asset signatureAsset = null;
+        for (ReleaseFeed.Asset asset : update.release().assets()) {
+            if (asset.name().equalsIgnoreCase(wanted + UpdateSignature.SUFFIX)) {
+                signatureAsset = asset;
+            }
+        }
         for (ReleaseFeed.Asset asset : update.release().assets()) {
             if (!asset.name().equalsIgnoreCase(wanted)) {
                 continue;
             }
             try {
-                ImageManifest manifest = ImageManifest.parse(Http.getJson(asset.url()));
+                byte[] bytes = Http.getBytes(asset.url());
+                if (UpdateSignature.isConfigured()) {
+                    if (signatureAsset == null) {
+                        progress.log("the manifest is not signed");
+                        return null;
+                    }
+                    byte[] signature = Http.getBytes(signatureAsset.url());
+                    if (!UpdateSignature.verify(bytes, signature)) {
+                        progress.log("the manifest signature does not verify");
+                        return null;
+                    }
+                }
+                ImageManifest manifest = ImageManifest.parse(
+                        com.hexadron.launcher.json.Json.parse(
+                                new String(bytes, java.nio.charset.StandardCharsets.UTF_8)));
                 if (!manifest.os().equalsIgnoreCase(label(os))) {
                     progress.log("the manifest is for " + manifest.os() + ", not " + label(os));
+                    return null;
+                }
+                // A valid signature on an old manifest is still a valid
+                // signature. Tying it to the version on offer stops an old,
+                // genuinely signed build from being served as the new one.
+                if (!AppVersion.of(manifest.version()).equals(Optional.of(update.to()))) {
+                    progress.log("the manifest is for version " + manifest.version()
+                            + ", not " + update.to());
                     return null;
                 }
                 return manifest;

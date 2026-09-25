@@ -1,388 +1,199 @@
 # Security
 
-This document describes how HexadronLauncher handles secrets and how it runs
-code it did not write: Microsoft account credentials in sections 1 to 6, the
-CurseForge API key in section 7, the Forge installer's processors in section 8,
-what the self-check covers in section 9, and the launcher replacing itself in
-section 10. For each one it says what the measure does protect against and what
-it does not. It is written to be read by a reviewer as well as by a user.
+How to report a vulnerability, and how HexadronLauncher handles secrets and runs code it did not write. Each section says what a measure protects against and what it does not.
 
-Two rules govern everything below.
+## Reporting a vulnerability
 
-1. **State the limit.** A desktop launcher cannot defend a user against code
-   already running as that user. Where a measure does not help, this document
-   says so instead of implying otherwise.
-2. **Do not rely on the user being careful.** Every documented loss of a
-   Minecraft session in recent years came from a file or a log, not from broken
-   cryptography. The defences are therefore concentrated on files, logs and
-   process arguments.
+Report a suspected vulnerability privately through GitHub: <https://github.com/SAN4EZDREAMS/HexadronLauncher/security/advisories/new>. Do not open a public issue for it.
+
+Include the launcher version (Settings, Downloads, "You are running ..."), your operating system and the steps to reproduce. Read `logs/launcher.log` before you attach it: the launcher removes known token formats (section 4), but it cannot know every secret.
+
+## Supported versions
+
+The project is in beta. The version in `launcher/build.gradle` is `0.9.8`.
+
+| Build | Tag | Supported |
+|---|---|---|
+| Newest release | `v<version>`, for example `v0.9.8` | Yes |
+| Newest nightly | `v<version>-nightly.<N>` | Yes |
+| Older builds | - | No. Update to the newest build. |
+
+The release workflow keeps only the five newest nightly builds. The launcher updates itself from these releases ([docs/updates.md](docs/updates.md)).
+
+## Principles
+
+1. **State the limit.** A desktop launcher cannot protect a user from code that already runs as that user. Where a measure does not help, this file says so.
+2. **Do not depend on the user being careful.** Minecraft sessions are usually lost through files, logs and process arguments, not broken cryptography. The measures concentrate on those.
 
 ---
 
-## 1. The sign-in flow
+## 1. Microsoft sign-in
 
-**Authorization code grant with PKCE, in the system browser, over a loopback
-redirect.** This is what RFC 8252 ("OAuth 2.0 for Native Apps") prescribes for a
-desktop application, and RFC 9700 confirms for all clients.
+The default is the authorization code grant with PKCE, in the system browser, with a loopback redirect, as RFC 8252 (OAuth 2.0 for Native Apps) specifies.
 
 | Property | Implementation |
 |---|---|
-| User agent | The user's own browser. Never an embedded web view - RFC 8252 §8.12 forbids it, and a window the launcher drew is a window the launcher could read keystrokes from |
-| Redirect | `http://127.0.0.1:<ephemeral port>/`, bound to the loopback interface only. The IP literal rather than `localhost`, so a hosts-file entry or a renamed interface cannot redirect it |
-| Port | Chosen by the kernel per sign-in. A fixed port would collide between two launchers or two users, and whoever already held it would receive the code |
-| PKCE | `S256` only. RFC 8252 §8.1 requires PKCE for public native clients. Verified in `SelfCheck` against RFC 7636's own test vector |
-| CSRF | A 256-bit `state`, compared in constant time before the code is accepted. A response that does not match is discarded and reported |
-| Client secret | None. The application is registered as a public client; a secret shipped in a jar is not a secret |
-| Scope | `XboxLive.signin offline_access` and nothing else. `openid`, `profile` and `email` would all be granted and none is needed to start Minecraft |
-| Account picker | `prompt=select_account` always. Silent reuse of whatever account the browser is signed into is how a shared machine acquires someone else's account |
-| Listener lifetime | One request. The server stops as soon as a valid response arrives, or after five minutes |
-| Response page | Static, no query parameters echoed, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, restrictive CSP |
+| User agent | The user's own browser, never an embedded web view (RFC 8252, section 8.12). |
+| Redirect | `http://127.0.0.1:<port>/` on the loopback interface. The IP literal, so a hosts-file entry cannot redirect it. The operating system chooses the port for each sign-in. |
+| PKCE | `S256` only, 32-byte random verifier. |
+| CSRF | 32-byte random `state`, compared in constant time before the code is accepted. A mismatch is discarded and reported. |
+| Client secret | None (public client). |
+| Scope | `XboxLive.signin offline_access` only. |
+| Account picker | Always `prompt=select_account`. |
+| Listener | Ends when a valid response arrives, the user cancels, or after 5 minutes. |
+| Response page | Static, no query values in it. `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'`. |
 
-**Device code is a fallback, not the default.** It is kept for machines with no
-usable browser and for signing in from a phone. It was demoted deliberately: the
-device code grant was designed for televisions and printers, it creates no
-binding between the code the user types and the application that produced it,
-and that is precisely the mechanism the "Gas Auth" phishing campaign used against
-Minecraft players - malicious applications spoofing launcher names, including
-MultiMC's, to harvest Xbox Live consent. That campaign is why Mojang introduced
-manual review of new Azure applications in June 2023. Microsoft's own security
-guidance now treats device code as a phishing vector.
+**Device code** is a fallback for machines without a usable browser (Settings, Accounts, Microsoft sign-in, "With a code"; key `microsoftSignInMethod`). It is not the default, because the code the user types is not bound to the application that asked for it. This makes it a known phishing method.
 
-### Transport
-
-All authentication requests go through a dedicated HTTP client that
-
-- **refuses any URL that is not HTTPS** - checked per call, not assumed from a
-  constant;
-- **does not follow redirects.** A redirect on the authentication path would
-  forward an `Authorization` header or a refresh-token form body to a host the
-  launcher did not choose;
-- **is not retried.** Replaying a token exchange is not idempotent, and retrying
-  a refresh grant against a server that rotates refresh tokens can invalidate
-  the account;
-- **uses the JDK's default TLS.** The launcher installs no custom `SSLContext`,
-  no custom `TrustManager` and no hostname-verifier override anywhere in the
-  codebase. The commonest way a desktop client ends up trusting a proxy's
-  certificate is a developer disabling one of those while debugging and shipping
-  it.
+**Transport.** Authentication requests use a separate client (`Http.authPostForm`, `authPostJson`, `authGetJson`, `authSend`) that refuses non-HTTPS URLs on every call, does not follow redirects, and does not retry (a repeated refresh grant can invalidate the account). All HTTP uses the JDK's default TLS. The code has no custom `SSLContext`, `TrustManager` or hostname verifier.
 
 ---
 
 ## 2. Credentials at rest
 
-`accounts.json` contains **no credentials**: only the username, UUID, XUID, token
-expiry and which account is selected. It is safe to copy, sync or attach to a bug
-report.
+`accounts.json` has **no credentials**: only user name, UUID, XUID, token expiry and the selected account. It is safe to attach to a bug report.
 
-The Microsoft refresh token and the Minecraft access token go to the operating
-system's credential store:
+The Microsoft refresh token and the Minecraft access token go to the operating system's credential store. So does the proxy password.
 
 | Platform | Store | Key held by |
 |---|---|---|
-| Windows | DPAPI, `CurrentUser` scope, with per-installation entropy | Windows, derived from the user's logon credentials |
-| macOS | Keychain, via the `security` tool | macOS, unlocked with the login password |
-| Linux | Secret Service (GNOME Keyring, KWallet, …) via `secret-tool` | The desktop keyring |
-| Fallback | AES-256-GCM file, key file beside it | The launcher - see below |
+| Windows | DPAPI, `CurrentUser` scope, through `powershell.exe`, plus entropy in `secrets/dpapi.entropy` | Windows, from the user's logon |
+| macOS | Keychain, through `security` | macOS, login password |
+| Linux | Secret Service (GNOME Keyring, KWallet and others), through `secret-tool` | The desktop keyring |
+| Fallback | AES-256-GCM in `secrets/secrets.json`, key in `secrets/secrets.key` | The launcher |
 
-Availability is established by a real round trip through the backend, not by
-reading `os.name`: a Linux session without D-Bus and a Mac with a locked keychain
-both look available and are not. If the chosen store fails mid-session, the
-launcher falls back for that operation and stops claiming a protection that is no
-longer in force.
+The store is chosen when a credential is first needed. The availability test differs:
 
-**About the fallback.** Its key sits in the same folder as its ciphertext.
-Anyone who can read one can read the other, and against them the encryption buys
-nothing. It is not described as a security boundary. What it honestly buys: the
-token no longer appears in plaintext in a screen share, a support screenshot, a
-synced-folder preview or a naive grep-for-tokens sweep, and GCM makes tampering
-fail loudly rather than silently substituting a token.
+- Windows: a full DPAPI protect and unprotect round trip.
+- Linux: a real `secret-tool lookup`. No D-Bus or a locked wallet fails it.
+- macOS: only a check that `security` exists. A locked keychain passes it.
 
-Every credential-bearing file is written owner-only, **including on Windows**,
-where an explicit non-inherited ACL replaces the inherited one. The previous
-implementation called `setPosixFilePermissions` and silently did nothing on the
-platform most players use. Files are written to a restricted temporary file
-first and moved into place atomically, so there is no window in which a
-half-written or unprotected file exists.
+If the store fails during an operation, that operation uses the fallback file and the launcher stops reporting the credential as protected by the operating system. To choose the fallback yourself: Settings, Accounts, "Keep credentials in the launcher own encrypted file" (`useFileCredentialStore`, off by default).
 
-**Secrets are never passed to a helper process as an argument.** Process
-arguments are world-readable on all three platforms, so `security
-add-generic-password -w <password>` would hand the credential to every process on
-the machine. All helper input goes over stdin.
+**The fallback is not a security boundary.** Its key is in the same folder as the data. It only keeps tokens out of plain text in screenshots and simple searches, and GCM makes a changed file fail to decrypt.
 
-### Migration
+Credential files are owner-only: mode `600` where POSIX permissions exist, otherwise (Windows) an explicit owner-only ACL without inherited entries. They are written to a temporary file and moved into place atomically.
 
-A file written by an earlier version still has tokens in it. On first load they
-are moved into the credential store and `accounts.json` is rewritten without
-them, on start-up rather than lazily, so a user who upgrades and never signs in
-again still gets the file cleaned.
+**Secrets never go to a helper process as an argument**, because other processes can read arguments. They go over standard input. The DPAPI script is passed with `-EncodedCommand` and contains no secret.
+
+**Migration.** If `accounts.json` from an older version contains tokens, the launcher moves them to the credential store at start-up and rewrites the file without them.
 
 ---
 
 ## 3. The session token at launch
 
-Minecraft takes its session token as `--accessToken <token>`. Process arguments
-are readable by every process on the machine (`ps`, `/proc/<pid>/cmdline`,
-`Get-CimInstance Win32_Process`), and the JVM copies the full argument list into
-`hs_err_pid*.log` when it crashes - the file players routinely upload to support
-channels, and which the common log-paste sites do not redact.
+Minecraft takes its token as `--accessToken <token>`. Other processes can read process arguments (`ps`, `/proc/<pid>/cmdline`, `Get-CimInstance Win32_Process`), and the JVM copies them into `hs_err_pid*.log` when it crashes. So the launcher:
 
-HexadronLauncher does not put the token on the command line. Instead:
+1. Puts the placeholder `%%HEXADRON_ACCESS_TOKEN%%` in the arguments.
+2. Starts `com.hexadron.wrapper.GameLaunchWrapper` (one class, own jar, compiled for Java 8) on the game's class path.
+3. Writes the real token to the child's standard input and closes the stream.
+4. The wrapper replaces the placeholder in memory and calls the game's main class by reflection in the same JVM.
 
-1. The launcher substitutes a placeholder into the argument list.
-2. It starts `com.hexadron.wrapper.GameLaunchWrapper` - one class, in its own
-   jar, on the game's classpath.
-3. It writes the real value to the child's **standard input**, a pipe only the
-   two processes share, then closes the stream so nothing inside the game
-   inherits a channel back to the launcher.
-4. The wrapper substitutes the value in memory and invokes the game's real main
-   method by reflection, in the same JVM. Minecraft sees exactly the arguments
-   it expects.
-
-Prism Launcher and MultiMC use the same technique and are the only other
-launchers surveyed that keep the token out of the process table.
-
-The wrapper is compiled for Java 8, because Minecraft versions up to 1.16 run on
-Java 8. It is skipped for offline accounts, whose "token" is the literal `0`,
-and the launcher falls back to the ordinary command line - with a warning in the
-log - rather than refusing to start if the wrapper jar is missing.
+If the wrapper jar is missing, the token falls back to the command line and the log says so. Settings, Accounts, "Hand the session token over standard input" (`secureLaunchHandshake`, on by default) turns it off; do this only if a mod loader fails with it. A profile's wrapper command must pass standard input through, or the game exits with code 92.
 
 ---
 
 ## 4. Logs
 
-Two independent layers, because either alone fails:
+Two layers remove secrets from output:
 
-- **Registered secrets.** Every token is registered the moment it is created and
-  replaced by exact match wherever it appears.
-- **Shape patterns.** A token from a response the launcher did not expect was
-  never registered, so exact matching cannot catch it. JWTs, `M.C5_…`/`M.R3_…`
-  Microsoft tokens, `XBL3.0 x=…;…` identity headers, legacy `token:…:uuid`
-  session arguments and OAuth codes in URLs are matched by shape.
+- **Registered secrets.** Microsoft, Xbox, XSTS, Minecraft tokens, the device code and the CurseForge key are registered with `util/Redactor.java` when received. Each exact value becomes `<redacted>`. Values under 12 characters are not registered.
+- **Token shapes.** Unregistered tokens are found by shape: JWTs, `M.C5_...`/`M.R3_...`, `XBL3.0 x=...;...`, `token:...:`, OAuth codes and tokens in URLs and JSON, and values after `--accessToken`, `--session`, `"accessToken"` and `"clientToken"`.
 
-Redaction is applied at the sinks - the log pane, the console `Progress`, the
-game's own output stream - and not only at call sites, because a redaction that
-must be remembered at each call site will eventually be forgotten at one of them.
+Both apply where text leaves the launcher: `logs/launcher.log`, the log pane, console output, game output, helper error output and the printed launch command.
 
-**No response body is ever concatenated into an exception message.** The Xbox and
-Minecraft endpoints echo tokens inside both error and success payloads; only
-`error` and `error_description` are read. This is the class of bug that produced
-CVE-2025-54120 in another launcher (credentials written to a debug log,
-CVSS 9.3).
+For Microsoft OAuth errors only `error` and `error_description` are read. For other endpoints, an HTTP error puts the response body in the exception message only after scrubbing and cutting it to 500 characters.
 
 ---
 
-## 4a. What the game process can and cannot reach
+## 5. What the game process can reach
 
-This is the part that decides how bad a malicious mod actually is, so it is
-stated as two separate facts.
+**The game receives the Minecraft access token.** It needs it to join servers. The token is not in the process table or crash log, but it is in the JVM's memory, and a mod can read it.
 
-**The game receives the Minecraft access token.** It has to: the game presents
-it to Mojang's session server to join anything. It reaches the game over
-standard input, not in `argv`, so it is not in the process table and not in
-`hs_err_pid*.log`, but it is in the JVM's heap the moment the game reads it. A
-mod can read it. Nothing in this launcher or any other changes that.
+**The game never receives the Microsoft refresh token.** `LaunchCommandBuilder` puts one secret in the handshake: the access token. Only the launcher uses the refresh token.
 
-**The game never receives the Microsoft refresh token.** It is not passed as an
-argument, it is not part of the launch handshake, and it never leaves the
-credential store for any purpose other than a token refresh performed by the
-launcher itself against Microsoft. `LaunchCommandBuilder` puts exactly one
-secret into the handshake map, and it is the access token.
-
-The gap between those two is the whole point of the credential split:
-
-| Stolen | Reaches | Lasts |
+| Stolen | Gives access to | Valid for |
 |---|---|---|
-| Minecraft access token | the Minecraft profile - play as the account, change skin or cape | up to 24 hours, and only until the token is refreshed |
-| Microsoft refresh token | the Microsoft account - mail, other services, long-lived re-auth | until revoked |
+| Minecraft access token | The Minecraft profile (play, change skin or cape) | Up to 24 hours |
+| Microsoft refresh token | The Microsoft account | Until revoked |
 
-A mod can take the first. It cannot take the second, because the second is
-never in the room. That is a bound on the damage rather than a prevention of it,
-and a bound is what is actually available here.
-
+A mod can take the first but not the second. This limits the damage; it does not prevent it.
 
 ---
 
-## 5. Sign-out and revocation
+## 6. Removing an account
 
-Removing an account deletes both the list entry and the stored credentials. The
-launcher then says, explicitly, that this does **not** withdraw its access to the
-Microsoft account, and points at <https://account.live.com/consent/Manage>.
-After a suspected compromise those are very different actions, and treating
-"remove" as if it meant "revoke" would be the more dangerous of the two to get
-wrong.
+Removing an account deletes the entry and its stored credentials. The launcher then says that this does **not** withdraw its access to the Microsoft account, and links to <https://account.live.com/consent/Manage>.
 
 ---
 
-## 6. What none of this stops
+## 7. What these measures do not stop
 
-- **A malicious mod, as far as the account goes.** The game is handed a live
-  token at launch by necessity. A mod can read it out of the running JVM - this
-  is how the real-world Minecraft token stealers work, not by reading
-  `accounts.json`. A credential store does not help here, and claiming
-  otherwise would be dishonest.
+- **A malicious mod, for the account.** A mod can read the token from the running JVM. A credential store does not help, and a sandbox does not either, because the token is inside the process. JEP 486 permanently disabled the `SecurityManager` in Java 24, so Java has no in-process alternative.
 
-  Nor does a sandbox, and an earlier version of this file said it did. A
-  sandbox is a kernel-enforced boundary around a process; the token is inside
-  the process, in the JVM's own heap, and a mod reading it is reading its own
-  memory. No boundary is crossed, so there is nothing to arbitrate. Java's
-  in-process answer is also gone for good: `SecurityManager` was removed
-  permanently by JEP 486 in Java 24.
-
-  What a sandbox does stop is the part the real incidents actually used -
-  fractureiser (2023) took browser cookies, Discord tokens and cryptocurrency
-  wallets; "Windows Borderless" and the Stargazers campaigns did the same. None
-  of them touched the Minecraft token. All of them read files outside the game.
-  So the wrapper command exists (README, "Sandboxing, and what it is actually
-  for"), off by default, and it defends the machine from the mod rather than the
-  account from the mod. The launch path is built so a sandbox can work at all:
-  the token travels over standard input, which a wrapper passes through, and not
-  in argv, which a namespaced process would still expose in its own `/proc`.
-- **An infostealer already running as the user.** It can ask the same operating
-  system for the same secret. What the credential store does stop is the file
-  grab: a stealer sweeping for known launcher JSON files, a synced folder, a
-  backup restored under another account, a second user on a family PC.
-- **A user who signs in to a phishing page.** The system browser makes this
-  visible - Microsoft's address bar, Microsoft's certificate, the user's own
-  password manager - which is the strongest thing a launcher can do about it.
+  A sandbox does protect the rest of the machine. Mod malware such as fractureiser (2023) stole browser data and other files outside the game. Each profile has a wrapper command, empty by default, that can run the game in `bwrap` or `firejail` ([docs/flatpak-and-sandboxing.md](docs/flatpak-and-sandboxing.md)). The token goes over standard input, which a wrapper passes through, so a sandbox does not put it back in the arguments.
+- **An infostealer that runs as the user.** It can ask the operating system for the same secret. The store does stop simple file theft: searches for launcher files, synced folders, restored backups, other users of the same PC.
+- **Sign-in on a phishing page.** The system browser shows Microsoft's address and certificate, and the user's password manager works. That is the most a launcher can do.
 
 ---
 
-## 7. The CurseForge API key
+## 8. The CurseForge API key
 
-This one is not a user credential, and it is written down here so that nobody
-mistakes it for one. It identifies the *application* to CurseForge. Losing it
-costs the project its API access; it gives nobody access to a player's account.
+The key identifies the application to CurseForge. It gives no access to a player's account.
 
-The key is never in this repository. The release build reads
-`CURSEFORGE_API_KEY` from the environment - on CI, from a repository secret -
-and writes it into the launcher jar's manifest, where `BuildConfig` reads it
-back. GitHub does not hand repository secrets to builds of forks or to pull
-requests from them, so every such build gets an empty attribute and simply has
-no CurseForge in it. A user's own key, pasted into the settings, always wins
-over the built-in one.
+- It is not in the repository. The release build reads `CURSEFORGE_API_KEY` from the environment (a repository secret on CI) into the jar manifest attribute `Hexadron-CurseForge-Api-Key`. Forks and local builds get an empty value and no CurseForge support ([docs/building.md](docs/building.md)).
+- A key the user enters (`curseForgeApiKey` in `launcher.json`, plain text) replaces the built-in one.
+- Both are registered with `Redactor`.
+- `Http` sends the key only to `api.curseforge.com`, `forgecdn.net` and hosts ending in `.forgecdn.net`. The match is on a dot boundary, so `evil-forgecdn.net` gets nothing.
 
-The key is registered with `Redactor` the moment it is read, so it cannot appear
-in a log line, an error body or a pasted stack trace.
-
-`Http` attaches it by host, and only to `api.curseforge.com` and the hosts that
-end in `.forgecdn.net`. Host matching is on a dot boundary, so a look-alike
-domain such as `evil-forgecdn.net` receives nothing. Both content hosts are
-covered: sending the key to only one of them is a real bug in at least one other
-launcher, and it surfaces as files failing to download from what looks like a
-dead mirror.
-
-**What this does not claim.** A manifest attribute is not a secret from the
-person running the launcher, and no key shipped to a client ever can be.
-Obfuscating it would only hide that fact from us. What the arrangement achieves
-is that the key is out of version control, out of every fork, and replaceable in
-one place.
+A key shipped in a client is not secret from its user. The build setup keeps it out of version control and forks, and lets the project replace it in one place.
 
 ---
 
-## 8. Running the Forge installer's processors
+## 9. Forge and NeoForge installer processors
 
-Installing Forge or NeoForge means executing third-party programs on the user's
-machine - that is what the installer's processor chain is, and there is no way
-to install Forge without it. Four things narrow what that means:
+Installing Forge or NeoForge runs the third-party programs in the installer's processor chain. The launcher limits this:
 
-- Each step runs as a **separate process**, never inside the launcher's JVM. It
-  cannot reach the launcher's memory, and it cannot take the launcher down by
-  calling `System.exit` - which several of these tools do.
-- It runs with its **working directory in a scratch folder** under `cache/`,
-  which is deleted afterwards. These installers hijack `System.out` and write a
-  log file named after their own jar into the current directory.
-- Every step's program and every entry of its classpath is a **maven artifact
-  named by the installer profile**, downloaded through the same verifying
-  downloader as everything else, and a step is refused outright if one of them
-  is missing rather than run with a shorter classpath.
-- Every file a step produces is **checked against the SHA-1 the profile
-  publishes**. A mismatch that is still a structurally whole archive is kept
-  with a note, because these jars are built at install time and a JVM using a
-  native compression library produces valid but byte-different output. Anything
-  else is deleted and the install stops.
+- Each step is a **separate JVM process**. It cannot read the launcher's memory, and its `System.exit` does not stop the launcher.
+- Its working directory is a **scratch folder** under `cache/loaders/`, deleted afterwards.
+- Its jar and class path are **maven artifacts named by the installer profile**. If one is missing, the step is refused.
+- Each output is **checked against the SHA-1 in the profile**. A mismatched file that is a complete, readable archive is kept with a log note (a JVM with another compression library writes valid but different bytes). Any other mismatch deletes the file and stops the install.
 
-The trust boundary is honest and worth naming: whoever controls the installer
-jar controls what runs. That jar is fetched over HTTPS from the loader project's
-own maven, and it is the same jar the user would download and double-click.
+Whoever controls the installer jar controls what runs. The launcher downloads it over HTTPS from `maven.minecraftforge.net` or `maven.neoforged.net`, the same jar a user would run by hand.
 
----
-
-## 9. Verification
-
-`./gradlew :launcher:selfCheck` runs 1213 assertions with no network and no
-display, including where the CurseForge key may be sent, what the update check
-will and will not accept as a newer build, and the authentication hardening:
-
-- PKCE `S256` against RFC 7636's own test vector, verifier length and character
-  set, and that two verifiers differ;
-- that the authorization request carries `code_challenge_method=S256`, a
-  `state`, `response_type=code`, no client secret, no verifier, a loopback IP
-  redirect and no scope beyond `XboxLive.signin`;
-- that a wrong or missing `state` is refused;
-- that account metadata cannot carry a token and that metadata plus secrets
-  reconstructs the account;
-- that registered secrets and unregistered token shapes are both removed from
-  log lines, and that ordinary text is left alone;
-- that the launch placeholder is distinctive and is not itself token-shaped;
-- that with no CurseForge key nothing is added to a CurseForge request, that a
-  key set at runtime reaches the API host and both content hosts, that Modrinth
-  and look-alike domains receive nothing, and that the key is masked in a log
-  line.
+**Modpack files.** A `.mrpack` names each file by URL and SHA-1, and both come from the pack itself. So the SHA-1 proves only that the download is the file the pack meant. The launcher therefore downloads `.mrpack` files only over HTTPS from the hosts in Modrinth's format specification (`cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`, `gitlab.com`), and skips a file with no SHA-1. Paths that leave the instance folder are refused.
 
 ---
 
 ## 10. Updating the launcher
 
-The launcher replaces itself from the project's own releases (README, "Updating
-itself"). That is code arriving on the user's machine and being run, so it is
-written down here in the same terms as everything else: what is checked, and what
-is not.
-
-**What happens.** One request to `api.github.com` over HTTPS asks what the chosen
-channel has published. Nothing is downloaded on the strength of that answer
-alone: a window says which version, from what to what, and what changed, and
-waits. Only then is the file for this operating system fetched - over HTTPS, from
-the address the release publishes - unpacked beside the installed folder, and
-swapped in by a second process that moves the old folder aside first and puts it
-back if anything fails.
+The launcher replaces itself with builds from the project's GitHub releases ([docs/updates.md](docs/updates.md)). One HTTPS request to `api.github.com` asks what the channel has. Nothing is downloaded until the user clicks Update. A second process then moves the old folder aside, copies the new build in, and puts the old folder back if a step fails.
 
 | Checked | How |
 |---|---|
-| The transport | HTTPS to `api.github.com` and to the release's own download host, through the JDK's default TLS. No custom trust manager anywhere in this codebase |
-| That it is the right file | The asset is matched by name to this operating system, and a release with no build for it produces no offer at all |
-| That it arrived whole | The number of bytes received is compared with the length the release publishes; a short file is deleted rather than unpacked |
-| That the archive is an application image | The unpacked folder must carry the runtime and the jars in the layout jpackage produces, or the update stops before anything is replaced |
-| That the swap can be undone | The installed folder is moved aside, not deleted, until the new one is in place |
+| Transport | HTTPS, JDK default TLS. The download URL comes from the GitHub API. Redirects are followed, never from HTTPS to HTTP. |
+| Right file | The full archive has an exact name for each system. No such file, no offer. |
+| Complete download | Length compared with the length GitHub published. A short file is deleted. |
+| Manifest author | Ed25519 signature of the manifest, checked against the public key built into the launcher (`update/UpdateSignature.java`). The manifest must be for the version and system on offer. With a key built in, an update without a valid signature is refused. See [docs/updates.md](docs/updates.md#update-signatures). |
+| Full archive content | SHA-256 compared with the release manifest, when the manifest names this archive. With a key built in, the manifest must name it. |
+| Delta update content | Every file of the assembled image, reused or downloaded, must match the manifest (size, SHA-256, link target). Any mismatch falls back to the full archive. |
+| Paths | Manifest paths that leave the image are refused. The archive reader refuses entries that resolve outside the target folder, symbolic links that lead outside it (absolute targets, and relative targets that climb out, also through linked folders), and writes through a link to outside. |
+| Application image | Runtime and jar folder must be where jpackage puts them, or nothing is replaced. |
+| Undo | The old folder is moved aside, not deleted, until the new build is in place. |
 
-**What is not checked, and this is the important half.**
+**Not checked:**
 
-- **There is no signature.** The build is not code-signed and the download is not
-  verified against a key this project controls. What authenticates it is the
-  transport and the repository: whoever can publish a release in
-  `SAN4EZDREAMS/HexadronLauncher` can publish a build the launcher will install.
-  A compromised maintainer account is therefore a compromised launcher, and no
-  amount of hashing inside this repository would change that - a hash published
-  next to the file it describes is signed by nobody.
-- **Neither Windows SmartScreen nor macOS Gatekeeper vouches for it.** The
-  clients are unsigned archives; see the README on why an unsigned installer is
-  worse than none. A user who wants a second opinion has the release page and the
-  build log that produced the file.
-- **The update is only as trustworthy as the channel.** Nightly builds are
-  published from a branch without review. That is what the channel means, it is
-  not the default, and switching to it is a deliberate act in the settings.
+- **No code signing of the executables.** The update manifest is signed (see above), but the executables are not signed by Microsoft or Apple. The manifest signature protects against a replaced release only when `PUBLIC_KEYS` has a key and the private key is kept out of the repository. While `PUBLIC_KEYS` is empty, anyone who can publish a release in `SAN4EZDREAMS/HexadronLauncher` can publish a build the launcher will install.
+- **No SmartScreen or Gatekeeper approval.** The clients are unsigned archives. For a second opinion, use the release page, the VirusTotal result and the build log.
+- **VirusTotal does not block anything.** The result is written into the release notes after publication and shown in the update window. A `danger` result does not block the update or remove the release.
+- **Nightly builds are not reviewed.** They are published from the branch. Nightly is not the default; you must select it.
 
-**What it does not need.** No elevation, ever: the update writes only to the
-folder the launcher is installed in and to `.hexadron-update` beside it. An
-installation the user cannot write to is refused with an explanation rather than
-asking for a password, and the launcher never starts an installer or a helper
-with rights of its own.
+**No elevation.** The update writes only to the installed folder, the `<folder>.old-<time>` copy next to it, and `.hexadron-update`. If the installation is not writable, the launcher says so and does not ask for a password. A Flatpak install does not replace itself; Flatpak updates it.
 
-**The check can be switched off** in Settings, under Downloads. With it off the
-launcher makes no request of its own at start-up.
+To switch the check off: Settings, Downloads, "Look for launcher updates at start-up". The launcher then makes no update request at start-up.
 
 ---
 
-## Reporting
+## 11. Self-check
 
-Report a suspected vulnerability privately through the repository's security
-advisory page rather than in a public issue.
+`./gradlew :launcher:selfCheck` runs without network or display. It covers, among other things: PKCE against the RFC 7636 test vector; the authorization request parameters (`S256`, `state`, `response_type=code`, loopback IP redirect, no client secret, no verifier, no `openid` or `email` scope); refusal of a wrong or missing `state`; that account metadata cannot carry a token; log redaction of registered and unregistered tokens; where the CurseForge key is sent; which releases count as newer; parsing of the VirusTotal block; delta update planning and assembly; and refusal of unsafe manifest paths.

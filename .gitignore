@@ -41,6 +41,7 @@ run/
 .env
 .env.*
 *.key
+*.pem
 secrets.properties
 
 # java

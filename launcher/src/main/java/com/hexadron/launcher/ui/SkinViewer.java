@@ -79,9 +79,9 @@ public final class SkinViewer extends StackPane {
      * The panel's size, fixed.
      *
      * <p>It used to be stretched to whatever height the form beside it happened
-     * to need, and that height changes with what is on the form - a sign-in row
-     * appearing, a note wrapping to one more line. So choosing a different skin
-     * service resized the figure, which is not a thing a skin service should do.
+     * to need, and that height changes with what is on the form - a note
+     * wrapping to one more line. So a status message resized the figure, which
+     * is not a thing a status message should do.
      */
     private static final double PANEL_WIDTH = 250;
 

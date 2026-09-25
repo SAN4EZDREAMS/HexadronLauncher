@@ -157,6 +157,15 @@ public final class ModpackInstaller {
                 skipped.add(download.path() + " (the pack puts this outside the instance folder)");
                 continue;
             }
+            if (download.urls().isEmpty()) {
+                skipped.add(download.path() + " (the pack downloads this from a host that"
+                        + " .mrpack files may not use)");
+                continue;
+            }
+            if (download.sha1() == null || download.sha1().isBlank()) {
+                skipped.add(download.path() + " (the pack gives no SHA-1 to check it against)");
+                continue;
+            }
             DownloadTask task = new DownloadTask(download.urls(), root.resolve(relative),
                     download.sha1(), download.size(), fileNameOf(relative), false);
             tasks.put(relative, task);
@@ -368,7 +377,7 @@ public final class ModpackInstaller {
         // Entry names decide the names these files get on disk, so an archive
         // that does not declare its names as UTF-8 is read the way the machine
         // that wrote it meant them - see Archives.legacyEntryNames. Left to the
-        // default, a pack carrying "конфіг.txt" installs it as question marks
+        // default, a pack carrying a file with a Cyrillic name installs it as question marks
         // and the mod that reads it never finds it.
         try (ZipFile zip = new ZipFile(archive.toFile(), Archives.legacyEntryNames())) {
             List<ZipEntry> entries = new ArrayList<>();

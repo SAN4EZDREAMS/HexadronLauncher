@@ -61,6 +61,7 @@ import com.hexadron.launcher.update.DeltaUpdate;
 import com.hexadron.launcher.update.ImageManifest;
 import com.hexadron.launcher.update.ManifestTool;
 import com.hexadron.launcher.update.ReleaseFeed;
+import com.hexadron.launcher.update.ScanReport;
 import com.hexadron.launcher.update.UpdateChannel;
 import com.hexadron.launcher.update.UpdateInstall;
 import com.hexadron.launcher.update.Updates;
@@ -76,17 +77,12 @@ import com.hexadron.launcher.net.Http;
 import com.hexadron.launcher.net.ProxyChoice;
 import com.hexadron.launcher.profile.Profile;
 import com.hexadron.launcher.profile.ProfileLayout;
-import com.hexadron.launcher.skin.LocalSkinService;
 import com.hexadron.launcher.skin.PngSize;
 import com.hexadron.launcher.skin.SkinLayout;
-import com.hexadron.launcher.skin.DefaultSkin;
-import com.hexadron.launcher.skin.SkinCredentials;
 import com.hexadron.launcher.skin.SkinProfile;
 import com.hexadron.launcher.skin.SkinSheets;
-import com.hexadron.launcher.skin.SkinSession;
 import com.hexadron.launcher.skin.SkinStore;
 import com.hexadron.launcher.skin.SkinTemplate;
-import com.hexadron.launcher.skin.YggdrasilAuth;
 import com.hexadron.launcher.util.Archives;
 import com.hexadron.launcher.util.Hashes;
 import com.hexadron.launcher.util.Arguments;
@@ -189,8 +185,9 @@ public final class SelfCheck {
         skinLayout();
         skinTemplates();
         skinSheets();
-        skinService();
+        offlineAccess();
         translations();
+        startupSteps();
 
         System.out.println();
         if (failures.isEmpty()) {
@@ -1558,6 +1555,60 @@ public final class SelfCheck {
                 VersionRanges.Verdict.UNKNOWN, List.of());
     }
 
+    /** Extracts, and reports whether the extractor refused the archive. */
+    private static boolean refusedToExtract(java.nio.file.Path archive, java.nio.file.Path target) {
+        try {
+            Archives.extract(archive, target, 1);
+            return false;
+        } catch (IOException expected) {
+            return true;
+        }
+    }
+
+    /** One ustar entry: header, data, and the padding to a whole block. */
+    private static byte[] tarEntry(String name, char type, String link, String data) {
+        byte[] body = data.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] header = new byte[512];
+        tarField(header, 0, name);
+        tarField(header, 100, type == '5' ? "0000755" : "0000644");
+        tarField(header, 108, "0000000");
+        tarField(header, 116, "0000000");
+        tarField(header, 124, String.format("%011o", body.length));
+        tarField(header, 136, "00000000000");
+        header[156] = (byte) type;
+        tarField(header, 157, link);
+        tarField(header, 257, "ustar");
+        tarField(header, 263, "00");
+        java.util.Arrays.fill(header, 148, 156, (byte) ' ');
+        int sum = 0;
+        for (byte b : header) {
+            sum += b & 0xFF;
+        }
+        tarField(header, 148, String.format("%06o", sum));
+        header[154] = 0;
+        header[155] = ' ';
+        int padding = (512 - body.length % 512) % 512;
+        byte[] entry = new byte[512 + body.length + padding];
+        System.arraycopy(header, 0, entry, 0, 512);
+        System.arraycopy(body, 0, entry, 512, body.length);
+        return entry;
+    }
+
+    private static void tarField(byte[] header, int offset, String value) {
+        byte[] bytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        System.arraycopy(bytes, 0, header, offset, bytes.length);
+    }
+
+    /** Writes the entries as a gzip-compressed tar, with the end-of-archive blocks. */
+    private static void writeTarGz(java.nio.file.Path file, byte[]... entries) throws IOException {
+        try (var out = new java.util.zip.GZIPOutputStream(java.nio.file.Files.newOutputStream(file))) {
+            for (byte[] entry : entries) {
+                out.write(entry);
+            }
+            out.write(new byte[1024]);
+        }
+    }
+
     /**
      * Unpacking a runtime archive.
      *
@@ -1607,6 +1658,53 @@ public final class SelfCheck {
             check("an entry pointing outside the target is refused", refused);
             check("and nothing was written outside it",
                     !java.nio.file.Files.exists(work.resolve("escaped.txt")));
+
+            // Symbolic links in a tar. A link may point anywhere inside the
+            // target; one that leads outside is refused, so that no later entry
+            // can be written through it and the copy fallback cannot read a
+            // file from outside the archive.
+            java.nio.file.Path goodTar = work.resolve("links.tar.gz");
+            writeTarGz(goodTar,
+                    tarEntry("pkg/bin/java", '0', "", "binary"),
+                    tarEntry("pkg/lib/java", '2', "../bin/java", ""));
+            java.nio.file.Path linked = work.resolve("links");
+            Archives.extract(goodTar, linked, 1);
+            check("a symbolic link inside the target comes across",
+                    java.nio.file.Files.isRegularFile(linked.resolve("lib").resolve("java")));
+
+            java.nio.file.Path climbing = work.resolve("climbing.tar.gz");
+            writeTarGz(climbing,
+                    tarEntry("pkg/door", '2', "../..", ""),
+                    tarEntry("pkg/door/planted.txt", '0', "", "no"));
+            check("a symbolic link that climbs out of the target is refused",
+                    refusedToExtract(climbing, work.resolve("climbing")));
+            check("and nothing was written through it",
+                    !java.nio.file.Files.exists(work.getParent().resolve("planted.txt")));
+
+            java.nio.file.Path absolute = work.resolve("absolute.tar.gz");
+            writeTarGz(absolute, tarEntry("pkg/door", '2', work.toAbsolutePath().toString(), ""));
+            check("a symbolic link to an absolute path is refused",
+                    refusedToExtract(absolute, work.resolve("absolute")));
+
+            // A link inside a linked folder is judged by where it really is.
+            // Only where the file system can make symbolic links at all.
+            java.nio.file.Path probe = work.resolve("probe-link");
+            boolean links;
+            try {
+                java.nio.file.Files.createSymbolicLink(probe, java.nio.file.Path.of("."));
+                links = true;
+            } catch (IOException | UnsupportedOperationException | SecurityException e) {
+                links = false;
+            }
+            if (links) {
+                java.nio.file.Path chained = work.resolve("chained.tar.gz");
+                writeTarGz(chained,
+                        tarEntry("pkg/q/", '5', "", ""),
+                        tarEntry("pkg/a/b/p", '2', "../../q", ""),
+                        tarEntry("pkg/a/b/p/r", '2', "../../..", ""));
+                check("a link through a linked folder that leads outside is refused",
+                        refusedToExtract(chained, work.resolve("chained")));
+            }
 
             // A zip that does not declare its names as UTF-8, which is what any
             // ordinary archiver writes when the local code page can hold them.
@@ -2514,6 +2612,48 @@ public final class SelfCheck {
     private static final java.util.regex.Pattern PRINTF =
             java.util.regex.Pattern.compile("%(\\d+\\$)?[sdfn]");
 
+    /**
+     * Every piece of start-up work is shown on the splash screen.
+     *
+     * <p>The list of stages, the service that reports them and the translations
+     * are three places that must agree. A stage that the service reports but the
+     * list does not name makes the progress bar reach the end too early, and a
+     * stage with no translation shows as !splash.step.name! on the first screen
+     * anybody sees.
+     */
+    private static void startupSteps() {
+        section("Start-up stages");
+
+        List<String> all = com.hexadron.launcher.core.LauncherService.ALL_STARTUP_STEPS;
+        check("no start-up stage is listed twice",
+                new java.util.HashSet<>(all).size() == all.size());
+        Map<String, String> reference = I18n.bundle(Language.DEFAULT);
+        for (String step : all) {
+            check("the splash screen names the start-up stage: " + step,
+                    reference.containsKey("splash.step." + step));
+        }
+
+        // The constructor itself, with a consumer that writes the stages down.
+        // "settings" is the one stage it does not report: createDefault reads
+        // the settings and reports that stage before the constructor runs.
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-startup-steps");
+            GameDirs dirs = new GameDirs(dir);
+            List<String> reported = new ArrayList<>();
+            new com.hexadron.launcher.core.LauncherService(dirs,
+                    new com.hexadron.launcher.core.LauncherSettings(dirs), reported::add);
+            List<String> expected = com.hexadron.launcher.core.LauncherService.STARTUP_STEPS
+                    .stream().filter(step -> !step.equals("settings")).toList();
+            check("the service reports every stage it runs, in the listed order: " + reported,
+                    reported.equals(expected));
+        } catch (IOException e) {
+            check("a service could be built to count the start-up stages: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
+
     private static void translations() {
         section("Translations");
 
@@ -2651,6 +2791,12 @@ public final class SelfCheck {
             check("the bug report window has its words: " + key,
                     reference.containsKey(key));
         }
+        // The words on the on/off switch, and the actions a screen reader
+        // announces for it.
+        for (String key : new String[]{"mods.switch.on", "mods.switch.off",
+                "mods.enable", "mods.disable"}) {
+            check("the on/off switch has its words: " + key, reference.containsKey(key));
+        }
         check("the logo cache setting is named and explained",
                 reference.containsKey("settings.modIconCache")
                         && reference.containsKey("settings.modIconCache.note"));
@@ -2754,11 +2900,9 @@ public final class SelfCheck {
                 "action.editAccount",
                 "account.edit.title",
                 "account.edit.failed",
-                "account.kind.offline",
                 "account.kind.microsoft",
                 "account.skin",
                 "account.cape",
-                "account.source",
                 "account.skin.choose",
                 "account.skin.clear",
                 "account.skin.none",
@@ -2772,18 +2916,8 @@ public final class SelfCheck {
                 "account.cape.applied",
                 "account.cape.none",
                 "account.cape.note",
-                "account.source.local",
-                "account.source.local.note",
-                "account.source.remote",
-                "account.source.remote.note",
                 "account.busy",
-                "account.service.signin", "account.service.signin.again",
-                "account.service.signout", "account.service.signedin",
-                "account.service.signedout", "account.service.elsewhere",
-                "account.service.noskin", "account.service.fileunused",
-                "signin.title", "signin.service", "signin.user", "signin.user.hint",
-                "signin.password", "signin.button", "signin.busy", "signin.incomplete",
-                "signin.failed", "signin.address.bad", "signin.nostore", "signin.notsaved",
+                "account.offline.licence.header", "account.offline.licence.body",
                 "account.preview.empty", "account.preview.left", "account.preview.right", "account.preview.in", "account.preview.out", "account.drop.rejected",
                 "template.part.head",
                 "template.part.hat",
@@ -3345,6 +3479,11 @@ public final class SelfCheck {
 
         check("a build with no key reports none",
                 BuildConfig.hasCurseForgeApiKey() == !BuildConfig.curseForgeApiKey().isEmpty());
+
+        // Gradle writes the version into the resources, so a run from class
+        // folders reports the version in launcher/build.gradle, not a constant.
+        check("the build version is known: " + BuildConfig.version(),
+                !BuildConfig.UNKNOWN_VERSION.equals(BuildConfig.version()));
     }
 
     // ---------------------------------------------------------------- search paging
@@ -3816,6 +3955,39 @@ public final class SelfCheck {
                         && offer.size() == 11
                         && offer.notes().contains("first"));
 
+        // ------------------------------------------------------ the scan block
+        // What .github/scripts/virustotal_scan.py appends. The update window
+        // shows the notes as text, so the block is cut and read, not shown.
+        String scanned = "- a change\n\n"
+                + "<!-- virustotal:start verdict=clean found=0 checked=16 total=16 -->\n\n"
+                + "---\n\n![VirusTotal](https://example.invalid/b.svg)\n\n"
+                + "<details>\n\n| | file |\n|:-:|---|\n</details>\n\n"
+                + "<!-- virustotal:end -->\n";
+        check("the scan block is cut out of the notes",
+                "- a change".equals(ScanReport.without(scanned)));
+        ScanReport scan = ScanReport.in(scanned).orElse(null);
+        check("and its result is read from the marker",
+                scan != null && scan.verdict() == ScanReport.Verdict.CLEAN
+                        && scan.found() == 0 && scan.checked() == 16 && scan.total() == 16);
+        // The Ukrainian "VirusTotal check" heading: the plain-text section of the first format.
+        String head = "\u041f\u0435\u0440\u0435\u0432\u0456\u0440\u043a\u0430 VirusTotal";
+        String legacy = "- fix: " + head + " in a commit\n\n---\n\n" + head
+                + ": CLEAN\n\n- CLEAN \u00b7 0/61 \u00b7 HexadronLauncher-linux.flatpak\n";
+        check("the older text section is cut too, and a commit that names it is kept",
+                ("- fix: " + head + " in a commit").equals(ScanReport.without(legacy)));
+        check("notes with no block carry no result and stay as they are",
+                ScanReport.in("- a change").isEmpty()
+                        && "- a change".equals(ScanReport.without("- a change")));
+        check("an unknown verdict is not guessed at",
+                ScanReport.in("<!-- virustotal:start verdict=maybe found=1 -->").isEmpty());
+        check("a block that was cut off is cut to the end",
+                "- a".equals(ScanReport.without("- a\n\n<!-- virustotal:start verdict=pending -->\n---\n")));
+        check("the offer shows the notes without the block",
+                !Updates.compare("0.9.4.5", new ReleaseFeed.Release(stable.tag(), stable.name(), scanned,
+                                stable.prerelease(), stable.draft(), stable.publishedAt(),
+                                stable.pageUrl(), stable.assets()), Platform.OsFamily.LINUX)
+                        .orElseThrow().notes().contains("virustotal"));
+
         // ------------------------------------------------------------- layouts
         Path dir = null;
         try {
@@ -4098,6 +4270,44 @@ public final class SelfCheck {
                             && reread.version().equals("1.1.0")
                             && reread.assetOf("libs").equals(manifest.assetOf("libs")));
 
+            // The manifest is only as trustworthy as whoever wrote it. Signed
+            // with a key made here, verified the way the launcher verifies.
+            try {
+                java.security.KeyPair pair = java.security.KeyPairGenerator
+                        .getInstance("Ed25519").generateKeyPair();
+                List<String> trusted = List.of(java.util.Base64.getEncoder()
+                        .encodeToString(pair.getPublic().getEncoded()));
+                byte[] text = manifest.toJson().toString()
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                java.security.Signature signer = java.security.Signature.getInstance("Ed25519");
+                signer.initSign(pair.getPrivate());
+                signer.update(text);
+                byte[] signature = java.util.Base64.getEncoder().encode(signer.sign());
+
+                check("a manifest signed with a trusted key verifies",
+                        com.hexadron.launcher.update.UpdateSignature.verify(text, signature, trusted));
+                byte[] altered = text.clone();
+                altered[altered.length / 2] ^= 1;
+                check("a manifest changed after signing does not",
+                        !com.hexadron.launcher.update.UpdateSignature.verify(altered, signature, trusted));
+                java.security.KeyPair other = java.security.KeyPairGenerator
+                        .getInstance("Ed25519").generateKeyPair();
+                check("nor does one signed with a key this build does not trust",
+                        !com.hexadron.launcher.update.UpdateSignature.verify(text, signature,
+                                List.of(java.util.Base64.getEncoder()
+                                        .encodeToString(other.getPublic().getEncoded()))));
+                check("nor does a signature that is not one",
+                        !com.hexadron.launcher.update.UpdateSignature.verify(text,
+                                "not base64 at all".getBytes(java.nio.charset.StandardCharsets.US_ASCII),
+                                trusted));
+                check("with no trusted key nothing verifies",
+                        !com.hexadron.launcher.update.UpdateSignature.verify(text, signature, List.of()));
+            } catch (java.security.GeneralSecurityException e) {
+                check("Ed25519 is available to sign with: " + e, false);
+            }
+            check("every update key built in can be read",
+                    com.hexadron.launcher.update.UpdateSignature.keysAreReadable());
+
             // What the user has: the same runtime and the same JavaFX, an older
             // launcher jar, and an executable that happens to be the same size
             // as the published one but is not the published one.
@@ -4129,6 +4339,16 @@ public final class SelfCheck {
             check("the reused runtime is there in full",
                     java.nio.file.Files.readString(assembled.resolve("runtime/lib/modules"))
                             .equals("modules".repeat(64)));
+
+            check("the assembled build passes the check", verifies(manifest, assembled));
+
+            // The manifest is what is signed; a part archive is not. A file the
+            // manifest does not list, however it got there, fails the image.
+            Path extra = assembled.resolve("app/aaa-extra.jar");
+            writeFile(extra, "not published");
+            check("an image with one file the manifest does not list does not pass",
+                    !verifies(manifest, assembled));
+            java.nio.file.Files.delete(extra);
 
             // The check that makes the rest of it safe: one altered file, and
             // the whole image is refused.
@@ -4687,9 +4907,10 @@ public final class SelfCheck {
      * <p>A list of names is sorted with the alphabet of whoever is reading it,
      * and the obvious tool gets that wrong in three of the five languages this
      * launcher speaks. {@code String.CASE_INSENSITIVE_ORDER} compares code
-     * points after lowering the case, and Ukrainian і and ї live at U+0456 and
-     * U+0457 - above the whole of а-я - so they came out after the last word in
-     * the menu instead of between "Економіка" and "Керування". Polish ą, ć, ł
+     * points after lowering the case, and the Ukrainian letters U+0456 and U+0457
+     * live above the whole U+0430-U+044F block - so they came out after the last
+     * word in the menu instead of between the words for "Economy" and
+     * "Management". Polish ą, ć, ł
      * and German ä, ö, ü are outside their alphabet's block for the same reason.
      *
      * <p>Checked against the real translation files rather than made-up strings,
@@ -4701,12 +4922,12 @@ public final class SelfCheck {
         check("English is in English order",
                 orderIn(Language.ENGLISH).startsWith("Adventure, Cursed, Decoration, Economy"));
 
-        // The one the bug was found in. І and Ї belong after Е and before К.
+        // The one the bug was found in. U+0406 and U+0407 belong after U+0415 and before U+041A.
         String ukrainian = orderIn(byCode("uk"));
-        check("Ukrainian starts at Б", ukrainian.startsWith("Бібліотека, Взаємодія"));
-        check("Ukrainian puts І and Ї in the alphabet, not after it",
+        check("Ukrainian starts at U+0411", ukrainian.startsWith("Бібліотека, Взаємодія"));
+        check("Ukrainian puts U+0406 and U+0407 in the alphabet, not after it",
                 ukrainian.contains("Економіка, Ігрові механіки, Їжа, Керування"));
-        check("Ukrainian ends at Ч", ukrainian.endsWith("Технології, Чаклунство"));
+        check("Ukrainian ends at U+0427", ukrainian.endsWith("Технології, Чаклунство"));
         check("nothing is lost or repeated by the sort",
                 ukrainian.split(", ").length
                         == ModCategory.forKind(ContentKind.MOD).size());
@@ -4747,9 +4968,9 @@ public final class SelfCheck {
         check("and ends at T", packsEnglish.endsWith("Quests, Technology"));
 
         String packsUkrainian = orderIn(byCode("uk"), ContentKind.MODPACK);
-        check("Ukrainian modpack order starts at Б",
+        check("Ukrainian modpack order starts at U+0411",
                 packsUkrainian.startsWith("Бої, Все в одному, Квести"));
-        check("and ends at Ч", packsUkrainian.endsWith("Технології, Чаклунство"));
+        check("and ends at U+0427", packsUkrainian.endsWith("Технології, Чаклунство"));
     }
 
     /** The mod category names of one language, in the order the menu offers them. */
@@ -5732,6 +5953,19 @@ public final class SelfCheck {
             check("a file's addresses come through",
                     pack.downloads().get(0).urls().size() == 1);
             check("and its digest", "aaaa".equals(pack.downloads().get(0).sha1()));
+            check("an address on a host the format does not allow is dropped",
+                    pack.downloads().stream()
+                            .filter(file -> file.path().equals("../escape.jar"))
+                            .allMatch(file -> file.urls().isEmpty()));
+            check("modpack downloads are held to Modrinth's hosts",
+                    PackArchive.isAllowedDownload("https://cdn.modrinth.com/data/a/versions/b/c.jar")
+                            && PackArchive.isAllowedDownload("https://github.com/o/r/releases/x.jar")
+                            && !PackArchive.isAllowedDownload("http://cdn.modrinth.com/data/a.jar")
+                            && !PackArchive.isAllowedDownload("https://cdn.modrinth.com.evil.example/a.jar")
+                            && !PackArchive.isAllowedDownload("https://user@cdn.modrinth.com/a.jar")
+                            && !PackArchive.isAllowedDownload("https://cdn.modrinth.com:8443/a.jar")
+                            && !PackArchive.isAllowedDownload("https://example.org/a.jar")
+                            && !PackArchive.isAllowedDownload("not a url"));
             check("both override folders are found", pack.overrides().size() == 2);
             check("the client's own overrides go last, so they win",
                     "client-overrides".equals(pack.overrides().get(1)));
@@ -7206,6 +7440,16 @@ public final class SelfCheck {
             check("." + styleClass + " is styled", css.contains("." + styleClass));
         }
 
+        // The on/off switch in the content lists. Without these rules it is a
+        // bare knob and a word on the button's own surface, with no track and
+        // no colour to say which state it is in.
+        for (String styleClass : new String[]{
+                "on-off-switch", "on-off-track", "on-off-knob", "on-off-word"}) {
+            check("." + styleClass + " is styled", css.contains("." + styleClass));
+        }
+        check("the switch has a look of its own for the on state",
+                css.contains(".on-off-switch:on .on-off-track"));
+
         // The scroller added to the account window is not the only one: the
         // profile list and the inventory view were drawing modena's light bar
         // down the side of a dark panel for want of these.
@@ -7315,9 +7559,9 @@ public final class SelfCheck {
             String written = java.nio.file.Files.readString(file);
             check("a session token does not reach the file", !written.contains(jwt));
 
-            // The shape patterns describe what Microsoft and Xbox issue. A
-            // third-party skin service issues a plain random string, which no
-            // shape recognises - so the word in front of it has to be enough.
+            // The shape patterns describe what Microsoft and Xbox issue today. A
+            // token of another shape is a plain random string, which no shape
+            // recognises - so the word in front of it has to be enough.
             String opaque = "b7f3a19c4e6d48a2b0c15d7e9f3a2b4c";
             LauncherLog.info("Command: --accessToken " + opaque + " --uuid 1234");
             LauncherLog.info("saved {\"accessToken\":\"" + opaque + "\",\"name\":\"Player\"}");
@@ -7435,18 +7679,6 @@ public final class SelfCheck {
         List<Credits.Entry> entries = credits.allEntries();
         check("there is something to credit", entries.size() >= 15);
         check("in groups", credits.groups().size() >= 4);
-
-        // The one that must be there. Its jar is downloaded and run inside the
-        // game, which is a dependency in the strongest sense there is, and its
-        // licence is the reason the exception it grants matters.
-        Credits.Entry agent = entries.stream()
-                .filter(entry -> entry.name().equals("authlib-injector"))
-                .findFirst().orElse(null);
-        check("authlib-injector is credited, because its jar is run inside the game",
-                agent != null);
-        check("and the terms it is used under are named",
-                agent != null && agent.licence() != null
-                        && agent.licence().contains("AGPL"));
 
         java.util.Set<String> names = new java.util.HashSet<>();
         java.util.Set<String> urls = new java.util.HashSet<>();
@@ -7803,7 +8035,6 @@ public final class SelfCheck {
         section("Skins");
 
         java.nio.file.Path work = null;
-        LocalSkinService service = null;
         try {
             work = java.nio.file.Files.createTempDirectory("hexadron-skin-check");
             GameDirs dirs = new GameDirs(work);
@@ -7824,24 +8055,22 @@ public final class SelfCheck {
             java.nio.file.Files.write(wrong, png(100, 100));
             java.nio.file.Path large = work.resolve("large.png");
             java.nio.file.Files.write(large, png(128, 128));
-            java.nio.file.Path cape = work.resolve("cape.png");
-            java.nio.file.Files.write(cape, png(64, 32));
 
             int[] size = PngSize.read(skin);
             check("a PNG header gives its size",
                     size != null && size[0] == 64 && size[1] == 64);
 
             SkinStore store = new SkinStore(dirs);
-            String skinName = store.store(skin, false);
+            String skinName = store.store(skin);
             check("a 64x64 skin is accepted", skinName != null);
-            check("so is the 64x32 sheet from before 1.8", store.store(old, false) != null);
+            check("so is the 64x32 sheet from before 1.8", store.store(old) != null);
             check("and it lands in the skins folder, named by content",
                     store.file(skinName) != null
                             && store.file(skinName).startsWith(dirs.skins()));
 
             boolean refused = false;
             try {
-                store.store(wrong, false);
+                store.store(wrong);
             } catch (IOException expected) {
                 refused = true;
             }
@@ -7850,103 +8079,42 @@ public final class SelfCheck {
             // The layout is a map, and a sheet at twice the resolution is the
             // same map drawn finer. Refusing it would be refusing a better
             // version of an accepted file.
-            check("a high-resolution skin is accepted", store.store(large, false) != null);
-
-            refused = false;
-            try {
-                store.store(skin, true);
-            } catch (IOException expected) {
-                refused = true;
-            }
-            check("a 64x64 file is refused as a cape", refused);
-
-            String capeName = store.store(cape, true);
-            check("a 64x32 cape is accepted", capeName != null);
+            check("a high-resolution skin is accepted", store.store(large) != null);
 
             // A name from a hand-edited skins.json cannot walk out of the folder.
             check("a stored name is resolved inside the skins folder only",
                     store.file("../../../etc/passwd") == null);
 
-            // --- who wears what, across a restart ------------------------------
-            SkinProfile worn = SkinProfile.empty()
-                    .withSkin(skinName).withCape(capeName)
+            // --- which picture is kept for which account, across a restart -----
+            SkinProfile kept = SkinProfile.empty()
+                    .withSkin(skinName)
                     .withModel(SkinProfile.Model.SLIM);
-            store.put("offline:1234", worn);
+            store.put("microsoft:1234", kept);
             store.save();
 
-            SkinProfile reloaded = new SkinStore(dirs).load().of("offline:1234");
-            check("what an account wears survives a restart",
+            SkinProfile reloaded = new SkinStore(dirs).load().of("microsoft:1234");
+            check("the picture kept for an account survives a restart",
                     skinName.equals(reloaded.skin())
-                            && capeName.equals(reloaded.cape())
                             && reloaded.model() == SkinProfile.Model.SLIM);
-            check("an account with no skin wears nothing",
-                    new SkinStore(dirs).load().of("offline:nobody").isEmpty());
+            check("an account with no picture has none",
+                    new SkinStore(dirs).load().of("microsoft:nobody").isEmpty());
 
-            check("a profile with nothing to show needs no service",
-                    !SkinProfile.empty().needsService());
-            check("one with a skin does", worn.needsService());
-            check("and a remote service does even with no local pictures",
-                    SkinProfile.empty().withSource(SkinProfile.Source.REMOTE)
-                            .withService("https://example/api").needsService());
-
-            // --- what the local service actually answers -----------------------
-            java.util.UUID uuid = java.util.UUID.nameUUIDFromBytes(
-                    "OfflinePlayer:Tester".getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            service = LocalSkinService.start(uuid, "Tester", worn, store,
-                    work.resolve("key.json"));
-
-            String root = service.root();
-            check("the service listens on the loopback interface only",
-                    root.startsWith("http://127.0.0.1:"));
-
-            Json described = Json.parse(new String(java.util.Base64.getDecoder()
-                    .decode(service.prefetchedMetadata()),
-                    java.nio.charset.StandardCharsets.UTF_8));
-            check("it publishes a signing key",
-                    described.get("signaturePublickey").asString("")
-                            .contains("BEGIN PUBLIC KEY"));
-            check("and allows textures only from this machine",
-                    described.get("skinDomains").size() == 2);
-
-            String undashed = uuid.toString().replace("-", "");
-            Json profile = Json.parse(get(root + "/sessionserver/session/minecraft/profile/" + undashed));
-            check("it answers for the account it was started for",
-                    undashed.equals(profile.get("id").asString("")));
-
-            Json property = profile.get("properties").get(0);
-            check("with a signed textures property",
-                    "textures".equals(property.get("name").asString(""))
-                            && !property.get("signature").asString("").isBlank());
-
-            Json textures = Json.parse(new String(java.util.Base64.getDecoder()
-                    .decode(property.get("value").asString("")),
-                    java.nio.charset.StandardCharsets.UTF_8)).get("textures");
-            check("carrying the skin", textures.get("SKIN").get("url").asString("").startsWith(root));
-            check("the arm width", "slim".equals(
-                    textures.get("SKIN").get("metadata").get("model").asString("")));
-            check("and the cape", textures.get("CAPE").get("url").asString("").startsWith(root));
-
-            // The whole point of the design, in one check.
-            check("and nothing at all about any other player",
-                    status(root + "/sessionserver/session/minecraft/profile/"
-                            + java.util.UUID.randomUUID().toString().replace("-", "")) == 204);
-
-            byte[] served = bytes(textures.get("SKIN").get("url").asString(""));
-            check("the texture it points at is the file that was chosen",
-                    java.util.Arrays.equals(served,
-                            java.nio.file.Files.readAllBytes(store.file(skinName))));
-            check("and a texture it never published is not served",
-                    status(root + "/textures/" + "0".repeat(64)) == 404);
-
-            check("a launch with no skin attaches no agent",
-                    !SkinSession.none().isActive()
-                            && SkinSession.none().arguments().isEmpty());
+            // A skins.json written by an earlier version carries more fields.
+            // They are read past, not refused.
+            java.nio.file.Files.writeString(dirs.skinsFile(),
+                    "{\"accounts\":{\"microsoft:1\":{\"source\":\"remote\","
+                            + "\"skin\":\"skin-0123.png\",\"cape\":\"cape-1.png\","
+                            + "\"model\":\"slim\",\"service\":\"https://example.org\"}}}");
+            SkinProfile older = new SkinStore(dirs).load().of("microsoft:1");
+            check("a skins.json from an earlier version still reads",
+                    "skin-0123.png".equals(older.skin())
+                            && older.model() == SkinProfile.Model.SLIM);
+            check("and saving it again keeps only the picture and the arm width",
+                    older.toJson().toString().indexOf("service") < 0
+                            && older.toJson().toString().indexOf("cape") < 0);
         } catch (IOException e) {
             check("the skin check can run: " + e.getMessage(), false);
         } finally {
-            if (service != null) {
-                service.close();
-            }
             if (work != null) {
                 deleteRecursively(work);
             }
@@ -7973,30 +8141,6 @@ public final class SelfCheck {
         bytes[at + 1] = (byte) (value >>> 16);
         bytes[at + 2] = (byte) (value >>> 8);
         bytes[at + 3] = (byte) value;
-    }
-
-    private static String get(String url) throws IOException {
-        return new String(bytes(url), java.nio.charset.StandardCharsets.UTF_8);
-    }
-
-    private static byte[] bytes(String url) throws IOException {
-        java.net.HttpURLConnection connection =
-                (java.net.HttpURLConnection) java.net.URI.create(url).toURL().openConnection();
-        try (java.io.InputStream in = connection.getInputStream()) {
-            return in.readAllBytes();
-        } finally {
-            connection.disconnect();
-        }
-    }
-
-    private static int status(String url) throws IOException {
-        java.net.HttpURLConnection connection =
-                (java.net.HttpURLConnection) java.net.URI.create(url).toURL().openConnection();
-        try {
-            return connection.getResponseCode();
-        } finally {
-            connection.disconnect();
-        }
     }
 
     /**
@@ -8140,150 +8284,62 @@ public final class SelfCheck {
      * evening's work.
      */
     /**
-     * Signing in to a third-party skin service.
+     * Offline play is for people who own the game.
      *
-     * <p>Nothing here touches the network. What is checked is the part that
-     * goes wrong silently: an address that is a slash away from every endpoint
-     * 404ing, a UUID in the form the game will not take, a saved sign-in that
-     * belongs to a service other than the one now configured - each of which
-     * ends as "I pasted the address and nothing happened".
+     * <p>An offline account can be added, and launched, only while a Microsoft
+     * account that passed the ownership check is signed in. A Microsoft entry
+     * whose credentials are not in the credential store does not count: that is
+     * what a line typed into accounts.json looks like.
      */
-    private static void skinService() {
-        section("Skin service sign-in");
+    private static void offlineAccess() {
+        section("Offline access");
 
-        check("a trailing slash is trimmed off the address",
-                YggdrasilAuth.normalise("https://littleskin.cn/api/yggdrasil/")
-                        .equals("https://littleskin.cn/api/yggdrasil"));
-        check("and so is more than one",
-                YggdrasilAuth.normalise(" https://example.org/api//  ")
-                        .equals("https://example.org/api"));
-
-        check("an address without a scheme is refused",
-                YggdrasilAuth.reasonToRefuse("littleskin.cn/api/yggdrasil") != null);
-        // The password is in that request body. There is no version of sending
-        // it in the clear that this launcher offers.
-        check("so is a plain http one",
-                YggdrasilAuth.reasonToRefuse("http://littleskin.cn/api/yggdrasil") != null);
-        check("an empty address is refused",
-                YggdrasilAuth.reasonToRefuse("   ") != null);
-        check("an https address is accepted",
-                YggdrasilAuth.reasonToRefuse("https://littleskin.cn/api/yggdrasil") == null);
-
+        java.nio.file.Path work = null;
         try {
-            java.util.UUID dashed = YggdrasilAuth.undash("069a79f444e94726a5befca90e38aaf5");
-            check("an undashed profile id becomes a UUID",
-                    dashed.toString().equals("069a79f4-44e9-4726-a5be-fca90e38aaf5"));
-            check("an already-dashed one survives the trip",
-                    YggdrasilAuth.undash("069a79f4-44e9-4726-a5be-fca90e38aaf5").equals(dashed));
+            work = java.nio.file.Files.createTempDirectory("hexadron-offline-check");
+            GameDirs dirs = new GameDirs(work);
+            dirs.createBaseDirectories();
+            com.hexadron.launcher.auth.secret.SecretStore secrets =
+                    new com.hexadron.launcher.auth.secret.EncryptedFileSecretStore(
+                            work.resolve("secrets"));
+            com.hexadron.launcher.auth.AccountStore store =
+                    new com.hexadron.launcher.auth.AccountStore(dirs, secrets).load();
+
+            check("with no accounts there is no proof of ownership",
+                    !store.hasLicensedAccount());
+
+            store.add(Account.offline("Player"));
+            check("an offline account is not proof of ownership",
+                    !store.hasLicensedAccount());
+
+            Account typedIn = new Account(Account.AccountType.MICROSOFT, "Someone",
+                    java.util.UUID.fromString("00000000-0000-0000-0000-000000000002"),
+                    "0", null, 0, "0");
+            store.add(typedIn);
+            check("nor is a Microsoft entry with no credentials behind it",
+                    !store.hasLicensedAccount());
+
+            Account signedIn = new Account(Account.AccountType.MICROSOFT, "Owner",
+                    java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                    "access-token-for-the-check", "refresh-token-for-the-check",
+                    Long.MAX_VALUE, "0");
+            store.add(signedIn);
+            check("a signed-in Microsoft account is",
+                    store.hasLicensedAccount());
+
+            store.remove(signedIn);
+            check("and removing it takes the proof away again",
+                    !store.hasLicensedAccount());
         } catch (IOException e) {
-            check("an undashed profile id becomes a UUID", false);
-        }
-
-        boolean refusedShortId = false;
-        try {
-            YggdrasilAuth.undash("nope");
-        } catch (IOException expected) {
-            refusedShortId = true;
-        }
-        check("an unreadable profile id is refused rather than guessed", refusedShortId);
-
-        YggdrasilAuth.Session session = new YggdrasilAuth.Session(
-                "https://littleskin.cn/api/yggdrasil", "client-token", "access-token",
-                java.util.UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5"), "Notch");
-
-        YggdrasilAuth.Session read = YggdrasilAuth.Session.fromJson(
-                com.hexadron.launcher.json.Json.parse(session.toJson().toString()));
-        check("a saved sign-in reads back as it was written",
-                read != null && read.equals(session));
-        check("a damaged one reads back as nothing at all",
-                YggdrasilAuth.Session.fromJson(
-                        com.hexadron.launcher.json.Json.parse("{\"root\":\"x\"}")) == null);
-
-        // The address field can be edited after signing in, and a token issued
-        // by one service means nothing at another.
-        check("a sign-in knows the service it was issued by",
-                session.isFor("https://littleskin.cn/api/yggdrasil/"));
-        check("and knows when it is for a different one",
-                !session.isFor("https://ely.by/api/yggdrasil"));
-
-        check("a refusal is reported in the service's own words",
-                YggdrasilAuth.describe(new com.hexadron.launcher.net.Http.HttpStatusException(
-                        403, "https://example.org/authserver/authenticate",
-                        "{\"error\":\"ForbiddenOperationException\","
-                                + "\"errorMessage\":\"Invalid credentials.\"}"))
-                        .equals("Invalid credentials."));
-        check("an address that is not a service at all says so",
-                YggdrasilAuth.describe(new com.hexadron.launcher.net.Http.HttpStatusException(
-                        404, "https://example.org/authserver/authenticate", "<html>Not Found</html>"))
-                        .contains("not a skin service"));
-
-        // --- the launch identity ------------------------------------------
-        Account offline = Account.offline("Player");
-        Progress quiet = Progress.NOOP;
-
-        check("a local profile is played as the account that was selected",
-                SkinSession.identity(offline, SkinProfile.empty(), null, quiet) == offline);
-
-        SkinProfile remote = SkinProfile.empty()
-                .withSource(SkinProfile.Source.REMOTE)
-                .withService("https://littleskin.cn/api/yggdrasil");
-        check("a remote profile with no store behind it is too",
-                SkinSession.identity(offline, remote, null, quiet) == offline);
-        check("a remote profile with no sign-in saved is too",
-                SkinSession.identity(offline, remote, new SkinCredentials(null), quiet) == offline);
-        check("and a remote profile with no address is too",
-                SkinSession.identity(offline, SkinProfile.empty()
-                                .withSource(SkinProfile.Source.REMOTE),
-                        new SkinCredentials(null), quiet) == offline);
-
-        // A remote service is worth attaching with no local pictures at all;
-        // a local one is not, because there would be nothing to serve.
-        check("a remote profile asks for the service to be attached",
-                remote.needsService());
-        check("an empty local profile does not",
-                !SkinProfile.empty().needsService());
-
-        // --- one sign-in per service ---------------------------------------
-        // Pointing the address at another service is switching to a different
-        // account somewhere else, not signing out of the first.
-        String littleskin = SkinCredentials.key("offline:x", "https://littleskin.cn/api/yggdrasil");
-        String elyby = SkinCredentials.key("offline:x", "https://ely.by/api/authlib-injector");
-        check("two services are two separate sign-ins", !littleskin.equals(elyby));
-        check("and the same service is the same one, slash or no slash",
-                littleskin.equals(
-                        SkinCredentials.key("offline:x", "https://littleskin.cn/api/yggdrasil/")));
-        check("two accounts at one service are separate too",
-                !littleskin.equals(
-                        SkinCredentials.key("offline:y", "https://littleskin.cn/api/yggdrasil")));
-
-        // --- the stand-in figure -------------------------------------------
-        try {
-            byte[] bytes = DefaultSkin.png();
-            int[] shape = PngSize.read(bytes);
-            check("the stand-in skin is a 64 by 64 sheet",
-                    shape != null && shape[0] == 64 && shape[1] == 64);
-
-            java.awt.image.BufferedImage sheet = javax.imageio.ImageIO.read(
-                    new java.io.ByteArrayInputStream(bytes));
-
-            // A hole in a base layer renders as a see-through limb, which looks
-            // like a broken texture rather than a plain figure.
-            SkinLayout.Rect chest = named(SkinLayout.player(false), "body").faces().front();
-            boolean opaque = true;
-            for (int x = chest.u0(); x < chest.u1(); x++) {
-                for (int y = chest.v0(); y < chest.v1(); y++) {
-                    opaque &= (sheet.getRGB(x, y) >>> 24) == 0xFF;
-                }
+            check("the offline access check can run: " + e.getMessage(), false);
+        } finally {
+            if (work != null) {
+                deleteRecursively(work);
             }
-            check("and every base area on it is opaque", opaque);
-
-            SkinLayout.Rect face = named(SkinLayout.player(false), "head").faces().front();
-            check("the head has a front that is not one flat colour",
-                    sheet.getRGB(face.u0() + 2, face.v0() + 4)
-                            != sheet.getRGB(face.u0() + 2, face.v0() + 7));
-        } catch (IOException e) {
-            check("the stand-in skin is a 64 by 64 sheet", false);
         }
+
+        check("the refusal says what to do",
+                com.hexadron.launcher.core.LauncherService.OFFLINE_NEEDS_LICENCE.contains("Sign in with Microsoft"));
     }
 
     /**

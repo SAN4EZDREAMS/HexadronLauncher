@@ -73,7 +73,7 @@ public final class Archives {
      * <p>The bytes are not valid UTF-8, the decoder replaces each one it cannot
      * read with U+FFFD, and the file is written to disk under a name of question
      * marks. No exception, no warning - a modpack whose overrides include
-     * {@code конфіг.txt} installs, and the mod that looks for it does not find
+     * a file with a Cyrillic name installs, and the mod that looks for it does not find
      * it.
      *
      * <h2>Why the system encoding</h2>
@@ -132,6 +132,7 @@ public final class Archives {
                     continue;
                 }
                 Path destination = resolveSafely(root, relative);
+                checkWritable(root, destination);
                 if (entry.isDirectory()) {
                     Files.createDirectories(destination);
                     continue;
@@ -194,6 +195,7 @@ public final class Archives {
                     continue;
                 }
                 Path destination = resolveSafely(root, relative);
+                checkWritable(root, destination);
 
                 switch (type) {
                     case '5' -> Files.createDirectories(destination);
@@ -220,33 +222,87 @@ public final class Archives {
      * needs Developer Mode or elevation for that, so a failure falls back to
      * copying the target - which is what the file system can express there, and
      * is why this is not treated as a fatal error.
+     *
+     * <p>A symlink must lead to a place inside {@code root}. An absolute target,
+     * or a relative one that climbs out, is refused: a later entry could write
+     * through it, and the copy fallback would read a file from outside the
+     * archive. The target is resolved from the real location of the link's
+     * folder, so a link inside an already linked folder is judged by where it
+     * really is. When the target exists, the finished link is checked again on
+     * disk.
      */
     private static void link(Path destination, String target, boolean symbolic, Path root)
             throws IOException {
         Files.deleteIfExists(destination);
+        Path source;
         if (symbolic) {
-            try {
-                Files.createSymbolicLink(destination, destination.getParent()
-                        .getFileSystem().getPath(target));
-                return;
-            } catch (IOException | UnsupportedOperationException | SecurityException ignored) {
-                // Fall through to the copy below.
+            Path linkTarget = destination.getFileSystem().getPath(target);
+            source = destination.getParent().toRealPath().resolve(linkTarget).normalize();
+            if (linkTarget.isAbsolute() || !source.startsWith(root)) {
+                throw new IOException("refusing a symbolic link that leads outside the target"
+                        + " directory: " + root.relativize(destination) + " -> " + target);
             }
+            boolean created;
+            try {
+                Files.createSymbolicLink(destination, linkTarget);
+                created = true;
+            } catch (IOException | UnsupportedOperationException | SecurityException e) {
+                created = false; // Copied instead, below.
+            }
+            if (created) {
+                if (Files.exists(destination) && !destination.toRealPath().startsWith(root)) {
+                    Files.delete(destination);
+                    throw new IOException("refusing a symbolic link that leads outside the target"
+                            + " directory: " + root.relativize(destination) + " -> " + target);
+                }
+                return;
+            }
+        } else {
+            source = resolveSafely(root, target);
         }
-        Path source = symbolic
-                ? destination.getParent().resolve(target).normalize()
-                : resolveSafely(root, target);
-        if (Files.isRegularFile(source)) {
+        if (Files.isRegularFile(source) && source.toRealPath().startsWith(root)) {
             Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
     // ------------------------------------------------------------- utilities
 
+    /**
+     * Creates the target directory and returns its real path.
+     *
+     * <p>The real path, so that the checks below compare like with like when the
+     * target itself lies under a linked folder (on macOS, {@code /var} is a link
+     * to {@code /private/var}).
+     */
     private static Path prepare(Path targetDir) throws IOException {
         Path root = targetDir.toAbsolutePath().normalize();
         Files.createDirectories(root);
-        return root;
+        return root.toRealPath();
+    }
+
+    /**
+     * Makes sure that writing to {@code destination} stays inside {@code root}.
+     *
+     * <p>{@link #resolveSafely} checks the entry name only. That is not enough
+     * after the archive has created a symbolic link: an entry {@code link/file}
+     * has a name inside the target, but if {@code link} points outside, the
+     * write lands outside too. So the nearest folder that already exists is
+     * resolved on disk and must be inside {@code root}. A symbolic link at the
+     * destination itself is removed, so the entry replaces the link and is
+     * never written through it.
+     */
+    private static void checkWritable(Path root, Path destination) throws IOException {
+        if (Files.isSymbolicLink(destination)) {
+            Files.delete(destination);
+        }
+        Path existing = destination.getParent();
+        while (existing != null && !Files.exists(existing)) {
+            existing = existing.getParent();
+        }
+        if (existing == null || !existing.toRealPath().startsWith(root)) {
+            throw new IOException("refusing to unpack through a link that leads outside the"
+                    + " target directory: " + root.relativize(destination));
+        }
     }
 
     /**

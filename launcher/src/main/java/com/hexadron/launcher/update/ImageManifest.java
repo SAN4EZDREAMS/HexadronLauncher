@@ -58,11 +58,12 @@ import java.util.stream.Stream;
  *       length.</li>
  * </ul>
  *
- * <p>What it does not do is prove who wrote the build. The manifest is published
- * beside the archives and fetched over the same HTTPS connection from the same
- * release, so it is exactly as trustworthy as the archive was before - no more,
- * and no less. Proving authorship needs a signature and a key that is not in
- * this repository, and pretending otherwise would be worse than not doing it.
+ * <p>On its own it does not prove who wrote the build: the manifest is published
+ * in the same release as the archives, so whoever can replace one can replace
+ * both. That is what {@link UpdateSignature} is for. The release workflow signs
+ * the manifest with a private key held as a repository secret, and a launcher
+ * built with the matching public key refuses a manifest whose signature does
+ * not verify.
  *
  * <h2>Directories, links and the executable bit</h2>
  *

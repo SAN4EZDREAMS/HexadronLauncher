@@ -12,9 +12,11 @@
 
 package com.hexadron.launcher;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
+import java.util.Properties;
 import java.util.jar.Manifest;
 
 /**
@@ -65,15 +67,22 @@ public final class BuildConfig {
     public static final String CURSEFORGE_API_KEY_ATTRIBUTE = "Hexadron-CurseForge-Api-Key";
 
     /**
-     * What the version is when the manifest cannot say.
+     * The resource that holds the version for runs from class folders.
      *
-     * <p>Which is every development run: a build from a class directory has no
-     * manifest to read. Kept in step with {@code version} in
-     * launcher/build.gradle - it is the same number, and a mismatch shows up as
-     * a splash screen claiming the wrong version in the IDE and the right one in
-     * a release.
+     * <p>A run from class folders ({@code ./gradlew run}, {@code cli},
+     * {@code selfCheck}, the IDE) has no jar manifest. The build writes the
+     * version from launcher/build.gradle into this file
+     * ({@code generateVersionResource}), so those runs report the same version
+     * as the jar, and no second copy of the number has to be kept in step.
      */
-    private static final String FALLBACK_VERSION = "0.9.5";
+    static final String VERSION_RESOURCE = "version.properties";
+
+    /**
+     * The version when neither the manifest nor the resource gives one: a class
+     * folder that Gradle did not build, for example an IDE that compiles on its
+     * own. A pre-release of 0.0.0, so it never looks newer than a real build.
+     */
+    static final String UNKNOWN_VERSION = "0.0.0-dev";
 
     private static final String CURSEFORGE_API_KEY = readCurseForgeApiKey();
 
@@ -98,7 +107,26 @@ public final class BuildConfig {
 
     private static String readVersion() {
         String fromManifest = manifestAttribute("Implementation-Version");
-        return fromManifest.isEmpty() ? FALLBACK_VERSION : fromManifest;
+        if (!fromManifest.isEmpty()) {
+            return fromManifest;
+        }
+        String fromResource = versionResource();
+        return fromResource.isEmpty() ? UNKNOWN_VERSION : fromResource;
+    }
+
+    /** The version in {@link #VERSION_RESOURCE}, or an empty string when there is none. */
+    private static String versionResource() {
+        try (InputStream in = BuildConfig.class.getResourceAsStream(VERSION_RESOURCE)) {
+            if (in == null) {
+                return "";
+            }
+            Properties properties = new Properties();
+            properties.load(in);
+            String value = properties.getProperty("version");
+            return value == null ? "" : value.trim();
+        } catch (IOException e) {
+            return "";
+        }
     }
 
     private static String readCurseForgeApiKey() {

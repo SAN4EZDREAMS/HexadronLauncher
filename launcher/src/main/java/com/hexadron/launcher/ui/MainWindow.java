@@ -955,7 +955,12 @@ public final class MainWindow implements ProfileHost {
         if (account == null) {
             return;
         }
-        new AccountDialog(account, service.skins(), service.skinCredentials()).show(stage).ifPresent(result -> {
+        if (account.isOffline()) {
+            // An offline account plays with the game's default skin. There is
+            // nothing to edit, and the button is disabled for it.
+            return;
+        }
+        new AccountDialog(account, service.skins()).show(stage).ifPresent(result -> {
             service.skins().put(account.id(), result.skin());
             try {
                 service.skins().save();
@@ -1083,7 +1088,7 @@ public final class MainWindow implements ProfileHost {
         accountBox.valueProperty().addListener((observable, previous, value) ->
                 removeAccountButton.setDisable(value == null));
         accountBox.valueProperty().addListener((observable, previous, value) ->
-                editAccountButton.setDisable(value == null));
+                editAccountButton.setDisable(value == null || value.isOffline()));
         // The account chosen here is the account the launcher opens with next
         // time. It is written as soon as it changes rather than on exit: a
         // launcher closed from the task manager, a crash or a Windows update
@@ -1093,7 +1098,8 @@ public final class MainWindow implements ProfileHost {
                 rememberAccount(value);
             }
         });
-        editAccountButton.setDisable(accountBox.getValue() == null);
+        editAccountButton.setDisable(accountBox.getValue() == null
+                || accountBox.getValue().isOffline());
 
         HBox controls = new HBox(8, accountTitle, accountBox, addAccountButton, signInButton,
                 editAccountButton, removeAccountButton, spacer(), playButton);
@@ -1115,8 +1121,8 @@ public final class MainWindow implements ProfileHost {
      *
      * <p>An HBox shrinks its children when the window is narrower than their
      * preferred widths, and a Button that has been shrunk shows an ellipsis - so
-     * at the default window size on a scaled display the bar read "Створ...",
-     * "Нова гр...", "За алфаві...". Fixing each button's minimum at its
+     * at the default window size on a scaled display the Ukrainian bar showed
+     * "Create", "New group" and "Alphabetical" cut to a few letters. Fixing each button's minimum at its
      * preferred width moves the shrinking onto the fields and the spacer, which
      * can afford it.
      */
@@ -1442,6 +1448,11 @@ public final class MainWindow implements ProfileHost {
                     I18n.t("account.invalid.body", account.username()));
             return;
         }
+        if (account.isOffline() && !service.accounts().hasLicensedAccount()) {
+            showWarning(I18n.t("account.offline.licence.header"),
+                    I18n.t("account.offline.licence.body"));
+            return;
+        }
         if (!confirmWrongVersionMods()) {
             return;
         }
@@ -1518,6 +1529,12 @@ public final class MainWindow implements ProfileHost {
     }
 
     private void addOfflineAccount() {
+        // Asked before the name, so nobody types one only to be refused.
+        if (!service.accounts().hasLicensedAccount()) {
+            showWarning(I18n.t("account.offline.licence.header"),
+                    I18n.t("account.offline.licence.body"));
+            return;
+        }
         TextInputDialog dialog = new TextInputDialog(I18n.t("account.offline.default"));
         dialog.initOwner(stage);
         Theme.apply(dialog.getDialogPane());
@@ -1531,10 +1548,13 @@ public final class MainWindow implements ProfileHost {
                         I18n.t("account.invalid.body", trimmed));
                 return;
             }
-            Account account = Account.offline(trimmed);
-            service.accounts().add(account);
+            Account account;
             try {
-                service.accounts().save();
+                account = service.addOfflineAccount(trimmed);
+            } catch (IllegalStateException e) {
+                showWarning(I18n.t("account.offline.licence.header"),
+                        I18n.t("account.offline.licence.body"));
+                return;
             } catch (IOException e) {
                 showError(I18n.t("account.save.failed"), e);
                 return;

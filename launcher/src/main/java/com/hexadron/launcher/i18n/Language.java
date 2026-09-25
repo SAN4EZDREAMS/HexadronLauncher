@@ -29,7 +29,22 @@ public enum Language {
     UKRAINIAN("uk", "Українська"),
     RUSSIAN("ru", "Русский"),
     POLISH("pl", "Polski"),
-    GERMAN("de", "Deutsch");
+    GERMAN("de", "Deutsch"),
+    SPANISH("es", "Español"),
+    FRENCH("fr", "Français"),
+    ITALIAN("it", "Italiano"),
+    // Brazilian Portuguese, under the bare code: byCode drops the region, so
+    // pt-BR and pt-PT both land here, and Brazil is most of the players.
+    PORTUGUESE("pt", "Português (Brasil)"),
+    TURKISH("tr", "Türkçe"),
+    INDONESIAN("id", "Bahasa Indonesia"),
+    VIETNAMESE("vi", "Tiếng Việt"),
+    HINDI("hi", "हिन्दी"),
+    // Simplified, under the bare code for the same reason: zh-CN and zh-TW both
+    // resolve to "zh", and there is one Chinese file.
+    CHINESE("zh", "简体中文"),
+    JAPANESE("ja", "日本語"),
+    KOREAN("ko", "한국어");
 
     /** The language used when nothing else matches, and the fallback for missing keys. */
     public static final Language DEFAULT = ENGLISH;

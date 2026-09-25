@@ -22,13 +22,13 @@
       <li>Every Minecraft version, with Fabric, Quilt, Forge and NeoForge</li>
       <li>Mods, modpacks, resource packs, shaders and data packs from Modrinth and CurseForge</li>
       <li>Profiles exported to one file and imported on another computer</li>
-      <li>Microsoft and offline accounts, skins and capes</li>
+      <li>Microsoft accounts, skins and capes</li>
       <li>A storage window that shows what takes space and frees what nothing uses</li>
       <li>The right Java for each version, downloaded when it is missing</li>
     </ul>
     <p>
-      In the Flatpak sandbox the game and its mods see only the downloads folder of
-      your home, not the rest of it.
+      In the Flatpak version the game and its mods can use the launcher's own data
+      folder and your Downloads folder, but not the rest of your home folder.
     </p>
   </description>
 

@@ -554,7 +554,7 @@ final class PackSection extends ContentSection {
     private final class PackCell extends ContentRow<ModEntry> {
 
         private final Label badge = new Label();
-        private final Button toggle = new Button();
+        private final OnOffSwitch toggle = new OnOffSwitch();
         private final Button remove = new Button();
         private final Tooltip toggleTip = new Tooltip();
         private final Tooltip removeTip = new Tooltip();
@@ -628,7 +628,9 @@ final class PackSection extends ContentSection {
             // what is inside, not what it is called - so the button says so
             // rather than doing nothing.
             boolean togglable = PackScan.isTogglable(pack);
-            toggle.setText(I18n.t(pack.enabled() ? "mods.disable" : "mods.enable"));
+            // The switch shows the state; a click asks for the change, and the
+            // switch moves when the list shows the result.
+            toggle.show(pack.enabled(), pack.jarName());
             toggle.setDisable(host.isBusy() || !togglable);
             tooltip(toggle, toggleTip, togglable ? null : I18n.t("packs.folder.noToggle"));
             toggle.setOnAction(event -> togglePack(pack));

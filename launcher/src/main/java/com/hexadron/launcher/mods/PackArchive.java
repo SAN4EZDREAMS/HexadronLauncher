@@ -117,7 +117,8 @@ public record PackArchive(Format format, String name, String version, String aut
      *
      * @param path      where it goes, relative to the instance folder. Always
      *                  {@code /}-separated, as the manifest writes it
-     * @param urls      every address the pack offers, in its own order
+     * @param urls      every allowed address the pack offers, in its own order;
+     *                  empty when the pack offered only addresses that are not
      * @param sha1      digest, when published
      * @param size      bytes, or -1
      * @param optional  true for a file the pack marks as not required, which is
@@ -128,6 +129,37 @@ public record PackArchive(Format format, String name, String version, String aut
 
         public Download {
             urls = List.copyOf(urls);
+        }
+    }
+
+    /**
+     * The hosts a {@code .mrpack} may download from.
+     *
+     * <p>The list Modrinth's format specification gives. A pack is a file
+     * anyone can make and hand out, and the SHA-1 beside each address comes
+     * from the same file - so the digest proves the download is the file the
+     * pack meant, not that the pack meant a safe one. Holding the addresses to
+     * the hosts the format names means a pack cannot point the launcher at an
+     * arbitrary server.
+     */
+    public static final java.util.Set<String> ALLOWED_DOWNLOAD_HOSTS = java.util.Set.of(
+            "cdn.modrinth.com", "github.com", "raw.githubusercontent.com", "gitlab.com");
+
+    /** True when {@code url} is HTTPS and on one of {@link #ALLOWED_DOWNLOAD_HOSTS}. */
+    public static boolean isAllowedDownload(String url) {
+        if (url == null) {
+            return false;
+        }
+        try {
+            java.net.URI uri = new java.net.URI(url);
+            String host = uri.getHost();
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && uri.getUserInfo() == null
+                    && (uri.getPort() == -1 || uri.getPort() == 443)
+                    && host != null
+                    && ALLOWED_DOWNLOAD_HOSTS.contains(host.toLowerCase(Locale.ROOT));
+        } catch (java.net.URISyntaxException e) {
+            return false;
         }
     }
 
@@ -245,13 +277,21 @@ public record PackArchive(Format format, String name, String version, String aut
                 continue;
             }
             List<String> urls = new ArrayList<>();
+            boolean offered = false;
             for (Json url : fileJson.get("downloads").elements()) {
                 String value = url.asString(null);
                 if (value != null && !value.isBlank()) {
-                    urls.add(value.trim());
+                    offered = true;
+                    // Kept only when it is an address the format allows. A file
+                    // whose every address was refused stays in the list with no
+                    // address at all, so the installer can say which one it
+                    // did not fetch, and why.
+                    if (isAllowedDownload(value.trim())) {
+                        urls.add(value.trim());
+                    }
                 }
             }
-            if (urls.isEmpty()) {
+            if (!offered) {
                 continue;
             }
             downloads.add(new Download(path, urls,

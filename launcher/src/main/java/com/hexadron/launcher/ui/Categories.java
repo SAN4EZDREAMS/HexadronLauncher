@@ -28,7 +28,7 @@ import java.util.Map;
  *
  * <p>Two things live here because they are two halves of one answer. The name
  * comes from the launcher's own translations, which is what lets a Ukrainian
- * player read "Чаклунство" rather than {@code magic}; the picture comes from
+ * player read the Ukrainian word for "Magic" rather than {@code magic}; the picture comes from
  * Modrinth, which is what makes it the one they already recognise from the
  * website. Either half can be missing - a category with no picture yet is a
  * category with a name - and neither needs a connection once it has been seen
@@ -60,7 +60,8 @@ final class Categories {
      *
      * <p>By the name the player reads, not by the identifier underneath it: a
      * list sorted by {@code game-mechanics} and {@code worldgen} is not sorted
-     * at all to somebody reading "Ігрові механіки" and "Генерація світу". The
+     * at all to somebody who reads them in Ukrainian as "Game mechanics" and
+     * "World generation". The
      * ordering itself lives in {@link ModCategory}, where it can be checked
      * without a display.
      *

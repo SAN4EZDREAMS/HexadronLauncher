@@ -43,27 +43,6 @@
       ]
     },
     {
-      "heading": "about.group.skins",
-      "entries": [
-        {
-          "name": "authlib-injector",
-          "url": "https://github.com/yushijinhun/authlib-injector",
-          "role": "Downloaded and attached to the game so skins from a service other than Mojang are shown",
-          "licence": "AGPL-3.0-or-later, with the AUTHLIB-INJECTOR exception that permits loading it as a Java agent"
-        },
-        {
-          "name": "LittleSkin",
-          "url": "https://littleskin.cn",
-          "role": "A Yggdrasil skin service the launcher can sign in to"
-        },
-        {
-          "name": "Ely.by",
-          "url": "https://ely.by",
-          "role": "The same"
-        }
-      ]
-    },
-    {
       "heading": "about.group.mods",
       "entries": [
         {

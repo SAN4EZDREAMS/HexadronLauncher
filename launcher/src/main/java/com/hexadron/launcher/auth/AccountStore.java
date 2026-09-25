@@ -252,6 +252,20 @@ public final class AccountStore {
         return true;
     }
 
+    /**
+     * True when a Microsoft account is signed in here with its credentials.
+     *
+     * <p>{@link MicrosoftAuth} refuses an account that does not own the game,
+     * both at sign-in and at every refresh, so such an account is proof of
+     * ownership on this machine. An entry whose credentials are missing from
+     * the credential store does not count: it could be a line typed into
+     * {@code accounts.json}.
+     */
+    public synchronized boolean hasLicensedAccount() {
+        return accounts.values().stream().anyMatch(account ->
+                account.type() == Account.AccountType.MICROSOFT && !account.needsSignIn());
+    }
+
     public synchronized boolean isEmpty() {
         return accounts.isEmpty();
     }

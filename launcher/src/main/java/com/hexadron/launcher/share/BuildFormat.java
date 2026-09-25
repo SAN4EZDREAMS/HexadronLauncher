@@ -131,9 +131,30 @@ public final class BuildFormat {
         return kind.hasInstanceFolder() && kind.instanceFolder().equals(folder);
     }
 
-    /** True for an address the importer will download from. */
+    /**
+     * True for an address the importer will download from.
+     *
+     * <p>A build file is made by another player and carries its own SHA-1, so
+     * the digest proves only that the download is the file the build meant.
+     * The addresses are therefore held to the hosts the launcher itself
+     * records them from: Modrinth's and CurseForge's file hosts, plus the code
+     * hosts a {@code .mrpack} may use. Anything else is refused by name.
+     */
     public static boolean isFetchable(String url) {
-        return url != null && url.toLowerCase(Locale.ROOT).startsWith("https://");
+        if (com.hexadron.launcher.mods.PackArchive.isAllowedDownload(url)) {
+            return true;
+        }
+        try {
+            java.net.URI uri = new java.net.URI(url);
+            String host = uri.getHost();
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && uri.getUserInfo() == null
+                    && (uri.getPort() == -1 || uri.getPort() == 443)
+                    && host != null
+                    && host.toLowerCase(Locale.ROOT).endsWith(".forgecdn.net");
+        } catch (java.net.URISyntaxException | NullPointerException e) {
+            return false;
+        }
     }
 
     /** The last segment of a {@code /}-separated path. */

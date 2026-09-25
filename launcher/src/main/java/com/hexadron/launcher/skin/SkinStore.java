@@ -24,7 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * The skins and capes on this machine, and who wears which.
+ * The skin pictures on this machine, and which account each one is kept for.
  *
  * <h2>Pictures are copied in, and named by their content</h2>
  *
@@ -34,16 +34,11 @@ import java.util.Map;
  * path the launcher opens - a bare file name resolved inside one folder cannot
  * be edited into {@code C:\Windows\...}.
  *
- * <p>Here it buys a fourth thing. The local skin service publishes each texture
- * at a URL ending in a hash, exactly as Mojang's does, and a store that names
- * files by their content already has that hash.
- *
  * <h2>What counts as a skin</h2>
  *
- * <p>A skin is 64x64, or 64x32 for the format used before 1.8. A cape is 64x32,
- * or 22x17 for the very old one. Anything else is refused here, while the user
- * is still looking at the file chooser - rather than in the game, where a wrong
- * size renders as a garbled texture with no explanation attached.
+ * <p>A skin is 64x64, or 64x32 for the format used before 1.8. Anything else is
+ * refused here, while the user is still looking at the file chooser - rather
+ * than at upload, where Mojang refuses it with a less useful message.
  */
 public final class SkinStore {
 
@@ -68,7 +63,7 @@ public final class SkinStore {
         if (accountId == null) {
             return;
         }
-        if (profile == null || (profile.isEmpty() && profile.service().isBlank())) {
+        if (profile == null || profile.isEmpty()) {
             profiles.remove(accountId);
             return;
         }
@@ -92,14 +87,13 @@ public final class SkinStore {
     }
 
     /**
-     * Copies a chosen picture into the store.
+     * Copies a chosen skin picture into the store.
      *
-     * @param cape true when the file has to be a cape rather than a skin
      * @return the file name to record on the profile
      * @throws IOException when the file is not a PNG of an accepted size. The
      *                     message is shown to the user, so it says which.
      */
-    public String store(Path source, boolean cape) throws IOException {
+    public String store(Path source) throws IOException {
         if (source == null || !Files.isRegularFile(source)) {
             throw new IOException("no such file: " + source);
         }
@@ -115,15 +109,13 @@ public final class SkinStore {
         if (size == null) {
             throw new IOException("the file could not be read as a PNG: " + source.getFileName());
         }
-        if (!accepted(size[0], size[1], cape)) {
-            throw new IOException((cape ? "a cape" : "a skin") + " is "
-                    + (cape ? "twice as wide as it is tall - 64x32, or a multiple of it"
-                            : "64x64 or 64x32, or a multiple of either")
+        if (!accepted(size[0], size[1])) {
+            throw new IOException("a skin is 64x64 or 64x32, or a multiple of either"
                     + "; this file is " + size[0] + "x" + size[1]);
         }
 
         Files.createDirectories(dirs.skins());
-        String name = (cape ? "cape-" : "skin-") + Hashes.sha1(source).substring(0, 16) + ".png";
+        String name = "skin-" + Hashes.sha1(source).substring(0, 16) + ".png";
         Path target = dirs.skins().resolve(name);
         if (!Files.exists(target)) {
             Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
@@ -141,16 +133,9 @@ public final class SkinStore {
      * would be refusing a better version of an accepted file.
      *
      * <p>The two shapes that matter are the square sheet used since 1.8 and the
-     * half-height one from before it, plus the 22 by 17 cape from before 1.6,
-     * which is its own thing and is listed on its own.
+     * half-height one from before it.
      */
-    private static boolean accepted(int width, int height, boolean cape) {
-        if (cape) {
-            if (width == 22 && height == 17) {
-                return true;
-            }
-            return multipleOf64(width) && height * 2 == width;
-        }
+    private static boolean accepted(int width, int height) {
         return multipleOf64(width) && (height == width || height * 2 == width);
     }
 

@@ -8,9 +8,9 @@
 		"Hexadron"
 	],
 	"contact": {
-		"sources": "https://github.com/hexadron/HexadronLauncher"
+		"sources": "https://github.com/SAN4EZDREAMS/HexadronLauncher"
 	},
-	"license": "LGPL-2.1",
+	"license": "LicenseRef-Hexadron-NC-1.0",
 	"icon": "assets/hexadron-optimise/icon.png",
 	"environment": "*",
 	"entrypoints": {

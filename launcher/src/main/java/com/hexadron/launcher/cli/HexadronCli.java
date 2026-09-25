@@ -49,7 +49,8 @@ import java.util.concurrent.CountDownLatch;
  *   install &lt;profile&gt;                       download everything the profile needs
  *   mods &lt;profile&gt; [pack.json]              install a mod pack (default: Hexadron Optimise)
  *   search &lt;query&gt; &lt;mcVersion&gt; &lt;loader&gt;     search Modrinth and CurseForge
- *   offline &lt;username&gt;                      add an offline account
+ *   offline &lt;username&gt;                      add an offline account (needs a signed-in
+ *                                           Microsoft account that owns the game)
  *   accounts                                list accounts
  *   play &lt;profile&gt; [username]               install if needed, then launch
  * </pre>
@@ -251,14 +252,18 @@ public final class HexadronCli {
             }
             case "offline" -> {
                 requireArgs(args, 2, "offline <username>");
-                Account account = offlineAccount(args[1]);
-                service.accounts().add(account);
-                service.accounts().save();
+                offlineAccount(args[1]);
+                Account account;
+                try {
+                    account = service.addOfflineAccount(args[1]);
+                } catch (IllegalStateException e) {
+                    throw new IOException(e.getMessage());
+                }
                 System.out.println("added " + account + "  uuid=" + account.uuid());
             }
             case "accounts" -> {
                 if (service.accounts().isEmpty()) {
-                    System.out.println("no accounts - add one with: offline <username>");
+                    System.out.println("no accounts - sign in with Microsoft in the launcher window");
                 }
                 service.accounts().all().forEach(account ->
                         System.out.println("  " + account + "  uuid=" + account.uuid()));
@@ -268,7 +273,8 @@ public final class HexadronCli {
                 Profile profile = requireProfile(service, args[1]);
                 Account account = args.length > 2
                         ? offlineAccount(args[2])
-                        : service.accounts().selected().orElse(Account.offline("Player"));
+                        : service.accounts().selected().orElseThrow(() -> new IOException(
+                                "no account selected - sign in with Microsoft in the launcher window"));
 
                 CountDownLatch finished = new CountDownLatch(1);
                 int[] exitCode = {0};
@@ -344,7 +350,8 @@ public final class HexadronCli {
                   mods <profile> [pack.json]           install a mod pack (default: Hexadron Optimise)
                   addjar <profile> <jar>               copy a locally built mod jar into the profile
                   search <query> <mcVersion> <loader>  search Modrinth and CurseForge
-                  offline <username>                   add an offline account
+                  offline <username>                   add an offline account (needs a signed-in
+                                                       Microsoft account that owns the game)
                   accounts                             list accounts
                   play <profile> [username]            install if needed, then launch
 

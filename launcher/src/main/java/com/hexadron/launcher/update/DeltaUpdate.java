@@ -234,8 +234,29 @@ public final class DeltaUpdate {
      * that makes the rest of it safe to do at all, so it is not sampled and not
      * skipped for large files: hashing a hundred megabytes takes about as long
      * as writing them did.
+     *
+     * <p>It also works the other way round: the image may hold nothing that the
+     * manifest does not list. The manifest is what is signed, and a part archive
+     * is not; a part that carried one extra jar or library would otherwise pass
+     * every check below and be run with the rest of the build.
      */
     public static void verify(ImageManifest manifest, Path root) throws IOException {
+        Set<String> listed = new java.util.HashSet<>();
+        for (ImageManifest.Entry entry : manifest.files()) {
+            listed.add(entry.path());
+        }
+        try (java.util.stream.Stream<Path> walk = Files.walk(root)) {
+            for (Path path : (Iterable<Path>) walk::iterator) {
+                if (Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    continue;
+                }
+                String relative = ImageManifest.slashes(root.relativize(path));
+                if (!listed.contains(relative)) {
+                    throw new IOException("the assembled build holds " + relative
+                            + ", which was not published");
+                }
+            }
+        }
         for (ImageManifest.Entry entry : manifest.files()) {
             Path file = root.resolve(entry.path().replace('/', java.io.File.separatorChar));
             if (entry.isLink()) {

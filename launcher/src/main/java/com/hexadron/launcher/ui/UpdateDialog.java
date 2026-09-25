@@ -15,6 +15,7 @@ package com.hexadron.launcher.ui;
 import com.hexadron.launcher.core.LauncherLog;
 import com.hexadron.launcher.core.Progress;
 import com.hexadron.launcher.i18n.I18n;
+import com.hexadron.launcher.update.ScanReport;
 import com.hexadron.launcher.update.UpdateInstall;
 import com.hexadron.launcher.update.Updates;
 
@@ -116,6 +117,10 @@ final class UpdateDialog {
                 + "   ·   " + update.release().tag());
         meta.getStyleClass().add("muted");
 
+        // The VirusTotal result, as one label under the version line. The notes
+        // no longer carry the block it came from - see ScanReport.
+        Optional<Label> scanLabel = update.scan().map(this::scanLabel);
+
         Label notesTitle = new Label(I18n.t("update.available.notes"));
         notesTitle.getStyleClass().add("section-title");
 
@@ -184,6 +189,7 @@ final class UpdateDialog {
 
         VBox root = new VBox(12, header, versions, meta, notesTitle, notesScroll,
                 blockedNote, progressBox, buttons);
+        scanLabel.ifPresent(label -> root.getChildren().add(root.getChildren().indexOf(meta) + 1, label));
         root.getStyleClass().add("update-pane");
         VBox.setVgrow(notesScroll, Priority.ALWAYS);
 
@@ -209,6 +215,30 @@ final class UpdateDialog {
     static final String FLATPAK_ASSET = "HexadronLauncher-linux.flatpak";
 
     /** Why this launcher cannot replace itself here, or null when it can. */
+    /**
+     * The VirusTotal result as one coloured label: green, amber, red or grey,
+     * the same colours as the badges on the release page. The reports are on
+     * that page, so a click opens it.
+     */
+    private Label scanLabel(ScanReport scan) {
+        String text = switch (scan.verdict()) {
+            case CLEAN -> I18n.t("update.scan.clean", scan.checked(), scan.total());
+            case WARNING -> I18n.t("update.scan.warning", scan.found());
+            case DANGER -> I18n.t("update.scan.danger", scan.found());
+            case PENDING -> I18n.t("update.scan.pending");
+            case UNCHECKED, ERROR -> I18n.t("update.scan.unchecked", scan.checked(), scan.total());
+        };
+        Label label = new Label(text);
+        label.getStyleClass().addAll("badge", "scan-badge",
+                "scan-" + scan.verdict().name().toLowerCase(Locale.ROOT));
+        String page = update.release().pageUrl();
+        if (SystemBrowser.isWebPage(page)) {
+            label.getStyleClass().add("badge-linked");
+            label.setOnMouseClicked(event -> SystemBrowser.open(page));
+        }
+        return label;
+    }
+
     private String blockedReason() {
         if (com.hexadron.launcher.util.Platform.isFlatpak()) {
             return I18n.t("update.manual.flatpak");

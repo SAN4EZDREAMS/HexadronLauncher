@@ -81,7 +81,7 @@ import java.util.function.Consumer;
  * <p><b>Prerequisite.</b> {@code clientId} must be an Azure application
  * registration that Mojang has approved for Minecraft authentication. Without
  * approval, step 4 returns HTTP 403 no matter how correct the rest is. Apply at
- * {@code https://aka.ms/mce-reviewappid}; until then use an offline account.
+ * {@code https://aka.ms/mce-reviewappid}; until then Microsoft sign-in will return HTTP 403.
  */
 public final class MicrosoftAuth {
 

@@ -4,12 +4,12 @@ plugins {
 }
 
 group = 'com.hexadron'
-// Версію можна перевизначити з CI: -PlauncherVersion=0.2.0-nightly.41
+// The version can be overridden from CI: -PlauncherVersion=0.2.0-nightly.41
 //
-// Це те, що потрапляє в манифест jar'а як Implementation-Version, а звідти —
-// у BuildConfig.version(), у User-Agent і у вікно оновлення. Саме за цим
-// рядком лаунчер порівнює себе з тегом релізу на GitHub, тому нічні збірки
-// мусять мати в ньому свій суфікс, інакше вони незрозумілі для порівняння.
+// This value goes into the jar manifest as Implementation-Version, and from there
+// into BuildConfig.version(), the User-Agent and the update window. The launcher
+// compares this string with the release tag on GitHub, so nightly builds must
+// have their own suffix in it; otherwise they cannot be compared.
 version = (project.findProperty('launcherVersion') ?: '0.9.8').toString()
 
 repositories {
@@ -74,6 +74,25 @@ tasks.register('wrapperJar', Jar) {
 	from sourceSets.wrapper.output
 }
 
+// The product version as a resource, for runs from class folders: `run`,
+// `cli`, `selfCheck` and the IDE. They have no jar manifest, so BuildConfig
+// reads com/hexadron/launcher/version.properties instead. With this file there
+// is only one place that holds the version: `version` above.
+def versionResourceDir = layout.buildDirectory.dir('generated/version-resource')
+def generateVersionResource = tasks.register('generateVersionResource') {
+	group = 'build'
+	description = 'Writes the launcher version into a resource for runs from class folders.'
+	def out = versionResourceDir
+	def value = project.version.toString()
+	inputs.property('version', value)
+	outputs.dir(out)
+	doLast {
+		def file = out.get().file('com/hexadron/launcher/version.properties').asFile
+		file.parentFile.mkdirs()
+		file.text = "version=${value}\n"
+	}
+}
+
 // Embedded in the launcher's resources. LaunchWrapperJar extracts it to the
 // data folder on first launch, and re-extracts it whenever its hash changes.
 tasks.named('processResources') {
@@ -81,6 +100,7 @@ tasks.named('processResources') {
 	from(tasks.named('wrapperJar')) {
 		into 'wrapper'
 	}
+	from(generateVersionResource)
 }
 
 // Main, not Launcher, and this matters beyond jpackage.
@@ -120,9 +140,9 @@ tasks.named('jar') {
 	manifest {
 		attributes(
 			'Hexadron-CurseForge-Api-Key': curseForgeApiKey,
-			// Read back by Launcher for the line under the wordmark on the
-			// splash screen. Without it the splash falls back to a constant,
-			// which is the kind of version number that goes stale unnoticed.
+			// Read back by BuildConfig: the splash screen, the User-Agent and
+			// the update check all use it. Runs from class folders read
+			// version.properties instead (generateVersionResource).
 			'Implementation-Title': 'HexadronLauncher',
 			'Implementation-Version': project.version.toString())
 	}
@@ -172,10 +192,10 @@ tasks.register('cli', JavaExec) {
 	// Gradle reads the child's output as UTF-8, and a JVM whose stdout is a pipe
 	// rather than a console does not write UTF-8 - from Java 19 it falls back to
 	// native.encoding, which on a Windows machine is a legacy code page. The two
-	// disagree, Gradle's decoder replaces every byte it cannot read, and a
-	// profile called "Більбао" is listed as a row of U+FFFD. Nothing is wrong
-	// with the data: run the packaged launcher and the name is intact. This only
-	// affects output read through Gradle, which is to say all of development.
+	// disagree, Gradle's decoder replaces every byte it cannot read, and a profile
+	// with a Cyrillic name is listed as a row of U+FFFD. Nothing is wrong with the
+	// data: run the packaged launcher and the name is intact. This only affects
+	// output read through Gradle, which is to say all of development.
 	systemProperty 'stdout.encoding', 'UTF-8'
 	systemProperty 'stderr.encoding', 'UTF-8'
 }
@@ -219,10 +239,10 @@ def productVersion = project.version.toString()
 def isMacOs = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('mac')
 def isWindowsHost = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('win')
 
-// jpackage приймає у --app-version ЛИШЕ числа з крапками. Нічна збірка має
-// версію 0.2.0-nightly.41, і з таким рядком jpackage просто не запуститься —
-// на всіх трьох системах. Тому в бандл іде числове ядро, а повна версія
-// лишається там, де її читає лаунчер: у манифесті jar'а.
+// jpackage accepts ONLY numbers with dots in --app-version. A nightly build has
+// the version 0.2.0-nightly.41, and with such a string jpackage does not start at
+// all - on all three systems. So the bundle gets the numeric core, and the full
+// version stays where the launcher reads it: in the jar manifest.
 def numericVersion = productVersion.replaceAll('[-+].*$', '')
 def bundleVersion = (isMacOs && numericVersion.startsWith('0.')) ? '1.0.0' : numericVersion
 
@@ -350,36 +370,37 @@ tasks.register('appImage', Exec) {
 
 // ------------------------------------------------------------ licence headers
 //
-// Кожен файл із кодом мусить починатися блоком ліцензії з tools/license-header.txt.
-// Ця задача це перевіряє, і від неї залежить compileJava — тобто НІЧОГО не
-// збереться, поки хоч в одному файлі блок відсутній або змінений. Не стиль, а
-// захист авторства: зняти згадку про ліцензію мовчки, "заодно" з іншою правкою,
-// тепер неможливо — збірка падає першим же кроком і називає файл.
+// Every source file must start with the licence block from tools/license-header.txt.
+// This task checks that, and compileJava depends on it - so NOTHING builds while
+// even one file has a missing or changed block. This is not style but protection
+// of authorship: it is no longer possible to remove the licence notice silently,
+// "along with" another edit - the build fails at the first step and names the file.
 //
-// Текст блоку живе в tools/license-header.txt і більше ніде. Той самий файл
-// читає tools/stamp-license-headers.py, який ці блоки і проставляє, тож зміна
-// формулювання — це одна правка та один запуск скрипта, а не сто п'ятдесят
-// правок і червона збірка.
+// The block text lives in tools/license-header.txt and nowhere else. The same file
+// is read by tools/stamp-license-headers.py, which stamps these blocks, so a change
+// of wording is one edit and one script run, not a hundred and fifty edits and a
+// red build.
 //
-// Порівнюється НОРМАЛІЗОВАНИЙ текст: символи коментаря (/*, *, #) знімаються,
-// порожні рядки прибираються. Тому один і той самий блок годиться і для .java,
-// і для .css, і для .properties, а перевірка не чіпляється до пробілів.
+// The NORMALISED text is compared: comment characters (/*, *, #) are removed and
+// blank lines are dropped. So one block fits .java, .css and .properties, and the
+// check does not care about whitespace.
 
-// Лежить у tools/, а не в корені: GitHub шукає ліцензію за шаблоном LICENSE*
-// у корені репозиторію, тому файл-шаблон LICENSE-HEADER.txt він теж вважав
-// ліцензією — і на сторінці проєкту з'являлася друга вкладка "License".
+// It lives in tools/, not in the root: GitHub looks for the licence by the pattern
+// LICENSE* in the repository root, so it also took the template file
+// LICENSE-HEADER.txt for a licence - and the project page showed a second
+// "License" tab.
 def licenseHeaderFile = rootProject.layout.projectDirectory.file('tools/license-header.txt').asFile
 
-// Розширення, у яких взагалі бувають коментарі. JSON у цей список не входить:
-// у ньому коментарів немає, а заголовок усередині .png — це зіпсований .png.
+// Extensions that can have comments at all. JSON is not in this list: it has no
+// comments, and a header inside a .png is a broken .png.
 def licensedExtensions = ['.java', '.css', '.properties']
 
 tasks.register('licenseHeaders') {
 	group = 'verification'
 	description = 'Fails the build when a source file has no licence header, or an altered one.'
 
-	// Усе, що потрібно задачі, зчитується тут, під час конфігурації: у Gradle 9
-	// звертання до Project із дії задачі вже застаріле, а в 10 його не буде.
+	// Everything the task needs is read here, at configuration time: in Gradle 9,
+	// access to Project from a task action is deprecated, and Gradle 10 removes it.
 	def header = licenseHeaderFile
 	def repoRoot = rootProject.projectDir
 	def roots = [rootProject.file('launcher/src'), rootProject.file('mod/src')].findAll { it.isDirectory() }
@@ -387,13 +408,13 @@ tasks.register('licenseHeaders') {
 
 	inputs.file(header)
 	roots.each { inputs.dir(it) }
-	// Дешева задача, і пропускати її не можна: саме та перевірка, заради якої
-	// вона існує, потрібна на КОЖНІЙ збірці.
+	// A cheap task, and it must not be skipped: the check it exists for is needed on
+	// EVERY build.
 	outputs.upToDateWhen { false }
 
 	doLast {
-		// Знімає синтаксис коментаря і лишає самий текст, тож один заголовок
-		// годиться і для .java, і для .css, і для .properties.
+		// Removes the comment syntax and keeps only the text, so one header fits
+		// .java, .css and .properties.
 		def normalise = { String text ->
 			text.readLines()
 				.collect { it.trim() }
@@ -410,12 +431,12 @@ tasks.register('licenseHeaders') {
 		}
 
 		if (!header.exists()) {
-			throw new GradleException("tools/license-header.txt не знайдено: ${header}. "
-				+ 'Без нього нема з чим звіряти заголовки.')
+			throw new GradleException("tools/license-header.txt not found: ${header}. "
+				+ 'Without it, there is nothing to compare the headers with.')
 		}
 		def wanted = normalise(header.text)
 		if (wanted.isEmpty()) {
-			throw new GradleException("tools/license-header.txt порожній: ${header}")
+			throw new GradleException("tools/license-header.txt is empty: ${header}")
 		}
 
 		def offenders = []
@@ -426,8 +447,8 @@ tasks.register('licenseHeaders') {
 					return
 				}
 				scanned++
-				// Перших рядків вистачає: заголовок мусить бути НА ПОЧАТКУ файлу,
-				// а не десь усередині - інакше "є згадка" не означає "видно".
+				// The first lines are enough: the header must be AT THE START of the file, not
+				// somewhere inside - otherwise "it is mentioned" does not mean "it is visible".
 				def head = normalise(f.readLines().take(40).join('\n'))
 				if (!head.startsWith(wanted)) {
 					offenders << repoRoot.toPath().relativize(f.toPath()).toString()
@@ -437,18 +458,18 @@ tasks.register('licenseHeaders') {
 
 		if (!offenders.isEmpty()) {
 			throw new GradleException(
-				"Ліцензійний заголовок відсутній або змінений у ${offenders.size()} файл(ах):\n"
+				"Licence header missing or changed in ${offenders.size()} file(s):\n"
 					+ offenders.collect { "  - $it" }.join('\n')
-					+ "\n\nВідновити: python3 tools/stamp-license-headers.py\n"
-					+ 'Текст заголовка: tools/license-header.txt. Умови: LICENSE.md.')
+					+ "\n\nRestore: python3 tools/stamp-license-headers.py\n"
+					+ 'Header text: tools/license-header.txt. Terms: LICENSE.md.')
 		}
 		logger.lifecycle("Licence headers: ${scanned} file(s) checked, all present.")
 	}
 }
 
-// Ворота стоять перед компіляцією, а не поруч із нею: `assemble`, `appImage`,
-// `run` і `build` — усі проходять через compileJava, тож обійти перевірку,
-// зібравши "щось інше", не вийде.
+// The gate is before compilation, not next to it: `assemble`, `appImage`, `run`
+// and `build` all go through compileJava, so it is not possible to skip the check
+// by building "something else".
 tasks.named('compileJava') {
 	dependsOn 'licenseHeaders'
 }

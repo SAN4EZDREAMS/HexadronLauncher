@@ -127,7 +127,7 @@ final class CategoryFilter {
         // The panel this replaces was one column in a scroller, and a scroller
         // is a thing that has to be discovered: half the list was below the edge
         // with nothing but a thin bar to say so, and somebody looking for
-        // "Технології" saw a list that stopped at "Оптимізація". Two columns is
+        // the Ukrainian "Technology" saw a list that stopped at "Optimization". Two columns is
         // the shape that fits the whole list in a panel shorter than the window
         // it drops out of, so the list is read rather than scrolled.
         //

@@ -320,7 +320,7 @@
  * The names are not shortened here either, and that was the other half of the
  * same fault: a scrolling list is fitted to its viewport - the scroller less
  * the bar down its side - so the longest names lost their last letters to an
- * ellipsis ("Ігрові механі..."). A grid takes the width its widest name asks
+ * ellipsis (for example, the Ukrainian "Game mechanics"). A grid takes the width its widest name asks
  * for.
  */
 .category-list {
@@ -1142,6 +1142,44 @@
 
 .update-failed {
     -fx-text-fill: -fx-danger-0;
+}
+
+/*
+ * The VirusTotal result under the version line of the update window.
+ *
+ * The same colours as the badges on the release page, so the two places read
+ * alike: green clean, amber a detection or two, red more. Grey when there is no
+ * result yet or the scan did not finish - that is not a finding, and painting it
+ * red would teach people to click past the red one.
+ */
+.scan-badge {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-padding: 3 10 3 10;
+}
+
+.scan-clean {
+    -fx-background-color: -fx-accent-0;
+    -fx-border-color: derive(-fx-accent-0, -20%);
+    -fx-text-fill: white;
+}
+
+.scan-warning {
+    -fx-background-color: -fx-warning-0;
+    -fx-border-color: derive(-fx-warning-0, -20%);
+    -fx-text-fill: #1b1206;
+}
+
+.scan-danger {
+    -fx-background-color: -fx-danger-0;
+    -fx-border-color: derive(-fx-danger-0, -20%);
+    -fx-text-fill: white;
+}
+
+.scan-pending,
+.scan-unchecked,
+.scan-error {
+    -fx-text-fill: -fx-text-1;
 }
 
 /* ------------------------------------------------------------- mod icons */
@@ -2258,4 +2296,72 @@
 
 .button.cleanup-danger-button:disabled {
     -fx-background-color: -fx-base-3;
+}
+
+/* ------------------------------------------------------------ on/off switch */
+
+/* The switch in the rows of the mods, data packs, resource packs and shaders
+   lists (OnOffSwitch). It is a Button underneath, so the button's own surface
+   is taken away here and the track below is all that is drawn. Placed last so
+   that it wins over the .button rules of the same weight above.
+
+   The colours are muted on purpose: a dark green track for on, a dark red one
+   for off. A list of forty mods is forty switches, and they must be easy to
+   tell apart without being the loudest thing in the window. */
+.button.on-off-switch,
+.button.on-off-switch:hover,
+.button.on-off-switch:armed,
+.button.on-off-switch:focused {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.on-off-track {
+    -fx-background-radius: 13;
+    -fx-border-radius: 13;
+    -fx-border-width: 1;
+    -fx-padding: 3 5 3 5;
+    -fx-min-height: 26;
+    -fx-pref-height: 26;
+    -fx-max-height: 26;
+    -fx-background-color: derive(-fx-danger-0, -58%);
+    -fx-border-color: derive(-fx-danger-0, -30%);
+}
+
+.on-off-switch:hover .on-off-track {
+    -fx-background-color: derive(-fx-danger-0, -48%);
+}
+
+.on-off-switch:on .on-off-track {
+    -fx-background-color: derive(-fx-accent-0, -50%);
+    -fx-border-color: -fx-accent-0;
+}
+
+.on-off-switch:on:hover .on-off-track {
+    -fx-background-color: derive(-fx-accent-0, -38%);
+}
+
+/* Keyboard focus: a lighter edge, not a glow. */
+.on-off-switch:focused .on-off-track {
+    -fx-border-color: -fx-text-1;
+}
+
+.on-off-knob {
+    -fx-background-radius: 9;
+    -fx-background-color: -fx-text-1;
+}
+
+.on-off-switch:on .on-off-knob {
+    -fx-background-color: -fx-text-0;
+}
+
+.on-off-word {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: derive(-fx-danger-0, 55%);
+}
+
+.on-off-switch:on .on-off-word {
+    -fx-text-fill: derive(-fx-accent-1, 60%);
 }

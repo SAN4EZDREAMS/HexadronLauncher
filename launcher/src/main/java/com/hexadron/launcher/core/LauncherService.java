@@ -39,9 +39,6 @@ import com.hexadron.launcher.mods.ModrinthProvider;
 import com.hexadron.launcher.net.Downloader;
 import com.hexadron.launcher.profile.Profile;
 import com.hexadron.launcher.profile.ProfileStore;
-import com.hexadron.launcher.skin.SkinCredentials;
-import com.hexadron.launcher.skin.SkinProfile;
-import com.hexadron.launcher.skin.SkinSession;
 import com.hexadron.launcher.skin.SkinStore;
 
 import java.io.IOException;
@@ -72,7 +69,6 @@ public final class LauncherService {
 
     /** Skins and capes, and which account wears which. */
     private final SkinStore skinStore;
-    private final SkinCredentials skinCredentials;
     private final VersionInstaller versionInstaller;
     private final ProfileStore profiles;
     private final AccountStore accounts;
@@ -101,15 +97,42 @@ public final class LauncherService {
     private final com.hexadron.launcher.mods.PackInstaller shaderInstaller;
 
     /**
-     * Named stages of start-up, in the order they run.
+     * Named stages of start-up that this class runs, in the order they run.
      *
      * <p>Reported as identifiers rather than sentences: this class has no
      * interface layer and no translations, and the splash screen turns each of
-     * these into a line in the user's own language. Anything not listed here is
-     * fast enough not to be worth a line.
+     * these into a line in the user's own language.
+     *
+     * <p>Every piece of work the constructor does is inside one of these stages.
+     * A new piece of start-up work gets its own stage here, a
+     * {@code splash.step.<name>} line in every language, and a call to the
+     * step consumer where it begins. The self-check fails when a stage has no
+     * line in the reference language.
      */
-    public static final List<String> STARTUP_STEPS =
-            List.of("settings", "dataFolder", "profiles", "credentials", "accounts", "platforms");
+    public static final List<String> STARTUP_STEPS = List.of(
+            "settings", "dataFolder", "verifiedFiles", "profiles", "credentials",
+            "accounts", "skins", "network", "javaRuntimes", "platforms");
+
+    /**
+     * Named stages of start-up that the application runs around this class, in
+     * the order they run: clearing the leftovers of an old update, the update
+     * check, the language, and the window.
+     *
+     * <p>Kept here, next to {@link #STARTUP_STEPS}, so that the splash screen
+     * and the self-check read one complete list. The {@code updates} stage does
+     * not run when the update check is switched off in the settings.
+     */
+    public static final List<String> LAUNCHER_STEPS =
+            List.of("updateCleanup", "updates", "language", "interface");
+
+    /** Every stage the splash screen can show, in the order they run. */
+    public static final List<String> ALL_STARTUP_STEPS;
+
+    static {
+        java.util.List<String> all = new java.util.ArrayList<>(STARTUP_STEPS);
+        all.addAll(LAUNCHER_STEPS);
+        ALL_STARTUP_STEPS = List.copyOf(all);
+    }
 
     public LauncherService(GameDirs dirs, LauncherSettings settings) throws IOException {
         this(dirs, settings, step -> { });
@@ -129,6 +152,7 @@ public final class LauncherService {
         // Read once, at start-up, off the launch path: it is one file, and
         // reading it while the user waits for the game would be the wrong place
         // to spend the time it exists to save.
+        step.accept("verifiedFiles");
         this.verified = VerifiedFiles.load(this.dirs);
         this.downloader.verified(verified);
         this.versionInstaller = new VersionInstaller(dirs, downloader);
@@ -141,12 +165,16 @@ public final class LauncherService {
         this.secretStore = SecretStores.forHost(this.dirs, settings.useFileCredentialStore());
         step.accept("accounts");
         this.accounts = new AccountStore(this.dirs, secretStore).load();
+        step.accept("skins");
         this.skinStore = new SkinStore(this.dirs).load();
-        this.skinCredentials = new SkinCredentials(secretStore);
 
         // Before anything is fetched. On a network that needs a proxy, a single
-        // request sent direct is a twenty-second wait for a failure.
+        // request sent direct is a twenty-second wait for a failure. A stage of
+        // its own, because a proxy with a password reads it from the credential
+        // store, and on Windows that can be the slowest step of start-up.
+        step.accept("network");
         applyProxy();
+        step.accept("javaRuntimes");
         this.javaLocator = new JavaLocator(dirs);
         // One resolver, shared by launching and by the loader installers, so a
         // profile can never install against one Java and start on another.
@@ -1634,14 +1662,40 @@ public final class LauncherService {
         accounts.save();
     }
 
-    /** The skins and capes on this machine, and which account wears which. */
-    public SkinStore skins() {
-        return skinStore;
+    /**
+     * Why an offline account was refused. Shown to the user as it is, so it
+     * says what to do.
+     */
+    public static final String OFFLINE_NEEDS_LICENCE =
+            "Offline play needs a Microsoft account that owns Minecraft: Java Edition. "
+                    + "Sign in with Microsoft first, then add the offline account.";
+
+    /**
+     * Adds an offline account.
+     *
+     * <p>Only when a Microsoft account that owns the game is signed in here.
+     * {@link MicrosoftAuth} checks ownership before it hands back an account,
+     * so every stored Microsoft account with its credentials has passed that
+     * check. Offline play is for single player and LAN games on a copy the
+     * player owns - not a way to play without buying the game.
+     *
+     * @throws IllegalStateException    when no such Microsoft account is here;
+     *                                  the message is {@link #OFFLINE_NEEDS_LICENCE}
+     * @throws IllegalArgumentException when Minecraft would reject the name
+     */
+    public Account addOfflineAccount(String username) throws IOException {
+        if (!accounts.hasLicensedAccount()) {
+            throw new IllegalStateException(OFFLINE_NEEDS_LICENCE);
+        }
+        Account account = Account.offline(username);
+        accounts.add(account);
+        accounts.save();
+        return account;
     }
 
-    /** Saved sign-ins at third-party skin services, one per account. */
-    public SkinCredentials skinCredentials() {
-        return skinCredentials;
+    /** The skin pictures kept for Microsoft accounts, for upload to Mojang. */
+    public SkinStore skins() {
+        return skinStore;
     }
 
     /** Where the proxy password lives, if there is one. */
@@ -1727,15 +1781,14 @@ public final class LauncherService {
                     + "valid name and select it.");
         }
 
-        Account player = ensureFresh(account, progress);
+        // Offline play is for people who own the game. Checked here as well as
+        // when the account is added, because accounts.json can be edited by hand
+        // and a Microsoft account can be removed after an offline one was made.
+        if (account.isOffline() && !accounts.hasLicensedAccount()) {
+            throw new IOException(OFFLINE_NEEDS_LICENCE);
+        }
 
-        // Settled here, before anything is built from the account: a remote
-        // skin service is played as the account on that service, and that
-        // decides the name written into the world, the token that has to be
-        // kept off the command line, and the UUID every other player resolves.
-        // The settings themselves stay keyed to the account that was selected.
-        SkinProfile skin = skinStore.of(account.id());
-        player = SkinSession.identity(player, skin, skinCredentials, progress);
+        Account player = ensureFresh(account, progress);
 
         VersionJson version = installProfile(profile, progress);
 
@@ -1784,29 +1837,14 @@ public final class LauncherService {
                     + "for this launch. Do not share JVM crash logs from this session.");
         }
 
-        // Started before the command is built, because the command has to carry
-        // the address it listens on. Closed by the exit handler below, so the
-        // socket lives exactly as long as the game does.
-        SkinSession skins = SkinSession.open(skin, player, skinStore, dirs, progress);
-
         LaunchCommandBuilder.LaunchCommand command = commandBuilder.build(
-                version, profile, player, gameDir, assetsDir, java, wrapperJar, skins.arguments());
+                version, profile, player, gameDir, assetsDir, java, wrapperJar);
 
         progress.log("Command: %s", command.toLoggableString(player.accessToken()));
 
         profile.markPlayed();
         profiles.save();
 
-        try {
-            return gameLauncher.start(command, onOutput, exit -> {
-                skins.close();
-                onExit.accept(exit);
-            }, progress);
-        } catch (IOException | RuntimeException e) {
-            // The game never started, so nothing will ever call the exit handler
-            // that would have closed it.
-            skins.close();
-            throw e;
-        }
+        return gameLauncher.start(command, onOutput, onExit, progress);
     }
 }
