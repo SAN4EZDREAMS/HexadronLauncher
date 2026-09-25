@@ -27,8 +27,8 @@
       <li>The right Java for each version, downloaded when it is missing</li>
     </ul>
     <p>
-      In the Flatpak sandbox the game and its mods see only the downloads folder of
-      your home, not the rest of it.
+      In the Flatpak version the game and its mods can use the launcher's own data
+      folder and your Downloads folder, but not the rest of your home folder.
     </p>
   </description>
 

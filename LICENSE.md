@@ -185,10 +185,11 @@ covered by this licence:
 | Mods installed from Modrinth or CurseForge | each mod's own licence |
 | Eclipse Temurin runtimes | GPLv2 with the Classpath Exception |
 | JavaFX | GPLv2 with the Classpath Exception |
-| The category drawings fetched from Modrinth | Modrinth's terms |
+| authlib-injector, downloaded for skin services | the authlib-injector project's own licence |
+| Category drawings and mod logos fetched from Modrinth and CurseForge | the platforms' and the authors' terms |
 
-The Hexadron Optimise mod declares a set of third-party mods and installs them
-from Modrinth. It does not bundle them, and it does not relicense them.
+The Hexadron Optimise mod names a set of third-party mods, and the launcher
+installs them from Modrinth. Neither bundles them, and neither relicenses them.
 
 ---
 
