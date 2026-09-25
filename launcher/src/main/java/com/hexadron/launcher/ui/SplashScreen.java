@@ -121,7 +121,12 @@ public final class SplashScreen {
     private final List<String> completed = new ArrayList<>();
 
     private final long startedNanos = System.nanoTime();
-    private final int expectedSteps;
+
+    /**
+     * How many stages the bar counts. Lowered by {@link #notRunning} when a
+     * stage is skipped on this run. Read and written on the JavaFX thread only.
+     */
+    private int expectedSteps;
 
     private Timing current;
     private boolean closed;
@@ -375,7 +380,7 @@ public final class SplashScreen {
     /**
      * Ends the stage that was running and begins this one.
      *
-     * @param key one of {@code LauncherService.STARTUP_STEPS}, or any other
+     * @param key one of {@code LauncherService.ALL_STARTUP_STEPS}, or any other
      *            identifier; shown through the {@code splash.step.<key>} string
      */
     public void step(String key) {
@@ -409,6 +414,33 @@ public final class SplashScreen {
 
             current = new Timing(key, now, label);
             timings.add(current);
+            bar.setProgress(Math.min(1.0, (double) timings.size() / expectedSteps));
+        });
+    }
+
+    /**
+     * Tells the bar that a stage will not run this time.
+     *
+     * <p>For a stage that depends on a setting, such as the update check. The
+     * bar counts one stage fewer, so that it does not stop short of the end
+     * and then jump to full when the window opens.
+     *
+     * <p>The stage is also named in {@link #summary()} as skipped, so the log
+     * shows that it did not run rather than leaving it out without a word.
+     *
+     * @param key the stage that is skipped
+     */
+    public void notRunning(String key) {
+        long now = System.nanoTime();
+        Platform.runLater(() -> {
+            if (closed) {
+                return;
+            }
+            // The stage before it has ended, because the skipped one would have
+            // started here. Finished first, so the summary keeps the real order.
+            finishCurrent(now);
+            completed.add(I18n.t("splash.step." + key) + " skipped");
+            expectedSteps = Math.max(1, expectedSteps - 1);
             bar.setProgress(Math.min(1.0, (double) timings.size() / expectedSteps));
         });
     }

@@ -192,6 +192,7 @@ public final class SelfCheck {
         skinSheets();
         skinService();
         translations();
+        startupSteps();
 
         System.out.println();
         if (failures.isEmpty()) {
@@ -2514,6 +2515,48 @@ public final class SelfCheck {
      */
     private static final java.util.regex.Pattern PRINTF =
             java.util.regex.Pattern.compile("%(\\d+\\$)?[sdfn]");
+
+    /**
+     * Every piece of start-up work is shown on the splash screen.
+     *
+     * <p>The list of stages, the service that reports them and the translations
+     * are three places that must agree. A stage that the service reports but the
+     * list does not name makes the progress bar reach the end too early, and a
+     * stage with no translation shows as !splash.step.name! on the first screen
+     * anybody sees.
+     */
+    private static void startupSteps() {
+        section("Start-up stages");
+
+        List<String> all = com.hexadron.launcher.core.LauncherService.ALL_STARTUP_STEPS;
+        check("no start-up stage is listed twice",
+                new java.util.HashSet<>(all).size() == all.size());
+        Map<String, String> reference = I18n.bundle(Language.DEFAULT);
+        for (String step : all) {
+            check("the splash screen names the start-up stage: " + step,
+                    reference.containsKey("splash.step." + step));
+        }
+
+        // The constructor itself, with a consumer that writes the stages down.
+        // "settings" is the one stage it does not report: createDefault reads
+        // the settings and reports that stage before the constructor runs.
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-startup-steps");
+            GameDirs dirs = new GameDirs(dir);
+            List<String> reported = new ArrayList<>();
+            new com.hexadron.launcher.core.LauncherService(dirs,
+                    new com.hexadron.launcher.core.LauncherSettings(dirs), reported::add);
+            List<String> expected = com.hexadron.launcher.core.LauncherService.STARTUP_STEPS
+                    .stream().filter(step -> !step.equals("settings")).toList();
+            check("the service reports every stage it runs, in the listed order: " + reported,
+                    reported.equals(expected));
+        } catch (IOException e) {
+            check("a service could be built to count the start-up stages: " + e, false);
+        } finally {
+            deleteRecursively(dir);
+        }
+    }
 
     private static void translations() {
         section("Translations");

@@ -101,15 +101,42 @@ public final class LauncherService {
     private final com.hexadron.launcher.mods.PackInstaller shaderInstaller;
 
     /**
-     * Named stages of start-up, in the order they run.
+     * Named stages of start-up that this class runs, in the order they run.
      *
      * <p>Reported as identifiers rather than sentences: this class has no
      * interface layer and no translations, and the splash screen turns each of
-     * these into a line in the user's own language. Anything not listed here is
-     * fast enough not to be worth a line.
+     * these into a line in the user's own language.
+     *
+     * <p>Every piece of work the constructor does is inside one of these stages.
+     * A new piece of start-up work gets its own stage here, a
+     * {@code splash.step.<name>} line in every language, and a call to the
+     * step consumer where it begins. The self-check fails when a stage has no
+     * line in the reference language.
      */
-    public static final List<String> STARTUP_STEPS =
-            List.of("settings", "dataFolder", "profiles", "credentials", "accounts", "platforms");
+    public static final List<String> STARTUP_STEPS = List.of(
+            "settings", "dataFolder", "verifiedFiles", "profiles", "credentials",
+            "accounts", "skins", "network", "javaRuntimes", "platforms");
+
+    /**
+     * Named stages of start-up that the application runs around this class, in
+     * the order they run: clearing the leftovers of an old update, the update
+     * check, the language, and the window.
+     *
+     * <p>Kept here, next to {@link #STARTUP_STEPS}, so that the splash screen
+     * and the self-check read one complete list. The {@code updates} stage does
+     * not run when the update check is switched off in the settings.
+     */
+    public static final List<String> LAUNCHER_STEPS =
+            List.of("updateCleanup", "updates", "language", "interface");
+
+    /** Every stage the splash screen can show, in the order they run. */
+    public static final List<String> ALL_STARTUP_STEPS;
+
+    static {
+        java.util.List<String> all = new java.util.ArrayList<>(STARTUP_STEPS);
+        all.addAll(LAUNCHER_STEPS);
+        ALL_STARTUP_STEPS = List.copyOf(all);
+    }
 
     public LauncherService(GameDirs dirs, LauncherSettings settings) throws IOException {
         this(dirs, settings, step -> { });
@@ -129,6 +156,7 @@ public final class LauncherService {
         // Read once, at start-up, off the launch path: it is one file, and
         // reading it while the user waits for the game would be the wrong place
         // to spend the time it exists to save.
+        step.accept("verifiedFiles");
         this.verified = VerifiedFiles.load(this.dirs);
         this.downloader.verified(verified);
         this.versionInstaller = new VersionInstaller(dirs, downloader);
@@ -141,12 +169,17 @@ public final class LauncherService {
         this.secretStore = SecretStores.forHost(this.dirs, settings.useFileCredentialStore());
         step.accept("accounts");
         this.accounts = new AccountStore(this.dirs, secretStore).load();
+        step.accept("skins");
         this.skinStore = new SkinStore(this.dirs).load();
         this.skinCredentials = new SkinCredentials(secretStore);
 
         // Before anything is fetched. On a network that needs a proxy, a single
-        // request sent direct is a twenty-second wait for a failure.
+        // request sent direct is a twenty-second wait for a failure. A stage of
+        // its own, because a proxy with a password reads it from the credential
+        // store, and on Windows that can be the slowest step of start-up.
+        step.accept("network");
         applyProxy();
+        step.accept("javaRuntimes");
         this.javaLocator = new JavaLocator(dirs);
         // One resolver, shared by launching and by the loader installers, so a
         // profile can never install against one Java and start on another.

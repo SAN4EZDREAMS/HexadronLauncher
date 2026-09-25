@@ -296,6 +296,27 @@ reading three small files - so the rest is honesty about it:
   be the slowest stage of all - and doing it here keeps that cost off both
   start-up and the first press of Play.
 
+The stages, in the order they run. Every piece of start-up work is inside one
+of them; `LauncherService.ALL_STARTUP_STEPS` is the list, and `selfCheck` fails
+when a stage has no translation or the service reports a stage out of order.
+
+| Stage | What runs |
+|---|---|
+| `settings` | Reads `launcher.json` |
+| `dataFolder` | Creates the base folders and the download manager |
+| `verifiedFiles` | Reads the list of files already checked against their hash |
+| `profiles` | Loads the profiles |
+| `credentials` | Picks the credential store. The store is only chosen here; it is probed on first use |
+| `accounts` | Loads the accounts |
+| `skins` | Loads the saved skins |
+| `network` | Applies the proxy settings. A proxy with a password reads it from the credential store |
+| `javaRuntimes` | Prepares the Java locator and resolver. Detection itself runs after the window is up |
+| `platforms` | Sets up CurseForge and builds the mod, modpack, data pack, resource pack and shader installers |
+| `updateCleanup` | Starts the removal of the leftovers of a previous update |
+| `updates` | Asks the release feed for a newer launcher. Skipped when the check is off in the settings; the bar then counts one stage fewer, and the log names it as skipped |
+| `language` | Applies the language from the settings |
+| `interface` | Builds the main window |
+
 `-Dhexadron.nosplash=true` skips the splash. The timings still go into the log.
 
 The splash stays up for three seconds at minimum, and there has to be some

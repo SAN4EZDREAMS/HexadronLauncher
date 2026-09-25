@@ -99,7 +99,7 @@ public final class Launcher extends Application {
 
         if (!SplashScreen.isDisabled()) {
             splash = new SplashScreen(I18n.t("splash.version", BuildConfig.version()),
-                    LauncherService.STARTUP_STEPS.size() + 1);
+                    LauncherService.ALL_STARTUP_STEPS.size());
             splash.show();
         }
 
@@ -143,6 +143,7 @@ public final class Launcher extends Application {
      * seconds more the folder is still its.
      */
     private com.hexadron.launcher.update.Updates.Available lookForUpdate(LauncherService service) {
+        reportStep("updateCleanup");
         try {
             com.hexadron.launcher.update.UpdateInstall.detect()
                     .ifPresent(com.hexadron.launcher.update.Updates::cleanUpInBackground);
@@ -154,6 +155,9 @@ public final class Launcher extends Application {
         }
         if (!service.settings().checkForUpdates()) {
             com.hexadron.launcher.core.LauncherLog.info("Update check: switched off in settings");
+            if (splash != null) {
+                splash.notRunning("updates");
+            }
             return null;
         }
         reportStep("updates");
@@ -206,6 +210,7 @@ public final class Launcher extends Application {
      * It goes back on the moment the window is up.
      */
     private void open(Stage stage, LauncherService service) {
+        reportStep("language");
         I18n.use(Language.resolve(service.settings().language()));
         // Now that settings have been read, the splash can be told how long the
         // user wants to look at it. Until this point it has been using its own
