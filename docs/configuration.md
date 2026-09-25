@@ -1,7 +1,7 @@
 # Configuration
 
 This page covers the data folder and its layout, the settings in `launcher.json`,
-Microsoft sign-in, the CurseForge API key, offline accounts, languages and the
+Microsoft sign-in, the CurseForge API key, languages and the
 command-line mode.
 
 ## Data folder
@@ -32,8 +32,8 @@ The **Data folder** tab in the settings window shows the folder in use and opens
 | `java/<component>/` | Java runtimes that the launcher downloaded |
 | `instances/<profile>/` | Game folder of each profile: mods, worlds, config |
 | `icons/` | Pictures chosen as profile icons. Each copy is named after the first 16 characters of its SHA-1 |
-| `skins/` | Chosen skins and capes, and `skins.json` (which account wears which skin) |
-| `agents/` | Java agents added to the game (`authlib-injector.jar` for skins) |
+| `skins/` | Chosen skins and capes, and `skins.json` (local skin cache and active selections) |
+| `wrapper/` | The internal launch wrapper jar for secure session handshakes |
 | `secrets/` | Credential files, when the credential store in use keeps files here (see [Credential storage](#credential-storage)) |
 | `cache/` | Version manifest, `verified.index`, downloaded modpacks, loader installers, Java archives, mod logos (`mod-icons/`) |
 | `logs/` | `launcher.log` for the current run, and `launcher-1.log` to `launcher-5.log` for the five runs before it |
@@ -148,7 +148,7 @@ The launcher then shows "Minecraft services rejected this application (HTTP 403)
 with the link above.
 
 With `microsoftClientId` set to an empty string, **Sign in with Microsoft** shows
-"Microsoft sign-in is not configured". Offline accounts do not need any of this.
+"Microsoft sign-in is not configured".
 
 To revoke the launcher's access to a Microsoft account, use
 <https://account.live.com/consent/Manage>. Removing the account in the launcher
@@ -171,20 +171,6 @@ system stores only when it first needs a credential. The proxy password uses the
 same store. See
 [../SECURITY.md](../SECURITY.md) for what this protects against and what it does
 not.
-
-## Offline accounts
-
-An offline name must be 3 to 16 characters, and use only Latin letters, digits
-and underscore (`^[A-Za-z0-9_]{3,16}$`). The launcher refuses other names when
-you add the account and again before a launch.
-
-Minecraft applies the same rule in single-player. With a name such as a Cyrillic
-word, the world loads and then the game disconnects the player with
-`Invalid characters in username`.
-
-An offline account uses the UUID that a server in offline mode calculates:
-`UUID.nameUUIDFromBytes("OfflinePlayer:" + name)`. Player data in worlds stays
-attached to the same name.
 
 ## CurseForge
 
@@ -291,14 +277,11 @@ To add a language:
 The launcher has a command-line mode that needs no display. It uses the same data
 folder and settings as the window.
 
-```
 ./gradlew :launcher:cli --args="versions"
 ./gradlew :launcher:cli --args="create Hexadron 26.2 fabric"
-./gradlew :launcher:cli --args="offline Steve"
 ./gradlew :launcher:cli --args="install Hexadron"
 ./gradlew :launcher:cli --args="mods Hexadron"
-./gradlew :launcher:cli --args="play Hexadron Steve"
-```
+./gradlew :launcher:cli --args="play Hexadron"
 
 `com.hexadron.launcher.Main` starts the command-line mode when it gets any
 argument, so a packaged build accepts the same commands. The Windows executable
@@ -318,13 +301,12 @@ is built without a console, so use the Gradle task there.
 | `mods <profile> [pack.json]` | Installs a mod pack from a file, or the Hexadron Optimise set |
 | `addjar <profile> <jar>` | Copies a local mod jar into the profile |
 | `search <query> <mcVersion> <loader>` | Up to 10 results from each of Modrinth and CurseForge. A platform with no key is skipped |
-| `offline <username>` | Adds an offline account |
-| `accounts` | Saved accounts with their UUIDs |
-| `play <profile> [username]` | Installs if needed, then launches. With a username, it uses an offline account of that name for this launch only. Without one, it uses the selected account, or an offline `Player` |
+| `accounts` | Saved accounts with their profile identifiers |
+| `play <profile>` | Installs if needed, then launches with the active authenticated account |
 
 Loaders: `vanilla`, `fabric`, `quilt`, `forge`, `neoforge`.
 `<profile>` is a profile ID or a profile name.
 
 Exit codes: `0` success, `1` error (or failed check, or the game exited with a
 non-zero code), `2` unknown command or no arguments, `130` interrupted.
-Microsoft sign-in is not available in this mode.
+Microsoft sign-in requires a display and is performed via the graphical window.

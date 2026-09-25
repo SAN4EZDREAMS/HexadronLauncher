@@ -53,7 +53,7 @@ The default is the authorization code grant with PKCE, in the system browser, wi
 
 `accounts.json` has **no credentials**: only user name, UUID, XUID, token expiry and the selected account. It is safe to attach to a bug report.
 
-The Microsoft refresh token and the Minecraft access token go to the operating system's credential store. So do skin service tokens and the proxy password.
+The Microsoft refresh token and the Minecraft access token go to the operating system's credential store. So does the proxy password.
 
 | Platform | Store | Key held by |
 |---|---|---|
@@ -89,7 +89,7 @@ Minecraft takes its token as `--accessToken <token>`. Other processes can read p
 3. Writes the real token to the child's standard input and closes the stream.
 4. The wrapper replaces the placeholder in memory and calls the game's main class by reflection in the same JVM.
 
-The wrapper is not used for offline accounts (token `0`). If its jar is missing, the token goes on the command line and the log says so. Settings, Accounts, "Hand the session token over standard input" (`secureLaunchHandshake`, on by default) turns it off; do this only if a mod loader fails with it. A profile's wrapper command must pass standard input through, or the game exits with code 92.
+If the wrapper jar is missing, the token falls back to the command line and the log says so. Settings, Accounts, "Hand the session token over standard input" (`secureLaunchHandshake`, on by default) turns it off; do this only if a mod loader fails with it. A profile's wrapper command must pass standard input through, or the game exits with code 92.
 
 ---
 
@@ -97,7 +97,7 @@ The wrapper is not used for offline accounts (token `0`). If its jar is missing,
 
 Two layers remove secrets from output:
 
-- **Registered secrets.** Microsoft, Xbox, XSTS, Minecraft and skin service tokens, the device code and the CurseForge key are registered with `util/Redactor.java` when received. Each exact value becomes `<redacted>`. Values under 12 characters are not registered.
+- **Registered secrets.** Microsoft, Xbox, XSTS, Minecraft tokens, the device code and the CurseForge key are registered with `util/Redactor.java` when received. Each exact value becomes `<redacted>`. Values under 12 characters are not registered.
 - **Token shapes.** Unregistered tokens are found by shape: JWTs, `M.C5_...`/`M.R3_...`, `XBL3.0 x=...;...`, `token:...:`, OAuth codes and tokens in URLs and JSON, and values after `--accessToken`, `--session`, `"accessToken"` and `"clientToken"`.
 
 Both apply where text leaves the launcher: `logs/launcher.log`, the log pane, console output, game output, helper error output and the printed launch command.
@@ -163,18 +163,7 @@ Whoever controls the installer jar controls what runs. The launcher downloads it
 
 ---
 
-## 10. The skin agent (authlib-injector)
-
-The game starts with the authlib-injector Java agent when the account's skin settings need a skin service: an offline account with a skin or cape served by the launcher itself, or an account that uses a network skin service. The agent runs inside the game with the game's rights. The setting belongs to the account (`skins.json`), not to the profile. See [docs/skins.md](docs/skins.md).
-
-- If `agents/authlib-injector.jar` exists, it is used and nothing is downloaded. You can place a reviewed copy there.
-- Otherwise the launcher reads `https://authlib-injector.yushi.moe/artifact/latest.json`, and requires an HTTPS download address. When that file gives a SHA-256, the jar is checked against it; when it gives none, the jar is used without a check. Hash and jar come from the same publisher, so the check finds damaged downloads, not a compromised publisher.
-
-A skin service password is exchanged once for a token pair and is not stored. The tokens go to the credential store.
-
----
-
-## 11. Updating the launcher
+## 10. Updating the launcher
 
 The launcher replaces itself with builds from the project's GitHub releases ([docs/updates.md](docs/updates.md)). One HTTPS request to `api.github.com` asks what the channel has. Nothing is downloaded until the user clicks Update. A second process then moves the old folder aside, copies the new build in, and puts the old folder back if a step fails.
 
@@ -202,6 +191,6 @@ To switch the check off: Settings, Downloads, "Look for launcher updates at star
 
 ---
 
-## 12. Self-check
+## 11. Self-check
 
 `./gradlew :launcher:selfCheck` runs without network or display. It covers, among other things: PKCE against the RFC 7636 test vector; the authorization request parameters (`S256`, `state`, `response_type=code`, loopback IP redirect, no client secret, no verifier, no `openid` or `email` scope); refusal of a wrong or missing `state`; that account metadata cannot carry a token; log redaction of registered and unregistered tokens; where the CurseForge key is sent; which releases count as newer; parsing of the VirusTotal block; delta update planning and assembly; and refusal of unsafe manifest paths.

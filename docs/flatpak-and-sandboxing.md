@@ -102,11 +102,10 @@ exec bwrap --die-with-parent --unshare-pid --new-session \
   --ro-bind-try "$D/natives" "$D/natives" \
   --ro-bind-try "$D/java" "$D/java" \
   --ro-bind-try "$D/wrapper" "$D/wrapper" \
-  --ro-bind-try "$D/agents" "$D/agents" \
   "$@"
 ```
 
-`wrapper/` holds the jar that receives the session token, and `agents/` holds `authlib-injector.jar` for skins. Bind the folder of any Java outside `/usr`. Some systems also need the X11 socket and Xauthority file, the PulseAudio socket in `$XDG_RUNTIME_DIR`, and the target of `/etc/resolv.conf`.
+`wrapper/` holds the jar that receives the session token. Bind the folder of any Java outside `/usr`.
 
 ### Windows and macOS
 

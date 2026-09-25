@@ -37,7 +37,7 @@ Packages:
 | Package | Content |
 |---|---|
 | `about/` | `Credits`: the About window's credit list, read from `about/credits.json` |
-| `auth/` | Accounts and `accounts.json`, offline accounts, Microsoft sign-in (browser with PKCE and a loopback redirect server, or device code) |
+| `auth/` | Accounts and `accounts.json`, Microsoft sign-in (browser with PKCE and a loopback redirect server, or device code) |
 | `auth/secret/` | Credential stores: Windows DPAPI, macOS Keychain, freedesktop Secret Service, and an AES-256-GCM encrypted file as the fallback. `SecretStores` picks the best available |
 | `cleanup/` | The storage window's model: scans the data folder, works out what is still in use, and deletes only what passes a last safety check (`StorageCleaner`) |
 | `cli/` | `HexadronCli`, the command-line mode |
@@ -53,7 +53,7 @@ Packages:
 | `net/` | `Http` (shared client with retry and User-Agent), `Downloader` (parallel, verifies hashes), `ProxyChoice` |
 | `profile/` | `Profile` (one instance and its game folder under `instances/`), `ProfileStore`, `ProfileLayout` (groups and order, shared by the list and grid views) |
 | `share/` | `.hexbuild` build files: `BuildFormat`, `BuildExport`, `BuildImport` |
-| `skin/` | Skins and capes: Mojang's profile API for Microsoft accounts, skin service sign-in (`YggdrasilAuth`), a loopback skin service for offline accounts (`LocalSkinService`), authlib-injector, the skin store, sheet layouts and templates, and the 3D model for the viewer (`SkinModel`) |
+| `skin/` | Skins and capes: Mojang Profile API for Microsoft accounts, local sheet layouts, templates, and the 3D model for the viewer (`SkinModel`) |
 | `ui/` | JavaFX windows and dialogs, the content window and its sections, list and grid views, theme, tray. No launch logic |
 | `update/` | Self-update: release feed, channels, version comparison, image manifests and delta updates, the VirusTotal report parser, and `Updater`, the second process that replaces the installed folder |
 | `util/` | Platform detection, hashes, Maven coordinates, archive extraction, argument splitting, file permissions, log redaction (`Redactor`), fast tree deletion, a lossless WebP decoder |
@@ -82,7 +82,7 @@ These rules hold in the code. Keep them when you change it.
 
 - **No third-party libraries in the launcher.** The `dependencies` block in `launcher/build.gradle` is empty. The core uses only the JDK (`java.net.http` for HTTP). JavaFX comes from the `org.openjfx.javafxplugin` plugin (module `javafx.controls`) and is used by `ui/`, `Launcher`, `Main` and `skin/SkinModel` only.
 - **JSON goes through `json/Json.java`.** Every JSON file and API response is read as a tree and navigated by key. There is no data binding and no other JSON library.
-- **Third-party programs run outside the launcher process.** Java runtimes, loader installers (the Forge processors run in their own JVM), and authlib-injector (a `-javaagent` of the game) are downloaded at run time and never loaded into the launcher's JVM.
+- **Third-party programs run outside the launcher process.** Java runtimes and loader installers (the Forge processors run in their own JVM) are managed independently and never run unsandboxed in the launcher's own JVM.
 - **`LauncherService` is the application layer.** It has no UI dependencies. The window and `HexadronCli` call the same methods, so every flow can run headless.
 - **Long work runs off the JavaFX thread.** The UI starts worker threads (for example `MainWindow.runInBackground`) and returns results with `Platform.runLater`. `Progress` implementations are called from worker threads; `UiProgress` moves the updates onto the JavaFX thread and limits how often it does so.
 - **Credentials stay out of logs and command lines.** Tokens are registered with `Redactor` when the launcher gets them. Every log output (`UiProgress`, `LauncherLog`, the console `Progress`, the game output reader in `GameLauncher`) removes them with `Redactor.scrub`. Credential stores that call an operating-system helper (`security`, `secret-tool`, `powershell`) send secrets on standard input (`ProcessSecretStore`). The game gets its token through the launch wrapper.
@@ -130,18 +130,14 @@ The launcher does not read the mod's metadata. It installs the set from `launche
 
 The launcher does not install the `hexadron-optimise` jar itself. To copy a local build into a profile, use the `addjar` command. The `cli` task runs in the `launcher/` folder, so give the jar path relative to it, or as an absolute path:
 
-```
 ./gradlew :mod:build
 ./gradlew :launcher:cli --args="addjar <profile-id> ../mod/build/libs/hexadron-optimise-1.0.0.jar"
-```
 
 `addjar` does not write the jar into the mod lock file, so a later pack install does not delete it.
 
 `mod/build.gradle` has a second, fixed list for the development environment. It adds the seven performance mods as `runtimeOnly` dependencies from the Modrinth Maven repository, pinned to specific builds. It is off by default, so `:mod:build` does not need the Modrinth API:
 
-```
 ./gradlew :mod:runClient -Phexadron.devMods=true
-```
 
 The mods are not bundled into the jar with `include`, because that would redistribute other authors' mods.
 

@@ -43,28 +43,26 @@ When the update check is off, `updates` does not run: the bar counts one stage f
 
 ## The main window
 
-```
 +----------------------------------------------------------------+
-| H HexadronLauncher [Search instances]  [grid][broom][bug][?][cog] |
+| H HexadronLauncher [Search instances] [grid][broom][bug][?][cog] |
 +---------------------+------------------------------------------+
-| Instances           | [icon] My world                          |
-| | Modded set    2.. |  Minecraft    26.2                       |
-| |  [F] My world     |  Loader       Fabric 0.19.3              |
-| |  [F] Sky          |  Memory       4096 MB                    |
-|   [V] 1.8           |  Java         Detected automatically     |
-|                     |  Last played  16 Aug 2026, 14:47         |
-|                     |  Folder       ...\instances\1-027f96     |
-| [New][Edit][Remove] | [Edit][Install / repair][Content...]     |
-| [New group][Sort A-Z] [Open game folder][Detect]               |
-| [Import][Export]    | Mods (5)                                 |
+| Instances | [icon] My world |
+| | Modded set 2.. | Minecraft 26.2 |
+| | [F] My world | Loader Fabric 0.19.3 |
+| | [F] Sky | Memory 4096 MB |
+| [V] 1.8 | Java Detected automatically |
+| | Last played 16 Aug 2026, 14:47 |
+| | Folder ...\instances\1-027f96 |
+| [New][Edit][Remove] | [Edit][Install / repair][Content...] |
+| [New group][Sort A-Z] [Open game folder][Detect] |
+| [Import][Export] | Mods (5) |
 +---------------------+------------------------------------------+
-| Account: [ v ] [Add offline account] [Sign in with Microsoft]  |
-|          [Skin and cape...] [Remove]                  [ Play ] |
-| Ready                                                          |
-| [==============================================]               |
-| > Log                                                          |
+| Account: [ v ] [Manage accounts] [Sign in with Microsoft] |
+| [Skin and cape...] [Remove] [ Play ] |
+| Ready |
+| [==============================================] |
+| > Log |
 +----------------------------------------------------------------+
-```
 
 **Header.** The search field filters both views by instance name, Minecraft version or loader. The icon buttons have their names in tooltips:
 

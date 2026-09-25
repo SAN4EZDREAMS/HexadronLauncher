@@ -14,8 +14,8 @@ performance mod set. The project is in beta (version 0.9.8).
 | Minecraft versions | Every version in Mojang's `version_manifest_v2`: releases, snapshots, old beta and old alpha. Modern, `virtual` (1.6) and `map_to_resources` (before 1.6) asset layouts |
 | Mod loaders | Fabric, Quilt, Forge and NeoForge install and launch. The version list shows only versions that the chosen loader has builds for |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments, Java path and wrapper command. List view and grid view, with groups and custom icons |
-| Accounts | Offline accounts and Microsoft sign-in. Credentials go to the system credential store, or to an encrypted file when there is none |
-| Skins | Skin and cape window: choose a PNG, 3D preview, templates, upload to Mojang for Microsoft accounts. Offline accounts can get a skin from the launcher itself or from a skin service such as Ely.by or LittleSkin |
+| Accounts | Microsoft sign-in with system credential storage. Credentials go to the system credential store, or to an encrypted file when there is none |
+| Skins | Skin and cape window: choose a PNG, 3D preview, templates, upload to Mojang for Microsoft accounts |
 | Mods | Search Modrinth and CurseForge, filter by category, install with required dependencies, switch mods on and off, remove. Works with jars you add yourself. CurseForge needs an API key |
 | Modpacks | Modrinth `.mrpack` and CurseForge modpack zips, from the catalogue or from a file. A pack becomes a new profile or replaces the current one. Removing a pack deletes only the files it wrote |
 | Data packs | Per world. Install, switch on and off, remove, import a zip. Mods that a data pack needs are installed with it |
@@ -66,8 +66,8 @@ missing or changed. Details are in [docs/building.md](docs/building.md).
 | Page | Content |
 |---|---|
 | [Interface](docs/interface.md) | Main window, list and grid views, groups, settings window, start-up screen |
-| [Configuration](docs/configuration.md) | Data folder, `launcher.json`, Microsoft sign-in, CurseForge key, offline accounts, languages, command-line mode |
-| [Skins and capes](docs/skins.md) | The skin window, skin sources, authlib-injector |
+| [Configuration](docs/configuration.md) | Data folder, launcher.json, Microsoft sign-in, CurseForge key, languages, command-line mode |
+| [Skins and capes](docs/skins.md) | The skin window, 3D preview, skin and cape management |
 | [Java and mod loaders](docs/java-and-loaders.md) | Java detection and download, loader compatibility, Forge and NeoForge installation |
 | [Mods](docs/mods.md) | Content window, mod search, the Installed tab, dependencies, Hexadron Optimise |
 | [Modpacks and packs](docs/packs.md) | Modpacks, data packs, resource packs, shaders |
@@ -91,3 +91,5 @@ Minecraft, the mod loaders, the mods and the Java runtimes that the launcher
 downloads have their own licences; see LICENSE.md, section 8.
 
 HexadronLauncher is not affiliated with Mojang Studios or Microsoft.
+
+**NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
