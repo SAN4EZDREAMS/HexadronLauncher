@@ -1338,6 +1338,13 @@ the badge and which buttons are live.
   and every guide on the subject means by it and what the loader looks at. The
   mod stays in the folder and stays in the list, marked switched off, because a
   mod turned off to test a crash is meant to come back.
+- **The on/off switch** replaced the "Switch off" / "Switch on" button in the
+  mods, data packs, resource packs and shaders lists. A button that names the
+  action shows the opposite of the state; the switch shows the state itself.
+  The knob is on the right and the track is a muted green when the item is on,
+  on the left and a muted red when it is off, with a short word on the free
+  side. A click asks for the change, and the switch slides only when the list
+  shows the result, so a change that is cancelled or refused never looks done.
 - **Remove** deletes a mod the launcher installed, and sends a jar the player
   added to the recycle bin instead. That difference is the point: the launcher
   can fetch its own downloads again from the record it kept, and it has no idea

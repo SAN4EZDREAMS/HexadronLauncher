@@ -2695,6 +2695,12 @@ public final class SelfCheck {
             check("the bug report window has its words: " + key,
                     reference.containsKey(key));
         }
+        // The words on the on/off switch, and the actions a screen reader
+        // announces for it.
+        for (String key : new String[]{"mods.switch.on", "mods.switch.off",
+                "mods.enable", "mods.disable"}) {
+            check("the on/off switch has its words: " + key, reference.containsKey(key));
+        }
         check("the logo cache setting is named and explained",
                 reference.containsKey("settings.modIconCache")
                         && reference.containsKey("settings.modIconCache.note"));
@@ -7283,6 +7289,16 @@ public final class SelfCheck {
                 "build-drop", "build-drop-text"}) {
             check("." + styleClass + " is styled", css.contains("." + styleClass));
         }
+
+        // The on/off switch in the content lists. Without these rules it is a
+        // bare knob and a word on the button's own surface, with no track and
+        // no colour to say which state it is in.
+        for (String styleClass : new String[]{
+                "on-off-switch", "on-off-track", "on-off-knob", "on-off-word"}) {
+            check("." + styleClass + " is styled", css.contains("." + styleClass));
+        }
+        check("the switch has a look of its own for the on state",
+                css.contains(".on-off-switch:on .on-off-track"));
 
         // The scroller added to the account window is not the only one: the
         // profile list and the inventory view were drawing modena's light bar

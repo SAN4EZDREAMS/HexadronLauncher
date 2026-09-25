@@ -998,7 +998,7 @@ public final class ContentBrowserWindow implements ContentSection.Host {
     private final class InstalledCell extends ContentRow<ModEntry> {
 
         private final Label badge = new Label();
-        private final Button toggle = new Button();
+        private final OnOffSwitch toggle = new OnOffSwitch();
         private final Button remove = new Button();
 
         /** One each, reused, rather than a new node per row the eye passes over. */
@@ -1105,7 +1105,9 @@ public final class ContentBrowserWindow implements ContentSection.Host {
                             profile.minecraftVersion())
                     : null);
 
-            toggle.setText(I18n.t(mod.enabled() ? "mods.disable" : "mods.enable"));
+            // The switch shows the state; a click asks for the change, and the
+            // switch moves when the list shows the result.
+            toggle.show(mod.enabled(), mod.jarName());
             toggle.setDisable(busy);
             toggle.setOnAction(event -> toggleMod(mod));
 
