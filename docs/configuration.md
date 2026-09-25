@@ -32,7 +32,7 @@ The **Data folder** tab in the settings window shows the folder in use and opens
 | `java/<component>/` | Java runtimes that the launcher downloaded |
 | `instances/<profile>/` | Game folder of each profile: mods, worlds, config |
 | `icons/` | Pictures chosen as profile icons. Each copy is named after the first 16 characters of its SHA-1 |
-| `skins/` | Chosen skins and capes, and `skins.json` (local skin cache and active selections) |
+| `skins/` | Skin pictures chosen for upload to Mojang, and `skins.json` (which picture and arm width is kept for which Microsoft account) |
 | `wrapper/` | The internal launch wrapper jar for secure session handshakes |
 | `secrets/` | Credential files, when the credential store in use keeps files here (see [Credential storage](#credential-storage)) |
 | `cache/` | Version manifest, `verified.index`, downloaded modpacks, loader installers, Java archives, mod logos (`mod-icons/`) |
@@ -117,6 +117,23 @@ For the effect of these settings, see:
 | `hexadron.nosplash` | system property | `true` skips the start-up window |
 | `CURSEFORGE_API_KEY` | environment | CurseForge key when `curseForgeApiKey` is empty. At build time, the key written into the jar |
 | `HEXADRON_DEBUG` | environment | Any value makes the command-line mode print stack traces |
+
+## Offline accounts
+
+An offline account is for single player and LAN games on a copy of the game
+that you own. The launcher adds one, and starts the game with one, only while a
+Microsoft account that owns Minecraft: Java Edition is signed in. The ownership
+check is the one made at Microsoft sign-in and at each token refresh
+(`/entitlements/mcstore`). A Microsoft entry in `accounts.json` without its
+credentials in the credential store does not count.
+
+This check runs on your computer, so someone who changes the launcher's files
+can get around it. It does not replace the ownership check that Mojang's servers
+make: an offline account still cannot join a server that checks ownership.
+
+An offline account plays with the game's default skin. It cannot join servers
+that check ownership. The launcher does not attach any agent to the game and
+does not change where the game gets profiles or textures from.
 
 ## Microsoft sign-in
 

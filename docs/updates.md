@@ -46,7 +46,7 @@ A release is offered only if it has the full build for this system under an exac
 | Linux | `HexadronLauncher-linux.tar.gz` (also `.tgz`, `.zip`) |
 | macOS | `HexadronLauncher-macos.tar.gz` (also `.tgz`, `.zip`, and the older `mac` and `osx` names) |
 
-The release workflow ([building.md](building.md)) also publishes a manifest and four parts per system (see [Delta updates](#delta-updates)). Part names use `win`, `lnx` and `darwin`. Older launchers pick "a name that contains `windows` and ends in `.zip`", so a part named with `windows` would break their updates. Do not rename these files.
+The release workflow ([building.md](building.md)) also publishes a manifest, its signature (`<manifest>.sig`, see [Update signatures](#update-signatures)) and four parts per system (see [Delta updates](#delta-updates)). Part names use `win`, `lnx` and `darwin`. Older launchers pick "a name that contains `windows` and ends in `.zip`", so a part named with `windows` would break their updates. Do not rename these files.
 
 ## The update window
 
@@ -118,6 +118,47 @@ The launcher:
 5. Checks every file against the manifest (presence, size, SHA-256, link target) and restores the executable bit where recorded.
 
 Any failure is logged and the full archive is downloaded instead. The manifest is refused if a path is absolute or contains `..`, `\` or `:`. A nightly build normally downloads only `app` and `base`.
+
+## Update signatures
+
+The manifest holds the SHA-256 of every file and of the full archive. The
+release workflow signs it with Ed25519 and publishes the signature beside it as
+`HexadronLauncher-<system>.manifest.json.sig` (Base64 of the 64-byte signature).
+The launcher checks the signature against the public keys in
+`update/UpdateSignature.java` (`PUBLIC_KEYS`) before it uses any hash in the
+manifest. It also checks that the manifest is for the version and system on
+offer, so an old signed manifest cannot be served again.
+
+When `PUBLIC_KEYS` has a key, the launcher refuses an update with no manifest,
+with a signature that does not verify, or with a manifest that does not name the
+full archive. It does not fall back to the unchecked archive. An assembled
+delta image may hold only the files the manifest lists; one extra file fails it,
+because the part archives themselves are not signed. When `PUBLIC_KEYS`
+is empty, updates are checked by hash only, and the update log says so.
+
+### Making the key pair
+
+Do this once, on your own computer, not in CI:
+
+```
+openssl genpkey -algorithm ed25519 -out update-signing.pem
+openssl pkey -in update-signing.pem -pubout -outform DER | base64 -w0
+```
+
+1. Put the second command's output (it starts with `MCow`) into `PUBLIC_KEYS`
+   in `update/UpdateSignature.java`.
+2. In the GitHub repository, open **Settings > Secrets and variables > Actions**
+   and add the secret `UPDATE_SIGNING_KEY` with the full text of
+   `update-signing.pem`.
+3. Keep `update-signing.pem` offline, for example in a password manager. Never
+   commit it. Anyone with this file can sign an update.
+
+The workflow step **sign the update manifests** fails the release when the source
+has a key but the secret is missing, or when the secret is not one of the keys in
+the source.
+
+To change the key: add the new public key to `PUBLIC_KEYS` and release with the
+old secret. Then set the new secret and remove the old key in a later release.
 
 ## VirusTotal
 

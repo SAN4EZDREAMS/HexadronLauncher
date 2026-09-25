@@ -134,11 +134,10 @@ public final class StorageScanner {
         Path root = dirs.root().toAbsolutePath().normalize();
         Set<Path> paths = new LinkedHashSet<>();
         for (String name : List.of("launcher.json", "accounts.json", "profiles.json",
-                "secrets", "wrapper", "agents")) {
+                "secrets", "wrapper")) {
             paths.add(root.resolve(name));
         }
         paths.add(dirs.skinsFile().toAbsolutePath().normalize());
-        paths.add(dirs.skins().resolve("signing-key.json").toAbsolutePath().normalize());
         if (currentLog != null) {
             paths.add(currentLog.toAbsolutePath().normalize());
         }

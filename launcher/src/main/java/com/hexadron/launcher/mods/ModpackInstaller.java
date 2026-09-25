@@ -157,6 +157,15 @@ public final class ModpackInstaller {
                 skipped.add(download.path() + " (the pack puts this outside the instance folder)");
                 continue;
             }
+            if (download.urls().isEmpty()) {
+                skipped.add(download.path() + " (the pack downloads this from a host that"
+                        + " .mrpack files may not use)");
+                continue;
+            }
+            if (download.sha1() == null || download.sha1().isBlank()) {
+                skipped.add(download.path() + " (the pack gives no SHA-1 to check it against)");
+                continue;
+            }
             DownloadTask task = new DownloadTask(download.urls(), root.resolve(relative),
                     download.sha1(), download.size(), fileNameOf(relative), false);
             tasks.put(relative, task);

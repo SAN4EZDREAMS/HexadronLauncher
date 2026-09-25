@@ -4,7 +4,7 @@ This page covers the **Skin and cape** window: choosing a skin, the 3D preview, 
 
 ## Opening the window
 
-Select an account in the account row at the bottom of the main window and click **Skin and cape...**. The button is disabled when no account is selected. The window edits the selected account only.
+Select an account in the account row at the bottom of the main window and click **Skin and cape...**. The button is disabled when no account is selected, and for an offline account, which has no skin settings. The window edits the selected account only.
 
 The left half is an interactive 3D preview of the player model. The right half contains controls for **Skin**, **Cape**, and official synchronization with Mojang services. **Save** writes the local cache to `skins/skins.json`. **Cancel** discards unapplied changes.
 

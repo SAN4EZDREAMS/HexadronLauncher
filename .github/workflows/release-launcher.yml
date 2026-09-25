@@ -333,6 +333,51 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
+      # UPDATE SIGNATURES
+      #
+      # Each manifest is signed with Ed25519, and the signature is published beside it
+      # as <manifest>.sig. The launcher verifies it against the public key compiled
+      # into update/UpdateSignature.java before it trusts a single hash in the
+      # manifest. The private key is the repository secret UPDATE_SIGNING_KEY (the
+      # PEM text); it is written to a file only for the length of this step. See
+      # docs/updates.md for making the key pair.
+      #
+      # When the launcher source carries a key, a missing secret or a secret that is
+      # not that key stops the release: a build that its own launchers would refuse
+      # must not be published.
+      - name: sign the update manifests
+        run: |
+          set -euo pipefail
+          source_file=launcher/src/main/java/com/hexadron/launcher/update/UpdateSignature.java
+          # Every Ed25519 public key in DER/Base64 starts with MCow. Comment lines are
+          # left out, so the example in the Javadoc is not taken for a key.
+          configured=$(grep -vE '^[[:space:]]*(//|\*)' "$source_file" \
+            | grep -oE '"MCow[A-Za-z0-9+/=]{40,}"' | tr -d '"' || true)
+          if [ -z "${UPDATE_SIGNING_KEY:-}" ]; then
+            if [ -n "$configured" ]; then
+              echo "UPDATE_SIGNING_KEY is not set, but the launcher requires signed updates"
+              exit 1
+            fi
+            echo "::warning::UPDATE_SIGNING_KEY is not set - manifests are published unsigned"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/update-signing.pem"
+          trap 'rm -f "$key"' EXIT
+          umask 077
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$key"
+          public=$(openssl pkey -in "$key" -pubout -outform DER | base64 -w0)
+          if [ -n "$configured" ] && ! printf '%s\n' "$configured" | grep -qxF "$public"; then
+            echo "UPDATE_SIGNING_KEY is not one of the keys in $source_file"
+            exit 1
+          fi
+          for manifest in downloaded/HexadronLauncher-*.manifest.json; do
+            openssl pkeyutl -sign -inkey "$key" -rawin -in "$manifest" | base64 -w0 > "$manifest.sig"
+            openssl pkeyutl -verify -pubin -inkey <(openssl pkey -in "$key" -pubout) -rawin \
+              -in "$manifest" -sigfile <(base64 -d "$manifest.sig")
+            echo "signed $(basename "$manifest")"
+          done
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
       - name: publish the release
         run: |
           set -euo pipefail

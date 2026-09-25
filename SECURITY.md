@@ -161,6 +161,8 @@ Installing Forge or NeoForge runs the third-party programs in the installer's pr
 
 Whoever controls the installer jar controls what runs. The launcher downloads it over HTTPS from `maven.minecraftforge.net` or `maven.neoforged.net`, the same jar a user would run by hand.
 
+**Modpack files.** A `.mrpack` names each file by URL and SHA-1, and both come from the pack itself. So the SHA-1 proves only that the download is the file the pack meant. The launcher therefore downloads `.mrpack` files only over HTTPS from the hosts in Modrinth's format specification (`cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`, `gitlab.com`), and skips a file with no SHA-1. Paths that leave the instance folder are refused.
+
 ---
 
 ## 10. Updating the launcher
@@ -172,7 +174,8 @@ The launcher replaces itself with builds from the project's GitHub releases ([do
 | Transport | HTTPS, JDK default TLS. The download URL comes from the GitHub API. Redirects are followed, never from HTTPS to HTTP. |
 | Right file | The full archive has an exact name for each system. No such file, no offer. |
 | Complete download | Length compared with the length GitHub published. A short file is deleted. |
-| Full archive content | SHA-256 compared with the release manifest, when the manifest names this archive. |
+| Manifest author | Ed25519 signature of the manifest, checked against the public key built into the launcher (`update/UpdateSignature.java`). The manifest must be for the version and system on offer. With a key built in, an update without a valid signature is refused. See [docs/updates.md](docs/updates.md#update-signatures). |
+| Full archive content | SHA-256 compared with the release manifest, when the manifest names this archive. With a key built in, the manifest must name it. |
 | Delta update content | Every file of the assembled image, reused or downloaded, must match the manifest (size, SHA-256, link target). Any mismatch falls back to the full archive. |
 | Paths | Manifest paths that leave the image are refused. The archive reader refuses entries that resolve outside the target folder, symbolic links that lead outside it (absolute targets, and relative targets that climb out, also through linked folders), and writes through a link to outside. |
 | Application image | Runtime and jar folder must be where jpackage puts them, or nothing is replaced. |
@@ -180,7 +183,7 @@ The launcher replaces itself with builds from the project's GitHub releases ([do
 
 **Not checked:**
 
-- **No signature.** The builds are not code-signed and nothing is checked against a key the project controls. The manifest comes from the same release as the archives, so its hashes find damaged downloads, not a bad publisher. Anyone who can publish a release in `SAN4EZDREAMS/HexadronLauncher` can publish a build the launcher will install.
+- **No code signing of the executables.** The update manifest is signed (see above), but the executables are not signed by Microsoft or Apple. The manifest signature protects against a replaced release only when `PUBLIC_KEYS` has a key and the private key is kept out of the repository. While `PUBLIC_KEYS` is empty, anyone who can publish a release in `SAN4EZDREAMS/HexadronLauncher` can publish a build the launcher will install.
 - **No SmartScreen or Gatekeeper approval.** The clients are unsigned archives. For a second opinion, use the release page, the VirusTotal result and the build log.
 - **VirusTotal does not block anything.** The result is written into the release notes after publication and shown in the update window. A `danger` result does not block the update or remove the release.
 - **Nightly builds are not reviewed.** They are published from the branch. Nightly is not the default; you must select it.

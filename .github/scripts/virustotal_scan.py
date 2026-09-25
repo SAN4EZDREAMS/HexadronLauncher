@@ -87,7 +87,7 @@ DIRECT_LIMIT = 32 * 1024 * 1024     # POST /files
 UPLOAD_LIMIT = 650 * 1024 * 1024    # POST to upload_url
 
 # Files that it makes no sense to send to antivirus engines: build descriptions, not programs.
-SKIP_SUFFIXES = (".json", ".txt", ".md", ".sha256")
+SKIP_SUFFIXES = (".json", ".txt", ".md", ".sha256", ".sig")
 
 # Marks. The order is the severity; the worst one becomes the mark of the release.
 CLEAN, WARN, DANGER = "CLEAN", "WARNING", "DANGER"

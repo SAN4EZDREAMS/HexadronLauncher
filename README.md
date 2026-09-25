@@ -14,7 +14,7 @@ performance mod set. The project is in beta (version 0.9.8).
 | Minecraft versions | Every version in Mojang's `version_manifest_v2`: releases, snapshots, old beta and old alpha. Modern, `virtual` (1.6) and `map_to_resources` (before 1.6) asset layouts |
 | Mod loaders | Fabric, Quilt, Forge and NeoForge install and launch. The version list shows only versions that the chosen loader has builds for |
 | Profiles | Each profile has its own game folder, Minecraft version, loader, memory limit, JVM arguments, Java path and wrapper command. List view and grid view, with groups and custom icons |
-| Accounts | Microsoft sign-in with system credential storage. Credentials go to the system credential store, or to an encrypted file when there is none |
+| Accounts | Microsoft sign-in with system credential storage. Credentials go to the system credential store, or to an encrypted file when there is none. Offline accounts for single player and LAN, only while a Microsoft account that owns the game is signed in |
 | Skins | Skin and cape window: choose a PNG, 3D preview, templates, upload to Mojang for Microsoft accounts |
 | Mods | Search Modrinth and CurseForge, filter by category, install with required dependencies, switch mods on and off, remove. Works with jars you add yourself. CurseForge needs an API key |
 | Modpacks | Modrinth `.mrpack` and CurseForge modpack zips, from the catalogue or from a file. A pack becomes a new profile or replaces the current one. Removing a pack deletes only the files it wrote |

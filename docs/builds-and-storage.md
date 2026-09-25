@@ -49,7 +49,7 @@ The import dialog shows what the build contains and lets you change the profile 
 Checks on import (`share/BuildImport.java`):
 
 - Every path must land inside the new instance (`ModpackInstaller.safeRelative`, see [packs.md](packs.md)).
-- A download entry must sit directly in `mods`, `resourcepacks`, `shaderpacks` or `saves/<world>/datapacks`, and have an HTTPS URL and a SHA-1. Other entries are refused and reported.
+- A download entry must sit directly in `mods`, `resourcepacks`, `shaderpacks` or `saves/<world>/datapacks`, and have an HTTPS URL and a SHA-1. The URL must be on `cdn.modrinth.com`, a `*.forgecdn.net` host, `github.com`, `raw.githubusercontent.com` or `gitlab.com`. Other entries are refused and reported.
 - Every download must match its SHA-1.
 
 Modpack records are restored with only the paths that arrived.
@@ -93,7 +93,7 @@ Advanced mode shows the whole data folder as a tree, down to worlds and mod jars
 
 ### Protected files and checks
 
-These files cannot be ticked, and `StorageCleaner` refuses them again at delete time: `launcher.json`, `accounts.json`, `profiles.json`, `secrets`, `wrapper`, `agents`, the skins index, the skin signing key and the log being written. A folder that holds one of them is refused too.
+These files cannot be ticked, and `StorageCleaner` refuses them again at delete time: `launcher.json`, `accounts.json`, `profiles.json`, `secrets`, `wrapper`, the skins index and the log being written. An `agents` folder left by an earlier version is not used any more and can be deleted. A folder that holds one of them is refused too.
 
 Cleanup does not start while the game runs or the launcher is busy. It keeps the launcher busy while it deletes.
 

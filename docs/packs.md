@@ -45,7 +45,7 @@ Before anything is downloaded, the launcher asks where the pack goes:
 Then the launcher:
 
 1. Downloads the pack archive to `cache/modpacks` (platform packs only).
-2. Downloads the files the manifest names. A Modrinth file marked `client: unsupported` is skipped. An optional file is installed, but its failure does not stop the install.
+2. Downloads the files the manifest names. A Modrinth file marked `client: unsupported` is skipped. An optional file is installed, but its failure does not stop the install. A `.mrpack` file is downloaded only over HTTPS from the hosts that Modrinth's format allows: `cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com` and `gitlab.com`. A file with no such address, or with no SHA-1, is skipped and named in the message at the end.
 3. For a CurseForge file whose author has disabled third-party downloads, it looks for a file with the same SHA-1 on Modrinth. If there is none, the file is listed for manual download.
 4. Copies the pack's `overrides` over the instance (for a `.mrpack`, `client-overrides` after `overrides`). It does not change these files.
 5. Records every path it wrote in `.hexadron-modpacks.json`.
