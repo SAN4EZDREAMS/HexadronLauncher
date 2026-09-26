@@ -22,7 +22,7 @@ This plan lists what the launcher does not do yet. It is based on a comparison w
 |---|---|---|---|---|
 | 0.1 | Approved Microsoft sign-in | P0 | **Done** | |
 | 1.1 | Crash analysis with fixes | P1 | **Done** | |
-| 1.2 | Find the bad mod automatically (bisect) | P1 | M | Unique |
+| 1.2 | Find the bad mod automatically (bisect) | P1 | **Done** | Unique |
 | 1.3 | Mod update check and bulk update | P1 | M | |
 | 1.4 | Move mods with a version change in the instance dialog | P1 | S | Unique (full form) |
 | 2.1 | Modpack update that keeps player configs | P1 | L | Unique |
@@ -51,6 +51,7 @@ These are rare in other launchers. Do not remove them while you work on the item
 - Shader loader detection (Iris, OptiFine, Canvas).
 - The bug report window names the newest launcher log.
 - Crash analysis with one-click fixes and signed rule updates (`crash/`, [docs/crashes.md](docs/crashes.md)).
+- The problem-mod search (`bisect/`): it restores the exact mod set it started from.
 
 ---
 
@@ -75,22 +76,13 @@ Built as planned; see [docs/crashes.md](docs/crashes.md).
 - A stack trace names the mod whose class threw the exception, found by the class file inside the jar (`crash/StackAttribution.java`). A game that went silent for 45 seconds before it was ended is reported as frozen; after 30 seconds of silence the launcher asks the game's thread-dump agent (in the launch wrapper jar) for its threads, and names the mod the frozen threads were in. Forge 1.12 duplicate and missing-mod errors are recognised too.
 - When no rule matches, the window links the crash report, the game logs and the bug report window. **Find the problem mod** joins them with **1.2**.
 
-### 1.2 Find the bad mod automatically: bisect (P1, Unique)
+### 1.2 Find the bad mod automatically: bisect (P1, Unique) - Done
 
-**Problem.** With 100 or more mods, the player cannot find the mod that crashes the game. People switch off mods by hand, one at a time.
+Built as planned, without waiting for **2.2**: the search records the mods that were on and restores exactly that set, which is all a snapshot was needed for. See [docs/crashes.md](docs/crashes.md#finding-the-problem-mod).
 
-**Plan.**
-1. The player selects **Find the problem mod**.
-2. The launcher takes a snapshot of the mod set (see **2.2**).
-3. It switches off half of the mods. Required dependencies stay with the mods that need them (`ModDependents`).
-4. It starts the game and waits for a crash, or asks: "Did the problem occur?"
-5. It keeps the half that fails and repeats. For 200 mods, about 8 launches are enough.
-6. At the end, it names the mod, or the pair of mods, and restores the snapshot.
-7. Offer it in the crash window (`ui/CrashDialog.java`) when no rule matches, and after a crash fix that did not help.
-
-**Done when.** On a test pack with one known bad mod, bisect finds that mod, and the mod set is the same as before the test.
-
-**Start from.** `mods/ModDependents.java`, `mods/ModScan.java`, `launch/GameLauncher.java`, `crash/CrashEvidence.java` (tells a crash from a clean exit).
+- `bisect/Bisect.java`: halving with dependency closure, and a pair search when neither half fails alone. The self-check finds a single culprit at every position among 2 to 200 mods (at most 16 launches for 200), conflicting pairs, and broken libraries.
+- `bisect/BisectFiles.java`: switching by `.disabled` renames, the dependency graph from jar descriptors, the state saved after every step in `.hexadron-bisect.json`.
+- `ui/BisectWindow.java`: the step-by-step window. A crash counts as the problem by itself; otherwise the player answers. Started from the crash window or the profile menu; **Play** in a profile with an unfinished search reopens it.
 
 ### 1.3 Mod update check and bulk update (P1)
 

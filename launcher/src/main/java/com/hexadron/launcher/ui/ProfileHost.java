@@ -72,6 +72,9 @@ public interface ProfileHost {
 
     void openFolder(Profile profile);
 
+    /** Starts or continues the search for the mod that causes a problem. */
+    void findProblemMod(Profile profile);
+
     /** Asks for a picture and puts it on the profile. */
     void chooseIcon(Profile profile);
 

@@ -119,6 +119,7 @@ final class ProfileMenu {
                 item(I18n.t("action.edit"), () -> host.edit(profile)),
                 item(I18n.t("action.install"), () -> host.install(profile)),
                 item(I18n.t("action.mods"), () -> host.openMods(profile)),
+                item(I18n.t("bisect.action"), () -> host.findProblemMod(profile)),
                 item(I18n.t("action.openFolder"), () -> host.openFolder(profile)),
                 item(I18n.t("action.exportBuild"), () -> host.exportBuild(profile)),
                 new SeparatorMenuItem(),

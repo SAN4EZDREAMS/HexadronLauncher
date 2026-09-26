@@ -193,6 +193,7 @@ public final class SelfCheck {
         translations();
         startupSteps();
         crashAnalysis();
+        problemModSearch();
 
         System.out.println();
         if (failures.isEmpty()) {
@@ -9359,6 +9360,147 @@ public final class SelfCheck {
                         .format(new Object[]{"X"});
                 check("crash text " + entry.getKey() + " formats cleanly in " + language.code(),
                         text.contains("X") && !text.contains("{") && !text.contains("''"));
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ problem-mod search
+
+    /** Runs a whole search against an oracle; returns the result, or null if it did not finish. */
+    private static List<String> searchWith(List<String> mods,
+                                           com.hexadron.launcher.bisect.Bisect.Graph graph,
+                                           java.util.function.Predicate<java.util.Set<String>> problem,
+                                           int[] launches) {
+        var state = com.hexadron.launcher.bisect.Bisect.start(mods);
+        for (int i = 0; i < 200 && !state.isDone(); i++) {
+            launches[0]++;
+            state = com.hexadron.launcher.bisect.Bisect.next(state,
+                    problem.test(com.hexadron.launcher.bisect.Bisect.enabledFor(state, graph)));
+        }
+        return state.isDone() ? state.result() : null;
+    }
+
+    private static void problemModSearch() {
+        section("Problem-mod search");
+        var none = com.hexadron.launcher.bisect.Bisect.Graph.none();
+
+        // One culprit, every position, several sizes.
+        boolean allFound = true;
+        int worst = 0;
+        for (int n : new int[]{2, 3, 5, 8, 17, 64, 200}) {
+            List<String> mods = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                mods.add(String.format("mod-%03d.jar", i));
+            }
+            for (String culprit : mods) {
+                int[] launches = {0};
+                List<String> found = searchWith(mods, none, on -> on.contains(culprit), launches);
+                allFound &= List.of(culprit).equals(found);
+                if (n == 200) {
+                    worst = Math.max(worst, launches[0]);
+                }
+            }
+        }
+        check("the search finds a single culprit wherever it is", allFound);
+        check("two hundred mods take at most about sixteen launches, not two hundred", worst > 0 && worst <= 16);
+        check("the estimate for two hundred mods is eight launches",
+                com.hexadron.launcher.bisect.Bisect.estimate(200) == 8);
+
+        // A conflicting pair: neither mod causes the problem alone.
+        List<String> mods = new ArrayList<>();
+        for (int i = 0; i < 40; i++) {
+            mods.add(String.format("mod-%02d.jar", i));
+        }
+        boolean pairs = true;
+        for (int[] pair : new int[][]{{3, 30}, {0, 39}, {5, 6}, {20, 21}, {1, 19}}) {
+            String a = mods.get(pair[0]);
+            String b = mods.get(pair[1]);
+            List<String> found = searchWith(mods, none, on -> on.contains(a) && on.contains(b), new int[1]);
+            pairs &= found != null && found.size() == 2 && found.containsAll(List.of(a, b));
+        }
+        check("the search finds a conflicting pair, in different or the same half", pairs);
+
+        // Dependencies travel with the mods that need them.
+        Map<String, java.util.Set<String>> deps = new java.util.LinkedHashMap<>();
+        deps.put("iris.jar", java.util.Set.of("sodium.jar"));
+        deps.put("sodium.jar", java.util.Set.of("fabric-api.jar"));
+        deps.put("modmenu.jar", java.util.Set.of("fabric-api.jar"));
+        var graph = new com.hexadron.launcher.bisect.Bisect.Graph(deps);
+        List<String> set = List.of("a.jar", "b.jar", "c.jar", "fabric-api.jar", "iris.jar", "modmenu.jar",
+                "sodium.jar", "z.jar");
+        check("a tested mod always has its dependencies", graph.closure(List.of("iris.jar"), set)
+                .containsAll(List.of("iris.jar", "sodium.jar", "fabric-api.jar")));
+        boolean depsOk = true;
+        var probe = com.hexadron.launcher.bisect.Bisect.start(set);
+        for (int i = 0; i < 20 && !probe.isDone(); i++) {
+            var on = com.hexadron.launcher.bisect.Bisect.enabledFor(probe, graph);
+            for (String mod : on) {
+                depsOk &= on.containsAll(deps.getOrDefault(mod, java.util.Set.of()));
+            }
+            probe = com.hexadron.launcher.bisect.Bisect.next(probe, on.contains("sodium.jar"));
+        }
+        check("no launch has a mod on without what it needs", depsOk);
+        List<String> library = searchWith(set, graph, on -> on.contains("sodium.jar"), new int[1]);
+        check("a broken library is found as itself or as the mod that brings it", library != null
+                && library.size() == 1 && graph.closure(library, set).contains("sodium.jar"));
+
+        // Saved and read back; a path in the file is refused.
+        var state = com.hexadron.launcher.bisect.Bisect.next(com.hexadron.launcher.bisect.Bisect.start(set), false);
+        var again = com.hexadron.launcher.bisect.Bisect.fromJson(Json.parse(
+                com.hexadron.launcher.bisect.Bisect.toJson(state, "p1").toString()));
+        check("a search survives being saved", again.equals(state));
+        checkThrows("a saved search with a path in it is refused", () -> com.hexadron.launcher.bisect.Bisect.fromJson(
+                Json.parse(com.hexadron.launcher.bisect.Bisect.toJson(state, "p1").toString()
+                        .replace("\"a.jar\"", "\"../../evil.jar\""))));
+        checkThrows("fewer than two mods is not a search", () -> com.hexadron.launcher.bisect.Bisect.start(List.of("one.jar")));
+
+        // Files: switched by renaming, and put back exactly.
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-bisect-check");
+            Path modsDir = java.nio.file.Files.createDirectories(dir.resolve("mods"));
+            for (String name : List.of("a.jar", "b.jar", "c.jar", "d.jar")) {
+                java.nio.file.Files.writeString(modsDir.resolve(name), name);
+            }
+            java.nio.file.Files.writeString(modsDir.resolve("off.jar.disabled"), "off");
+            List<String> enabled = com.hexadron.launcher.bisect.BisectFiles.enabledJars(modsDir);
+            check("the search starts from the jars that are on", enabled.size() == 4 && !enabled.contains("off.jar"));
+            var files = com.hexadron.launcher.bisect.Bisect.start(enabled);
+            com.hexadron.launcher.bisect.BisectFiles.apply(modsDir, files.original(),
+                    com.hexadron.launcher.bisect.Bisect.enabledFor(files, none));
+            check("half the mods are switched off by renaming", java.nio.file.Files.exists(modsDir.resolve("c.jar.disabled"))
+                    && java.nio.file.Files.exists(modsDir.resolve("a.jar")));
+            check("a mod that was off stays off", java.nio.file.Files.exists(modsDir.resolve("off.jar.disabled")));
+            com.hexadron.launcher.bisect.BisectFiles.save(dir, files, "p1");
+            check("the search is saved beside the game",
+                    com.hexadron.launcher.bisect.BisectFiles.load(dir).map(files::equals).orElse(false));
+            com.hexadron.launcher.bisect.BisectFiles.apply(modsDir, files.original(),
+                    new java.util.LinkedHashSet<>(files.original()));
+            check("finishing puts every mod back on", com.hexadron.launcher.bisect.BisectFiles.enabledJars(modsDir)
+                    .containsAll(List.of("a.jar", "b.jar", "c.jar", "d.jar")));
+            com.hexadron.launcher.bisect.BisectFiles.delete(dir);
+            check("and forgets the search", com.hexadron.launcher.bisect.BisectFiles.load(dir).isEmpty());
+        } catch (IOException e) {
+            check("the search file check could set up its folder: " + e, false);
+        } finally {
+            if (dir != null) {
+                deleteRecursively(dir);
+            }
+        }
+
+        Map<String, String> reference = I18n.bundle(Language.DEFAULT);
+        for (String key : new String[]{"bisect.action", "bisect.intro", "bisect.step", "bisect.question",
+                "bisect.found.one", "bisect.found.pair", "bisect.keepOff", "bisect.cancel"}) {
+            check("the search window has its words: " + key, reference.containsKey(key));
+        }
+        for (Language language : Language.values()) {
+            for (Map.Entry<String, String> entry : I18n.bundle(language).entrySet()) {
+                if (entry.getKey().startsWith("bisect.") && entry.getValue().contains("{0}")) {
+                    String text = new java.text.MessageFormat(entry.getValue(), language.locale())
+                            .format(new Object[]{"X", "Y", "Z"});
+                    check("search text " + entry.getKey() + " formats cleanly in " + language.code(),
+                            text.contains("X") && !text.contains("{") && !text.contains("''"));
+                }
             }
         }
     }

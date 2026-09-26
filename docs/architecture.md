@@ -41,6 +41,7 @@ Packages:
 | `auth/secret/` | Credential stores: Windows DPAPI, macOS Keychain, freedesktop Secret Service, and an AES-256-GCM encrypted file as the fallback. `SecretStores` picks the best available |
 | `cleanup/` | The storage window's model: scans the data folder, works out what is still in use, and deletes only what passes a last safety check (`StorageCleaner`) |
 | `cli/` | `HexadronCli`, the command-line mode |
+| `bisect/` | The problem-mod search: halving with dependency closure and pair search (`Bisect`), switching jars and saving the state (`BisectFiles`). See [crashes.md](crashes.md#finding-the-problem-mod) |
 | `crash/` | Crash analysis: what a run left behind (`CrashEvidence`), the rule file (`CrashRules`, built-in copy in `crash/rules.json`), matching (`CrashAnalyzer`), the mod a stack trace points at (`StackAttribution`), fix kinds and their checks (`CrashFix`, `CrashFixes`), and signed rule updates (`CrashRuleSource`). See [crashes.md](crashes.md) |
 | `core/` | `LauncherService` (the application layer for the UI and the CLI), `LauncherSettings` (`launcher.json`), `GameDirs` (data folder layout), `LauncherLog`, `VerifiedFiles` (the record of files already checked against their hash), `Progress` |
 | `i18n/` | `I18n` (the string table) and `Language`; strings are in `lang/<code>.properties` |

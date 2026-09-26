@@ -432,6 +432,88 @@ public final class LauncherService {
         return done;
     }
 
+    // ---------------------------------------------------------------- problem-mod search
+
+    /** The search saved in a profile, if one is running. */
+    public java.util.Optional<com.hexadron.launcher.bisect.Bisect.State> bisectState(Profile profile) {
+        return com.hexadron.launcher.bisect.BisectFiles.load(profiles.gameDirectory(profile));
+    }
+
+    /** The dependency graph of a search, read from the jars in the mods folder. */
+    public com.hexadron.launcher.bisect.Bisect.Graph bisectGraph(Profile profile,
+                                                                 com.hexadron.launcher.bisect.Bisect.State state) {
+        return com.hexadron.launcher.bisect.BisectFiles.graph(modsOf(profile), state.original());
+    }
+
+    /**
+     * Starts a search: records the mods that are on, switches on the first half
+     * and saves the state.
+     *
+     * @throws IllegalArgumentException when fewer than two mods are on
+     */
+    public com.hexadron.launcher.bisect.Bisect.State bisectStart(Profile profile) throws IOException {
+        Path modsDir = profiles.modsDirectory(profile);
+        com.hexadron.launcher.bisect.Bisect.State state = com.hexadron.launcher.bisect.Bisect.start(
+                com.hexadron.launcher.bisect.BisectFiles.enabledJars(modsDir));
+        // Saved before anything is renamed: if the launcher stops between the
+        // two, the saved list is what puts the folder back.
+        com.hexadron.launcher.bisect.BisectFiles.save(profiles.gameDirectory(profile), state, profile.id());
+        applyBisect(profile, state);
+        LauncherLog.info("Problem-mod search started in %s with %d mods", profile.name(), state.original().size());
+        return state;
+    }
+
+    /** Records whether the problem occurred and moves the search on. */
+    public com.hexadron.launcher.bisect.Bisect.State bisectAnswer(Profile profile, boolean problem)
+            throws IOException {
+        com.hexadron.launcher.bisect.Bisect.State state = bisectState(profile)
+                .orElseThrow(() -> new IOException("no search is running in this profile"));
+        com.hexadron.launcher.bisect.Bisect.State next = com.hexadron.launcher.bisect.Bisect.next(state, problem);
+        com.hexadron.launcher.bisect.BisectFiles.save(profiles.gameDirectory(profile), next, profile.id());
+        LauncherLog.info("Problem-mod search: step %d %s", state.step(), problem ? "showed the problem" : "was clean");
+        if (next.isDone()) {
+            LauncherLog.info("Problem-mod search result: %s", String.join(" + ", next.result()));
+        } else {
+            applyBisect(profile, next);
+        }
+        return next;
+    }
+
+    private void applyBisect(Profile profile, com.hexadron.launcher.bisect.Bisect.State state) throws IOException {
+        java.util.Set<String> on = com.hexadron.launcher.bisect.Bisect.enabledFor(state, bisectGraph(profile, state));
+        java.util.List<String> missing = com.hexadron.launcher.bisect.BisectFiles.apply(
+                profiles.modsDirectory(profile), state.original(), on);
+        LauncherLog.info("Problem-mod search: step %d, %d of %d mods on%s", state.step(), on.size(),
+                state.original().size(), missing.isEmpty() ? "" : ", missing: " + missing);
+    }
+
+    /**
+     * Ends a search: every mod that was on is switched on again, except the
+     * ones the player chose to keep off, and the saved state is removed.
+     */
+    public void bisectFinish(Profile profile, java.util.Collection<String> keepOff) throws IOException {
+        java.util.Optional<com.hexadron.launcher.bisect.Bisect.State> state = bisectState(profile);
+        if (state.isPresent()) {
+            java.util.Set<String> on = new java.util.LinkedHashSet<>(state.get().original());
+            on.removeAll(keepOff);
+            com.hexadron.launcher.bisect.BisectFiles.apply(profiles.modsDirectory(profile),
+                    state.get().original(), on);
+        }
+        com.hexadron.launcher.bisect.BisectFiles.delete(profiles.gameDirectory(profile));
+        LauncherLog.info("Problem-mod search ended in %s%s", profile.name(),
+                keepOff.isEmpty() ? ", all mods restored" : ", kept off: " + keepOff);
+    }
+
+    /** The name a mod file is shown by: the title in its jar, or the file name. */
+    public String modFileTitle(Profile profile, String fileName) {
+        for (com.hexadron.launcher.mods.ModEntry entry : modsOf(profile)) {
+            if (com.hexadron.launcher.mods.ModScan.enabledName(entry.fileName()).equals(fileName)) {
+                return entry.title() == null || entry.title().isBlank() ? fileName : entry.title();
+            }
+        }
+        return fileName;
+    }
+
     // ---------------------------------------------------------------- accessors
 
     public GameDirs dirs() {

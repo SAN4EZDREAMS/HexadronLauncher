@@ -26,7 +26,7 @@ performance mod set. The project is in beta (version 0.9.8).
 | Updates | Checks the project's GitHub releases at start-up, on the Release or Nightly channel. Downloads only the changed parts when it can, then replaces the installed folder |
 | Languages | English, Ukrainian, Russian, Polish, German, Spanish, French, Italian, Portuguese (Brazil), Turkish, Indonesian, Vietnamese, Hindi, Chinese (Simplified), Japanese, Korean. The language changes without a restart |
 | While playing | The launcher hides to the notification area and comes back when the game closes |
-| Crash analysis | After a crash the launcher reads the crash report and logs, names the cause in plain words (wrong Java, memory, missing or duplicate mod, wrong version, mixin error, graphics driver, broken install and more) and offers one-click fixes. New rules arrive signed with releases |
+| Crash analysis | After a crash the launcher reads the crash report and logs, names the cause in plain words (wrong Java, memory, missing or duplicate mod, wrong version, mixin error, graphics driver, broken install and more) and offers one-click fixes. New rules arrive signed with releases. **Find the problem mod** halves the mod set over a few launches to name the mod, or the pair of mods, behind a problem, then restores the set |
 
 ## Install
 

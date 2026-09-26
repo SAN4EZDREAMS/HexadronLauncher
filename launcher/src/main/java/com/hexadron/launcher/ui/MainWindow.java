@@ -255,6 +255,11 @@ public final class MainWindow implements ProfileHost {
      * ends with a non-zero exit code on Windows, and it is not a crash.
      */
     private volatile boolean stopRequested;
+    /** The problem-mod search window, while one is open. */
+    private BisectWindow bisectWindow;
+    private String bisectProfileId;
+    /** Set for a launch the search window asked for, so Play does not ask about the search again. */
+    private boolean bisectLaunch;
     private volatile boolean busy;
     private boolean playing;
 
@@ -1474,7 +1479,17 @@ public final class MainWindow implements ProfileHost {
                     I18n.t("account.offline.licence.body"));
             return;
         }
-        if (!confirmWrongVersionMods()) {
+        Profile chosen = selectedProfile;
+        boolean searching = bisectLaunch;
+        bisectLaunch = false;
+        if (!searching && chosen != null && service.bisectState(chosen).isPresent()) {
+            // A search was left half done: half the mods are off. Starting the
+            // game like this would be playing a different mod set without
+            // knowing it, so the choice comes first.
+            findProblemMod(chosen);
+            return;
+        }
+        if (!searching && !confirmWrongVersionMods()) {
             return;
         }
         runInBackground(I18n.t("task.play"), () -> {
@@ -1604,6 +1619,19 @@ public final class MainWindow implements ProfileHost {
      */
     private void explainCrash(Profile profile, int exitCode, long startedAt, java.util.List<String> lines,
                               long quietMillis) {
+        if (bisectProfileId != null && bisectProfileId.equals(profile.id())) {
+            // A launch of the search: the search window takes the result.
+            Path gameDir = service.profiles().gameDirectory(profile);
+            boolean crashed = !stopRequested && exitCode != 92
+                    && (exitCode != 0 || CrashEvidence.hasCrashReportSince(gameDir, startedAt)
+                            || CrashEvidence.hasFatalLine(lines));
+            Platform.runLater(() -> {
+                if (bisectWindow != null) {
+                    bisectWindow.gameEnded(crashed);
+                }
+            });
+            return;
+        }
         if (exitCode == 92) {
             return;
         }
@@ -1681,7 +1709,86 @@ public final class MainWindow implements ProfileHost {
             public void reportBug() {
                 new ReportBugDialog(service.dirs()).show(stage);
             }
+
+            @Override
+            public void findProblemMod() {
+                MainWindow.this.findProblemMod(profile);
+            }
         };
+    }
+
+    @Override
+    public void findProblemMod(Profile profile) {
+        select(profile);
+        if (session != null && session.isRunning() && bisectWindow == null) {
+            showWarning(I18n.t("bisect.title"), I18n.t("profiles.remove.running", profile.name()));
+            return;
+        }
+        if (bisectWindow != null && bisectWindow.isShowing()) {
+            if (profile.id().equals(bisectProfileId)) {
+                bisectWindow.show();
+                return;
+            }
+            bisectWindow.close();
+        }
+        bisectProfileId = profile.id();
+        bisectWindow = new BisectWindow(stage, profile.name(), new BisectWindow.Actions() {
+            @Override
+            public com.hexadron.launcher.bisect.Bisect.State current() {
+                return service.bisectState(profile).orElse(null);
+            }
+
+            @Override
+            public com.hexadron.launcher.bisect.Bisect.State start() throws Exception {
+                return service.bisectStart(profile);
+            }
+
+            @Override
+            public com.hexadron.launcher.bisect.Bisect.State answer(boolean problem) throws Exception {
+                return service.bisectAnswer(profile, problem);
+            }
+
+            @Override
+            public void finish(java.util.List<String> keepOff) throws Exception {
+                service.bisectFinish(profile, keepOff);
+                Platform.runLater(() -> {
+                    bisectProfileId = null;
+                    showProfile(shown);
+                });
+            }
+
+            @Override
+            public java.util.Set<String> enabled(com.hexadron.launcher.bisect.Bisect.State state) {
+                return com.hexadron.launcher.bisect.Bisect.enabledFor(state, service.bisectGraph(profile, state));
+            }
+
+            @Override
+            public java.util.Set<String> needs(com.hexadron.launcher.bisect.Bisect.State state, String file) {
+                java.util.Set<String> all = service.bisectGraph(profile, state)
+                        .closure(java.util.List.of(file), state.original());
+                all.remove(file);
+                return all;
+            }
+
+            @Override
+            public String title(String file) {
+                return service.modFileTitle(profile, file);
+            }
+
+            @Override
+            public void launch() {
+                select(profile);
+                bisectLaunch = true;
+                play();
+            }
+
+            @Override
+            public int enabledNow() throws Exception {
+                return com.hexadron.launcher.bisect.BisectFiles.enabledJars(
+                        service.profiles().modsDirectory(profile)).size();
+            }
+        });
+        bisectWindow.show();
     }
 
     /** Hides to the notification area, or minimises where there is no tray. */

@@ -63,6 +63,9 @@ final class CrashDialog {
         void playAgain();
 
         void reportBug();
+
+        /** Opens the search for the mod that causes the crash. */
+        void findProblemMod();
     }
 
     private static final double WIDTH = 600;
@@ -235,7 +238,9 @@ final class CrashDialog {
         logs.setOnAction(event -> SystemFiles.openFolder(gameDir.resolve("logs")));
         Hyperlink report = link(I18n.t("crash.report"));
         report.setOnAction(event -> actions.reportBug());
-        row.getChildren().addAll(logs, report);
+        Hyperlink bisect = link(I18n.t("bisect.action"));
+        bisect.setOnAction(event -> actions.findProblemMod());
+        row.getChildren().addAll(bisect, logs, report);
         return row;
     }
 

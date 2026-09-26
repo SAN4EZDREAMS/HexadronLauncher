@@ -97,6 +97,19 @@ The whole file is refused when a rule names an unknown fix, a fix parameter it d
 
 The self-check (`SelfCheck`, section "Crash analysis") runs every rule against real loader and JVM output and checks every text in every language.
 
+## Finding the problem mod
+
+When no rule names the cause, or the problem is not a crash at all (wrong textures, a freeze, a missing feature), the launcher can find the mod by halving the mod set. Start it with **Find the problem mod** in the crash window or in the right-click menu of a profile.
+
+1. The launcher records which jars in the `mods` folder are switched on. Jars that were off stay off and take no part.
+2. It switches on half of them, together with every mod they require (read from each jar's descriptor), and switches the rest off by adding `.disabled` to their names.
+3. You press **Start the game**. A crash is recognised by itself and counts as the problem. Otherwise play until you know, close the game and answer **Did the problem occur?**
+4. The half that shows the problem is halved again. About log2(n) launches find one mod among n: 6 for 46 mods, 8 for 200.
+5. When each half works on its own, two mods conflict. The launcher then keeps one half on and halves the other to find the first mod, then finds its partner the same way.
+6. The window names the mod (or the pair) and the mods it needs. **Keep it switched off** restores everything else; **Restore all mods** puts back the set from step 1.
+
+The search is saved in `.hexadron-bisect.json` in the profile's game folder after every step. Closing the window or the launcher loses nothing: the next **Play** in that profile opens the search again, so you never play a half-switched-off mod set without knowing it. **Stop and restore** ends the search at any step. No file is moved out of the `mods` folder or deleted.
+
 ## Stopping a frozen game
 
 The **Stop** button and **Stop** in the tray menu end the game and any process it started (a wrapper command, for example). A game that has not ended 10 seconds later is ended forcibly. Use them instead of Task Manager: there, the launcher and the game are both Java, and ending the wrong one closes the launcher. A game stopped this way does not open the crash window.
