@@ -1113,6 +1113,7 @@ public final class SelfCheck {
             GameDirs dirs = new GameDirs(dir);
             Map<String, String> vault = new java.util.HashMap<>();
             int[] writes = {0};
+            int[] reads = {0};
             com.hexadron.launcher.auth.secret.SecretStore memory =
                     new com.hexadron.launcher.auth.secret.SecretStore() {
                         public String id() { return "memory"; }
@@ -1124,6 +1125,7 @@ public final class SelfCheck {
                             vault.put(key, value);
                         }
                         public java.util.Optional<String> load(String key) {
+                            reads[0]++;
                             return java.util.Optional.ofNullable(vault.get(key));
                         }
                         public void delete(String key) {
@@ -1150,8 +1152,23 @@ public final class SelfCheck {
             check("saving the selection does not rewrite stored credentials",
                     writes[0] == afterSave);
 
+            int readsBeforeReopen = reads[0];
             com.hexadron.launcher.auth.AccountStore reopened =
                     new com.hexadron.launcher.auth.AccountStore(dirs, memory).load();
+            check("opening the account list reads no credentials (DPAPI is a second on Windows)",
+                    reads[0] == readsBeforeReopen);
+            check("before they are read, a listed account carries no token",
+                    reopened.all().stream().filter(account -> !account.isOffline())
+                            .allMatch(account -> account.refreshToken() == null));
+            int writesBeforePendingSave = writes[0];
+            reopened.save();
+            check("saving before the credentials are read does not overwrite them",
+                    writes[0] == writesBeforePendingSave
+                            && vault.values().stream().anyMatch(value -> value.contains("refresh")));
+            Account listedNotch = reopened.all().stream().filter(account -> !account.isOffline())
+                    .findFirst().orElseThrow();
+            check("an instance from the list gets its credentials when a caller needs them",
+                    "refresh".equals(reopened.withSecrets(listedNotch).refreshToken()));
             check("the launcher reopens on the account it was closed on",
                     reopened.selected().map(Account::id).orElse("").equals(alex.id()));
             check("a Microsoft account keeps its session across a selection save",
@@ -1165,6 +1182,8 @@ public final class SelfCheck {
             reopened.saveSelection();
             com.hexadron.launcher.auth.AccountStore third =
                     new com.hexadron.launcher.auth.AccountStore(dirs, memory).load();
+            check("an account with unread credentials still proves the licence",
+                    third.hasLicensedAccount());
             check("a refreshed session is written with the next selection save",
                     third.all().stream().anyMatch(account -> "refresh-2".equals(account.refreshToken())));
             check("and the new selection with it",

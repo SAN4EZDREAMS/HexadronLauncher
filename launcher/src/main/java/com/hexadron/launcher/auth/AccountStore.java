@@ -87,6 +87,19 @@ public final class AccountStore {
      */
     private final Set<String> unsavedSecrets = new HashSet<>();
 
+    /**
+     * Accounts listed in accounts.json whose credentials have not been read yet,
+     * by id, with the metadata they were listed with.
+     *
+     * <p>Reading them is a PowerShell launch per account on Windows (DPAPI),
+     * about a second in all, and nothing on the way to the window needs them.
+     * So {@link #load()} reads names only; {@link #loadSecrets()} reads the
+     * rest, on the warm-up thread after the window is up, or at once for a
+     * caller that needs a token before that. An account in here is never
+     * written back to the credential store: it has nothing in memory to write.
+     */
+    private final Map<String, Json> pendingSecrets = new LinkedHashMap<>();
+
     public AccountStore(GameDirs dirs, SecretStore secrets) {
         this.file = dirs.accountsFile();
         this.secrets = secrets;
@@ -105,6 +118,7 @@ public final class AccountStore {
     public synchronized AccountStore load() throws IOException {
         accounts.clear();
         unsavedSecrets.clear();
+        pendingSecrets.clear();
         selectedId = null;
         migratedFromPlaintext = false;
         if (!Files.isRegularFile(file)) {
@@ -121,7 +135,10 @@ public final class AccountStore {
                     account = Account.fromLegacyJson(entry);
                     legacy = true;
                 } else {
-                    account = Account.fromMetadataJson(entry, readSecret(entry));
+                    account = Account.fromMetadataJson(entry, Json.object());
+                    if (!account.isOffline()) {
+                        pendingSecrets.put(account.id(), entry);
+                    }
                 }
                 registerSecrets(account);
                 accounts.put(account.id(), account);
@@ -150,6 +167,47 @@ public final class AccountStore {
     }
 
     /**
+     * Reads the credentials that {@link #load()} left for later. Safe to call
+     * from any thread and more than once; the first call does the work and the
+     * others wait for it or return at once.
+     */
+    public synchronized void loadSecrets() {
+        if (pendingSecrets.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Json> pending : new ArrayList<>(pendingSecrets.entrySet())) {
+            String id = pending.getKey();
+            // Replaced since load() - a sign-in or a refresh brought newer
+            // credentials than the ones on disk, and those win.
+            if (accounts.containsKey(id)) {
+                try {
+                    Account full = Account.fromMetadataJson(pending.getValue(), readSecret(pending.getValue()));
+                    registerSecrets(full);
+                    accounts.put(id, full);
+                } catch (RuntimeException e) {
+                    System.err.println("could not read stored credentials for an account: "
+                            + Redactor.scrub(String.valueOf(e.getMessage())));
+                }
+            }
+            pendingSecrets.remove(id);
+        }
+    }
+
+    /**
+     * The account as stored here, with its credentials.
+     *
+     * <p>For anything about to use a token. The instance a list or a combo box
+     * holds may be the one made before the credentials were read.
+     */
+    public synchronized Account withSecrets(Account account) {
+        if (account == null) {
+            return null;
+        }
+        loadSecrets();
+        return accounts.getOrDefault(account.id(), account);
+    }
+
+    /**
      * Writes which account is selected, and the list it is selected from.
      *
      * <p>The same file as {@link #save()}, but credentials are only written for
@@ -165,10 +223,16 @@ public final class AccountStore {
         for (Account account : accounts.values()) {
             Json metadata = account.toMetadataJson();
             if (!account.isOffline()) {
-                if (allSecrets || unsavedSecrets.contains(account.id())) {
+                boolean credentialsInMemory = !pendingSecrets.containsKey(account.id());
+                if (credentialsInMemory && (allSecrets || unsavedSecrets.contains(account.id()))) {
                     writeSecret(account);
                 }
-                metadata.put("secretKey", secretKey(account));
+                // Not read yet: keep the key it was listed with, so the stored
+                // credentials stay where they are.
+                String key = credentialsInMemory
+                        ? secretKey(account)
+                        : pendingSecrets.get(account.id()).get("secretKey").asString(secretKey(account));
+                metadata.put("secretKey", key);
             }
             array.add(metadata);
         }
@@ -197,6 +261,7 @@ public final class AccountStore {
     }
 
     public synchronized void add(Account account) {
+        pendingSecrets.remove(account.id());
         registerSecrets(account);
         accounts.put(account.id(), account);
         unsavedSecrets.add(account.id());
@@ -207,6 +272,7 @@ public final class AccountStore {
 
     /** Replaces an account in place, keeping selection - used after a token refresh. */
     public synchronized void update(Account account) {
+        pendingSecrets.remove(account.id());
         Account previous = accounts.get(account.id());
         if (previous != null) {
             Redactor.forget(previous.accessToken());
@@ -225,12 +291,14 @@ public final class AccountStore {
      * token nothing can ever revoke from inside the launcher.
      */
     public synchronized void remove(Account account) throws IOException {
+        Json listed = pendingSecrets.remove(account.id());
         accounts.remove(account.id());
         unsavedSecrets.remove(account.id());
         Redactor.forget(account.accessToken());
         Redactor.forget(account.refreshToken());
         if (!account.isOffline()) {
-            secrets.delete(secretKey(account));
+            secrets.delete(listed == null ? secretKey(account)
+                    : listed.get("secretKey").asString(secretKey(account)));
         }
         if (account.id().equals(selectedId)) {
             selectedId = accounts.keySet().stream().findFirst().orElse(null);
@@ -262,6 +330,8 @@ public final class AccountStore {
      * {@code accounts.json}.
      */
     public synchronized boolean hasLicensedAccount() {
+        // The answer depends on the credentials being there.
+        loadSecrets();
         return accounts.values().stream().anyMatch(account ->
                 account.type() == Account.AccountType.MICROSOFT && !account.needsSignIn());
     }

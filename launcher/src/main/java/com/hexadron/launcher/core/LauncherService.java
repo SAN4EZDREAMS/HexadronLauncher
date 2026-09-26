@@ -232,6 +232,9 @@ public final class LauncherService {
      */
     public void warmUpInBackground() {
         Thread warm = new Thread(() -> {
+            // Credentials first: they are what the Play button needs, and
+            // reading them is the slow part of a start on Windows.
+            accounts.loadSecrets();
             loadCurseForgeKey();
             try {
                 javaLocator.discover();
@@ -1763,6 +1766,9 @@ public final class LauncherService {
 
     /** Refreshes a Microsoft account's token if it is close to expiry. */
     public Account ensureFresh(Account account, Progress progress) throws IOException, InterruptedException {
+        // The instance the interface holds can predate the credentials being
+        // read (AccountStore.loadSecrets); this one has them.
+        account = accounts.withSecrets(account);
         if (!account.needsRefresh()) {
             return account;
         }

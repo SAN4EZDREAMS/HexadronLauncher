@@ -972,7 +972,7 @@ public final class MainWindow implements ProfileHost {
             // nothing to edit, and the button is disabled for it.
             return;
         }
-        new AccountDialog(account, service.skins()).show(stage).ifPresent(result -> {
+        new AccountDialog(service.accounts().withSecrets(account), service.skins()).show(stage).ifPresent(result -> {
             service.skins().put(account.id(), result.skin());
             try {
                 service.skins().save();
