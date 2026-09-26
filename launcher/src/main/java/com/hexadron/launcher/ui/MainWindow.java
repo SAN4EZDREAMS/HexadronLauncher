@@ -1490,8 +1490,10 @@ public final class MainWindow implements ProfileHost {
             // file holds them too, but a game that dies before its logger starts
             // leaves nothing there.
             java.util.ArrayDeque<String> outputTail = new java.util.ArrayDeque<>();
+            java.util.concurrent.atomic.AtomicLong lastOutput = new java.util.concurrent.atomic.AtomicLong(startedAt);
             session = service.launch(profile, account, progress,
                     line -> {
+                        lastOutput.set(System.currentTimeMillis());
                         progress.log(line);
                         synchronized (outputTail) {
                             if (outputTail.size() >= OUTPUT_TAIL_LINES) {
@@ -1524,7 +1526,8 @@ public final class MainWindow implements ProfileHost {
                         synchronized (outputTail) {
                             lines = java.util.List.copyOf(outputTail);
                         }
-                        explainCrash(profile, exitCode, startedAt, lines);
+                        explainCrash(profile, exitCode, startedAt, lines,
+                                System.currentTimeMillis() - lastOutput.get());
                     },
                     // The question has been put already, by
                     // confirmWrongVersionMods above, and answered "start it".
@@ -1559,7 +1562,8 @@ public final class MainWindow implements ProfileHost {
      * own handshake failing, which the log line above already explains and
      * which no crash rule describes.
      */
-    private void explainCrash(Profile profile, int exitCode, long startedAt, java.util.List<String> lines) {
+    private void explainCrash(Profile profile, int exitCode, long startedAt, java.util.List<String> lines,
+                              long quietMillis) {
         if (stopRequested || exitCode == 92) {
             return;
         }
@@ -1570,7 +1574,7 @@ public final class MainWindow implements ProfileHost {
         try {
             CrashEvidence evidence = CrashEvidence.collect(gameDir, startedAt, lines, exitCode);
             java.util.List<CrashAnalyzer.Diagnosis> diagnoses =
-                    service.analyzeCrash(profile, evidence, I18n.current().code());
+                    service.analyzeCrash(profile, evidence, I18n.current().code(), quietMillis);
             java.util.Map<CrashAnalyzer.Diagnosis, java.util.List<CrashFixes.Prepared>> fixes =
                     new java.util.LinkedHashMap<>();
             for (CrashAnalyzer.Diagnosis diagnosis : diagnoses) {
@@ -1583,7 +1587,7 @@ public final class MainWindow implements ProfileHost {
                 progress.log(I18n.t("crash.log.cause", diagnosis.title()));
             }
             com.hexadron.launcher.core.LauncherLog.info("Crash analysis (" + service.crashRules().origin()
-                    + "): exit " + exitCode + ", rules "
+                    + "): exit " + exitCode + ", quiet " + quietMillis / 1000 + " s, rules "
                     + diagnoses.stream().map(CrashAnalyzer.Diagnosis::ruleId).toList()
                     + ", sources " + evidence.files().keySet());
             Platform.runLater(() -> new CrashDialog(exitCode, diagnoses, fixes, evidence, gameDir,

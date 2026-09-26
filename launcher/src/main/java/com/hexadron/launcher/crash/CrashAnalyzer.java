@@ -190,6 +190,33 @@ public final class CrashAnalyzer {
         return result;
     }
 
+    /**
+     * A diagnosis the launcher found by itself rather than through a rule: a
+     * stack trace that names a mod, a game that went silent. Worded from a
+     * text in the rule file, so it is in the same languages as every other.
+     *
+     * @return empty when the rule file has no such text or a value is missing
+     */
+    public static java.util.Optional<Diagnosis> describe(CrashRules rules, String language, String ruleId,
+                                                         int priority, String textId,
+                                                         Map<String, String> values, List<CrashFix> fixes,
+                                                         CrashRules.Source source, String line) {
+        CrashRules.Text text = rules.text(textId, language);
+        if (text == null) {
+            return java.util.Optional.empty();
+        }
+        Map<String, String> clean = new LinkedHashMap<>();
+        values.forEach((key, value) -> clean.put(key, clean(value)));
+        String title = CrashRules.fill(text.title(), clean);
+        String cause = CrashRules.fill(text.cause(), clean);
+        String advice = CrashRules.fill(text.fix(), clean);
+        if (!CrashRules.placeholders(title + cause + advice).isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(new Diagnosis(ruleId, textId, priority, title, cause, advice,
+                fixes, clean, source, clean(line, 300)));
+    }
+
     private static List<Match> find(CrashRules.Condition condition, CrashEvidence evidence, int limit) {
         List<Match> found = new ArrayList<>();
         Set<Map<String, String>> distinct = new LinkedHashSet<>();

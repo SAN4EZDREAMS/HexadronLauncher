@@ -66,11 +66,34 @@ public final class GameLauncher {
             return process.isAlive();
         }
 
+        /**
+         * Stops the game, and whatever it started.
+         *
+         * <p>The children go first: with a wrapper command the process the
+         * launcher holds is the wrapper, and stopping only that leaves the game
+         * running without its parent. A game that has not gone ten seconds later
+         * is ended forcibly - a frozen game does not answer a polite request, and
+         * this button is the alternative to Task Manager, where the launcher and
+         * the game are both "Java" and the wrong one is easy to end.
+         */
         public void terminate() {
+            process.descendants().forEach(ProcessHandle::destroy);
             process.destroy();
+            Thread reaper = new Thread(() -> {
+                try {
+                    if (!process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                        terminateForcibly();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }, "minecraft-stop");
+            reaper.setDaemon(true);
+            reaper.start();
         }
 
         public void terminateForcibly() {
+            process.descendants().forEach(ProcessHandle::destroyForcibly);
             process.destroyForcibly();
         }
 

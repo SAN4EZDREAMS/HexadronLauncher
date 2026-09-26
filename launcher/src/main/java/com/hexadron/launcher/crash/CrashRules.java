@@ -95,6 +95,16 @@ public final class CrashRules {
     /** The one format this code reads. A file for a later format is left alone. */
     public static final int SCHEMA = 1;
 
+    /** The text the launcher uses when a stack trace names a mod (see {@link StackAttribution}). */
+    public static final String TEXT_MOD_CODE = "modCode";
+    /** The text the launcher uses when the game went silent before it was ended. */
+    public static final String TEXT_FROZEN = "frozen";
+    /**
+     * Texts that code refers to rather than rules. A rule file without them is
+     * refused as a download, because the launcher could not explain those cases.
+     */
+    public static final List<String> CODE_TEXTS = List.of(TEXT_MOD_CODE, TEXT_FROZEN);
+
     /** Where the copy built into the launcher lives. */
     public static final String BUNDLED_RESOURCE = "/crash/rules.json";
 

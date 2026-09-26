@@ -112,6 +112,9 @@ public final class CrashRuleSource {
         }
         try {
             CrashRules published = CrashRules.parse(new String(json, StandardCharsets.UTF_8));
+            if (!published.texts().keySet().containsAll(CrashRules.CODE_TEXTS)) {
+                return bundled;
+            }
             return published.version() > bundled.version() ? published : bundled;
         } catch (RuntimeException e) {
             return bundled;

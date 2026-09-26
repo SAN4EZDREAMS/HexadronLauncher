@@ -9129,7 +9129,14 @@ public final class SelfCheck {
             var generator = java.security.KeyPairGenerator.getInstance("Ed25519");
             var pair = generator.generateKeyPair();
             List<String> keys = List.of(java.util.Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()));
-            String newer = good.replace("\"version\":1", "\"version\":999");
+            String builtIn;
+            try (java.io.InputStream in = SelfCheck.class.getResourceAsStream(
+                    com.hexadron.launcher.crash.CrashRules.BUNDLED_RESOURCE)) {
+                builtIn = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            } catch (IOException | NullPointerException e) {
+                builtIn = "";
+            }
+            String newer = builtIn.replaceFirst("\"version\":\\s*\\d+", "\"version\": 999");
             java.util.function.Function<String, byte[]> sign = text -> {
                 try {
                     var signer = java.security.Signature.getInstance("Ed25519");
@@ -9145,7 +9152,11 @@ public final class SelfCheck {
                     .choose(rules, newerBytes, sign.apply(newer), keys).version() == 999);
             check("an unsigned one is not", com.hexadron.launcher.crash.CrashRuleSource
                     .choose(rules, newerBytes, null, keys) == rules);
-            byte[] tampered = newer.replace("\"F\"", "\"Download this\"").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            byte[] tampered = newer.replaceFirst("\"title\": \"", "\"title\": \"Download this ").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            String withoutCodeTexts = good.replace("\"version\":1", "\"version\":999");
+            check("a newer file without the launcher's own texts is not used", com.hexadron.launcher.crash.CrashRuleSource
+                    .choose(rules, withoutCodeTexts.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                            sign.apply(withoutCodeTexts), keys) == rules);
             check("a changed one is not", com.hexadron.launcher.crash.CrashRuleSource
                     .choose(rules, tampered, sign.apply(newer), keys) == rules);
             check("an older one is not, even signed", com.hexadron.launcher.crash.CrashRuleSource
@@ -9208,6 +9219,51 @@ public final class SelfCheck {
                     && java.nio.file.Files.exists(mods.resolve("sodium.jar" + ModScan.DISABLED_SUFFIX))
                     && java.nio.file.Files.exists(mods.resolve("iris.jar" + ModScan.DISABLED_SUFFIX)));
             check("and leaves the rest alone", java.nio.file.Files.exists(mods.resolve("fabric-api.jar")));
+
+            // ---- a stack trace names the mod whose code threw
+            writeJar(mods.resolve("replaymod.jar"), Map.of(
+                    "mcmod.info", "[{\"modid\":\"replaymod\",\"name\":\"Replay Mod\",\"version\":\"2.6\"}]",
+                    "com/replaymod/replay/InputReplayTimer.class", "x"));
+            writeJar(mods.resolve("library.jar"), Map.of(
+                    "fabric.mod.json", "{\"id\":\"somelib\",\"version\":\"1\",\"name\":\"Some Lib\"}",
+                    "com/example/lib/Util.class", "x"));
+            List<ModEntry> withReplay = ModScan.scan(mods);
+            List<String> report = List.of(
+                    "---- Minecraft Crash Report ----", "", "Time: 9/26/26 9:53 PM", "Description: Unexpected error", "",
+                    "java.lang.NullPointerException: Unexpected error",
+                    "\tat com.replaymod.replay.InputReplayTimer.updateInReplay(InputReplayTimer.java:45)",
+                    "\tat net.minecraft.client.Minecraft.handler$zdh000$updateInReplay(Minecraft.java:7328)",
+                    "\tat net.minecraft.client.Minecraft.runGameLoop(Minecraft.java:1082)",
+                    "\tat gg.essential.loader.stage2.relaunch.Relaunch.relaunch(Relaunch.java:85)", "",
+                    "A detailed walkthrough of the error, its code path and all known details is as follows:");
+            var blamed = com.hexadron.launcher.crash.StackAttribution.blame(new com.hexadron.launcher.crash.CrashEvidence(-1,
+                    Map.of(com.hexadron.launcher.crash.CrashRules.Source.CRASH, report), Map.of()), withReplay);
+            check("a stack trace names the jar whose class threw", blamed.map(b -> b.mod().fileName()).orElse("")
+                    .equals("replaymod.jar"));
+            check("with the root exception", blamed.map(b -> b.error()).orElse("").equals("NullPointerException"));
+            List<String> caused = List.of(
+                    "[main/ERROR]: Exception in thread \"main\" java.lang.RuntimeException: wrapped",
+                    "\tat knot//com.replaymod.replay.InputReplayTimer.tick(InputReplayTimer.java:10)",
+                    "Caused by: java.lang.IllegalStateException: broken",
+                    "\tat knot//com.example.lib.Util.check(Util.java:3)",
+                    "\tat java.base/java.util.Objects.requireNonNull(Objects.java:1)");
+            var root = com.hexadron.launcher.crash.StackAttribution.blame(
+                    com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, caused)), withReplay);
+            check("the deepest cause is looked at first", root.map(b -> b.mod().fileName()).orElse("")
+                    .equals("library.jar") && root.get().error().equals("IllegalStateException"));
+            List<String> gameOnly = List.of("Description: Rendering", "", "java.lang.IllegalStateException: x",
+                    "\tat net.minecraft.client.renderer.GameRenderer.render(GameRenderer.java:1)",
+                    "\tat java.base/java.lang.Thread.run(Thread.java:1)");
+            check("a stack of only game and JDK frames names no mod", com.hexadron.launcher.crash.StackAttribution.blame(
+                    new com.hexadron.launcher.crash.CrashEvidence(-1,
+                            Map.of(com.hexadron.launcher.crash.CrashRules.Source.CRASH, gameOnly), Map.of()),
+                    withReplay).isEmpty());
+            var frozen = com.hexadron.launcher.crash.CrashAnalyzer.describe(rules, "uk", "frozen", 5,
+                    com.hexadron.launcher.crash.CrashRules.TEXT_FROZEN, Map.of("seconds", "120"), List.of(), OUT, "last");
+            check("a silent game is described in the player's language", frozen.map(d -> d.cause()).orElse("")
+                    .contains("120"));
+            check("the launcher's own texts are in the built-in rules",
+                    rules.texts().keySet().containsAll(com.hexadron.launcher.crash.CrashRules.CODE_TEXTS));
 
             // ---- what a run leaves behind
             Path game = dir.resolve("game");

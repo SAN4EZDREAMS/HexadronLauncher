@@ -298,9 +298,63 @@ public final class LauncherService {
      */
     public java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> analyzeCrash(
             Profile profile, com.hexadron.launcher.crash.CrashEvidence evidence, String language) {
+        return analyzeCrash(profile, evidence, language, 0);
+    }
+
+    /** Silence before the end, past which a game with no other explanation is called frozen. */
+    public static final long FROZEN_AFTER_MILLIS = 45_000;
+
+    /**
+     * Explains why a game stopped: the rules first, then the mod a stack trace
+     * points at, then - when nothing else explains it - a game that went silent
+     * long before it was ended.
+     *
+     * @param quietMillis how long the game printed nothing before it ended
+     */
+    public java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> analyzeCrash(
+            Profile profile, com.hexadron.launcher.crash.CrashEvidence evidence, String language,
+            long quietMillis) {
         java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsOf(profile);
-        return com.hexadron.launcher.crash.CrashAnalyzer.analyze(evidence, crashRules.current(),
-                language, id -> com.hexadron.launcher.crash.CrashFixes.displayName(mods, id));
+        com.hexadron.launcher.crash.CrashRules rules = crashRules.current();
+        java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> found = new java.util.ArrayList<>(
+                com.hexadron.launcher.crash.CrashAnalyzer.analyze(evidence, rules, language,
+                        id -> com.hexadron.launcher.crash.CrashFixes.displayName(mods, id)));
+
+        if (found.size() < com.hexadron.launcher.crash.CrashAnalyzer.MAX_DIAGNOSES) {
+            com.hexadron.launcher.crash.StackAttribution.blame(evidence, mods).ifPresent(blame -> {
+                com.hexadron.launcher.mods.ModEntry mod = blame.mod();
+                String name = mod.title() == null || mod.title().isBlank() ? mod.fileName() : mod.title();
+                String id = com.hexadron.launcher.mods.ModScan.descriptorOf(mod.path()).modId();
+                // A rule that already named this mod said more than a stack can.
+                boolean named = found.stream().anyMatch(d -> d.values().containsValue(name)
+                        || (id != null && d.values().containsValue(id)));
+                if (!named) {
+                    com.hexadron.launcher.crash.CrashAnalyzer.describe(rules, language, "stack-trace", 10,
+                            com.hexadron.launcher.crash.CrashRules.TEXT_MOD_CODE,
+                            java.util.Map.of("mod", name, "error", blame.error()),
+                            java.util.List.of(new com.hexadron.launcher.crash.CrashFix(
+                                    com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_FILE, mod.fileName())),
+                            evidence.crashReport().isPresent()
+                                    ? com.hexadron.launcher.crash.CrashRules.Source.CRASH
+                                    : com.hexadron.launcher.crash.CrashRules.Source.OUTPUT,
+                            blame.className()).ifPresent(found::add);
+                }
+            });
+        }
+
+        if (found.isEmpty() && evidence.exitCode() != 0 && evidence.crashReport().isEmpty()
+                && quietMillis >= FROZEN_AFTER_MILLIS) {
+            java.util.List<String> output = evidence.lines(com.hexadron.launcher.crash.CrashRules.Source.OUTPUT);
+            String last = "";
+            for (int i = output.size() - 1; i >= 0 && last.isBlank(); i--) {
+                last = output.get(i);
+            }
+            com.hexadron.launcher.crash.CrashAnalyzer.describe(rules, language, "frozen", 5,
+                    com.hexadron.launcher.crash.CrashRules.TEXT_FROZEN,
+                    java.util.Map.of("seconds", String.valueOf(quietMillis / 1000)), java.util.List.of(),
+                    com.hexadron.launcher.crash.CrashRules.Source.OUTPUT, last).ifPresent(found::add);
+        }
+        return java.util.List.copyOf(found);
     }
 
     /** The fixes of one diagnosis that would change something in this profile. */

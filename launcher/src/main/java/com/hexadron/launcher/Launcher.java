@@ -219,6 +219,7 @@ public final class Launcher extends Application {
             splash.minimumVisible(service.settings().splashMinimumMillis());
         }
         reportStep("interface");
+        com.hexadron.launcher.ui.FxWatchdog.start();
 
         window = new MainWindow(service, stage);
         // The title is set by the window, from the active language.

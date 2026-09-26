@@ -51,6 +51,13 @@ The built-in rule file is `launcher/src/main/resources/crash/rules.json`. It kno
 | Crash inside the graphics driver (`hs_err` file) | all | none: update the driver |
 | Game or loader files missing or damaged | all | **Check the game files**: verifies every file and downloads the broken ones again |
 
+Two causes come from the launcher's own code, not from a rule. Their texts are in the same rule file (`modCode`, `frozen`); a downloaded rule file without them is refused.
+
+| Cause | How it is found | Fix |
+|---|---|---|
+| A mod's code threw the exception | The stack trace of the crash report (or of the report the game printed, or of `Exception in thread "main"`) is read from the root cause outwards. Frames of the JDK, the game, the loaders and common libraries are skipped. The first class that a jar in the `mods` folder contains (looked up as `com/example/Foo.class` inside the jar) names the mod | **Switch off** that jar |
+| The game stopped responding | The game ended with an error, wrote no crash report, no other cause was found, and it printed nothing for 45 seconds or more before it ended - typically a frozen start that was ended in Task Manager | none: switch off the mods added last |
+
 The window shows at most four causes, most specific first. Mods are named by the name in their jar, not by their id.
 
 A fix is offered only when it would change something in this profile. **Switch off** needs the mod in this profile's `mods` folder, switched on. **Raise memory** needs room: the new limit is half as much again (at least 1 GB more), in 512 MB steps, and never more than three quarters of the computer's memory or 16 GB.
@@ -87,6 +94,16 @@ The format is documented in `crash/CrashRules.java`. In short:
 The whole file is refused when a rule names an unknown fix, a fix parameter it does not take, a text with a value that the rule does not provide, a text without English, a condition without `contains`, a bad regular expression, or a schema other than 1.
 
 The self-check (`SelfCheck`, section "Crash analysis") runs every rule against real loader and JVM output and checks every text in every language.
+
+## Stopping a frozen game
+
+The **Stop** button and **Stop** in the tray menu end the game and any process it started (a wrapper command, for example). A game that has not ended 10 seconds later is ended forcibly. Use them instead of Task Manager: there, the launcher and the game are both Java, and ending the wrong one closes the launcher. A game stopped this way does not open the crash window.
+
+## A launcher that stops responding
+
+A background thread checks every 2 seconds that the launcher window still answers. When it has not answered for 8 seconds, `logs/launcher.log` gets the stack of the interface thread, and one more line when it answers again. Send that part of the log with a bug report.
+
+Game output reaches the log panel in batches, one update for however many lines arrived. When more than 5000 lines wait, the oldest are left out of the panel with one line that says how many; `launcher.log` still has all of them.
 
 ## Command line
 

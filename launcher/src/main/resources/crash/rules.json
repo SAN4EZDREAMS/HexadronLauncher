@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 1,
+  "version": 2,
   "about": "Crash rules for HexadronLauncher. Format: crash/CrashRules.java. A newer signed copy is published with each release as hexadron-crash-rules.json.",
   "texts": {
     "javaOld": {
@@ -1395,6 +1395,170 @@
         "title": "게임 설치가 완전하지 않습니다",
         "cause": "Minecraft 또는 모드 로더의 파일이 없거나 손상되었습니다. 모드 때문이 아닙니다.",
         "fix": "런처가 게임 파일을 확인하고 다시 내려받게 하세요. 모드 폴더는 바뀌지 않습니다."
+      }
+    },
+    "modCode": {
+      "en": {
+        "title": "A mod caused the crash",
+        "cause": "The error ({error}) happened inside the code of {mod}.",
+        "fix": "Switch off {mod} or update it. If the newest version also crashes, send the crash report to the author of {mod}."
+      },
+      "uk": {
+        "title": "Збій спричинив мод",
+        "cause": "Помилка ({error}) сталася в коді {mod}.",
+        "fix": "Вимкніть {mod} або оновіть його. Якщо найновіша версія теж падає, надішліть звіт про збій авторові {mod}."
+      },
+      "ru": {
+        "title": "Сбой вызвал мод",
+        "cause": "Ошибка ({error}) произошла в коде {mod}.",
+        "fix": "Отключите {mod} или обновите его. Если самая новая версия тоже падает, отправьте отчёт о сбое автору {mod}."
+      },
+      "pl": {
+        "title": "Awarię spowodował mod",
+        "cause": "Błąd ({error}) wystąpił w kodzie {mod}.",
+        "fix": "Wyłącz {mod} albo go zaktualizuj. Jeśli najnowsza wersja też się wysypuje, wyślij raport awarii autorowi {mod}."
+      },
+      "de": {
+        "title": "Eine Mod hat den Absturz verursacht",
+        "cause": "Der Fehler ({error}) trat im Code von {mod} auf.",
+        "fix": "Schalte {mod} aus oder aktualisiere sie. Stürzt auch die neueste Version ab, sende den Absturzbericht an den Autor von {mod}."
+      },
+      "es": {
+        "title": "Un mod causó el fallo",
+        "cause": "El error ({error}) ocurrió dentro del código de {mod}.",
+        "fix": "Desactiva {mod} o actualízalo. Si la versión más nueva también falla, envía el informe de fallo al autor de {mod}."
+      },
+      "fr": {
+        "title": "Un mod a causé le plantage",
+        "cause": "L'erreur ({error}) s'est produite dans le code de {mod}.",
+        "fix": "Désactivez {mod} ou mettez-le à jour. Si la version la plus récente plante aussi, envoyez le rapport de plantage à l'auteur de {mod}."
+      },
+      "it": {
+        "title": "Una mod ha causato il crash",
+        "cause": "L'errore ({error}) è avvenuto nel codice di {mod}.",
+        "fix": "Disattiva {mod} o aggiornala. Se anche la versione più recente va in crash, invia il rapporto di crash all'autore di {mod}."
+      },
+      "pt": {
+        "title": "Um mod causou a falha",
+        "cause": "O erro ({error}) aconteceu no código de {mod}.",
+        "fix": "Desative {mod} ou atualize-o. Se a versão mais nova também falhar, envie o relatório de falha ao autor de {mod}."
+      },
+      "tr": {
+        "title": "Çökmeye bir mod neden oldu",
+        "cause": "Hata ({error}), {mod} modunun kodunda oluştu.",
+        "fix": "{mod} modunu kapat veya güncelle. En yeni sürüm de çökerse çökme raporunu {mod} yazarına gönder."
+      },
+      "id": {
+        "title": "Mod menyebabkan crash",
+        "cause": "Galat ({error}) terjadi di dalam kode {mod}.",
+        "fix": "Matikan {mod} atau perbarui. Jika versi terbaru juga crash, kirim laporan crash ke pembuat {mod}."
+      },
+      "vi": {
+        "title": "Một mod đã gây ra sự cố",
+        "cause": "Lỗi ({error}) xảy ra bên trong mã của {mod}.",
+        "fix": "Tắt {mod} hoặc cập nhật nó. Nếu phiên bản mới nhất vẫn lỗi, hãy gửi báo cáo sự cố cho tác giả của {mod}."
+      },
+      "hi": {
+        "title": "एक मॉड की वजह से क्रैश हुआ",
+        "cause": "त्रुटि ({error}) {mod} के कोड के अंदर हुई।",
+        "fix": "{mod} बंद करें या अपडेट करें। अगर सबसे नया वर्शन भी क्रैश हो, तो क्रैश रिपोर्ट {mod} के लेखक को भेजें।"
+      },
+      "zh": {
+        "title": "模组导致了崩溃",
+        "cause": "错误（{error}）发生在 {mod} 的代码中。",
+        "fix": "关闭或更新 {mod}。如果最新版本也会崩溃，请将崩溃报告发送给 {mod} 的作者。"
+      },
+      "ja": {
+        "title": "Mod がクラッシュの原因です",
+        "cause": "エラー（{error}）は {mod} のコード内で発生しました。",
+        "fix": "{mod} をオフにするか更新してください。最新バージョンでもクラッシュする場合は、クラッシュレポートを {mod} の作者に送ってください。"
+      },
+      "ko": {
+        "title": "모드가 충돌을 일으켰습니다",
+        "cause": "오류({error})가 {mod}의 코드 안에서 발생했습니다.",
+        "fix": "{mod}을(를) 끄거나 업데이트하세요. 최신 버전도 충돌하면 충돌 보고서를 {mod} 제작자에게 보내세요."
+      }
+    },
+    "frozen": {
+      "en": {
+        "title": "The game stopped responding",
+        "cause": "The game wrote nothing for {seconds} seconds before it closed. It was probably frozen, not crashed.",
+        "fix": "A frozen start is usually caused by a mod. Switch off the mods you added last and try again. Stop a frozen game with the Stop button of the launcher: in Task Manager the launcher and the game are both Java, and it is easy to end the wrong one."
+      },
+      "uk": {
+        "title": "Гра перестала відповідати",
+        "cause": "Гра нічого не писала {seconds} с перед закриттям. Імовірно, вона зависла, а не впала.",
+        "fix": "Зависання під час запуску зазвичай спричиняє мод. Вимкніть моди, які додали останніми, і спробуйте знову. Зупиняйте завислу гру кнопкою «Стоп» у лаунчері: у диспетчері завдань і лаунчер, і гра — це Java, тож легко закрити не той процес."
+      },
+      "ru": {
+        "title": "Игра перестала отвечать",
+        "cause": "Игра ничего не писала {seconds} с перед закрытием. Вероятно, она зависла, а не упала.",
+        "fix": "Зависание при запуске обычно вызывает мод. Отключите моды, добавленные последними, и попробуйте снова. Останавливайте зависшую игру кнопкой «Стоп» в лаунчере: в диспетчере задач и лаунчер, и игра — это Java, и легко закрыть не тот процесс."
+      },
+      "pl": {
+        "title": "Gra przestała odpowiadać",
+        "cause": "Gra nic nie zapisała przez {seconds} s przed zamknięciem. Prawdopodobnie się zawiesiła, a nie uległa awarii.",
+        "fix": "Zawieszenie przy starcie zwykle powoduje mod. Wyłącz ostatnio dodane mody i spróbuj ponownie. Zatrzymuj zawieszoną grę przyciskiem Stop w launcherze: w Menedżerze zadań launcher i gra to Java, więc łatwo zamknąć nie ten proces."
+      },
+      "de": {
+        "title": "Das Spiel reagiert nicht mehr",
+        "cause": "Das Spiel hat {seconds} Sekunden vor dem Schließen nichts mehr geschrieben. Es war wahrscheinlich eingefroren, nicht abgestürzt.",
+        "fix": "Ein eingefrorener Start liegt meist an einer Mod. Schalte die zuletzt hinzugefügten Mods aus und versuche es erneut. Beende ein eingefrorenes Spiel mit der Stopp-Schaltfläche des Launchers: Im Task-Manager sind Launcher und Spiel beide Java, und man beendet leicht das falsche."
+      },
+      "es": {
+        "title": "El juego dejó de responder",
+        "cause": "El juego no escribió nada durante {seconds} segundos antes de cerrarse. Probablemente se congeló, no falló.",
+        "fix": "Un inicio congelado suele deberse a un mod. Desactiva los últimos mods que añadiste y vuelve a intentarlo. Detén un juego congelado con el botón Detener del launcher: en el Administrador de tareas el launcher y el juego son Java, y es fácil cerrar el equivocado."
+      },
+      "fr": {
+        "title": "Le jeu ne répondait plus",
+        "cause": "Le jeu n'a rien écrit pendant {seconds} secondes avant de se fermer. Il était probablement figé, pas planté.",
+        "fix": "Un démarrage figé vient généralement d'un mod. Désactivez les derniers mods ajoutés et réessayez. Arrêtez un jeu figé avec le bouton Arrêter du launcher : dans le Gestionnaire des tâches, le launcher et le jeu sont tous deux Java, et il est facile de fermer le mauvais."
+      },
+      "it": {
+        "title": "Il gioco ha smesso di rispondere",
+        "cause": "Il gioco non ha scritto nulla per {seconds} secondi prima di chiudersi. Probabilmente era bloccato, non in crash.",
+        "fix": "Un avvio bloccato di solito è causato da una mod. Disattiva le ultime mod aggiunte e riprova. Ferma un gioco bloccato con il pulsante Stop del launcher: in Gestione attività il launcher e il gioco sono entrambi Java, ed è facile chiudere quello sbagliato."
+      },
+      "pt": {
+        "title": "O jogo parou de responder",
+        "cause": "O jogo não escreveu nada por {seconds} segundos antes de fechar. Provavelmente travou, e não falhou.",
+        "fix": "Um início travado geralmente é causado por um mod. Desative os últimos mods que você adicionou e tente de novo. Pare um jogo travado com o botão Parar do launcher: no Gerenciador de Tarefas o launcher e o jogo são Java, e é fácil fechar o errado."
+      },
+      "tr": {
+        "title": "Oyun yanıt vermeyi bıraktı",
+        "cause": "Oyun kapanmadan önce {seconds} saniye boyunca hiçbir şey yazmadı. Büyük olasılıkla çökmedi, dondu.",
+        "fix": "Başlangıçta donma genellikle bir moddan kaynaklanır. En son eklediğin modları kapat ve yeniden dene. Donan oyunu launcher'ın Durdur düğmesiyle durdur: Görev Yöneticisi'nde launcher ve oyun ikisi de Java'dır ve yanlış olanı kapatmak kolaydır."
+      },
+      "id": {
+        "title": "Game berhenti merespons",
+        "cause": "Game tidak menulis apa pun selama {seconds} detik sebelum tertutup. Kemungkinan game macet, bukan crash.",
+        "fix": "Game yang macet saat mulai biasanya disebabkan mod. Matikan mod yang terakhir Anda tambahkan, lalu coba lagi. Hentikan game yang macet dengan tombol Stop di launcher: di Task Manager launcher dan game sama-sama Java, jadi mudah menutup yang salah."
+      },
+      "vi": {
+        "title": "Trò chơi đã ngừng phản hồi",
+        "cause": "Trò chơi không ghi gì trong {seconds} giây trước khi đóng. Có lẽ nó bị treo chứ không phải bị lỗi.",
+        "fix": "Treo khi khởi động thường do một mod gây ra. Tắt các mod bạn thêm gần nhất rồi thử lại. Hãy dừng trò chơi bị treo bằng nút Dừng của launcher: trong Trình quản lý tác vụ, launcher và trò chơi đều là Java, rất dễ đóng nhầm."
+      },
+      "hi": {
+        "title": "गेम ने जवाब देना बंद कर दिया",
+        "cause": "बंद होने से पहले गेम ने {seconds} सेकंड तक कुछ नहीं लिखा। शायद यह क्रैश नहीं हुआ, बल्कि अटक गया था।",
+        "fix": "शुरू होते समय अटकना आम तौर पर किसी मॉड की वजह से होता है। हाल में जोड़े गए मॉड बंद करें और फिर कोशिश करें। अटके गेम को लॉन्चर के स्टॉप बटन से रोकें: टास्क मैनेजर में लॉन्चर और गेम दोनों Java हैं, और गलत प्रोसेस बंद हो जाना आसान है।"
+      },
+      "zh": {
+        "title": "游戏停止响应",
+        "cause": "游戏在关闭前 {seconds} 秒内没有写入任何内容。它可能是卡死了，而不是崩溃。",
+        "fix": "启动时卡死通常是某个模组导致的。关闭最近添加的模组后重试。请用启动器的“停止”按钮结束卡死的游戏：在任务管理器中启动器和游戏都是 Java，很容易结束错进程。"
+      },
+      "ja": {
+        "title": "ゲームが応答しなくなりました",
+        "cause": "ゲームは終了前の {seconds} 秒間、何も出力しませんでした。クラッシュではなくフリーズしていた可能性があります。",
+        "fix": "起動時のフリーズは通常 Mod が原因です。最後に追加した Mod をオフにして再度試してください。フリーズしたゲームはランチャーの停止ボタンで止めてください。タスクマネージャーではランチャーもゲームも Java なので、違うほうを終了しやすくなっています。"
+      },
+      "ko": {
+        "title": "게임이 응답하지 않았습니다",
+        "cause": "게임이 닫히기 전 {seconds}초 동안 아무것도 기록하지 않았습니다. 충돌이 아니라 멈췄을 가능성이 큽니다.",
+        "fix": "시작 중 멈춤은 보통 모드 때문입니다. 마지막으로 추가한 모드를 끄고 다시 시도하세요. 멈춘 게임은 런처의 중지 버튼으로 끄세요. 작업 관리자에서는 런처와 게임이 모두 Java라서 다른 것을 끄기 쉽습니다."
       }
     }
   },

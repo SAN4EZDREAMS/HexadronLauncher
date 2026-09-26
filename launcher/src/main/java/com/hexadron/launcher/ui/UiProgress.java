@@ -19,6 +19,10 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.TextArea;
 
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
 /**
  * Bridges {@link Progress} onto the JavaFX application thread.
  *
@@ -29,6 +33,11 @@ public final class UiProgress implements Progress {
 
     private static final long MIN_UPDATE_INTERVAL_MILLIS = 60;
     private static final int MAX_LOG_CHARACTERS = 400_000;
+    /**
+     * Lines waiting for the panel. Past this the oldest are dropped from the
+     * panel - never from the log file - with one line saying how many.
+     */
+    static final int MAX_PENDING_LINES = 5000;
 
     private final Label stageLabel;
     private final ProgressBar progressBar;
@@ -36,6 +45,11 @@ public final class UiProgress implements Progress {
     private final SimpleBooleanProperty cancelled = new SimpleBooleanProperty(false);
 
     private volatile long lastUpdate;
+
+    private final ConcurrentLinkedQueue<String> pending = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger pendingCount = new AtomicInteger();
+    private final AtomicInteger dropped = new AtomicInteger();
+    private final AtomicBoolean flushQueued = new AtomicBoolean();
 
     public UiProgress(Label stageLabel, ProgressBar progressBar, TextArea logArea) {
         this.stageLabel = stageLabel;
@@ -132,12 +146,45 @@ public final class UiProgress implements Progress {
     public void log(String message) {
         String safe = com.hexadron.launcher.util.Redactor.scrub(message);
         record(safe);
-        Platform.runLater(() -> {
-            if (logArea.getLength() > MAX_LOG_CHARACTERS) {
-                logArea.deleteText(0, MAX_LOG_CHARACTERS / 2);
-            }
-            logArea.appendText(safe + System.lineSeparator());
-        });
+        pending.add(safe);
+        if (pendingCount.incrementAndGet() > MAX_PENDING_LINES && pending.poll() != null) {
+            pendingCount.decrementAndGet();
+            dropped.incrementAndGet();
+        }
+        // One task on the interface thread for however many lines arrive before
+        // it runs. It used to be one task per line: a modpack printing a few
+        // thousand lines a second queued a few thousand appends to a text area
+        // of 400 000 characters, each copying all of it, and the window stopped
+        // answering while the game started.
+        if (flushQueued.compareAndSet(false, true)) {
+            Platform.runLater(this::flush);
+        }
+    }
+
+    private void flush() {
+        flushQueued.set(false);
+        StringBuilder chunk = new StringBuilder();
+        int skipped = dropped.getAndSet(0);
+        if (skipped > 0) {
+            chunk.append(com.hexadron.launcher.i18n.I18n.t("log.linesSkipped", skipped))
+                    .append(System.lineSeparator());
+        }
+        String line;
+        while ((line = pending.poll()) != null) {
+            pendingCount.decrementAndGet();
+            chunk.append(line).append(System.lineSeparator());
+        }
+        if (chunk.isEmpty()) {
+            return;
+        }
+        String text = chunk.length() > MAX_LOG_CHARACTERS / 2
+                ? chunk.substring(chunk.length() - MAX_LOG_CHARACTERS / 2)
+                : chunk.toString();
+        if (logArea.getLength() + text.length() > MAX_LOG_CHARACTERS) {
+            logArea.deleteText(0, Math.min(logArea.getLength(),
+                    logArea.getLength() + text.length() - MAX_LOG_CHARACTERS / 2));
+        }
+        logArea.appendText(text);
     }
 
     private synchronized boolean shouldUpdate() {
