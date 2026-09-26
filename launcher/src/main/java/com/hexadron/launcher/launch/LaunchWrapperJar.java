@@ -31,7 +31,10 @@ import java.nio.file.Path;
  * the launcher jar also carries {@code lang/*.properties} and {@code ui/*.css}
  * at paths a mod could plausibly use, and a classpath entry containing the whole
  * launcher gives a hostile mod the launcher's own classes to work with. The
- * wrapper jar contains one class and nothing else.
+ * wrapper jar contains two classes and nothing else: the wrapper, and
+ * {@code ThreadDumpAgent}, which the manifest names as {@code Premain-Class}
+ * so the same jar can be started with {@code -javaagent} to write the game's
+ * threads when the launcher asks (see {@code crash/ThreadDumps}).
  *
  * <p>Extraction is content-addressed: if the file on disk already hashes to the
  * same value as the embedded copy, it is left alone, so a launch does not

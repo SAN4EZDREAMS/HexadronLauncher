@@ -1535,6 +1535,7 @@ public final class MainWindow implements ProfileHost {
                     // answer, and refuses - which turns that button into one
                     // that does nothing.
                     true);
+            watchSilence(session, service.profiles().gameDirectory(profile), lastOutput);
             progress.finish(I18n.t("status.playing"));
             Platform.runLater(() -> {
                 playing = true;
@@ -1545,6 +1546,45 @@ public final class MainWindow implements ProfileHost {
                 goToTray();
             });
         }, false);
+    }
+
+    /**
+     * Asks a game that has gone silent for its threads, once per silence.
+     *
+     * <p>A frozen game prints nothing, and nothing is what the log would
+     * otherwise hold. The launch wrapper's agent answers the request with every
+     * thread's stack, which the crash analysis reads if the game is then
+     * stopped or ends.
+     */
+    private void watchSilence(GameLauncher.GameSession game, Path gameDir,
+                              java.util.concurrent.atomic.AtomicLong lastOutput) {
+        if (game == null) {
+            return;
+        }
+        Thread watcher = new Thread(() -> {
+            long askedFor = -1;
+            while (game.isRunning()) {
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                long last = lastOutput.get();
+                long quiet = System.currentTimeMillis() - last;
+                if (quiet >= com.hexadron.launcher.crash.ThreadDumps.ASK_AFTER_MILLIS
+                        && askedFor != last && game.isRunning()) {
+                    askedFor = last;
+                    try {
+                        com.hexadron.launcher.crash.ThreadDumps.request(gameDir);
+                        progress.log(I18n.t("log.gameSilent", quiet / 1000));
+                    } catch (IOException e) {
+                        com.hexadron.launcher.core.LauncherLog.info("Could not ask the game for its threads: " + e);
+                    }
+                }
+            }
+        }, "minecraft-silence");
+        watcher.setDaemon(true);
+        watcher.start();
     }
 
     /** How many lines of game output are kept for the crash analysis. */
@@ -1564,11 +1604,18 @@ public final class MainWindow implements ProfileHost {
      */
     private void explainCrash(Profile profile, int exitCode, long startedAt, java.util.List<String> lines,
                               long quietMillis) {
-        if (stopRequested || exitCode == 92) {
+        if (exitCode == 92) {
+            return;
+        }
+        // A game the player stopped is not a crash - unless it had gone silent
+        // first, which is the one case where Stop is the player's answer to a
+        // frozen game, and that deserves an explanation.
+        if (stopRequested && quietMillis < com.hexadron.launcher.core.LauncherService.FROZEN_AFTER_MILLIS) {
             return;
         }
         Path gameDir = service.profiles().gameDirectory(profile);
-        if (exitCode == 0 && !CrashEvidence.hasCrashReportSince(gameDir, startedAt)) {
+        if (exitCode == 0 && !CrashEvidence.hasCrashReportSince(gameDir, startedAt)
+                && !CrashEvidence.hasFatalLine(lines)) {
             return;
         }
         try {

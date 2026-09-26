@@ -182,7 +182,7 @@ The launcher replaces itself with builds from the project's GitHub releases ([do
 | Application image | Runtime and jar folder must be where jpackage puts them, or nothing is replaced. |
 | Undo | The old folder is moved aside, not deleted, until the new build is in place. |
 
-Crash rules ([docs/crashes.md](docs/crashes.md#rule-updates)) come from the same releases, once a day and only when the update check is on. A downloaded rule file is used only with a valid Ed25519 signature by the update key and a higher version than the built-in file; the signature is checked again each time the file is read. A rule can only choose among fixed fix kinds (switch off a mod in the profile's mods folder, choose Java, change the memory limit, check the game files). It cannot run a command or open a link.
+Crash rules ([docs/crashes.md](docs/crashes.md#rule-updates)) come from the same releases, once a day and only when the update check is on. A downloaded rule file is used only with a valid Ed25519 signature by the update key and a higher version than the built-in file; the signature is checked again each time the file is read. A rule can only choose among fixed fix kinds (switch off a mod in the profile's mods folder, choose Java, change the memory limit, check the game files). It cannot run a command or open a link. Every game also starts with the launcher's thread-dump agent (`-javaagent`, the launch wrapper jar). It changes no class and makes no network connection: when the launcher creates a request file in the game folder, it writes the game's thread stacks to `hexadron-threads.txt` there.
 
 **Not checked:**
 

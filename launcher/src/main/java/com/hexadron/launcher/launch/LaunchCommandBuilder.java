@@ -127,6 +127,19 @@ public final class LaunchCommandBuilder {
     public LaunchCommand build(VersionJson version, Profile profile, Account account,
                                Path gameDir, Path assetsDir, JavaLocator.JavaRuntime java,
                                Path wrapperJar) {
+        return build(version, profile, account, gameDir, assetsDir, java, wrapperJar, null);
+    }
+
+    /**
+     * As {@link #build(VersionJson, Profile, Account, Path, Path, JavaLocator.JavaRuntime, Path)},
+     * with the thread-dump agent.
+     *
+     * @param agentJar the launch wrapper jar to start as {@code -javaagent}, so a
+     *                 frozen game can be asked for its threads; null for none
+     */
+    public LaunchCommand build(VersionJson version, Profile profile, Account account,
+                               Path gameDir, Path assetsDir, JavaLocator.JavaRuntime java,
+                               Path wrapperJar, Path agentJar) {
 
         // The wrapper is pointless for an offline account, whose "token" is the
         // literal string "0", and it must not be used when the jar is missing.
@@ -165,6 +178,12 @@ public final class LaunchCommandBuilder {
         // override in extraJvmArguments can still win by appearing later.
         command.add("-Xmx" + profile.memoryMegabytes() + "M");
         command.add("-Xms" + Math.min(profile.memoryMegabytes(), 512) + "M");
+
+        // The thread-dump agent: it only looks for a request file in the game
+        // folder and writes the threads when it finds one. It changes no class.
+        if (agentJar != null) {
+            command.add("-javaagent:" + agentJar.toAbsolutePath() + "=" + gameDir.toAbsolutePath());
+        }
 
         // LWJGL 3 on macOS must own the first thread; modern version JSONs say so
         // themselves through a rule, older ones do not.

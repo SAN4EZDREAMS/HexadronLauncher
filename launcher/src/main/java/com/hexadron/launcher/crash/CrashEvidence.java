@@ -52,6 +52,7 @@ public record CrashEvidence(int exitCode, Map<CrashRules.Source, List<String>> l
     static final int MAX_CRASH_REPORT = 1024 * 1024;
     static final int MAX_HS_ERR = 1024 * 1024;
     static final int MAX_LOG_TAIL = 4 * 1024 * 1024;
+    static final int MAX_THREAD_DUMP = 2 * 1024 * 1024;
     /** Allowance for file systems with two-second timestamps (FAT, some network shares). */
     static final long CLOCK_SLACK_MILLIS = 3000;
 
@@ -107,12 +108,31 @@ public record CrashEvidence(int exitCode, Map<CrashRules.Source, List<String>> l
             files.put(CrashRules.Source.HS_ERR, file);
             lines.put(CrashRules.Source.HS_ERR, split(readHead(file, MAX_HS_ERR)));
         });
+        Path threads = gameDir.resolve(ThreadDumps.DUMP);
+        if (isRecentFile(threads, since)) {
+            files.put(CrashRules.Source.THREADS, threads);
+            lines.put(CrashRules.Source.THREADS, split(readHead(threads, MAX_THREAD_DUMP)));
+        }
         Path log = gameDir.resolve("logs").resolve("latest.log");
         if (isRecentFile(log, since)) {
             files.put(CrashRules.Source.LOG, log);
             lines.put(CrashRules.Source.LOG, split(readTail(log, MAX_LOG_TAIL)));
         }
         return new CrashEvidence(exitCode, lines, files);
+    }
+
+    /**
+     * True when the game logged a fatal error. Some loaders stop on one without
+     * a crash report and still exit with code 0 once the player closes their
+     * error screen - Forge for 1.12 on duplicate mods, for one.
+     */
+    public static boolean hasFatalLine(List<String> output) {
+        for (String line : output) {
+            if (line != null && line.contains("/FATAL]")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -899,6 +899,15 @@ public final class SelfCheck {
         check("nothing else about the launch changed",
                 with.subList(3, with.size()).equals(without));
 
+        Path agent = root.resolve("wrapper/hexadron-launchwrapper-test.jar");
+        List<String> withAgent =
+                builder.build(version, plain, steve, gameDir, assets, java, null, agent).command();
+        String agentArgument = "-javaagent:" + agent.toAbsolutePath() + "=" + gameDir.toAbsolutePath();
+        check("the thread-dump agent is started with the game folder", withAgent.contains(agentArgument));
+        check("before the main class", withAgent.indexOf(agentArgument) < withAgent.indexOf(version.mainClass()));
+        check("and nothing else changes with it", withAgent.stream()
+                .filter(argument -> !argument.equals(agentArgument)).toList().equals(without));
+
         // Quoting, because a bwrap bind mount is the first thing anybody types
         // here and Windows paths have spaces in them.
         Profile quoted = Profile.create("Quoted", "1.20.1", LoaderType.VANILLA)
@@ -9051,6 +9060,16 @@ public final class SelfCheck {
         for (String[] c : cases) {
             check("crash rule " + c[0] + " explains its output", c[0].equals(firstRule(rules, OUT, c[1])));
         }
+        check("crash rule forge-legacy-duplicate explains its output", "forge-legacy-duplicate".equals(firstRule(rules, OUT,
+                "[22:22:20] [Client thread/FATAL] [FML]: Found a duplicate mod controlling at [C:\\mods\\Controlling-3.0.12.2.jar, C:\\mods\\Controlling-3.0.12.4.jar]")));
+        check("crash rule forge-legacy-missing-dependency explains its output", "forge-legacy-missing-dependency".equals(firstRule(rules, OUT,
+                "net.minecraftforge.fml.common.MissingModsException: Mod pvj (Project: Vibrant Journeys) requires [biomesoplenty@[7.0.1.2439,)]")));
+        check("crash rule forge-legacy-loader-version explains its output", "forge-legacy-loader-version".equals(firstRule(rules, OUT,
+                "net.minecraftforge.fml.common.MissingModsException: Mod jei (Just Enough Items) requires [forge@[14.23.5.2816,)]")));
+        check("a fatal loader error counts even with exit code 0", com.hexadron.launcher.crash.CrashEvidence.hasFatalLine(List.of(
+                "[22:22:20] [Client thread/FATAL] [FML]: Found a duplicate mod controlling at [a.jar, b.jar]")));
+        check("ordinary output is not fatal", !com.hexadron.launcher.crash.CrashEvidence.hasFatalLine(List.of(
+                "[22:22:20] [Render thread/INFO]: Setting user: Steve", "[22:22:21] [main/ERROR]: Failed to fetch Realms feature flags")));
         check("crash rule neoforge-missing-dependency reads the next line", "neoforge-missing-dependency".equals(
                 firstRule(rules, OUT, "\t- Mod create requires flywheel 1.0 or above", "\t  Currently, flywheel is not installed")));
         check("crash rule neoforge-dependency-version reads the next line", "neoforge-dependency-version".equals(
@@ -9258,6 +9277,21 @@ public final class SelfCheck {
                     new com.hexadron.launcher.crash.CrashEvidence(-1,
                             Map.of(com.hexadron.launcher.crash.CrashRules.Source.CRASH, gameOnly), Map.of()),
                     withReplay).isEmpty());
+            List<String> dump = List.of(
+                    "Hexadron thread dump, Sat Sep 26 22:24:40 EEST 2026", "Deadlocked threads: none", "",
+                    "\"Render thread\" #1 WAITING on java.util.concurrent.CompletableFuture$Signaller",
+                    "\tat java.base@25/jdk.internal.misc.Unsafe.park(Native Method)",
+                    "\tat java.base@25/java.util.concurrent.CompletableFuture.join(Unknown Source)",
+                    "\tat com.replaymod.replay.InputReplayTimer.waitFor(InputReplayTimer.java:9)",
+                    "\tat net.minecraft.client.Minecraft.run(Minecraft.java:1)", "",
+                    "\"Worker-Main-3\" #40 RUNNABLE",
+                    "\tat com.example.lib.Util.spin(Util.java:3)", "");
+            var hung = com.hexadron.launcher.crash.StackAttribution.blameThreads(new com.hexadron.launcher.crash.CrashEvidence(1,
+                    Map.of(com.hexadron.launcher.crash.CrashRules.Source.THREADS, dump), Map.of()), withReplay);
+            check("the threads of a frozen game name the mod the main thread was in", hung.map(b -> b.mod().fileName())
+                    .orElse("").equals("replaymod.jar"));
+            check("a game with no thread dump names nobody", com.hexadron.launcher.crash.StackAttribution.blameThreads(
+                    com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of("x"))), withReplay).isEmpty());
             var frozen = com.hexadron.launcher.crash.CrashAnalyzer.describe(rules, "uk", "frozen", 5,
                     com.hexadron.launcher.crash.CrashRules.TEXT_FROZEN, Map.of("seconds", "120"), List.of(), OUT, "last");
             check("a silent game is described in the player's language", frozen.map(d -> d.cause()).orElse("")
@@ -9293,6 +9327,20 @@ public final class SelfCheck {
             if (dir != null) {
                 deleteRecursively(dir);
             }
+        }
+
+        // ---- the thread-dump agent is in the launch wrapper jar (Gradle builds carry it)
+        try (java.io.InputStream in = SelfCheck.class.getResourceAsStream("/wrapper/hexadron-launchwrapper.jar")) {
+            if (in != null) {
+                try (java.util.jar.JarInputStream jar = new java.util.jar.JarInputStream(in)) {
+                    java.util.jar.Manifest manifest = jar.getManifest();
+                    check("the launch wrapper jar is also the thread-dump agent", manifest != null
+                            && "com.hexadron.wrapper.ThreadDumpAgent".equals(
+                                    manifest.getMainAttributes().getValue("Premain-Class")));
+                }
+            }
+        } catch (IOException e) {
+            check("the launch wrapper jar can be read: " + e, false);
         }
 
         // ---- the window's own words

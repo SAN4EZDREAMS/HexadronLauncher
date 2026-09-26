@@ -72,6 +72,11 @@ tasks.register('wrapperJar', Jar) {
 	archiveBaseName = 'hexadron-launchwrapper'
 	archiveVersion = ''
 	from sourceSets.wrapper.output
+	// The same jar is the thread-dump agent (ThreadDumpAgent): started with
+	// -javaagent, it writes the game's threads to a file when the launcher asks.
+	manifest {
+		attributes('Premain-Class': 'com.hexadron.wrapper.ThreadDumpAgent')
+	}
 }
 
 // The product version as a resource, for runs from class folders: `run`,

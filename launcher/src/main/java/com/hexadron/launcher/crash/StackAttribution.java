@@ -79,9 +79,47 @@ public final class StackAttribution {
     private StackAttribution() {
     }
 
+    /** How many threads of a dump are read: the deadlocked ones and the game's main threads come first. */
+    static final int THREADS_READ = 3;
+
     /** Finds the mod, or empty when the stack names no class in any jar. */
     public static Optional<Blame> blame(CrashEvidence evidence, List<ModEntry> mods) {
-        Optional<Stack> stack = stackOf(evidence);
+        return find(stackOf(evidence), mods);
+    }
+
+    /**
+     * Finds the mod a frozen game was running, from the thread dump the
+     * launcher's agent wrote. The agent puts deadlocked threads first, then the
+     * render and main threads, so the first few threads are the ones read.
+     */
+    public static Optional<Blame> blameThreads(CrashEvidence evidence, List<ModEntry> mods) {
+        List<String> dump = evidence.lines(CrashRules.Source.THREADS);
+        if (dump.isEmpty()) {
+            return Optional.empty();
+        }
+        Set<String> classes = new LinkedHashSet<>();
+        int threads = 0;
+        for (String line : dump) {
+            if (line.startsWith("\"")) {
+                if (++threads > THREADS_READ) {
+                    break;
+                }
+                continue;
+            }
+            if (threads == 0) {
+                continue;
+            }
+            Matcher frame = FRAME.matcher(line);
+            if (frame.find() && isModClass(frame.group(1)) && classes.size() < MAX_CLASSES) {
+                String name = frame.group(1);
+                int inner = name.indexOf('$');
+                classes.add(inner > 0 ? name.substring(0, inner) : name);
+            }
+        }
+        return find(Optional.of(new Stack("freeze", List.copyOf(classes))), mods);
+    }
+
+    private static Optional<Blame> find(Optional<Stack> stack, List<ModEntry> mods) {
         if (stack.isEmpty() || stack.get().classes().isEmpty()) {
             return Optional.empty();
         }

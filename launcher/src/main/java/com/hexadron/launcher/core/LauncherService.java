@@ -349,10 +349,26 @@ public final class LauncherService {
             for (int i = output.size() - 1; i >= 0 && last.isBlank(); i--) {
                 last = output.get(i);
             }
-            com.hexadron.launcher.crash.CrashAnalyzer.describe(rules, language, "frozen", 5,
-                    com.hexadron.launcher.crash.CrashRules.TEXT_FROZEN,
-                    java.util.Map.of("seconds", String.valueOf(quietMillis / 1000)), java.util.List.of(),
-                    com.hexadron.launcher.crash.CrashRules.Source.OUTPUT, last).ifPresent(found::add);
+            String seconds = String.valueOf(quietMillis / 1000);
+            String lastLine = last;
+            java.util.Optional<com.hexadron.launcher.crash.StackAttribution.Blame> stuck =
+                    com.hexadron.launcher.crash.StackAttribution.blameThreads(evidence, mods);
+            if (stuck.isPresent()) {
+                com.hexadron.launcher.mods.ModEntry mod = stuck.get().mod();
+                String name = mod.title() == null || mod.title().isBlank() ? mod.fileName() : mod.title();
+                com.hexadron.launcher.crash.CrashAnalyzer.describe(rules, language, "frozen-mod", 8,
+                        com.hexadron.launcher.crash.CrashRules.TEXT_FROZEN_MOD,
+                        java.util.Map.of("seconds", seconds, "mod", name),
+                        java.util.List.of(new com.hexadron.launcher.crash.CrashFix(
+                                com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_FILE, mod.fileName())),
+                        com.hexadron.launcher.crash.CrashRules.Source.THREADS, stuck.get().className())
+                        .ifPresent(found::add);
+            } else {
+                com.hexadron.launcher.crash.CrashAnalyzer.describe(rules, language, "frozen", 5,
+                        com.hexadron.launcher.crash.CrashRules.TEXT_FROZEN,
+                        java.util.Map.of("seconds", seconds), java.util.List.of(),
+                        com.hexadron.launcher.crash.CrashRules.Source.OUTPUT, lastLine).ifPresent(found::add);
+            }
         }
         return java.util.List.copyOf(found);
     }
@@ -2066,8 +2082,21 @@ public final class LauncherService {
             }
         }
 
+        // The same jar is the thread-dump agent, and that part is wanted for
+        // every account: it is how a frozen game can still say what it was
+        // doing. A jar that cannot be put on disk only costs that.
+        Path agentJar = wrapperJar;
+        if (agentJar == null) {
+            try {
+                agentJar = LaunchWrapperJar.ensureExtracted(dirs);
+            } catch (IOException e) {
+                progress.log("Thread-dump agent unavailable: %s", e.getMessage());
+            }
+        }
+        com.hexadron.launcher.crash.ThreadDumps.clear(gameDir);
+
         LaunchCommandBuilder.LaunchCommand command = commandBuilder.build(
-                version, profile, player, gameDir, assetsDir, java, wrapperJar);
+                version, profile, player, gameDir, assetsDir, java, wrapperJar, agentJar);
 
         progress.log("Command: %s", command.toLoggableString(player.accessToken()));
 

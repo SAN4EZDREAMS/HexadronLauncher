@@ -103,7 +103,9 @@ public final class CrashRules {
      * Texts that code refers to rather than rules. A rule file without them is
      * refused as a download, because the launcher could not explain those cases.
      */
-    public static final List<String> CODE_TEXTS = List.of(TEXT_MOD_CODE, TEXT_FROZEN);
+    /** The text the launcher uses when the threads of a silent game point at a mod. */
+    public static final String TEXT_FROZEN_MOD = "frozenMod";
+    public static final List<String> CODE_TEXTS = List.of(TEXT_MOD_CODE, TEXT_FROZEN, TEXT_FROZEN_MOD);
 
     /** Where the copy built into the launcher lives. */
     public static final String BUNDLED_RESOURCE = "/crash/rules.json";
@@ -130,7 +132,9 @@ public final class CrashRules {
         /** The crash report Minecraft wrote for this run. */
         CRASH("crash"),
         /** The JVM's own fatal error file, {@code hs_err_pid*.log}. */
-        HS_ERR("hserr");
+        HS_ERR("hserr"),
+        /** The game's threads, written by the launcher's agent when the game went silent. */
+        THREADS("threads");
 
         private final String key;
 

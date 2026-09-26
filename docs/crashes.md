@@ -8,8 +8,8 @@ After the game process ends, the launcher opens the crash window when all of the
 
 | Condition | Why |
 |---|---|
-| You did not stop the game with **Stop** or from the tray icon | On Windows a stopped game also ends with a non-zero exit code. That is not a crash |
-| The exit code is not 0, or the game wrote a crash report during this run | Minecraft can write a crash report and still exit with code 0 |
+| You did not stop the game with **Stop** or from the tray icon, unless it had been silent for 45 seconds first | On Windows a stopped game also ends with a non-zero exit code. That is not a crash. A silent game that you stopped is probably frozen, and the window explains that |
+| The exit code is not 0, the game wrote a crash report during this run, or it logged a `FATAL` line | Minecraft can write a crash report and still exit with code 0. Forge for 1.12 shows its own error screen (duplicate or missing mods) and exits with code 0 when you close it |
 | The exit code is not 92 | Exit 92 is the launcher's own launch handshake. The log line above it explains that case |
 
 The window is not modal. You can open the mods window or the crash report while it is open.
@@ -24,6 +24,7 @@ Only files written during this run count. A file counts when it was changed afte
 | `log` | `logs/latest.log` | The last 4 MB |
 | `crash` | The newest `crash-reports/crash-*.txt` | The first 1 MB |
 | `hserr` | The newest `hs_err_pid*.log` in the game folder (the JVM's fatal error file) | The first 1 MB |
+| `threads` | `hexadron-threads.txt` in the game folder, written by the thread-dump agent (see below) | The first 2 MB |
 
 Lines longer than 4000 characters are cut. The analysis reads only these files. It sends nothing anywhere.
 
@@ -38,10 +39,10 @@ The built-in rule file is `launcher/src/main/resources/crash/rules.json`. It kno
 | Game heap full (`OutOfMemoryError: Java heap space`) | all | **Raise memory to N GB** |
 | No free system memory (page file, `insufficient memory for the Java Runtime`) | all | **Lower memory to N GB** |
 | Java could not reserve the heap (32-bit Java, too large a limit) | all | **Let the launcher choose Java**, **Lower memory** |
-| Required mod missing | Fabric, Forge, NeoForge | **Switch off** the mod that needs it |
+| Required mod missing | Fabric, Forge (1.12 and 1.13+), NeoForge | **Switch off** the mod that needs it |
 | Mod needs another version of a mod | Fabric, Forge, NeoForge | **Switch off** the mod |
 | Mod for another Minecraft version | Fabric, Forge, NeoForge | **Switch off** the mod |
-| Same mod installed twice | Forge, NeoForge | **Keep the newest**: switches off the older files |
+| Same mod installed twice | Forge (1.12 and 1.13+), NeoForge | **Keep the newest**: switches off the older files |
 | Two mods marked incompatible | Fabric, NeoForge | **Switch off** either mod |
 | Mixin error | all | **Switch off** the mod (found by mod id, or by the mixin config file inside its jar) |
 | Mod crashed during loading | Fabric, Forge, NeoForge | **Switch off** the mod |
@@ -56,7 +57,8 @@ Two causes come from the launcher's own code, not from a rule. Their texts are i
 | Cause | How it is found | Fix |
 |---|---|---|
 | A mod's code threw the exception | The stack trace of the crash report (or of the report the game printed, or of `Exception in thread "main"`) is read from the root cause outwards. Frames of the JDK, the game, the loaders and common libraries are skipped. The first class that a jar in the `mods` folder contains (looked up as `com/example/Foo.class` inside the jar) names the mod | **Switch off** that jar |
-| The game stopped responding | The game ended with an error, wrote no crash report, no other cause was found, and it printed nothing for 45 seconds or more before it ended - typically a frozen start that was ended in Task Manager | none: switch off the mods added last |
+| The game froze in a mod | As below, and the thread dump names a mod: its deadlocked threads, render thread or main thread were running a class from that mod's jar | **Switch off** that jar |
+| The game stopped responding | The game ended with an error, wrote no crash report, no other cause was found, and it printed nothing for 45 seconds or more before it ended - typically a frozen start that was stopped | none: switch off the mods added last |
 
 The window shows at most four causes, most specific first. Mods are named by the name in their jar, not by their id.
 
@@ -98,6 +100,14 @@ The self-check (`SelfCheck`, section "Crash analysis") runs every rule against r
 ## Stopping a frozen game
 
 The **Stop** button and **Stop** in the tray menu end the game and any process it started (a wrapper command, for example). A game that has not ended 10 seconds later is ended forcibly. Use them instead of Task Manager: there, the launcher and the game are both Java, and ending the wrong one closes the launcher. A game stopped this way does not open the crash window.
+
+## Thread dumps of a frozen game
+
+The launch wrapper jar is also a Java agent (`com.hexadron.wrapper.ThreadDumpAgent`). Every game starts with `-javaagent:<wrapper jar>=<game folder>`. The agent changes no class and sends nothing: once a second it looks for `hexadron-threads.request` in the game folder.
+
+When the game has printed nothing for 30 seconds, the launcher creates that file and writes a line in its log. Within a second the agent writes `hexadron-threads.txt`: deadlocked threads first, then the render and main threads, then all the others, each with its full stack and locks. When the game is then stopped or ends, the crash analysis reads the first three threads and names the mod whose class they were running.
+
+Send `hexadron-threads.txt` with a bug report about a frozen game.
 
 ## A launcher that stops responding
 

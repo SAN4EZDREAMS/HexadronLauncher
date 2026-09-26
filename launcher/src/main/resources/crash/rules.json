@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 2,
+  "version": 3,
   "about": "Crash rules for HexadronLauncher. Format: crash/CrashRules.java. A newer signed copy is published with each release as hexadron-crash-rules.json.",
   "texts": {
     "javaOld": {
@@ -1560,6 +1560,88 @@
         "cause": "게임이 닫히기 전 {seconds}초 동안 아무것도 기록하지 않았습니다. 충돌이 아니라 멈췄을 가능성이 큽니다.",
         "fix": "시작 중 멈춤은 보통 모드 때문입니다. 마지막으로 추가한 모드를 끄고 다시 시도하세요. 멈춘 게임은 런처의 중지 버튼으로 끄세요. 작업 관리자에서는 런처와 게임이 모두 Java라서 다른 것을 끄기 쉽습니다."
       }
+    },
+    "frozenMod": {
+      "en": {
+        "title": "The game froze in a mod",
+        "cause": "The game stopped responding for {seconds} seconds. At that moment it was running the code of {mod}.",
+        "fix": "Switch off {mod} or update it, then start the game again. If the game then starts, send the crash report and the thread file to the author of {mod}."
+      },
+      "uk": {
+        "title": "Гра зависла в моді",
+        "cause": "Гра не відповідала {seconds} с. У цей момент виконувався код {mod}.",
+        "fix": "Вимкніть {mod} або оновіть його і запустіть гру знову. Якщо після цього гра запуститься, надішліть звіт і файл потоків авторові {mod}."
+      },
+      "ru": {
+        "title": "Игра зависла в моде",
+        "cause": "Игра не отвечала {seconds} с. В этот момент выполнялся код {mod}.",
+        "fix": "Отключите {mod} или обновите его и запустите игру снова. Если после этого игра запустится, отправьте отчёт и файл потоков автору {mod}."
+      },
+      "pl": {
+        "title": "Gra zawiesiła się w modzie",
+        "cause": "Gra nie odpowiadała przez {seconds} s. W tym momencie wykonywał się kod {mod}.",
+        "fix": "Wyłącz {mod} albo go zaktualizuj i uruchom grę ponownie. Jeśli gra wtedy się uruchomi, wyślij raport i plik wątków autorowi {mod}."
+      },
+      "de": {
+        "title": "Das Spiel ist in einer Mod eingefroren",
+        "cause": "Das Spiel hat {seconds} Sekunden lang nicht reagiert. In diesem Moment lief der Code von {mod}.",
+        "fix": "Schalte {mod} aus oder aktualisiere sie und starte das Spiel erneut. Startet es dann, sende den Bericht und die Thread-Datei an den Autor von {mod}."
+      },
+      "es": {
+        "title": "El juego se congeló en un mod",
+        "cause": "El juego no respondió durante {seconds} segundos. En ese momento ejecutaba el código de {mod}.",
+        "fix": "Desactiva {mod} o actualízalo y vuelve a iniciar el juego. Si entonces arranca, envía el informe y el archivo de hilos al autor de {mod}."
+      },
+      "fr": {
+        "title": "Le jeu s'est figé dans un mod",
+        "cause": "Le jeu n'a pas répondu pendant {seconds} secondes. À ce moment, il exécutait le code de {mod}.",
+        "fix": "Désactivez {mod} ou mettez-le à jour, puis relancez le jeu. S'il démarre alors, envoyez le rapport et le fichier des threads à l'auteur de {mod}."
+      },
+      "it": {
+        "title": "Il gioco si è bloccato in una mod",
+        "cause": "Il gioco non ha risposto per {seconds} secondi. In quel momento eseguiva il codice di {mod}.",
+        "fix": "Disattiva {mod} o aggiornala, poi avvia di nuovo il gioco. Se poi parte, invia il rapporto e il file dei thread all'autore di {mod}."
+      },
+      "pt": {
+        "title": "O jogo travou em um mod",
+        "cause": "O jogo não respondeu por {seconds} segundos. Naquele momento executava o código de {mod}.",
+        "fix": "Desative {mod} ou atualize-o e inicie o jogo de novo. Se ele iniciar, envie o relatório e o arquivo de threads ao autor de {mod}."
+      },
+      "tr": {
+        "title": "Oyun bir modda dondu",
+        "cause": "Oyun {seconds} saniye yanıt vermedi. O anda {mod} modunun kodu çalışıyordu.",
+        "fix": "{mod} modunu kapat veya güncelle, sonra oyunu yeniden başlat. Oyun açılırsa raporu ve iş parçacığı dosyasını {mod} yazarına gönder."
+      },
+      "id": {
+        "title": "Game macet di dalam mod",
+        "cause": "Game tidak merespons selama {seconds} detik. Saat itu game menjalankan kode {mod}.",
+        "fix": "Matikan {mod} atau perbarui, lalu jalankan game lagi. Jika game kemudian berjalan, kirim laporan dan file thread ke pembuat {mod}."
+      },
+      "vi": {
+        "title": "Trò chơi bị treo trong một mod",
+        "cause": "Trò chơi không phản hồi trong {seconds} giây. Lúc đó nó đang chạy mã của {mod}.",
+        "fix": "Tắt {mod} hoặc cập nhật nó, rồi khởi động lại trò chơi. Nếu trò chơi chạy được, hãy gửi báo cáo và tệp luồng cho tác giả của {mod}."
+      },
+      "hi": {
+        "title": "गेम एक मॉड में अटक गया",
+        "cause": "गेम ने {seconds} सेकंड तक जवाब नहीं दिया। उस समय {mod} का कोड चल रहा था।",
+        "fix": "{mod} बंद करें या अपडेट करें, फिर गेम दोबारा शुरू करें। अगर गेम शुरू हो जाए, तो रिपोर्ट और थ्रेड फ़ाइल {mod} के लेखक को भेजें।"
+      },
+      "zh": {
+        "title": "游戏卡在了模组中",
+        "cause": "游戏 {seconds} 秒没有响应。当时正在运行 {mod} 的代码。",
+        "fix": "关闭或更新 {mod}，然后重新启动游戏。如果游戏随后能启动，请将报告和线程文件发送给 {mod} 的作者。"
+      },
+      "ja": {
+        "title": "ゲームが Mod 内でフリーズしました",
+        "cause": "ゲームは {seconds} 秒間応答しませんでした。そのとき {mod} のコードを実行していました。",
+        "fix": "{mod} をオフにするか更新してから、ゲームを再び起動してください。起動できた場合は、レポートとスレッドファイルを {mod} の作者に送ってください。"
+      },
+      "ko": {
+        "title": "게임이 모드 안에서 멈췄습니다",
+        "cause": "게임이 {seconds}초 동안 응답하지 않았습니다. 그때 {mod}의 코드를 실행하고 있었습니다.",
+        "fix": "{mod}을(를) 끄거나 업데이트한 다음 게임을 다시 시작하세요. 게임이 시작되면 보고서와 스레드 파일을 {mod} 제작자에게 보내세요."
+      }
     }
   },
   "rules": [
@@ -1807,6 +1889,26 @@
       ]
     },
     {
+      "id": "forge-legacy-duplicate",
+      "priority": 86,
+      "text": "duplicate",
+      "match": [
+        {
+          "contains": [
+            "Found a duplicate mod "
+          ],
+          "regex": "Found a duplicate mod (?<mod>[A-Za-z0-9_.\\-]+) at \\[",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableDuplicates",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
       "id": "neoforge-duplicate",
       "priority": 86,
       "text": "duplicate",
@@ -1856,6 +1958,46 @@
             "Actual version: '[MISSING]'"
           ],
           "regex": "Mod ID: '(?<dep>[a-z0-9_]+)', Requested by: '(?<mod>[a-z0-9_]+)', Expected range: '[^']*', Actual version: '\\[MISSING\\]'",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "forge-legacy-missing-dependency",
+      "priority": 84,
+      "text": "missingDep",
+      "match": [
+        {
+          "contains": [
+            "MissingModsException: Mod "
+          ],
+          "regex": "MissingModsException: Mod (?<mod>[A-Za-z0-9_.\\-]+) \\([^)]*\\) requires \\[(?<dep>(?!forge@|minecraft@)[A-Za-z0-9_.\\-]+)@",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "forge-legacy-loader-version",
+      "priority": 80,
+      "text": "depVersion",
+      "match": [
+        {
+          "contains": [
+            "MissingModsException: Mod "
+          ],
+          "regex": "MissingModsException: Mod (?<mod>[A-Za-z0-9_.\\-]+) \\([^)]*\\) requires \\[(?<dep>forge|minecraft)@",
           "repeat": true
         }
       ],
