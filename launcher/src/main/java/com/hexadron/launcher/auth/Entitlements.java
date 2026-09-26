@@ -31,7 +31,10 @@ import java.util.TreeSet;
  * <p>Item names, as documented on the Minecraft Wiki ("Microsoft
  * authentication"):
  * <ul>
- *   <li>{@code product_minecraft}, {@code game_minecraft} - Java Edition</li>
+ *   <li>{@code product_minecraft}, {@code game_minecraft} - Java Edition.
+ *       These do not prove a purchase: an account with an active PC Game Pass
+ *       receives them too, next to {@code product_game_pass_pc}. That is why
+ *       {@link MicrosoftAuth#diagnose} checks {@link #gamePass()} first.</li>
  *   <li>{@code product_game_pass_pc}, {@code product_game_pass_ultimate} -
  *       access through PC Game Pass or Game Pass Ultimate</li>
  *   <li>{@code product_minecraft_bedrock}, {@code game_minecraft_bedrock},
@@ -43,7 +46,7 @@ import java.util.TreeSet;
  * never kept, logged or compared.
  *
  * @param names     every item name in the response, sorted, lower case
- * @param java      Java Edition is listed
+ * @param java      Java Edition is listed - bought, or granted by Game Pass
  * @param gamePass  a Game Pass product is listed
  * @param otherOnly the list is not empty but holds neither of the above
  */

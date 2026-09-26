@@ -164,7 +164,7 @@ If Mojang has not approved the application, `login_with_xbox` returns HTTP 403.
 The launcher then shows "Minecraft services rejected this application (HTTP 403)"
 with the link above.
 
-With `microsoftClientId` set to an empty string, **Sign in with Microsoft** shows
+With `microsoftClientId` set to an empty string, **Add Microsoft account** shows
 "Microsoft sign-in is not configured".
 
 To revoke the launcher's access to a Microsoft account, use

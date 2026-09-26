@@ -8599,6 +8599,38 @@ public final class SelfCheck {
         check("a username and only Bedrock: the licence has ended",
                 com.hexadron.launcher.auth.MicrosoftAuth.diagnose(bedrock, true) == Problem.LICENCE_ENDED);
 
+        // A real response, from an account with an active PC Game Pass and no
+        // purchase (26 Sep 2026). Game Pass also lists product_minecraft and
+        // game_minecraft, so those names alone do not mean "bought".
+        Entitlements realGamePass = Entitlements.of(java.util.Set.of(
+                "game_dungeons", "game_dungeons_2", "game_legends", "game_minecraft",
+                "game_minecraft_bedrock", "product_dungeons", "product_dungeons_2",
+                "product_game_pass_pc", "product_legends", "product_minecraft",
+                "product_minecraft_bedrock"));
+        check("a real Game Pass account lists Java Edition and Game Pass",
+                realGamePass.java() && realGamePass.gamePass() && !realGamePass.otherOnly());
+        check("a real Game Pass account with a profile plays",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(realGamePass, true) == null);
+        check("a real Game Pass account without a profile gets the Game Pass advice, not \"bought\"",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(realGamePass, false)
+                        == Problem.NO_USERNAME_GAME_PASS);
+        // The same account on the same day, before the subscription was paid:
+        // Game Pass and Java Edition gone, Bedrock Edition left, no profile.
+        Entitlements realLapsed = Entitlements.of(java.util.Set.of(
+                "game_minecraft_bedrock", "product_minecraft_bedrock"));
+        check("a real lapsed Game Pass account is told Java Edition is missing, not to create a username",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(realLapsed, false)
+                        == Problem.OTHER_GAMES_ONLY);
+        // The button adds an account; with one signed in, "sign in" read as
+        // "you are not signed in".
+        check("the sign-in button says it adds an account",
+                I18n.bundle(Language.DEFAULT).get("action.signIn").toLowerCase(java.util.Locale.ROOT)
+                        .startsWith("add"));
+        java.util.Set<String> withoutPass = new java.util.TreeSet<>(realGamePass.names());
+        withoutPass.remove("product_game_pass_pc");
+        check("the same list without Game Pass still plays while Java Edition is listed",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(Entitlements.of(withoutPass), true) == null);
+
         var failure = new com.hexadron.launcher.auth.MicrosoftAuth.AuthException(
                 Problem.LICENCE_ENDED, "English text", null, "Steve", "https://example.test");
         check("a problem travels with its exception", failure.problem() == Problem.LICENCE_ENDED);

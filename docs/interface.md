@@ -57,7 +57,7 @@ When the update check is off, `updates` does not run: the bar counts one stage f
 | [New group][Sort A-Z] [Open game folder][Detect] |
 | [Import][Export] | Mods (5) |
 +---------------------+------------------------------------------+
-| Account: [ v ] [Manage accounts] [Sign in with Microsoft] |
+| Account: [ v ] [Manage accounts] [Add Microsoft account]  |
 | [Skin and cape...] [Remove] [ Play ] |
 | Ready |
 | [==============================================] |
