@@ -2081,8 +2081,7 @@ public final class MainWindow implements ProfileHost {
                 Thread.currentThread().interrupt();
                 Platform.runLater(() -> setBusy(false));
             } catch (Exception e) {
-                progress.log(I18n.t("log.failed",
-                        e.getMessage() == null ? e.toString() : e.getMessage()));
+                progress.log(I18n.t("log.failed", describe(e)));
                 Platform.runLater(() -> {
                     stageLabel.setText(I18n.t("status.failed", name));
                     progressBar.setProgress(0);
@@ -2179,8 +2178,26 @@ public final class MainWindow implements ProfileHost {
         // Written down before it is shown. The dialog carries one sentence; the
         // file carries the cause chain, which is the half that says where.
         com.hexadron.launcher.core.LauncherLog.error(header, error);
-        alert(Alert.AlertType.ERROR, header,
-                error.getMessage() == null ? error.toString() : error.getMessage(), 600);
+        alert(Alert.AlertType.ERROR, header, describe(error), 600);
+    }
+
+    /**
+     * The sentence the user sees for a failure.
+     *
+     * <p>A sign-in problem the launcher recognises is said in the window's
+     * language: "no Game Pass" and "no username yet" need different actions,
+     * and a user who cannot read the English text cannot tell them apart.
+     * Everything else keeps its own message. The log file keeps the English
+     * text and the cause chain either way.
+     */
+    static String describe(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof com.hexadron.launcher.auth.MicrosoftAuth.AuthException auth
+                    && auth.problem() != null) {
+                return I18n.t(auth.problem().key(), auth.problemArgs());
+            }
+        }
+        return error.getMessage() == null ? error.toString() : error.getMessage();
     }
 
     private void alert(Alert.AlertType type, String header, String message, int width) {

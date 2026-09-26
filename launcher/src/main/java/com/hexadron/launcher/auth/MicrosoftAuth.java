@@ -36,7 +36,9 @@ import java.util.function.Consumer;
  *   <li>Xbox Live user authenticate - MSA token to an XBL token plus a user hash</li>
  *   <li>XSTS authorize - XBL token to a token scoped to Minecraft services</li>
  *   <li>{@code login_with_xbox} - XSTS token to a Minecraft access token</li>
- *   <li>entitlement check, then profile lookup for name and UUID</li>
+ *   <li>entitlement list and profile lookup, judged together by
+ *       {@link #diagnose}: the profile gives the name and UUID, the
+ *       entitlements say whether Java Edition may be played now</li>
  * </ol>
  *
  * <h2>Two ways to do step 1, and why the order matters</h2>
@@ -127,12 +129,70 @@ public final class MicrosoftAuth {
 
     /** Raised when the chain fails in a way the user can act on. */
     public static final class AuthException extends IOException {
+        private final Problem problem;
+        private final transient Object[] problemArgs;
+
         public AuthException(String message) {
-            super(Redactor.scrub(message));
+            this(message, null);
         }
 
         public AuthException(String message, Throwable cause) {
             super(Redactor.scrub(message), cause);
+            this.problem = null;
+            this.problemArgs = new Object[0];
+        }
+
+        /**
+         * A failure the interface explains in its own language.
+         *
+         * @param message the English text, for the log file and the CLI
+         * @param args    the values the translated text names, in order
+         */
+        public AuthException(Problem problem, String message, Throwable cause, Object... args) {
+            super(Redactor.scrub(message), cause);
+            this.problem = problem;
+            this.problemArgs = args == null ? new Object[0] : args.clone();
+        }
+
+        /** Which known problem this is, or {@code null} for anything else. */
+        public Problem problem() {
+            return problem;
+        }
+
+        /** The values for the translated text of {@link #problem()}. */
+        public Object[] problemArgs() {
+            return problemArgs.clone();
+        }
+    }
+
+    /**
+     * Why an account that signed in to Microsoft still cannot play Java Edition.
+     *
+     * <p>Mojang answers all of these with the same HTTP 404 from
+     * {@code /minecraft/profile}, or not at all. The entitlement list is what
+     * tells them apart, and each one needs the user to do something different,
+     * so each has its own sentence. {@link #key()} is the translation key.
+     */
+    public enum Problem {
+        /** Java Edition is bought, but no username has been chosen. */
+        NO_USERNAME_PURCHASED("auth.problem.noUsername.purchased"),
+        /** Game Pass is listed, but there is no Java Edition profile. */
+        NO_USERNAME_GAME_PASS("auth.problem.noUsername.gamePass"),
+        /** Only other Minecraft games (Bedrock, Dungeons, Legends) are listed. */
+        OTHER_GAMES_ONLY("auth.problem.otherGamesOnly"),
+        /** Nothing is listed and there is no profile. */
+        NO_LICENCE("auth.problem.noLicence"),
+        /** A username exists, but nothing on the account grants Java Edition now. */
+        LICENCE_ENDED("auth.problem.licenceEnded");
+
+        private final String key;
+
+        Problem(String key) {
+            this.key = key;
+        }
+
+        public String key() {
+            return key;
         }
     }
 
@@ -412,27 +472,29 @@ public final class MicrosoftAuth {
         Redactor.register(mcAccessToken);
         long expiresAt = System.currentTimeMillis() + mcLogin.get("expires_in").asLong(86_400) * 1000L;
 
+        // Both answers are fetched before either is judged. A 404 from the
+        // profile endpoint means five different things, and only the
+        // entitlement list says which one.
         progress.stage("Checking game ownership");
-        Json entitlements = Http.authGetJson(MC_ENTITLEMENTS_URL,
-                Map.of("Authorization", "Bearer " + mcAccessToken));
-        if (entitlements.get("items").size() == 0) {
-            throw new AuthException("""
-                    This Microsoft account does not own Minecraft: Java Edition.
-
-                    Game Pass accounts must launch the game once from the official launcher \
-                    before third-party sign-in works.""");
-        }
+        Entitlements entitlements = Entitlements.from(Http.authGetJson(MC_ENTITLEMENTS_URL,
+                Map.of("Authorization", "Bearer " + mcAccessToken)));
+        progress.log("Entitlements: %s", entitlements.describe());
 
         progress.stage("Fetching profile");
-        Json profile;
+        Json profile = null;
         try {
             profile = Http.authGetJson(MC_PROFILE_URL, Map.of("Authorization", "Bearer " + mcAccessToken));
         } catch (Http.HttpStatusException e) {
-            if (e.statusCode() == 404) {
-                throw new AuthException("This account owns the game but has no Minecraft profile yet. "
-                        + "Create a username in the official launcher first.", e);
+            if (e.statusCode() != 404) {
+                throw e;
             }
-            throw e;
+            progress.log("Minecraft profile: none (HTTP 404)");
+        }
+
+        String profileName = profile == null ? null : profile.get("name").asString(null);
+        Problem problem = diagnose(entitlements, profile != null);
+        if (problem != null) {
+            throw problemException(problem, profileName);
         }
 
         String name = profile.get("name").asString(null);
@@ -450,6 +512,74 @@ public final class MicrosoftAuth {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /**
+     * Decides whether this account can play Java Edition, and if not, why.
+     *
+     * <p>A profile alone is not enough: an account that played through Game
+     * Pass keeps its username after the subscription ends. An entitlement
+     * alone is not enough either: without a profile there is no name and no
+     * UUID to start the game with.
+     *
+     * @return {@code null} when the account can play
+     */
+    public static Problem diagnose(Entitlements entitlements, boolean profileFound) {
+        if (entitlements.grantsJava()) {
+            if (profileFound) {
+                return null;
+            }
+            return entitlements.gamePass() ? Problem.NO_USERNAME_GAME_PASS : Problem.NO_USERNAME_PURCHASED;
+        }
+        if (profileFound) {
+            return Problem.LICENCE_ENDED;
+        }
+        return entitlements.otherOnly() ? Problem.OTHER_GAMES_ONLY : Problem.NO_LICENCE;
+    }
+
+    private static final String SUBSCRIPTIONS_URL = "https://account.microsoft.com/services";
+
+    /** The English text of each problem, for the log and the CLI. The window translates. */
+    private static AuthException problemException(Problem problem, String profileName) {
+        String message = switch (problem) {
+            case NO_USERNAME_PURCHASED -> """
+                    This account has Minecraft: Java Edition, but no username has been chosen yet.
+
+                    Open the official Minecraft Launcher, sign in with this account and create \
+                    a username. Then sign in here again.""";
+            case NO_USERNAME_GAME_PASS -> """
+                    This account has Minecraft through Game Pass, but no Java Edition profile yet.
+
+                    1. Check that the Game Pass subscription is active and paid: %s
+                    2. Start Minecraft: Java Edition once from the official Minecraft Launcher \
+                    to create a username.
+                    Then sign in here again.""".formatted(SUBSCRIPTIONS_URL);
+            case OTHER_GAMES_ONLY -> """
+                    This Microsoft account has other Minecraft games (for example Bedrock \
+                    Edition), but not Java Edition, and it has no active Game Pass.
+
+                    - If you played through Game Pass, the subscription has ended or is not \
+                    paid. Renew it: %s
+                    - If you bought Java Edition, it is on a different Microsoft account. \
+                    Sign in again and choose that account.""".formatted(SUBSCRIPTIONS_URL);
+            case NO_LICENCE -> """
+                    This Microsoft account has no Minecraft: Java Edition: the game was not \
+                    bought on it, and it has no active Game Pass.
+
+                    - If you played through Game Pass, the subscription has ended or is not \
+                    paid. Renew it: %s
+                    - If you bought Java Edition, it is on a different Microsoft account. \
+                    Sign in again and choose that account.""".formatted(SUBSCRIPTIONS_URL);
+            case LICENCE_ENDED -> """
+                    The Minecraft username "%s" exists, but this account has no Java Edition \
+                    licence now: the game was not bought on it, and it has no active Game Pass.
+
+                    If you played through Game Pass, the subscription has ended or is not paid. \
+                    Renew it at %s, then sign in again.""".formatted(
+                    profileName == null ? "?" : profileName, SUBSCRIPTIONS_URL);
+        };
+        return new AuthException(problem, message, null,
+                profileName == null ? "?" : profileName, SUBSCRIPTIONS_URL);
+    }
 
     /**
      * The safe part of an OAuth error response.

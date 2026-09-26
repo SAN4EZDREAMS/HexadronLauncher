@@ -14,6 +14,8 @@ package com.hexadron.launcher;
 
 import com.hexadron.launcher.about.Credits;
 import com.hexadron.launcher.auth.Account;
+import com.hexadron.launcher.auth.Entitlements;
+import com.hexadron.launcher.auth.MicrosoftAuth.Problem;
 import com.hexadron.launcher.core.GameDirs;
 import com.hexadron.launcher.core.LauncherLog;
 import com.hexadron.launcher.core.Progress;
@@ -134,6 +136,7 @@ public final class SelfCheck {
         accounts();
         accountSelection();
         securityHardening();
+        signInDiagnosis();
         javaVersionParsing();
         javaRuntimeSelection();
         javaRuntimeHousekeeping();
@@ -8529,6 +8532,106 @@ public final class SelfCheck {
         } finally {
             if (work != null) {
                 deleteRecursively(work);
+            }
+        }
+    }
+
+    /**
+     * Why a Microsoft account that signed in cannot play.
+     *
+     * <p>Mojang answers "no Java Edition", "Game Pass ended" and "no username
+     * yet" with the same HTTP 404. They used to share one sentence, which told
+     * a player whose Game Pass had lapsed to go and create a username.
+     */
+    private static void signInDiagnosis() {
+        section("Sign-in diagnosis");
+
+        Json javaResponse = Json.parse("""
+                {"items":[{"name":"product_minecraft","signature":"eyJ.secret.jwt"},
+                          {"name":"game_minecraft","signature":"eyJ.secret.jwt"}],
+                 "signature":"eyJ.top.jwt","keyId":"1"}""");
+        Entitlements bought = Entitlements.from(javaResponse);
+        check("a Java Edition purchase is recognised", bought.java() && bought.grantsJava());
+        check("the entitlement log names the products", bought.describe().contains("game_minecraft"));
+        check("the entitlement log never carries a signature", !bought.describe().contains("eyJ"));
+
+        Entitlements gamePass = Entitlements.from(Json.parse("""
+                {"items":[{"name":"product_game_pass_pc","signature":"x"}]}"""));
+        check("PC Game Pass is recognised", gamePass.gamePass() && gamePass.grantsJava());
+        check("Game Pass Ultimate is recognised",
+                Entitlements.of(java.util.Set.of("product_game_pass_ultimate")).gamePass());
+
+        Entitlements bedrock = Entitlements.from(Json.parse("""
+                {"items":[{"name":"product_minecraft_bedrock"},{"name":"game_minecraft_bedrock"}]}"""));
+        check("Bedrock Edition alone does not count as Java Edition",
+                !bedrock.grantsJava() && bedrock.otherOnly());
+
+        Entitlements none = Entitlements.from(Json.parse("{\"items\":[]}"));
+        check("an empty list grants nothing", !none.grantsJava() && !none.otherOnly());
+        check("an empty list is logged as none", "none".equals(none.describe()));
+        check("a missing list grants nothing", !Entitlements.from(Json.object()).grantsJava());
+        check("a name that is not a product ID is dropped",
+                Entitlements.from(Json.parse("""
+                        {"items":[{"name":"bad name\\nwith a line break"}]}""")).names().isEmpty());
+
+        // The whole decision table.
+        check("bought, with a profile: plays",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(bought, true) == null);
+        check("Game Pass, with a profile: plays",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(gamePass, true) == null);
+        check("bought, no profile: create a username",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(bought, false)
+                        == Problem.NO_USERNAME_PURCHASED);
+        check("Game Pass, no profile: check the subscription, then create a username",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(gamePass, false)
+                        == Problem.NO_USERNAME_GAME_PASS);
+        check("bought through Game Pass too, no profile: the Game Pass advice covers both",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(
+                        Entitlements.of(java.util.Set.of("game_minecraft", "product_game_pass_pc")), false)
+                        == Problem.NO_USERNAME_GAME_PASS);
+        check("Bedrock only, no profile: not Java Edition",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(bedrock, false)
+                        == Problem.OTHER_GAMES_ONLY);
+        check("nothing, no profile: no licence",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(none, false) == Problem.NO_LICENCE);
+        check("a username but nothing that grants Java: the licence has ended",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(none, true) == Problem.LICENCE_ENDED);
+        check("a username and only Bedrock: the licence has ended",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(bedrock, true) == Problem.LICENCE_ENDED);
+
+        var failure = new com.hexadron.launcher.auth.MicrosoftAuth.AuthException(
+                Problem.LICENCE_ENDED, "English text", null, "Steve", "https://example.test");
+        check("a problem travels with its exception", failure.problem() == Problem.LICENCE_ENDED);
+        Object[] args = failure.problemArgs();
+        args[0] = "changed";
+        check("the exception's arguments cannot be changed from outside",
+                "Steve".equals(failure.problemArgs()[0]));
+        check("an ordinary sign-in failure carries no problem",
+                new com.hexadron.launcher.auth.MicrosoftAuth.AuthException("x").problem() == null);
+
+        // Every problem has a sentence in every language, and the sentence
+        // names what the user has to act on.
+        for (Language language : Language.values()) {
+            Map<String, String> bundle = I18n.bundle(language);
+            for (Problem problem : Problem.values()) {
+                String pattern = bundle.get(problem.key());
+                check("the sign-in problem " + problem + " is explained in " + language.code(),
+                        pattern != null && !pattern.isBlank());
+                if (pattern == null) {
+                    continue;
+                }
+                String text = new java.text.MessageFormat(pattern, language.locale())
+                        .format(new Object[]{"Steve", "https://account.microsoft.com/services"});
+                check("the " + problem + " text formats cleanly in " + language.code(),
+                        !text.contains("{") && !text.contains("''"));
+                if (problem == Problem.LICENCE_ENDED) {
+                    check("the ended-licence text names the player in " + language.code(),
+                            text.contains("Steve"));
+                }
+                if (problem != Problem.NO_USERNAME_PURCHASED) {
+                    check("the " + problem + " text links the subscription page in " + language.code(),
+                            text.contains("https://account.microsoft.com/services"));
+                }
             }
         }
     }

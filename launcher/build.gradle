@@ -10,7 +10,7 @@ group = 'com.hexadron'
 // into BuildConfig.version(), the User-Agent and the update window. The launcher
 // compares this string with the release tag on GitHub, so nightly builds must
 // have their own suffix in it; otherwise they cannot be compared.
-version = (project.findProperty('launcherVersion') ?: '0.9.8').toString()
+version = (project.findProperty('launcherVersion') ?: '0.9.9').toString()
 
 repositories {
 	mavenCentral()
