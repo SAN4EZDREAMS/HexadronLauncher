@@ -142,9 +142,10 @@ Removing an account deletes the entry and its stored credentials. The launcher t
 The key identifies the application to CurseForge. It gives no access to a player's account.
 
 - It is not in the repository. The release build reads `CURSEFORGE_API_KEY` from the environment (a repository secret on CI) into the jar manifest attribute `Hexadron-CurseForge-Api-Key`. Forks and local builds get an empty value and no CurseForge support ([docs/building.md](docs/building.md)).
-- A key the user enters (`curseForgeApiKey` in `launcher.json`, plain text) replaces the built-in one.
+- A key the user enters replaces the built-in one. It is kept in the credential store (DPAPI, Keychain, Secret Service or the encrypted file), not in `launcher.json`; a plain-text key from an older version is moved there on the next start.
 - Both are registered with `Redactor`.
-- `Http` sends the key only to `api.curseforge.com`, `forgecdn.net` and hosts ending in `.forgecdn.net`. The match is on a dot boundary, so `evil-forgecdn.net` gets nothing.
+- `Http` sends the key only to `api.curseforge.com`, `forgecdn.net` and hosts ending in `.forgecdn.net`, and only over HTTPS. The match is on a dot boundary, so `evil-forgecdn.net` gets nothing. Requests that carry the key follow redirects themselves: the key is attached again only when the next host is one of those, and a redirect to plain http is refused.
+- The game and the Forge installer processors are started without `CURSEFORGE_API_KEY` in their environment.
 
 A key shipped in a client is not secret from its user. The build setup keeps it out of version control and forks, and lets the project replace it in one place.
 

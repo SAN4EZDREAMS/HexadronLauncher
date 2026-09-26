@@ -62,7 +62,7 @@ jobs:
     # and pauses between requests.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           sparse-checkout: .github/scripts
       # Scan what is actually in the release, not the build artifacts: these are the
@@ -70,11 +70,18 @@ jobs:
       - name: download the release files
         run: |
           set -euo pipefail
+          # Through the environment, not pasted into the script: a tag name can
+          # contain shell characters.
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9][0-9A-Za-z.+-]*$ ]]; then
+            echo "refusing tag '$RELEASE_TAG'"
+            exit 1
+          fi
           mkdir -p assets
-          gh release download "${{ inputs.tag }}" --repo "$GITHUB_REPOSITORY" --dir assets
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir assets
           ls -la assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
       - name: scan on virustotal and update the notes
         run: python3 .github/scripts/virustotal_scan.py assets
         env:

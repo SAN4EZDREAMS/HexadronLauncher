@@ -87,7 +87,9 @@ public record ProxyChoice(Mode mode, String host, int port, String user) {
     }
 
     public boolean wantsAuthentication() {
-        return mode == Mode.MANUAL && !user.isBlank();
+        // isUsable too: an unusable manual entry falls back to the system
+        // proxy, which must not be handed the manual proxy's password.
+        return mode == Mode.MANUAL && isUsable() && !user.isBlank();
     }
 
     public ProxyChoice withMode(Mode value) {

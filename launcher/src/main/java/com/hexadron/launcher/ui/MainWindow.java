@@ -1869,11 +1869,11 @@ public final class MainWindow implements ProfileHost {
         try {
             String[] command;
             if (com.hexadron.launcher.util.Platform.isWindows()) {
-                command = new String[]{"rundll32", "url.dll,FileProtocolHandler", uri.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("rundll32.exe"), "url.dll,FileProtocolHandler", uri.toString()};
             } else if (com.hexadron.launcher.util.Platform.isMac()) {
-                command = new String[]{"open", uri.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("open"), uri.toString()};
             } else {
-                command = new String[]{"xdg-open", uri.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("xdg-open"), uri.toString()};
             }
             new ProcessBuilder(command).start();
         } catch (IOException e) {

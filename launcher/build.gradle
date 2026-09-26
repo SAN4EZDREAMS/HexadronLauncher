@@ -157,6 +157,14 @@ tasks.named('jar') {
 javafx {
 	version = '25'
 	modules = ['javafx.controls']
+	// JavaFX jars are per platform, and gradle/verification-metadata.xml must
+	// hold the hash of every platform CI builds on. Writing the metadata on one
+	// machine records only that machine's jars, so the others are added with
+	// this override (docs/building.md, "Dependency verification"):
+	//   ./gradlew --write-verification-metadata sha256 :launcher:compileJava -PjavafxPlatform=linux
+	if (project.hasProperty('javafxPlatform')) {
+		platform = project.property('javafxPlatform').toString()
+	}
 }
 
 // Verifies the metadata layer: JSON parsing, rule evaluation, library dialects,

@@ -418,7 +418,7 @@ public final class JavaLocator {
         }
         List<Path> homes = new ArrayList<>();
         for (String key : WINDOWS_REGISTRY_KEYS) {
-            for (String line : runAndRead(List.of("reg", "query", key, "/s"), 5).lines()) {
+            for (String line : runAndRead(List.of(com.hexadron.launcher.util.Platform.systemTool("reg.exe"), "query", key, "/s"), 5).lines()) {
                 Matcher matcher = REGISTRY_HOME.matcher(line);
                 if (!matcher.matches()) {
                     continue;
@@ -591,12 +591,25 @@ public final class JavaLocator {
         Process process = null;
         try {
             process = new ProcessBuilder(command).redirectErrorStream(true).start();
-            String output;
-            try (var in = process.getInputStream()) {
-                output = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            }
+            // Read on its own thread: reading first and waiting after meant a
+            // runtime that hung without exiting blocked discovery for good.
+            Process started = process;
+            java.util.concurrent.CompletableFuture<String> reading =
+                    java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                        try (var in = started.getInputStream()) {
+                            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                        } catch (IOException e) {
+                            return "";
+                        }
+                    });
             if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
+                return CommandOutput.failed();
+            }
+            String output;
+            try {
+                output = reading.get(timeoutSeconds, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
                 return CommandOutput.failed();
             }
             return new CommandOutput(true, List.of(output.split("\\R")));

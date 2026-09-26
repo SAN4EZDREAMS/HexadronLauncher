@@ -176,3 +176,17 @@ The script uses the same colour (`#2d7d46`), corner radius (28%) and cap height 
 | `mod/gradle.properties` | mod `1.0.0`, Minecraft `26.2`, Fabric Loader `0.19.3`, Fabric API `0.157.0+26.2`, Loom `1.17-SNAPSHOT` |
 
 The jar in the image (`launcher-<version>.jar`) and the User-Agent carry the full version on all systems.
+
+## Dependency verification
+
+`gradle/verification-metadata.xml` holds the SHA-256 of every dependency and plugin; Gradle refuses any other bytes. After changing a dependency or plugin version, regenerate it. JavaFX has one jar per platform, and a machine records only its own, so write the other platforms explicitly:
+
+```
+./gradlew --write-verification-metadata sha256 help :launcher:compileJava :mod:build
+./gradlew --write-verification-metadata sha256 :launcher:compileJava -PjavafxPlatform=win
+./gradlew --write-verification-metadata sha256 :launcher:compileJava -PjavafxPlatform=linux
+./gradlew --write-verification-metadata sha256 :launcher:compileJava -PjavafxPlatform=mac
+./gradlew --write-verification-metadata sha256 :launcher:compileJava -PjavafxPlatform=mac-aarch64
+```
+
+Each run adds to the file. Check the diff before committing: every new hash is a dependency you are choosing to trust.

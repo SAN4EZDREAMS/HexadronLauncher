@@ -61,9 +61,11 @@ CI runs the same script in a `flatpak` job:
 
 ## Sandboxing
 
-A sandbox (`bwrap`, `firejail`, Flatpak) protects your other files from a malicious mod. It does not protect the Minecraft account: the session token is in the game's own JVM memory, and mods run in that JVM. Mod malware such as fractureiser (2023) stole browser cookies, Discord tokens and crypto wallets from files. Java cannot block this in-process, because JEP 486 disabled the `SecurityManager` in Java 24.
+A sandbox (`bwrap`, `firejail`, Flatpak) keeps a malicious mod away from the files it cannot see. It does not protect the Minecraft account: the session token is in the game's own JVM memory, and mods run in that JVM. Mod malware such as fractureiser (2023) stole browser cookies, Discord tokens and crypto wallets from files. Java cannot block this in-process, because JEP 486 disabled the `SecurityManager` in Java 24.
 
 Namespaces add no per-frame cost. The risk is breakage: a sandbox without `/dev` can leave the game without a GPU or gamepads. That is why the Flatpak keeps `--device=all` and X11.
+
+What that costs: through X11 any program in the sandbox can read the keystrokes of other X11 windows and send keystrokes to them, including a terminal on the host. `--device=all` also opens webcams and other raw devices. The Flatpak keeps a mod out of `~/.ssh` and the rest of your home folder; it does not stop a mod that targets the desktop session.
 
 ### The wrapper command
 

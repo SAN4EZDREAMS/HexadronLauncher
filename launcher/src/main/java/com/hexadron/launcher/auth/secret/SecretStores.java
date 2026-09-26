@@ -222,15 +222,21 @@ public final class SecretStores {
 
         @Override
         public Optional<String> load(String key) throws IOException {
+            // The secondary first. store() clears it whenever the primary
+            // accepts a value, so it holds one only when a primary write
+            // failed - and then it is the newer of the two.
+            Optional<String> fallback = secondary.load(key);
+            if (fallback.isPresent()) {
+                return fallback;
+            }
             try {
-                Optional<String> value = primary.load(key);
-                if (value.isPresent()) {
-                    return value;
-                }
+                return primary.load(key);
             } catch (IOException e) {
                 primaryFailed = true;
+                // Passed on, not turned into "nothing stored": the caller must
+                // not mistake a failed read for an absent credential.
+                throw e;
             }
-            return secondary.load(key);
         }
 
         @Override

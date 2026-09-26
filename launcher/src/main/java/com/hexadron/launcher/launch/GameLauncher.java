@@ -105,6 +105,9 @@ public final class GameLauncher {
                 // One stream keeps stdout and stderr interleaved in the order the
                 // game actually produced them, which is what makes a crash log readable.
                 .redirectErrorStream(true);
+        // The launcher's own keys stay with the launcher. Every mod the game
+        // loads can read its environment.
+        builder.environment().remove("CURSEFORGE_API_KEY");
 
         Process process = builder.start();
         GameSession session = new GameSession(process, command);

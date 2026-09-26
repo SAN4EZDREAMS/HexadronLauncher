@@ -81,11 +81,11 @@ public final class SystemBrowser {
             if (Platform.isWindows()) {
                 // Through rundll32 rather than "cmd /c start", which would give
                 // the URL to a shell that treats & as a command separator.
-                command = new String[]{"rundll32", "url.dll,FileProtocolHandler", uri.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("rundll32.exe"), "url.dll,FileProtocolHandler", uri.toString()};
             } else if (Platform.isMac()) {
-                command = new String[]{"open", uri.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("open"), uri.toString()};
             } else {
-                command = new String[]{"xdg-open", uri.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("xdg-open"), uri.toString()};
             }
             new ProcessBuilder(command).start();
             return true;

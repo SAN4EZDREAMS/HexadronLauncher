@@ -103,6 +103,27 @@ public final class BuildFormat {
     }
 
     /**
+     * True for a carried file the importer may write without asking.
+     *
+     * <p>Exactly what an export carries on its own: the settings folders and
+     * files, and the contents of a world apart from its data packs (those are
+     * named in the manifest, as downloads or as custom files). Anything else in
+     * the archive - a jar in {@code mods/}, a file at the top of the instance -
+     * was not put there by an export and is not written unless the manifest
+     * lists it as a custom file and the player agreed to custom files.
+     */
+    public static boolean isCarriedWithoutAsking(String path) {
+        for (String setting : SETTINGS) {
+            if (within(path, setting)) {
+                return true;
+            }
+        }
+        String[] parts = path.split("/");
+        return parts.length >= 3 && parts[0].equals("saves") && !parts[1].isBlank()
+                && !parts[2].equals("datapacks");
+    }
+
+    /**
      * True for the launcher's own record files.
      *
      * <p>Not carried: the importing launcher writes its own from the manifest,
@@ -158,7 +179,7 @@ public final class BuildFormat {
     }
 
     /** The last segment of a {@code /}-separated path. */
-    static String fileNameOf(String path) {
+    public static String fileNameOf(String path) {
         int slash = path.lastIndexOf('/');
         return slash < 0 ? path : path.substring(slash + 1);
     }

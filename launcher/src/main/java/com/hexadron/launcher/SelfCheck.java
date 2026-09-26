@@ -137,6 +137,7 @@ public final class SelfCheck {
         accountSelection();
         securityHardening();
         signInDiagnosis();
+        pathConfinement();
         javaVersionParsing();
         javaRuntimeSelection();
         javaRuntimeHousekeeping();
@@ -3473,6 +3474,8 @@ public final class SelfCheck {
         check("the other content host gets it too",
                 Http.hostHeadersFor(mediaHost).containsKey("x-api-key"));
         check("modrinth does not get it", Http.hostHeadersFor(modrinthHost).isEmpty());
+        check("a CurseForge host over plain http does not get it",
+                Http.hostHeadersFor(URI.create("http://edge.forgecdn.net/files/1/2/mod.jar")).isEmpty());
 
         check("the api host is recognised",
                 CurseForgeProvider.isCurseForgeHost("api.curseforge.com"));
@@ -6554,6 +6557,52 @@ public final class SelfCheck {
                 refusedFuture = expected.getMessage().contains("newer");
             }
             check("a build from a newer launcher is refused with a reason", refusedFuture);
+
+            // Files slipped into the archive outside the manifest: a mod jar
+            // must not arrive without the player being asked.
+            Path sneaky = dir.resolve("sneaky.hexbuild");
+            try (var zip = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(sneaky))) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(com.hexadron.launcher.share.BuildFormat.MANIFEST));
+                zip.write(("{\"format\":\"hexadron-build\",\"formatVersion\":1,"
+                        + "\"profile\":{\"minecraftVersion\":\"1.21.1\"},\"custom\":[]}")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+                for (String name : List.of("files/mods/evil.jar", "files/evil.jar",
+                        "files/config/ok.toml", "files/saves/World/level.dat",
+                        "files/saves/World/datapacks/pack.zip")) {
+                    zip.putNextEntry(new java.util.zip.ZipEntry(name));
+                    zip.write("x".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    zip.closeEntry();
+                }
+            }
+            Path sneakyTarget = dir.resolve("sneaky-target");
+            var sneakyBuild = com.hexadron.launcher.share.BuildImport.read(sneaky);
+            check("undeclared files are not counted as carried settings", sneakyBuild.extrasCount() == 2);
+            sneakyBuild.install(sneakyTarget, true, new com.hexadron.launcher.net.Downloader(1), Progress.NOOP);
+            check("a mod jar outside the manifest is never written",
+                    !java.nio.file.Files.exists(sneakyTarget.resolve("mods/evil.jar"))
+                            && !java.nio.file.Files.exists(sneakyTarget.resolve("evil.jar"))
+                            && !java.nio.file.Files.exists(sneakyTarget.resolve("saves/World/datapacks/pack.zip")));
+            check("settings and world files still arrive",
+                    java.nio.file.Files.exists(sneakyTarget.resolve("config/ok.toml"))
+                            && java.nio.file.Files.exists(sneakyTarget.resolve("saves/World/level.dat")));
+
+            Path escaping = dir.resolve("escaping.hexbuild");
+            try (var zip = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(escaping))) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(com.hexadron.launcher.share.BuildFormat.MANIFEST));
+                zip.write(("{\"format\":\"hexadron-build\",\"formatVersion\":1,"
+                        + "\"profile\":{\"minecraftVersion\":\"../../instances/x\"}}")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+            boolean refusedPathVersion;
+            try {
+                com.hexadron.launcher.share.BuildImport.read(escaping);
+                refusedPathVersion = false;
+            } catch (IOException expected) {
+                refusedPathVersion = true;
+            }
+            check("a Minecraft version that is a path is refused", refusedPathVersion);
         } catch (IOException | InterruptedException e) {
             check("build file check could not run: " + e, false);
         } finally {
@@ -8671,6 +8720,123 @@ public final class SelfCheck {
      * yet" with the same HTTP 404. They used to share one sentence, which told
      * a player whose Game Pass had lapsed to go and create a username.
      */
+    /** Names from metadata and shared builds cannot point outside the launcher's folders. */
+    private static void pathConfinement() {
+        section("Path confinement");
+        check("an ordinary version id is a usable name", GameDirs.isSafeSegment("1.21.1"));
+        check("an old id with spaces is a usable name", GameDirs.isSafeSegment("1.14 Pre-Release 1"));
+        check("a loader id is a usable name", GameDirs.isSafeSegment("fabric-loader-0.16.10-1.21.1"));
+        for (String bad : new String[]{"..", ".", "../x", "a/b", "a\\b", "C:x", "", " 1.21", "x\u0000"}) {
+            check("not a usable name: [" + bad + "]", !GameDirs.isSafeSegment(bad));
+        }
+        GameDirs dirs = new GameDirs(Path.of("/tmp/hexadron-confinement-check"));
+        checkThrows("a version folder cannot climb out", () -> dirs.versionDir("../../instances/x"));
+        checkThrows("a library path cannot climb out", () -> dirs.library("../../evil.jar"));
+        checkThrows("a library path cannot be absolute", () -> dirs.library("/etc/passwd"));
+        check("an ordinary library path stays inside",
+                dirs.library("com/example/lib/1.0/lib-1.0.jar").startsWith(dirs.libraries()));
+        checkThrows("an asset hash must be a hash", () -> dirs.assetObject("../../../x"));
+
+        check("settings arrive without asking",
+                com.hexadron.launcher.share.BuildFormat.isCarriedWithoutAsking("config/sodium.json")
+                        && com.hexadron.launcher.share.BuildFormat.isCarriedWithoutAsking("options.txt"));
+        check("world files arrive without asking",
+                com.hexadron.launcher.share.BuildFormat.isCarriedWithoutAsking("saves/World/level.dat"));
+        check("a world's data packs do not",
+                !com.hexadron.launcher.share.BuildFormat.isCarriedWithoutAsking("saves/World/datapacks/x.zip"));
+        check("a mod jar does not",
+                !com.hexadron.launcher.share.BuildFormat.isCarriedWithoutAsking("mods/x.jar"));
+
+        // Scanning a hostile log line stays fast.
+        long start = System.nanoTime();
+        com.hexadron.launcher.util.Redactor.scrub("eyJ".repeat(100_000));
+        check("a line of repeated JWT starts is scrubbed in well under a second",
+                System.nanoTime() - start < 2_000_000_000L);
+        start = System.nanoTime();
+        com.hexadron.launcher.mods.SvgPaths.read("<path d=\"M0 0\" ".repeat(20_000));
+        check("unclosed SVG elements are parsed in well under a second",
+                System.nanoTime() - start < 2_000_000_000L);
+
+        // A declared size is enforced while the bytes arrive.
+        try {
+            byte[] tooMuch = new byte[200];
+            com.hexadron.launcher.net.Downloader.copyAtMost(new java.io.ByteArrayInputStream(tooMuch),
+                    java.io.OutputStream.nullOutputStream(), 100);
+            check("a download longer than declared is stopped", false);
+        } catch (IOException expected) {
+            check("a download longer than declared is stopped", true);
+        }
+        // Deleting a folder that is itself a link removes the link, not what it points at.
+        Path linkCheck = null;
+        try {
+            linkCheck = java.nio.file.Files.createTempDirectory("hexadron-link-root");
+            Path target = java.nio.file.Files.createDirectories(linkCheck.resolve("elsewhere"));
+            java.nio.file.Files.writeString(target.resolve("keep.txt"), "keep");
+            Path link = linkCheck.resolve("moved-instance");
+            java.nio.file.Files.createSymbolicLink(link, target);
+            com.hexadron.launcher.util.TreeDeleter.deleteTree(link, Progress.NOOP, null);
+            check("deleting a linked folder leaves the folder it points at",
+                    java.nio.file.Files.exists(target.resolve("keep.txt"))
+                            && !java.nio.file.Files.exists(link, java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        } catch (IOException | UnsupportedOperationException | InterruptedException e) {
+            check("the linked-folder deletion check ran (" + e + ")", false);
+        } finally {
+            if (linkCheck != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(linkCheck);
+            }
+        }
+
+        // A credential that could not be read is not deleted by the next save.
+        Path accountCheck = null;
+        try {
+            accountCheck = java.nio.file.Files.createTempDirectory("hexadron-unreadable");
+            GameDirs accountDirs = new GameDirs(accountCheck);
+            Map<String, String> vault = new java.util.HashMap<>();
+            boolean[] locked = {false};
+            com.hexadron.launcher.auth.secret.SecretStore flaky =
+                    new com.hexadron.launcher.auth.secret.SecretStore() {
+                        public String id() { return "flaky"; }
+                        public String displayName() { return "flaky"; }
+                        public boolean isAvailable() { return true; }
+                        public boolean isOsProtected() { return true; }
+                        public void store(String key, String value) { vault.put(key, value); }
+                        public java.util.Optional<String> load(String key) throws IOException {
+                            if (locked[0]) {
+                                throw new IOException("keychain locked");
+                            }
+                            return java.util.Optional.ofNullable(vault.get(key));
+                        }
+                        public void delete(String key) { vault.remove(key); }
+                    };
+            var first = new com.hexadron.launcher.auth.AccountStore(accountDirs, flaky).load();
+            first.add(new Account(Account.AccountType.MICROSOFT, "Notch",
+                    UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5"),
+                    "access", "refresh", System.currentTimeMillis() + 3_600_000L, "2535"));
+            first.save();
+            locked[0] = true;
+            var second = new com.hexadron.launcher.auth.AccountStore(accountDirs, flaky).load();
+            second.loadSecrets();
+            second.add(Account.offline("Steve"));
+            second.save();
+            check("a locked keychain at start does not cost the stored session",
+                    vault.values().stream().anyMatch(value -> value.contains("refresh")));
+            locked[0] = false;
+            Account notch = second.all().stream().filter(a -> !a.isOffline()).findFirst().orElseThrow();
+            check("and it is read once the keychain opens",
+                    "refresh".equals(second.withSecrets(notch).refreshToken()));
+        } catch (IOException e) {
+            check("the unreadable-credential check ran (" + e + ")", false);
+        } finally {
+            if (accountCheck != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(accountCheck);
+            }
+        }
+
+        check("the proxy password is not offered to a proxy that is not the manual one",
+                !new com.hexadron.launcher.net.ProxyChoice(com.hexadron.launcher.net.ProxyChoice.Mode.MANUAL,
+                        "", 0, "user").wantsAuthentication());
+    }
+
     private static void signInDiagnosis() {
         section("Sign-in diagnosis");
 

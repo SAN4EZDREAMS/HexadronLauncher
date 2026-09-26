@@ -302,7 +302,7 @@ public final class LauncherSettings {
         return this;
     }
 
-    public void save() throws IOException {
+    public synchronized void save() throws IOException {
         Json root = Json.object();
         if (plaintextCurseForgeKey != null) {
             // Not moved yet (the move runs after start-up, and the CLI never
@@ -333,8 +333,12 @@ public final class LauncherSettings {
                 .put("splashMinimumMillis", splashMinimumMillis)
                 .put("javaDownloadPolicy", javaDownloadPolicy)
                 .put("language", language)
-                .put("customGroupColors", colorsAsJson())
-                .write(file);
+                .put("customGroupColors", colorsAsJson());
+        // Atomic and owner-only: saved from more than one thread (the settings
+        // window, the start-up warm-up), and a half-written file would lose
+        // every setting on the next start.
+        com.hexadron.launcher.util.FilePermissions.writeRestricted(file,
+                root.toPrettyString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private Json colorsAsJson() {
@@ -424,27 +428,32 @@ public final class LauncherSettings {
         return this;
     }
 
-    public String curseForgeApiKey() {
+    public synchronized String curseForgeApiKey() {
         return curseForgeApiKey;
     }
 
-    public boolean curseForgeKeyStored() {
+    public synchronized boolean curseForgeKeyStored() {
         return curseForgeKeyStored;
     }
 
-    public LauncherSettings curseForgeKeyStored(boolean stored) {
+    public synchronized LauncherSettings curseForgeKeyStored(boolean stored) {
         this.curseForgeKeyStored = stored;
         return this;
     }
 
     /** The plain-text key from an older launcher.json, once; null afterwards or when there was none. */
-    public String takePlaintextCurseForgeKey() {
+    /** The plain-text key from an older launcher.json, without handing it over; null when there is none. */
+    public synchronized String plaintextCurseForgeKey() {
+        return plaintextCurseForgeKey;
+    }
+
+    public synchronized String takePlaintextCurseForgeKey() {
         String key = plaintextCurseForgeKey;
         plaintextCurseForgeKey = null;
         return key;
     }
 
-    public LauncherSettings curseForgeApiKey(String value) {
+    public synchronized LauncherSettings curseForgeApiKey(String value) {
         this.curseForgeApiKey = value == null ? "" : value.trim();
         return this;
     }

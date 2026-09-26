@@ -67,6 +67,8 @@ public final class LoopbackRedirectServer implements AutoCloseable {
     private final HttpServer server;
     private final Pkce pkce;
     private final CompletableFuture<String> code = new CompletableFuture<>();
+    private final java.util.concurrent.ExecutorService executor =
+            java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
 
     private LoopbackRedirectServer(HttpServer server, Pkce pkce) {
         this.server = server;
@@ -75,11 +77,16 @@ public final class LoopbackRedirectServer implements AutoCloseable {
 
     /** Binds a free loopback port and starts listening. */
     public static LoopbackRedirectServer start(Pkce pkce) throws IOException {
+        // 127.0.0.1 exactly, the address the redirect URI names. The JVM's
+        // loopback address can be ::1 on an IPv6-preferring system.
         HttpServer server = HttpServer.create(
-                new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+                new InetSocketAddress(InetAddress.getByAddress(new byte[]{127, 0, 0, 1}), 0), 0);
         LoopbackRedirectServer listener = new LoopbackRedirectServer(server, pkce);
         server.createContext(CALLBACK_PATH, listener::handle);
-        server.setExecutor(null);
+        // One virtual thread per request. With the default single dispatcher
+        // thread, a local process that opens a connection and sends half a
+        // request stalls the real browser redirect behind it.
+        server.setExecutor(listener.executor);
         server.start();
         return listener;
     }
@@ -162,6 +169,7 @@ public final class LoopbackRedirectServer implements AutoCloseable {
     @Override
     public void close() {
         server.stop(0);
+        executor.shutdownNow();
     }
 
     // ---------------------------------------------------------------- handler

@@ -403,7 +403,7 @@ public final class LaunchCommandBuilder {
         }
         String argument = client.get("argument").asString(null);
         String id = client.get("file").get("id").asString(null);
-        if (argument == null || id == null) {
+        if (argument == null || id == null || !GameDirs.isSafeSegment(id)) {
             return null;
         }
         Path configFile = dirs.assets().resolve("log_configs").resolve(id);

@@ -68,7 +68,9 @@ public final class Redactor {
      * </ul>
      */
     private static final Pattern[] SHAPES = {
-            Pattern.compile("eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}"),
+            // The lookbehind keeps this linear: without it a line of repeated
+            // "eyJ" (a chat message a server can send) took minutes to scan.
+            Pattern.compile("(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}"),
             // Up to the next quote, space or separator: real MSA tokens also
             // carry '!', '*' and '$', and a narrower class left the tail visible.
             Pattern.compile("M\\.[A-Za-z0-9]{1,4}_[^\\s\"'&<>]{20,}"),

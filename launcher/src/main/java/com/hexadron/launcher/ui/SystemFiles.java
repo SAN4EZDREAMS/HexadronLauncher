@@ -75,11 +75,11 @@ public final class SystemFiles {
                     // No shell in between: /select, takes the path as one
                     // argument, and a path with a space in it is exactly what a
                     // shell would split in half.
-                    new ProcessBuilder("explorer.exe", "/select," + absolute).start();
+                    new ProcessBuilder(com.hexadron.launcher.util.Platform.systemTool("explorer.exe"), "/select," + absolute).start();
                     return true;
                 }
                 if (Platform.isMac()) {
-                    new ProcessBuilder("open", "-R", absolute.toString()).start();
+                    new ProcessBuilder(com.hexadron.launcher.util.Platform.systemTool("open"), "-R", absolute.toString()).start();
                     return true;
                 }
             } catch (IOException | SecurityException ignored) {
@@ -124,11 +124,11 @@ public final class SystemFiles {
         try {
             String[] command;
             if (Platform.isWindows()) {
-                command = new String[]{"explorer.exe", absolute.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("explorer.exe"), absolute.toString()};
             } else if (Platform.isMac()) {
-                command = new String[]{"open", absolute.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("open"), absolute.toString()};
             } else {
-                command = new String[]{"xdg-open", absolute.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("xdg-open"), absolute.toString()};
             }
             new ProcessBuilder(command).start();
             return true;

@@ -121,7 +121,9 @@ public final class SvgPaths {
 
     /** Deliberately narrow: these files have no quoting tricks in them. */
     private static final Pattern ELEMENT =
-            Pattern.compile("<\\s*(path|circle|ellipse|rect|line|polyline|polygon)\\b([^>]*)>",
+            // [^<>] rather than [^>]: an element that never closes then fails
+            // at the next "<" instead of rescanning to the end for every start.
+            Pattern.compile("<\\s*(path|circle|ellipse|rect|line|polyline|polygon)\\b([^<>]*)>",
                     Pattern.CASE_INSENSITIVE);
     private static final Pattern ATTRIBUTE =
             Pattern.compile("([\\w-]+)\\s*=\\s*\"([^\"]*)\"");

@@ -305,6 +305,9 @@ public final class LauncherService {
      * is listed and fails every request.
      */
     public void curseForgeApiKey(String key) throws IOException {
+        // A key chosen now replaces any old plain-text one still waiting to be
+        // moved, so the warm-up cannot put the old key back over this one.
+        settings.takePlaintextCurseForgeKey();
         settings.curseForgeApiKey(key);
         String value = settings.curseForgeApiKey();
         if (value.isEmpty()) {
@@ -329,9 +332,12 @@ public final class LauncherService {
      */
     void loadCurseForgeKey() {
         try {
-            String plaintext = settings.takePlaintextCurseForgeKey();
+            String plaintext = settings.plaintextCurseForgeKey();
             if (plaintext != null) {
+                // Stored first, dropped from launcher.json second: if the store
+                // fails the key stays where it was instead of being lost.
                 secretStore.store(CURSEFORGE_KEY, plaintext);
+                settings.takePlaintextCurseForgeKey();
                 settings.curseForgeKeyStored(true);
                 settings.save();
                 LauncherLog.info("CurseForge key moved from launcher.json to the credential store");
