@@ -151,8 +151,15 @@ public final class FilePermissions {
                 Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
             }
             restrictToOwner(file);
+            if (!isRestricted(file) && WARNED.add(parent == null ? file : parent)) {
+                com.hexadron.launcher.core.LauncherLog.warn("%s is on a file system that cannot restrict "
+                        + "access to its owner; other accounts on this computer may be able to read it", file);
+            }
         } finally {
             Files.deleteIfExists(temporary);
         }
     }
+
+    /** Folders already warned about, so a log is not filled with the same line. */
+    private static final java.util.Set<Path> WARNED = java.util.concurrent.ConcurrentHashMap.newKeySet();
 }

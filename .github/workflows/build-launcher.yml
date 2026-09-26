@@ -44,11 +44,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: validate gradle wrapper
-        uses: gradle/actions/wrapper-validation@v6
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       - name: setup jdk
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '25'
           distribution: 'microsoft'
@@ -57,7 +57,7 @@ jobs:
       # build failed: the connection dropped during the download. The number of attempts
       # is set in gradle/wrapper/gradle-wrapper.properties, together with the reason.
       - name: setup gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
       # A separate step, although one `assemble` could do it all: when this step turns
@@ -100,7 +100,7 @@ jobs:
       # It stays here on purpose: a person who already has a JDK does not need an extra
       # 80 MB runtime, and Linux users often want exactly this option.
       - name: capture the jar and the script distribution
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: hexadron-launcher-jar
           path: |
@@ -156,16 +156,16 @@ jobs:
         shell: bash
     steps:
       - name: checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: validate gradle wrapper
-        uses: gradle/actions/wrapper-validation@v6
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       - name: setup jdk
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           java-version: '25'
           distribution: 'microsoft'
       - name: setup gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       - name: make gradle wrapper executable
         run: chmod +x ./gradlew
       # appImage depends only on the jar, not on check. selfCheck does not run again
@@ -222,7 +222,7 @@ jobs:
               -C launcher/build/jpackage .
           fi
       - name: capture the client
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: hexadron-launcher-${{ matrix.label }}
           path: release/*
@@ -237,9 +237,9 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: fetch the linux client
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: hexadron-launcher-linux
           path: linux
@@ -260,7 +260,7 @@ jobs:
           bash launcher/packaging/flatpak/build-flatpak.sh \
             linux/HexadronLauncher-linux.tar.gz "${base}-ci.${{ github.run_number }}" release
       - name: capture the flatpak
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: hexadron-launcher-flatpak
           path: release/HexadronLauncher-linux.flatpak

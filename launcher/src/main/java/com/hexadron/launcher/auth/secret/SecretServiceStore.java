@@ -32,6 +32,21 @@ import java.util.Optional;
  */
 public final class SecretServiceStore extends ProcessSecretStore {
 
+    /**
+     * secret-tool from a system folder, not from PATH: the credentials go to
+     * its standard input. /app/bin is where a Flatpak ships its own tools.
+     */
+    static String secretTool() {
+        for (String folder : new String[]{"/usr/bin", "/bin", "/app/bin", "/usr/local/bin"}) {
+            java.nio.file.Path candidate = java.nio.file.Path.of(folder, "secret-tool");
+            if (java.nio.file.Files.isExecutable(candidate)) {
+                return candidate.toString();
+            }
+        }
+        return "/usr/bin/secret-tool";
+    }
+
+
     private static final String SERVICE_ATTRIBUTE = "HexadronLauncher";
 
     @Override
@@ -58,7 +73,7 @@ public final class SecretServiceStore extends ProcessSecretStore {
             // A lookup for a key that does not exist. Exit 1 means "reached the
             // keyring, found nothing", which is exactly what proves it works.
             // Exit 127 means no binary; anything else means no working D-Bus.
-            Result result = run(List.of("secret-tool", "lookup",
+            Result result = run(List.of(secretTool(), "lookup",
                     "service", SERVICE_ATTRIBUTE, "account", "hexadron-availability-probe"), null);
             return result.exitCode() == 0 || result.exitCode() == 1;
         } catch (IOException e) {
@@ -68,7 +83,7 @@ public final class SecretServiceStore extends ProcessSecretStore {
 
     @Override
     public void store(String key, String value) throws IOException {
-        Result result = run(List.of("secret-tool", "store",
+        Result result = run(List.of(secretTool(), "store",
                         "--label=Hexadron Launcher - " + key,
                         "service", SERVICE_ATTRIBUTE, "account", key),
                 (value + "\n").getBytes(StandardCharsets.UTF_8));
@@ -79,7 +94,7 @@ public final class SecretServiceStore extends ProcessSecretStore {
 
     @Override
     public Optional<String> load(String key) throws IOException {
-        Result result = run(List.of("secret-tool", "lookup",
+        Result result = run(List.of(secretTool(), "lookup",
                 "service", SERVICE_ATTRIBUTE, "account", key), null);
         if (result.exitCode() == 1) {
             return Optional.empty();
@@ -93,7 +108,7 @@ public final class SecretServiceStore extends ProcessSecretStore {
 
     @Override
     public void delete(String key) throws IOException {
-        Result result = run(List.of("secret-tool", "clear",
+        Result result = run(List.of(secretTool(), "clear",
                 "service", SERVICE_ATTRIBUTE, "account", key), null);
         if (!result.ok() && result.exitCode() != 1) {
             throw new IOException("the system keyring refused to delete the credential: " + result.stderr());

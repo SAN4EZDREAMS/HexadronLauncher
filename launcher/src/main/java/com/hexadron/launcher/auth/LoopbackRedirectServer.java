@@ -67,6 +67,8 @@ public final class LoopbackRedirectServer implements AutoCloseable {
     private final HttpServer server;
     private final Pkce pkce;
     private final CompletableFuture<String> code = new CompletableFuture<>();
+    private final java.util.concurrent.ExecutorService executor =
+            java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor();
 
     private LoopbackRedirectServer(HttpServer server, Pkce pkce) {
         this.server = server;
@@ -75,11 +77,16 @@ public final class LoopbackRedirectServer implements AutoCloseable {
 
     /** Binds a free loopback port and starts listening. */
     public static LoopbackRedirectServer start(Pkce pkce) throws IOException {
+        // 127.0.0.1 exactly, the address the redirect URI names. The JVM's
+        // loopback address can be ::1 on an IPv6-preferring system.
         HttpServer server = HttpServer.create(
-                new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+                new InetSocketAddress(InetAddress.getByAddress(new byte[]{127, 0, 0, 1}), 0), 0);
         LoopbackRedirectServer listener = new LoopbackRedirectServer(server, pkce);
         server.createContext(CALLBACK_PATH, listener::handle);
-        server.setExecutor(null);
+        // One virtual thread per request. With the default single dispatcher
+        // thread, a local process that opens a connection and sends half a
+        // request stalls the real browser redirect behind it.
+        server.setExecutor(listener.executor);
         server.start();
         return listener;
     }
@@ -162,6 +169,7 @@ public final class LoopbackRedirectServer implements AutoCloseable {
     @Override
     public void close() {
         server.stop(0);
+        executor.shutdownNow();
     }
 
     // ---------------------------------------------------------------- handler
@@ -169,6 +177,27 @@ public final class LoopbackRedirectServer implements AutoCloseable {
     private void handle(HttpExchange exchange) {
         try {
             Map<String, String> query = parseQuery(exchange.getRequestURI().getRawQuery());
+
+            // Anything else on this machine can reach a loopback port - another
+            // program, or a web page that guesses it. Such a request must not be
+            // able to end the sign-in, so it is answered and otherwise ignored:
+            // the wait goes on for the real redirect, or times out.
+            //
+            // The Host check refuses DNS rebinding (a page on a name that
+            // resolves to 127.0.0.1); the browser always sends the literal the
+            // redirect URI names.
+            String host = exchange.getRequestHeaders().getFirst("Host");
+            if (!("127.0.0.1:" + port()).equals(host)) {
+                respond(exchange, 400, "Nothing here", "This page is not part of the sign-in.");
+                return;
+            }
+            // Microsoft returns the state on errors as well as on success, so a
+            // request without the right one did not come from this sign-in.
+            if (!pkce.matchesState(query.get("state"))) {
+                respond(exchange, 400, "Sign-in rejected",
+                        "The response did not match this sign-in attempt. Start again in the launcher.");
+                return;
+            }
 
             String error = query.get("error");
             if (error != null) {
@@ -182,21 +211,10 @@ public final class LoopbackRedirectServer implements AutoCloseable {
                 return;
             }
 
-            String returnedState = query.get("state");
             String authorizationCode = query.get("code");
 
             if (authorizationCode == null) {
-                // A stray request - a browser prefetch, a probe. Not the redirect.
                 respond(exchange, 404, "Nothing here", "This page is not part of the sign-in.");
-                return;
-            }
-
-            if (!pkce.matchesState(returnedState)) {
-                respond(exchange, 400, "Sign-in rejected",
-                        "The response did not match this sign-in attempt. Start again in the launcher.");
-                code.completeExceptionally(new MicrosoftAuth.AuthException(
-                        "the sign-in response did not match this attempt (state mismatch) - "
-                                + "it was not started by this launcher and has been discarded"));
                 return;
             }
 

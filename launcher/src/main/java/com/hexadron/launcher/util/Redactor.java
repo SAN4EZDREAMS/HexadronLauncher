@@ -68,14 +68,23 @@ public final class Redactor {
      * </ul>
      */
     private static final Pattern[] SHAPES = {
-            Pattern.compile("eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}"),
-            Pattern.compile("M\\.[A-Za-z0-9]{1,4}_[A-Za-z0-9._-]{20,}"),
+            // The lookbehind keeps this linear: without it a line of repeated
+            // "eyJ" (a chat message a server can send) took minutes to scan.
+            Pattern.compile("(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}"),
+            // Up to the next quote, space or separator: real MSA tokens also
+            // carry '!', '*' and '$', and a narrower class left the tail visible.
+            Pattern.compile("M\\.[A-Za-z0-9]{1,4}_[^\\s\"'&<>]{20,}"),
+            // Consumer MSA access tokens are an opaque base64 blob starting "Ew".
+            Pattern.compile("\\bEw[A-Za-z0-9+/]{100,}={0,2}"),
             Pattern.compile("XBL3\\.0\\s+x=[^;\\s]+;[A-Za-z0-9._-]{20,}"),
             Pattern.compile("token:[A-Za-z0-9._-]{20,}:"),
             Pattern.compile("(?<=[?&])(code|code_verifier|refresh_token|access_token|id_token|device_code)="
                     + "[^&\\s\"']{8,}"),
-            Pattern.compile("(?<=\")(refresh_token|access_token|id_token|device_code|Token)"
-                    + "(?=\"\\s*:\\s*\")[^\"]*\"[^\"]{20,}\""),
+            // The value of a token-named JSON key. The previous form matched the
+            // key and then needed 20 quote-free characters, which ": " never is,
+            // so it never fired.
+            Pattern.compile("(?<=\"(?:refresh_token|access_token|id_token|device_code|Token)\""
+                    + "\\s{0,3}:\\s{0,3}\")[^\"]{16,}"),
 
             // An opaque token behind a name that says what it is. The shapes
             // above describe what Microsoft and Xbox issue today; a token of

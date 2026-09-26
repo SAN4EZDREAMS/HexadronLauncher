@@ -64,12 +64,19 @@ abstract class ProcessSecretStore implements SecretStore {
             // A helper that read what it needed and exited closes the pipe. Not an error.
         }
 
+        // stderr on its own thread: read one after the other, a helper that
+        // fills the stderr pipe blocks forever and the timeout below never runs.
+        java.util.concurrent.CompletableFuture<String> stderrText =
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                    try (InputStream errStream = process.getErrorStream()) {
+                        return new String(errStream.readAllBytes(), StandardCharsets.UTF_8);
+                    } catch (IOException e) {
+                        return "";
+                    }
+                });
         String stdout;
-        String stderr;
-        try (InputStream outStream = process.getInputStream();
-             InputStream errStream = process.getErrorStream()) {
+        try (InputStream outStream = process.getInputStream()) {
             stdout = new String(outStream.readAllBytes(), StandardCharsets.UTF_8);
-            stderr = new String(errStream.readAllBytes(), StandardCharsets.UTF_8);
         }
 
         int exit;
@@ -84,6 +91,12 @@ abstract class ProcessSecretStore implements SecretStore {
             process.destroyForcibly();
             Thread.currentThread().interrupt();
             throw new IOException("interrupted while waiting for " + command.get(0), e);
+        }
+        String stderr;
+        try {
+            stderr = stderrText.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            stderr = "";
         }
         return new Result(exit, stdout, Redactor.scrub(stderr));
     }

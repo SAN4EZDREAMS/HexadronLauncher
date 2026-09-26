@@ -158,10 +158,12 @@ public final class ProcessorRunner {
         progress.log("  [%d/%d] %s", step, total, processor.label());
 
         Files.createDirectories(workDir);
-        Process process = new ProcessBuilder(command)
+        ProcessBuilder processorBuilder = new ProcessBuilder(command)
                 .directory(workDir.toFile())
-                .redirectErrorStream(true)
-                .start();
+                .redirectErrorStream(true);
+        // A processor is code from a downloaded jar; the launcher's keys are not its business.
+        processorBuilder.environment().remove("CURSEFORGE_API_KEY");
+        Process process = processorBuilder.start();
 
         Deque<String> tail = new ArrayDeque<>();
         try (BufferedReader reader = new BufferedReader(

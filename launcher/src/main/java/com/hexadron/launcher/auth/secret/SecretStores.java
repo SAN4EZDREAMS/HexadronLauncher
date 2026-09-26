@@ -73,9 +73,14 @@ public final class SecretStores {
                 new SecretServiceStore());
         for (SecretStore candidate : candidates) {
             if (candidate.isAvailable()) {
+                com.hexadron.launcher.core.LauncherLog.info(
+                        "Credential store: %s (protected by the operating system)", candidate.displayName());
                 return new FallbackSecretStore(candidate, file);
             }
         }
+        com.hexadron.launcher.core.LauncherLog.warn("Credential store: %s - NOT protected by the "
+                + "operating system: the key file sits next to the data, so this guards against "
+                + "casual reading, not against a program running as you", file.displayName());
         return file;
     }
 
@@ -207,21 +212,31 @@ public final class SecretStores {
                 secondary.delete(key);
             } catch (IOException e) {
                 primaryFailed = true;
+                com.hexadron.launcher.core.LauncherLog.warn("%s failed (%s); this credential was "
+                        + "saved to %s instead", primary.displayName(),
+                        com.hexadron.launcher.util.Redactor.scrub(String.valueOf(e.getMessage())),
+                        secondary.displayName());
                 secondary.store(key, value);
             }
         }
 
         @Override
         public Optional<String> load(String key) throws IOException {
+            // The secondary first. store() clears it whenever the primary
+            // accepts a value, so it holds one only when a primary write
+            // failed - and then it is the newer of the two.
+            Optional<String> fallback = secondary.load(key);
+            if (fallback.isPresent()) {
+                return fallback;
+            }
             try {
-                Optional<String> value = primary.load(key);
-                if (value.isPresent()) {
-                    return value;
-                }
+                return primary.load(key);
             } catch (IOException e) {
                 primaryFailed = true;
+                // Passed on, not turned into "nothing stored": the caller must
+                // not mistake a failed read for an absent credential.
+                throw e;
             }
-            return secondary.load(key);
         }
 
         @Override

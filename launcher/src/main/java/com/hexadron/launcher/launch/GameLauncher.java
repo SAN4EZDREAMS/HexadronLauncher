@@ -105,6 +105,9 @@ public final class GameLauncher {
                 // One stream keeps stdout and stderr interleaved in the order the
                 // game actually produced them, which is what makes a crash log readable.
                 .redirectErrorStream(true);
+        // The launcher's own keys stay with the launcher. Every mod the game
+        // loads can read its environment.
+        builder.environment().remove("CURSEFORGE_API_KEY");
 
         Process process = builder.start();
         GameSession session = new GameSession(process, command);
@@ -278,8 +281,8 @@ public final class GameLauncher {
         }
         return switch (exitCode) {
             case 92 -> "The launcher could not hand the session to Minecraft "
-                    + "(launch handshake failed). Try again; if it repeats, turn off "
-                    + "the secure launch handshake in settings and report it.";
+                    + "(launch handshake failed). Try again; if it repeats, report it "
+                    + "with the launcher log.";
             case 0 -> "Minecraft closed normally.";
             case 1 -> "Minecraft exited with code 1 - usually a crash during startup. "
                     + "Check the log above for the first exception.";

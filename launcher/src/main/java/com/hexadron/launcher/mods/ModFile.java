@@ -41,6 +41,7 @@ public record ModFile(String projectId, String projectSlug, String versionId, St
                       List<String> gameVersions) {
 
     public ModFile {
+        fileName = safeFileName(fileName);
         dependencies = List.copyOf(dependencies);
         gameVersions = gameVersions == null ? List.of() : List.copyOf(gameVersions);
     }
@@ -58,6 +59,31 @@ public record ModFile(String projectId, String projectSlug, String versionId, St
                    List<String> dependencies, ModProvider.Source source) {
         this(projectId, projectSlug, versionId, displayName, fileName, url, sha1, size,
                 dependencies, source, List.of());
+    }
+
+    /**
+     * The file name as a single, harmless path segment.
+     *
+     * <p>It comes from the Modrinth or CurseForge API and is joined onto the
+     * mods, resource pack or datapack folder. A name such as
+     * {@code ..\\..\\Startup\\x.bat} would otherwise write outside that folder.
+     * Real mod file names have no separators, so they pass through unchanged.
+     */
+    public static String safeFileName(String name) {
+        if (name == null) {
+            return null;
+        }
+        String last = name.substring(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1);
+        StringBuilder clean = new StringBuilder(last.length());
+        for (char c : last.toCharArray()) {
+            clean.append(c < 0x20 || c == ':' || c == '*' || c == '?' || c == '"'
+                    || c == '<' || c == '>' || c == '|' ? '_' : c);
+        }
+        String result = clean.toString().strip();
+        if (result.isEmpty() || result.equals(".") || result.equals("..")) {
+            return "unnamed-download";
+        }
+        return result;
     }
 
     public boolean isDownloadable() {

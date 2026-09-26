@@ -393,6 +393,13 @@ public final class ModpackInstaller {
                     skipped.add(entry.getName() + " (the pack puts this outside the instance folder)");
                     continue;
                 }
+                // The launcher's own record files come from the launcher. One
+                // planted by a pack could name files for a later removal to delete.
+                if (com.hexadron.launcher.share.BuildFormat.isBookkeeping(
+                        com.hexadron.launcher.share.BuildFormat.fileNameOf(relative))) {
+                    skipped.add(entry.getName() + " (a launcher record file; the launcher writes its own)");
+                    continue;
+                }
                 Path destination = root.resolve(relative);
                 Files.createDirectories(destination.getParent());
                 try (InputStream in = zip.getInputStream(entry)) {

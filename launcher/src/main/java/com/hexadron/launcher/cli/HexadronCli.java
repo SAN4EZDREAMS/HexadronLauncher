@@ -72,7 +72,9 @@ public final class HexadronCli {
         } catch (Exception e) {
             System.err.println("error: " + e.getMessage());
             if (System.getenv("HEXADRON_DEBUG") != null) {
-                e.printStackTrace();
+                java.io.StringWriter trace = new java.io.StringWriter();
+                e.printStackTrace(new java.io.PrintWriter(trace));
+                System.err.print(com.hexadron.launcher.util.Redactor.scrub(trace.toString()));
             }
             System.exit(1);
         }

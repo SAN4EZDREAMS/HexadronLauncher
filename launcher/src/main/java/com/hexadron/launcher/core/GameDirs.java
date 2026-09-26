@@ -102,7 +102,39 @@ public final class GameDirs {
     }
 
     public Path versionDir(String versionId) {
-        return versions().resolve(versionId);
+        return versions().resolve(segment(versionId));
+    }
+
+    /**
+     * True for a name that can be one folder or file name under a launcher
+     * folder: no separators, no drive or stream colon, not "." or "..".
+     *
+     * <p>Version ids, asset index ids and runtime names come from downloaded
+     * metadata and from shared builds. Joined onto a folder unchecked, an id
+     * such as {@code ../../instances/x} would point anywhere - in a shared
+     * build, at a folder whose files the build itself supplies.
+     */
+    public static boolean isSafeSegment(String name) {
+        return name != null && !name.isBlank() && name.length() <= 200
+                && name.equals(name.strip())
+                && !name.equals(".") && !name.equals("..")
+                && name.chars().noneMatch(c -> c == '/' || c == '\\' || c == ':' || c < 0x20);
+    }
+
+    private static String segment(String name) {
+        if (!isSafeSegment(name)) {
+            throw new IllegalArgumentException("not a usable name: " + name);
+        }
+        return name;
+    }
+
+    /** {@code relative} under {@code base}, or an exception if it would leave it. */
+    private static Path inside(Path base, String relative) {
+        Path resolved = base.resolve(relative).normalize();
+        if (!resolved.startsWith(base.normalize()) || resolved.equals(base.normalize())) {
+            throw new IllegalArgumentException("path leaves " + base.getFileName() + ": " + relative);
+        }
+        return resolved;
     }
 
     public Path versionJson(String versionId) {
@@ -119,7 +151,9 @@ public final class GameDirs {
 
     /** Absolute path of a library given its repository-relative path. */
     public Path library(String relativePath) {
-        return libraries().resolve(relativePath.replace('/', java.io.File.separatorChar));
+        // From version metadata; confined so a crafted path cannot write or
+        // load a file outside the libraries folder.
+        return inside(libraries(), relativePath.replace('/', java.io.File.separatorChar));
     }
 
     public Path assets() {
@@ -131,7 +165,7 @@ public final class GameDirs {
     }
 
     public Path assetIndexFile(String indexId) {
-        return assetIndexes().resolve(indexId + ".json");
+        return assetIndexes().resolve(segment(indexId) + ".json");
     }
 
     public Path assetObjects() {
@@ -141,16 +175,19 @@ public final class GameDirs {
     /** Object store path for a content hash: {@code objects/<first two hex chars>/<hash>}. */
     public Path assetObject(String hash) {
         String normalised = hash.toLowerCase(Locale.ROOT);
+        if (!normalised.matches("[0-9a-f]{40}")) {
+            throw new IllegalArgumentException("not an asset hash: " + hash);
+        }
         return assetObjects().resolve(normalised.substring(0, 2)).resolve(normalised);
     }
 
     /** Materialised asset tree used by pre-1.7 versions ("virtual" asset indexes). */
     public Path virtualAssets(String indexId) {
-        return assets().resolve("virtual").resolve(indexId);
+        return assets().resolve("virtual").resolve(segment(indexId));
     }
 
     public Path natives(String versionId) {
-        return root.resolve("natives").resolve(versionId);
+        return root.resolve("natives").resolve(segment(versionId));
     }
 
     public Path javaRuntimes() {
@@ -158,7 +195,7 @@ public final class GameDirs {
     }
 
     public Path javaRuntime(String component) {
-        return javaRuntimes().resolve(component);
+        return javaRuntimes().resolve(segment(component));
     }
 
     public Path instances() {
@@ -166,7 +203,7 @@ public final class GameDirs {
     }
 
     public Path instance(String profileId) {
-        return instances().resolve(profileId);
+        return instances().resolve(segment(profileId));
     }
 
     /**

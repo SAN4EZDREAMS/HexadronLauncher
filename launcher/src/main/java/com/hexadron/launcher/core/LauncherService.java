@@ -232,6 +232,10 @@ public final class LauncherService {
      */
     public void warmUpInBackground() {
         Thread warm = new Thread(() -> {
+            // Credentials first: they are what the Play button needs, and
+            // reading them is the slow part of a start on Windows.
+            accounts.loadSecrets();
+            loadCurseForgeKey();
             try {
                 javaLocator.discover();
             } catch (RuntimeException ignored) {
@@ -301,9 +305,54 @@ public final class LauncherService {
      * is listed and fails every request.
      */
     public void curseForgeApiKey(String key) throws IOException {
+        // A key chosen now replaces any old plain-text one still waiting to be
+        // moved, so the warm-up cannot put the old key back over this one.
+        settings.takePlaintextCurseForgeKey();
         settings.curseForgeApiKey(key);
+        String value = settings.curseForgeApiKey();
+        if (value.isEmpty()) {
+            secretStore.delete(CURSEFORGE_KEY);
+        } else {
+            secretStore.store(CURSEFORGE_KEY, value);
+        }
+        settings.curseForgeKeyStored(!value.isEmpty());
         settings.save();
-        curseForge.apiKey(settings.curseForgeApiKey());
+        curseForge.apiKey(value);
+    }
+
+    /** Where the CurseForge key lives in the credential store. */
+    public static final String CURSEFORGE_KEY = "curseforge:apiKey";
+
+    /**
+     * Moves a plain-text key out of launcher.json, or reads the stored one.
+     *
+     * <p>Off the start-up path: reading the credential store can mean two
+     * PowerShell launches on Windows. Until it finishes, CurseForge runs on
+     * the environment or build key, if there is one.
+     */
+    void loadCurseForgeKey() {
+        try {
+            String plaintext = settings.plaintextCurseForgeKey();
+            if (plaintext != null) {
+                // Stored first, dropped from launcher.json second: if the store
+                // fails the key stays where it was instead of being lost.
+                secretStore.store(CURSEFORGE_KEY, plaintext);
+                settings.takePlaintextCurseForgeKey();
+                settings.curseForgeKeyStored(true);
+                settings.save();
+                LauncherLog.info("CurseForge key moved from launcher.json to the credential store");
+                return;
+            }
+            if (settings.curseForgeKeyStored()) {
+                secretStore.load(CURSEFORGE_KEY).filter(key -> !key.isBlank()).ifPresent(key -> {
+                    settings.curseForgeApiKey(key);
+                    curseForge.apiKey(key);
+                });
+            }
+        } catch (IOException | RuntimeException e) {
+            LauncherLog.warn("Could not read the CurseForge key from the credential store: %s",
+                    com.hexadron.launcher.util.Redactor.scrub(String.valueOf(e.getMessage())));
+        }
     }
 
     // ---------------------------------------------------------------- versions
@@ -1723,6 +1772,9 @@ public final class LauncherService {
 
     /** Refreshes a Microsoft account's token if it is close to expiry. */
     public Account ensureFresh(Account account, Progress progress) throws IOException, InterruptedException {
+        // The instance the interface holds can predate the credentials being
+        // read (AccountStore.loadSecrets); this one has them.
+        account = accounts.withSecrets(account);
         if (!account.needsRefresh()) {
             return account;
         }
@@ -1826,15 +1878,27 @@ public final class LauncherService {
                 javaRuntimes.resolve(profile.javaPath(), requiredJava, true, progress);
         progress.log("Using %s (this version requires Java %d)", java, requiredJava);
 
-        // Null when the setting is off or the wrapper jar is missing from this
-        // build; the builder then falls back to the ordinary command line rather
-        // than refusing to launch.
-        Path wrapperJar = settings.secureLaunchHandshake()
-                ? LaunchWrapperJar.ensureExtracted(dirs)
-                : null;
-        if (settings.secureLaunchHandshake() && wrapperJar == null && !player.isOffline()) {
-            progress.log("Launch wrapper unavailable - the session token will be on the command line "
-                    + "for this launch. Do not share JVM crash logs from this session.");
+        // With the handshake on, a Microsoft session never goes onto the command
+        // line: that is readable by every process on the machine and is copied
+        // into hs_err_pid*.log. If the wrapper cannot be prepared the launch
+        // stops instead of quietly falling back.
+        Path wrapperJar = null;
+        if (settings.secureLaunchHandshake()) {
+            try {
+                wrapperJar = LaunchWrapperJar.ensureExtracted(dirs);
+            } catch (IOException e) {
+                if (!player.isOffline()) {
+                    throw new IOException("The launch wrapper could not be prepared ("
+                            + e.getMessage() + "). The game was not started, so the session "
+                            + "token did not go onto the command line. Close any running game "
+                            + "and press Play again.", e);
+                }
+            }
+            if (wrapperJar == null && !player.isOffline()) {
+                throw new IOException("This build of the launcher has no launch wrapper, so the "
+                        + "session token could only be passed on the command line. The game was "
+                        + "not started.");
+            }
         }
 
         LaunchCommandBuilder.LaunchCommand command = commandBuilder.build(

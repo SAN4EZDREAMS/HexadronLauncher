@@ -14,6 +14,8 @@ package com.hexadron.launcher;
 
 import com.hexadron.launcher.about.Credits;
 import com.hexadron.launcher.auth.Account;
+import com.hexadron.launcher.auth.Entitlements;
+import com.hexadron.launcher.auth.MicrosoftAuth.Problem;
 import com.hexadron.launcher.core.GameDirs;
 import com.hexadron.launcher.core.LauncherLog;
 import com.hexadron.launcher.core.Progress;
@@ -134,6 +136,8 @@ public final class SelfCheck {
         accounts();
         accountSelection();
         securityHardening();
+        signInDiagnosis();
+        pathConfinement();
         javaVersionParsing();
         javaRuntimeSelection();
         javaRuntimeHousekeeping();
@@ -723,6 +727,9 @@ public final class SelfCheck {
 
         check("simple substitution",
                 "Steve".equals(LaunchCommandBuilder.substitute("${auth_player_name}", values)));
+        check("the game is told the launcher's real version, not a literal",
+                com.hexadron.launcher.launch.LaunchCommandBuilder.LAUNCHER_VERSION
+                        .equals(com.hexadron.launcher.BuildConfig.version()));
         check("embedded substitution",
                 "-Duser=Steve".equals(LaunchCommandBuilder.substitute("-Duser=${auth_player_name}", values)));
         check("multiple substitutions",
@@ -1107,6 +1114,7 @@ public final class SelfCheck {
             GameDirs dirs = new GameDirs(dir);
             Map<String, String> vault = new java.util.HashMap<>();
             int[] writes = {0};
+            int[] reads = {0};
             com.hexadron.launcher.auth.secret.SecretStore memory =
                     new com.hexadron.launcher.auth.secret.SecretStore() {
                         public String id() { return "memory"; }
@@ -1118,6 +1126,7 @@ public final class SelfCheck {
                             vault.put(key, value);
                         }
                         public java.util.Optional<String> load(String key) {
+                            reads[0]++;
                             return java.util.Optional.ofNullable(vault.get(key));
                         }
                         public void delete(String key) {
@@ -1144,8 +1153,23 @@ public final class SelfCheck {
             check("saving the selection does not rewrite stored credentials",
                     writes[0] == afterSave);
 
+            int readsBeforeReopen = reads[0];
             com.hexadron.launcher.auth.AccountStore reopened =
                     new com.hexadron.launcher.auth.AccountStore(dirs, memory).load();
+            check("opening the account list reads no credentials (DPAPI is a second on Windows)",
+                    reads[0] == readsBeforeReopen);
+            check("before they are read, a listed account carries no token",
+                    reopened.all().stream().filter(account -> !account.isOffline())
+                            .allMatch(account -> account.refreshToken() == null));
+            int writesBeforePendingSave = writes[0];
+            reopened.save();
+            check("saving before the credentials are read does not overwrite them",
+                    writes[0] == writesBeforePendingSave
+                            && vault.values().stream().anyMatch(value -> value.contains("refresh")));
+            Account listedNotch = reopened.all().stream().filter(account -> !account.isOffline())
+                    .findFirst().orElseThrow();
+            check("an instance from the list gets its credentials when a caller needs them",
+                    "refresh".equals(reopened.withSecrets(listedNotch).refreshToken()));
             check("the launcher reopens on the account it was closed on",
                     reopened.selected().map(Account::id).orElse("").equals(alex.id()));
             check("a Microsoft account keeps its session across a selection save",
@@ -1159,6 +1183,8 @@ public final class SelfCheck {
             reopened.saveSelection();
             com.hexadron.launcher.auth.AccountStore third =
                     new com.hexadron.launcher.auth.AccountStore(dirs, memory).load();
+            check("an account with unread credentials still proves the licence",
+                    third.hasLicensedAccount());
             check("a refreshed session is written with the next selection save",
                     third.all().stream().anyMatch(account -> "refresh-2".equals(account.refreshToken())));
             check("and the new selection with it",
@@ -3448,6 +3474,8 @@ public final class SelfCheck {
         check("the other content host gets it too",
                 Http.hostHeadersFor(mediaHost).containsKey("x-api-key"));
         check("modrinth does not get it", Http.hostHeadersFor(modrinthHost).isEmpty());
+        check("a CurseForge host over plain http does not get it",
+                Http.hostHeadersFor(URI.create("http://edge.forgecdn.net/files/1/2/mod.jar")).isEmpty());
 
         check("the api host is recognised",
                 CurseForgeProvider.isCurseForgeHost("api.curseforge.com"));
@@ -3479,6 +3507,47 @@ public final class SelfCheck {
 
         check("a build with no key reports none",
                 BuildConfig.hasCurseForgeApiKey() == !BuildConfig.curseForgeApiKey().isEmpty());
+
+        // The key lives in the credential store. launcher.json is plain text
+        // and is what people attach to bug reports.
+        try {
+            Path settingsRoot = java.nio.file.Files.createTempDirectory("hexadron-settings");
+            try {
+                GameDirs settingsDirs = new GameDirs(settingsRoot);
+                java.nio.file.Files.createDirectories(settingsDirs.settingsFile().getParent());
+                String userKey = "$2a$10$selfcheckNotARealCurseForgeKey0123456789";
+
+                com.hexadron.launcher.core.LauncherSettings fresh =
+                        new com.hexadron.launcher.core.LauncherSettings(settingsDirs);
+                fresh.curseForgeApiKey(userKey).curseForgeKeyStored(true);
+                fresh.save();
+                String written = java.nio.file.Files.readString(settingsDirs.settingsFile());
+                check("launcher.json never carries the CurseForge key", !written.contains(userKey));
+                check("launcher.json says a key is in the credential store",
+                        new com.hexadron.launcher.core.LauncherSettings(settingsDirs).load()
+                                .curseForgeKeyStored());
+
+                java.nio.file.Files.writeString(settingsDirs.settingsFile(),
+                        "{\"curseForgeApiKey\":\"" + userKey + "\"}");
+                com.hexadron.launcher.core.LauncherSettings legacy =
+                        new com.hexadron.launcher.core.LauncherSettings(settingsDirs).load();
+                check("a plain-text key from an older launcher.json is still used",
+                        userKey.equals(legacy.curseForgeApiKey()));
+                legacy.save();
+                check("a plain-text key is kept until it has been moved, so it is not lost",
+                        java.nio.file.Files.readString(settingsDirs.settingsFile()).contains(userKey));
+                check("the plain-text key is handed over for the move once",
+                        userKey.equals(legacy.takePlaintextCurseForgeKey())
+                                && legacy.takePlaintextCurseForgeKey() == null);
+                legacy.curseForgeKeyStored(true).save();
+                check("after the move launcher.json no longer carries it",
+                        !java.nio.file.Files.readString(settingsDirs.settingsFile()).contains(userKey));
+            } finally {
+                deleteRecursively(settingsRoot);
+            }
+        } catch (IOException e) {
+            check("the CurseForge key storage checks ran (" + e + ")", false);
+        }
 
         // Gradle writes the version into the resources, so a run from class
         // folders reports the version in launcher/build.gradle, not a constant.
@@ -6488,6 +6557,52 @@ public final class SelfCheck {
                 refusedFuture = expected.getMessage().contains("newer");
             }
             check("a build from a newer launcher is refused with a reason", refusedFuture);
+
+            // Files slipped into the archive outside the manifest: a mod jar
+            // must not arrive without the player being asked.
+            Path sneaky = dir.resolve("sneaky.hexbuild");
+            try (var zip = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(sneaky))) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(com.hexadron.launcher.share.BuildFormat.MANIFEST));
+                zip.write(("{\"format\":\"hexadron-build\",\"formatVersion\":1,"
+                        + "\"profile\":{\"minecraftVersion\":\"1.21.1\"},\"custom\":[]}")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+                for (String name : List.of("files/mods/evil.jar", "files/evil.jar",
+                        "files/config/ok.toml", "files/saves/World/level.dat",
+                        "files/saves/World/datapacks/pack.zip")) {
+                    zip.putNextEntry(new java.util.zip.ZipEntry(name));
+                    zip.write("x".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    zip.closeEntry();
+                }
+            }
+            Path sneakyTarget = dir.resolve("sneaky-target");
+            var sneakyBuild = com.hexadron.launcher.share.BuildImport.read(sneaky);
+            check("undeclared files are not counted as carried settings", sneakyBuild.extrasCount() == 2);
+            sneakyBuild.install(sneakyTarget, true, new com.hexadron.launcher.net.Downloader(1), Progress.NOOP);
+            check("a mod jar outside the manifest is never written",
+                    !java.nio.file.Files.exists(sneakyTarget.resolve("mods/evil.jar"))
+                            && !java.nio.file.Files.exists(sneakyTarget.resolve("evil.jar"))
+                            && !java.nio.file.Files.exists(sneakyTarget.resolve("saves/World/datapacks/pack.zip")));
+            check("settings and world files still arrive",
+                    java.nio.file.Files.exists(sneakyTarget.resolve("config/ok.toml"))
+                            && java.nio.file.Files.exists(sneakyTarget.resolve("saves/World/level.dat")));
+
+            Path escaping = dir.resolve("escaping.hexbuild");
+            try (var zip = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(escaping))) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(com.hexadron.launcher.share.BuildFormat.MANIFEST));
+                zip.write(("{\"format\":\"hexadron-build\",\"formatVersion\":1,"
+                        + "\"profile\":{\"minecraftVersion\":\"../../instances/x\"}}")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+            boolean refusedPathVersion;
+            try {
+                com.hexadron.launcher.share.BuildImport.read(escaping);
+                refusedPathVersion = false;
+            } catch (IOException expected) {
+                refusedPathVersion = true;
+            }
+            check("a Minecraft version that is a path is refused", refusedPathVersion);
         } catch (IOException | InterruptedException e) {
             check("build file check could not run: " + e, false);
         } finally {
@@ -7026,6 +7141,71 @@ public final class SelfCheck {
                         com.hexadron.launcher.util.Redactor.scrub("installing 42 libraries")));
         check("a short value is not registered as a secret",
                 "ok".equals(com.hexadron.launcher.util.Redactor.scrub("ok")));
+
+        // -- Shapes found missing in the review after the first real sign-in.
+        String jsonSecret = "abcdefghijklmnopqrstuvwxyz012345";
+        check("a refresh_token value in JSON is masked",
+                !com.hexadron.launcher.util.Redactor.scrub(
+                        "{\"refresh_token\":\"" + jsonSecret + "\"}").contains(jsonSecret));
+        check("an Xbox Token value in JSON is masked, with spaces around the colon",
+                !com.hexadron.launcher.util.Redactor.scrub(
+                        "{\"Token\" : \"" + jsonSecret + "\"}").contains(jsonSecret));
+        String msaTail = "LMNOP!*xyz$123abcdefghij";
+        check("an MSA token is masked to its end, '!', '*' and '$' included",
+                !com.hexadron.launcher.util.Redactor.scrub(
+                        "M.C552_BAY.0.U.-abcdefghijklmnopqrstu" + msaTail + " done").contains("xyz$123"));
+        String ew = "EwB" + "Q".repeat(120) + "==";
+        check("an opaque consumer access token is masked",
+                !com.hexadron.launcher.util.Redactor.scrub("token=" + ew).contains(ew));
+
+        // -- A mod file name from a platform cannot leave its folder.
+        check("a mod file name with folders keeps only its last part",
+                "x.bat".equals(com.hexadron.launcher.mods.ModFile.safeFileName("..\\..\\Startup\\x.bat")));
+        check("a mod file name with forward slashes keeps only its last part",
+                "evil.jar".equals(com.hexadron.launcher.mods.ModFile.safeFileName("../../evil.jar")));
+        check("a mod file name of dots becomes a plain name",
+                "unnamed-download".equals(com.hexadron.launcher.mods.ModFile.safeFileName("..")));
+        check("an ordinary mod file name is unchanged",
+                "sodium-fabric-0.6.0+mc1.21.jar".equals(
+                        com.hexadron.launcher.mods.ModFile.safeFileName("sodium-fabric-0.6.0+mc1.21.jar")));
+
+        // -- The launch command never prints the token it carries.
+        var launchCommand = new com.hexadron.launcher.launch.LaunchCommandBuilder.LaunchCommand(
+                List.of("java"), Path.of("."), Path.of("java"), List.of(), "Main",
+                Map.of("accessToken", "secret-session-token-0123456789"), "Main");
+        check("a launch command's toString leaves the token out",
+                !launchCommand.toString().contains("secret-session-token"));
+
+        // -- The loopback listener: only its own sign-in can end the wait.
+        try {
+            var pkceForServer = com.hexadron.launcher.auth.Pkce.generate();
+            try (var listener = com.hexadron.launcher.auth.LoopbackRedirectServer.start(pkceForServer)) {
+                int port = listener.port();
+                check("a request with another Host is refused",
+                        rawGet(port, "evil.example:" + port, "/?error=x&state=" + pkceForServer.state())
+                                .startsWith("HTTP/1.1 400"));
+                check("an error without this sign-in's state is refused",
+                        rawGet(port, "127.0.0.1:" + port, "/?error=access_denied&error_description=spoof")
+                                .startsWith("HTTP/1.1 400"));
+                check("a code with the wrong state is refused",
+                        rawGet(port, "127.0.0.1:" + port, "/?code=stolen&state=wrong")
+                                .startsWith("HTTP/1.1 400"));
+                boolean stillWaiting;
+                try {
+                    listener.awaitCode(1, () -> false);
+                    stillWaiting = false;
+                } catch (IOException timedOut) {
+                    stillWaiting = timedOut.getMessage() != null
+                            && timedOut.getMessage().contains("not completed within");
+                }
+                check("none of those ended the sign-in", stillWaiting);
+                rawGet(port, "127.0.0.1:" + port, "/?code=the-real-code&state=" + pkceForServer.state());
+                check("the real redirect is accepted",
+                        "the-real-code".equals(listener.awaitCode(5, () -> false)));
+            }
+        } catch (IOException | InterruptedException e) {
+            check("the loopback listener checks ran (" + e + ")", false);
+        }
         // A value with no token shape: masked only while it is registered. This
         // is what proves the two layers are independent, and it is also why the
         // Microsoft-shaped token above stays masked after being forgotten - the
@@ -8530,6 +8710,269 @@ public final class SelfCheck {
             if (work != null) {
                 deleteRecursively(work);
             }
+        }
+    }
+
+    /**
+     * Why a Microsoft account that signed in cannot play.
+     *
+     * <p>Mojang answers "no Java Edition", "Game Pass ended" and "no username
+     * yet" with the same HTTP 404. They used to share one sentence, which told
+     * a player whose Game Pass had lapsed to go and create a username.
+     */
+    /** Names from metadata and shared builds cannot point outside the launcher's folders. */
+    private static void pathConfinement() {
+        section("Path confinement");
+        check("an ordinary version id is a usable name", GameDirs.isSafeSegment("1.21.1"));
+        check("an old id with spaces is a usable name", GameDirs.isSafeSegment("1.14 Pre-Release 1"));
+        check("a loader id is a usable name", GameDirs.isSafeSegment("fabric-loader-0.16.10-1.21.1"));
+        for (String bad : new String[]{"..", ".", "../x", "a/b", "a\\b", "C:x", "", " 1.21", "x\u0000"}) {
+            check("not a usable name: [" + bad + "]", !GameDirs.isSafeSegment(bad));
+        }
+        GameDirs dirs = new GameDirs(Path.of("/tmp/hexadron-confinement-check"));
+        checkThrows("a version folder cannot climb out", () -> dirs.versionDir("../../instances/x"));
+        checkThrows("a library path cannot climb out", () -> dirs.library("../../evil.jar"));
+        checkThrows("a library path cannot be absolute", () -> dirs.library("/etc/passwd"));
+        check("an ordinary library path stays inside",
+                dirs.library("com/example/lib/1.0/lib-1.0.jar").startsWith(dirs.libraries()));
+        checkThrows("an asset hash must be a hash", () -> dirs.assetObject("../../../x"));
+
+        check("settings arrive without asking",
+                com.hexadron.launcher.share.BuildFormat.isCarriedWithoutAsking("config/sodium.json")
+                        && com.hexadron.launcher.share.BuildFormat.isCarriedWithoutAsking("options.txt"));
+        check("world files arrive without asking",
+                com.hexadron.launcher.share.BuildFormat.isCarriedWithoutAsking("saves/World/level.dat"));
+        check("a world's data packs do not",
+                !com.hexadron.launcher.share.BuildFormat.isCarriedWithoutAsking("saves/World/datapacks/x.zip"));
+        check("a mod jar does not",
+                !com.hexadron.launcher.share.BuildFormat.isCarriedWithoutAsking("mods/x.jar"));
+
+        // Scanning a hostile log line stays fast.
+        long start = System.nanoTime();
+        com.hexadron.launcher.util.Redactor.scrub("eyJ".repeat(100_000));
+        check("a line of repeated JWT starts is scrubbed in well under a second",
+                System.nanoTime() - start < 2_000_000_000L);
+        start = System.nanoTime();
+        com.hexadron.launcher.mods.SvgPaths.read("<path d=\"M0 0\" ".repeat(20_000));
+        check("unclosed SVG elements are parsed in well under a second",
+                System.nanoTime() - start < 2_000_000_000L);
+
+        // A declared size is enforced while the bytes arrive.
+        try {
+            byte[] tooMuch = new byte[200];
+            com.hexadron.launcher.net.Downloader.copyAtMost(new java.io.ByteArrayInputStream(tooMuch),
+                    java.io.OutputStream.nullOutputStream(), 100);
+            check("a download longer than declared is stopped", false);
+        } catch (IOException expected) {
+            check("a download longer than declared is stopped", true);
+        }
+        // Deleting a folder that is itself a link removes the link, not what it points at.
+        Path linkCheck = null;
+        try {
+            linkCheck = java.nio.file.Files.createTempDirectory("hexadron-link-root");
+            Path target = java.nio.file.Files.createDirectories(linkCheck.resolve("elsewhere"));
+            java.nio.file.Files.writeString(target.resolve("keep.txt"), "keep");
+            Path link = linkCheck.resolve("moved-instance");
+            java.nio.file.Files.createSymbolicLink(link, target);
+            com.hexadron.launcher.util.TreeDeleter.deleteTree(link, Progress.NOOP, null);
+            check("deleting a linked folder leaves the folder it points at",
+                    java.nio.file.Files.exists(target.resolve("keep.txt"))
+                            && !java.nio.file.Files.exists(link, java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        } catch (IOException | UnsupportedOperationException | InterruptedException e) {
+            check("the linked-folder deletion check ran (" + e + ")", false);
+        } finally {
+            if (linkCheck != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(linkCheck);
+            }
+        }
+
+        // A credential that could not be read is not deleted by the next save.
+        Path accountCheck = null;
+        try {
+            accountCheck = java.nio.file.Files.createTempDirectory("hexadron-unreadable");
+            GameDirs accountDirs = new GameDirs(accountCheck);
+            Map<String, String> vault = new java.util.HashMap<>();
+            boolean[] locked = {false};
+            com.hexadron.launcher.auth.secret.SecretStore flaky =
+                    new com.hexadron.launcher.auth.secret.SecretStore() {
+                        public String id() { return "flaky"; }
+                        public String displayName() { return "flaky"; }
+                        public boolean isAvailable() { return true; }
+                        public boolean isOsProtected() { return true; }
+                        public void store(String key, String value) { vault.put(key, value); }
+                        public java.util.Optional<String> load(String key) throws IOException {
+                            if (locked[0]) {
+                                throw new IOException("keychain locked");
+                            }
+                            return java.util.Optional.ofNullable(vault.get(key));
+                        }
+                        public void delete(String key) { vault.remove(key); }
+                    };
+            var first = new com.hexadron.launcher.auth.AccountStore(accountDirs, flaky).load();
+            first.add(new Account(Account.AccountType.MICROSOFT, "Notch",
+                    UUID.fromString("069a79f4-44e9-4726-a5be-fca90e38aaf5"),
+                    "access", "refresh", System.currentTimeMillis() + 3_600_000L, "2535"));
+            first.save();
+            locked[0] = true;
+            var second = new com.hexadron.launcher.auth.AccountStore(accountDirs, flaky).load();
+            second.loadSecrets();
+            second.add(Account.offline("Steve"));
+            second.save();
+            check("a locked keychain at start does not cost the stored session",
+                    vault.values().stream().anyMatch(value -> value.contains("refresh")));
+            locked[0] = false;
+            Account notch = second.all().stream().filter(a -> !a.isOffline()).findFirst().orElseThrow();
+            check("and it is read once the keychain opens",
+                    "refresh".equals(second.withSecrets(notch).refreshToken()));
+        } catch (IOException e) {
+            check("the unreadable-credential check ran (" + e + ")", false);
+        } finally {
+            if (accountCheck != null) {
+                com.hexadron.launcher.util.Archives.deleteWhatCan(accountCheck);
+            }
+        }
+
+        check("the proxy password is not offered to a proxy that is not the manual one",
+                !new com.hexadron.launcher.net.ProxyChoice(com.hexadron.launcher.net.ProxyChoice.Mode.MANUAL,
+                        "", 0, "user").wantsAuthentication());
+    }
+
+    private static void signInDiagnosis() {
+        section("Sign-in diagnosis");
+
+        Json javaResponse = Json.parse("""
+                {"items":[{"name":"product_minecraft","signature":"eyJ.secret.jwt"},
+                          {"name":"game_minecraft","signature":"eyJ.secret.jwt"}],
+                 "signature":"eyJ.top.jwt","keyId":"1"}""");
+        Entitlements bought = Entitlements.from(javaResponse);
+        check("a Java Edition purchase is recognised", bought.java() && bought.grantsJava());
+        check("the entitlement log names the products", bought.describe().contains("game_minecraft"));
+        check("the entitlement log never carries a signature", !bought.describe().contains("eyJ"));
+
+        Entitlements gamePass = Entitlements.from(Json.parse("""
+                {"items":[{"name":"product_game_pass_pc","signature":"x"}]}"""));
+        check("PC Game Pass is recognised", gamePass.gamePass() && gamePass.grantsJava());
+        check("Game Pass Ultimate is recognised",
+                Entitlements.of(java.util.Set.of("product_game_pass_ultimate")).gamePass());
+
+        Entitlements bedrock = Entitlements.from(Json.parse("""
+                {"items":[{"name":"product_minecraft_bedrock"},{"name":"game_minecraft_bedrock"}]}"""));
+        check("Bedrock Edition alone does not count as Java Edition",
+                !bedrock.grantsJava() && bedrock.otherOnly());
+
+        Entitlements none = Entitlements.from(Json.parse("{\"items\":[]}"));
+        check("an empty list grants nothing", !none.grantsJava() && !none.otherOnly());
+        check("an empty list is logged as none", "none".equals(none.describe()));
+        check("a missing list grants nothing", !Entitlements.from(Json.object()).grantsJava());
+        check("a name that is not a product ID is dropped",
+                Entitlements.from(Json.parse("""
+                        {"items":[{"name":"bad name\\nwith a line break"}]}""")).names().isEmpty());
+
+        // The whole decision table.
+        check("bought, with a profile: plays",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(bought, true) == null);
+        check("Game Pass, with a profile: plays",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(gamePass, true) == null);
+        check("bought, no profile: create a username",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(bought, false)
+                        == Problem.NO_USERNAME_PURCHASED);
+        check("Game Pass, no profile: check the subscription, then create a username",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(gamePass, false)
+                        == Problem.NO_USERNAME_GAME_PASS);
+        check("bought through Game Pass too, no profile: the Game Pass advice covers both",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(
+                        Entitlements.of(java.util.Set.of("game_minecraft", "product_game_pass_pc")), false)
+                        == Problem.NO_USERNAME_GAME_PASS);
+        check("Bedrock only, no profile: not Java Edition",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(bedrock, false)
+                        == Problem.OTHER_GAMES_ONLY);
+        check("nothing, no profile: no licence",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(none, false) == Problem.NO_LICENCE);
+        check("a username but nothing that grants Java: the licence has ended",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(none, true) == Problem.LICENCE_ENDED);
+        check("a username and only Bedrock: the licence has ended",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(bedrock, true) == Problem.LICENCE_ENDED);
+
+        // A real response, from an account with an active PC Game Pass and no
+        // purchase (26 Sep 2026). Game Pass also lists product_minecraft and
+        // game_minecraft, so those names alone do not mean "bought".
+        Entitlements realGamePass = Entitlements.of(java.util.Set.of(
+                "game_dungeons", "game_dungeons_2", "game_legends", "game_minecraft",
+                "game_minecraft_bedrock", "product_dungeons", "product_dungeons_2",
+                "product_game_pass_pc", "product_legends", "product_minecraft",
+                "product_minecraft_bedrock"));
+        check("a real Game Pass account lists Java Edition and Game Pass",
+                realGamePass.java() && realGamePass.gamePass() && !realGamePass.otherOnly());
+        check("a real Game Pass account with a profile plays",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(realGamePass, true) == null);
+        check("a real Game Pass account without a profile gets the Game Pass advice, not \"bought\"",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(realGamePass, false)
+                        == Problem.NO_USERNAME_GAME_PASS);
+        // The same account on the same day, before the subscription was paid:
+        // Game Pass and Java Edition gone, Bedrock Edition left, no profile.
+        Entitlements realLapsed = Entitlements.of(java.util.Set.of(
+                "game_minecraft_bedrock", "product_minecraft_bedrock"));
+        check("a real lapsed Game Pass account is told Java Edition is missing, not to create a username",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(realLapsed, false)
+                        == Problem.OTHER_GAMES_ONLY);
+        // The button adds an account; with one signed in, "sign in" read as
+        // "you are not signed in".
+        check("the sign-in button says it adds an account",
+                I18n.bundle(Language.DEFAULT).get("action.signIn").toLowerCase(java.util.Locale.ROOT)
+                        .startsWith("add"));
+        java.util.Set<String> withoutPass = new java.util.TreeSet<>(realGamePass.names());
+        withoutPass.remove("product_game_pass_pc");
+        check("the same list without Game Pass still plays while Java Edition is listed",
+                com.hexadron.launcher.auth.MicrosoftAuth.diagnose(Entitlements.of(withoutPass), true) == null);
+
+        var failure = new com.hexadron.launcher.auth.MicrosoftAuth.AuthException(
+                Problem.LICENCE_ENDED, "English text", null, "Steve", "https://example.test");
+        check("a problem travels with its exception", failure.problem() == Problem.LICENCE_ENDED);
+        Object[] args = failure.problemArgs();
+        args[0] = "changed";
+        check("the exception's arguments cannot be changed from outside",
+                "Steve".equals(failure.problemArgs()[0]));
+        check("an ordinary sign-in failure carries no problem",
+                new com.hexadron.launcher.auth.MicrosoftAuth.AuthException("x").problem() == null);
+
+        // Every problem has a sentence in every language, and the sentence
+        // names what the user has to act on.
+        for (Language language : Language.values()) {
+            Map<String, String> bundle = I18n.bundle(language);
+            for (Problem problem : Problem.values()) {
+                String pattern = bundle.get(problem.key());
+                check("the sign-in problem " + problem + " is explained in " + language.code(),
+                        pattern != null && !pattern.isBlank());
+                if (pattern == null) {
+                    continue;
+                }
+                String text = new java.text.MessageFormat(pattern, language.locale())
+                        .format(new Object[]{"Steve", "https://account.microsoft.com/services"});
+                check("the " + problem + " text formats cleanly in " + language.code(),
+                        !text.contains("{") && !text.contains("''"));
+                if (problem == Problem.LICENCE_ENDED) {
+                    check("the ended-licence text names the player in " + language.code(),
+                            text.contains("Steve"));
+                }
+                if (problem != Problem.NO_USERNAME_PURCHASED) {
+                    check("the " + problem + " text links the subscription page in " + language.code(),
+                            text.contains("https://account.microsoft.com/services"));
+                }
+            }
+        }
+    }
+
+    /** A bare HTTP/1.1 GET with a chosen Host header; returns the status line. */
+    private static String rawGet(int port, String host, String pathAndQuery) throws IOException {
+        try (java.net.Socket socket = new java.net.Socket(java.net.InetAddress.getLoopbackAddress(), port)) {
+            socket.setSoTimeout(5000);
+            socket.getOutputStream().write(("GET " + pathAndQuery + " HTTP/1.1\r\nHost: " + host
+                    + "\r\nConnection: close\r\n\r\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    socket.getInputStream(), java.nio.charset.StandardCharsets.US_ASCII));
+            String status = reader.readLine();
+            return status == null ? "" : status;
         }
     }
 

@@ -166,6 +166,11 @@ public final class BuildImport {
         if (minecraft.isBlank()) {
             throw new IOException(archive.getFileName() + " names no Minecraft version");
         }
+        // It becomes a folder name under versions/. Anything that could point
+        // somewhere else is refused here, before a profile is made from it.
+        if (!com.hexadron.launcher.core.GameDirs.isSafeSegment(minecraft)) {
+            throw new IOException(archive.getFileName() + " names an invalid Minecraft version");
+        }
 
         List<String> refused = new ArrayList<>();
         List<Remote> remote = new ArrayList<>();
@@ -216,7 +221,8 @@ public final class BuildImport {
                 continue;
             }
             String path = name.substring(BuildFormat.FILES.length());
-            if (custom.stream().noneMatch(entry -> BuildFormat.within(path, entry.path()))) {
+            if (custom.stream().noneMatch(entry -> BuildFormat.within(path, entry.path()))
+                    && BuildFormat.isCarriedWithoutAsking(path)) {
                 extras++;
             }
         }
@@ -475,6 +481,20 @@ public final class BuildImport {
                 String path = entry.getName().substring(BuildFormat.FILES.length());
                 boolean isCustom = custom.stream().anyMatch(c -> BuildFormat.within(path, c.path()));
                 if (isCustom && !includeCustom) {
+                    continue;
+                }
+                // Not a custom file the player agreed to, and not something an
+                // export carries on its own: a file slipped into the archive
+                // outside the manifest. Never written - it could be a mod jar
+                // that would load at the next start without anyone being asked.
+                if (!isCustom && !BuildFormat.isCarriedWithoutAsking(path)) {
+                    skipped.add(path + " (not declared in the build; left out)");
+                    continue;
+                }
+                // A carried copy of a file that is also downloaded and checked
+                // against its hash would replace the checked one.
+                if (remote.stream().anyMatch(r -> r.path().equals(path))) {
+                    skipped.add(path + " (also a checked download; the download is kept)");
                     continue;
                 }
                 if (BuildFormat.isBookkeeping(BuildFormat.fileNameOf(path))) {

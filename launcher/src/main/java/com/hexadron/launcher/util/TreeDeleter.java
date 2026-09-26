@@ -97,6 +97,26 @@ public final class TreeDeleter {
         if (root == null || !Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
             return new Outcome(0, List.of());
         }
+        // The start folder too. A folder moved to another drive with a
+        // symbolic link or an NTFS junction reads as a directory; walking it
+        // would empty the folder it points at, not remove the link.
+        try {
+            BasicFileAttributes top = Files.readAttributes(root, BasicFileAttributes.class,
+                    LinkOption.NOFOLLOW_LINKS);
+            if (top.isSymbolicLink() || top.isOther()) {
+                try {
+                    Files.delete(root);
+                    if (counted != null) {
+                        counted.accept(1);
+                    }
+                    return new Outcome(1, List.of());
+                } catch (IOException e) {
+                    return new Outcome(0, List.of(root));
+                }
+            }
+        } catch (IOException e) {
+            return new Outcome(0, List.of(root));
+        }
         List<Path> files = new ArrayList<>();
         List<Path> directories = new ArrayList<>();
         List<Path> failed = Collections.synchronizedList(new ArrayList<>());

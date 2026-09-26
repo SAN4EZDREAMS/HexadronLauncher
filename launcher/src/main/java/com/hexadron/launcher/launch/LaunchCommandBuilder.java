@@ -43,7 +43,14 @@ import java.util.Set;
 public final class LaunchCommandBuilder {
 
     public static final String LAUNCHER_NAME = "HexadronLauncher";
-    public static final String LAUNCHER_VERSION = "0.2.0";
+    /**
+     * What the game is told about the launcher, as {@code ${launcher_version}}
+     * and {@code -Dminecraft.launcher.version}.
+     *
+     * <p>Read from the build, not written here. A literal went stale: 0.9.9
+     * launched the game announcing itself as 0.2.0.
+     */
+    public static final String LAUNCHER_VERSION = com.hexadron.launcher.BuildConfig.version();
 
     private final GameDirs dirs;
 
@@ -77,6 +84,13 @@ public final class LaunchCommandBuilder {
     public record LaunchCommand(List<String> command, Path workingDirectory,
                                 Path javaExecutable, List<Path> classpath, String mainClass,
                                 Map<String, String> secrets, String realMainClass) {
+
+        /** The generated toString would print {@code secrets}, the session token among them. */
+        @Override
+        public String toString() {
+            return "LaunchCommand[mainClass=" + mainClass + ", secrets=" + secrets.size()
+                    + " redacted, arguments=" + command.size() + "]";
+        }
 
         /** True when the session token is delivered over standard input. */
         public boolean usesSecureHandshake() {
@@ -389,7 +403,7 @@ public final class LaunchCommandBuilder {
         }
         String argument = client.get("argument").asString(null);
         String id = client.get("file").get("id").asString(null);
-        if (argument == null || id == null) {
+        if (argument == null || id == null || !GameDirs.isSafeSegment(id)) {
             return null;
         }
         Path configFile = dirs.assets().resolve("log_configs").resolve(id);

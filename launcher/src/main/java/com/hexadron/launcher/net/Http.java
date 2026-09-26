@@ -242,7 +242,8 @@ public final class Http {
      */
     public static Map<String, String> hostHeadersFor(URI uri) {
         String host = uri.getHost();
-        if (host == null || HOST_HEADERS.isEmpty()) {
+        // HTTPS only: a key sent over plain http is a key given to the network.
+        if (host == null || HOST_HEADERS.isEmpty() || !"https".equalsIgnoreCase(uri.getScheme())) {
             return Map.of();
         }
         Map<String, String> headers = new LinkedHashMap<>();
@@ -415,7 +416,7 @@ public final class Http {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             HttpResponse<InputStream> response;
             try {
-                response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                response = sendFollowing(request, HttpResponse.BodyHandlers.ofInputStream());
             } catch (IOException e) {
                 lastFailure = e;
                 if (attempt == MAX_ATTEMPTS || isUnreachable(e)) {
@@ -605,12 +606,70 @@ public final class Http {
         return builder;
     }
 
+    /** Redirects followed by hand for requests that carry a host credential. */
+    private static final int MAX_REDIRECTS = 5;
+
+    /**
+     * Sends a GET, following redirects itself when the request carries a host
+     * header (the CurseForge key).
+     *
+     * <p>The JDK's redirect handling drops {@code Authorization} when a
+     * redirect leaves the host, but passes every other header on - so a
+     * CurseForge file URL that redirected to some storage host would hand that
+     * host the key. Here each hop is rebuilt: the key is attached again only
+     * if the new address is one of the hosts it belongs to, over HTTPS, and a
+     * redirect to plain http is refused.
+     */
+    static <T> HttpResponse<T> sendFollowing(HttpRequest request, HttpResponse.BodyHandler<T> handler)
+            throws IOException, InterruptedException {
+        if (hostHeadersFor(request.uri()).isEmpty()) {
+            return client.send(request, handler);
+        }
+        HttpResponse.BodyHandler<T> skipRedirectBodies = info -> info.statusCode() / 100 == 3
+                ? HttpResponse.BodySubscribers.<T>replacing(null)
+                : handler.apply(info);
+        HttpRequest current = request;
+        for (int hop = 0; ; hop++) {
+            HttpResponse<T> response = authClient.send(current, skipRedirectBodies);
+            int status = response.statusCode();
+            java.util.Optional<String> location = response.headers().firstValue("Location");
+            if (status / 100 != 3 || location.isEmpty() || status == 304) {
+                return response;
+            }
+            if (hop >= MAX_REDIRECTS) {
+                throw new IOException("too many redirects from " + request.uri().getHost());
+            }
+            URI next = current.uri().resolve(location.get());
+            if (!"https".equalsIgnoreCase(next.getScheme())) {
+                throw new IOException("refused a redirect from HTTPS to " + next.getScheme()
+                        + " for " + request.uri().getHost());
+            }
+            current = redirected(current, next);
+        }
+    }
+
+    /** The same GET, aimed at {@code next}, with host credentials re-decided for it. */
+    private static HttpRequest redirected(HttpRequest previous, URI next) {
+        Map<String, String> oldHostHeaders = hostHeadersFor(previous.uri());
+        HttpRequest.Builder builder = HttpRequest.newBuilder(next).GET();
+        previous.timeout().ifPresent(builder::timeout);
+        previous.headers().map().forEach((name, values) -> {
+            boolean isHostCredential = oldHostHeaders.keySet().stream()
+                    .anyMatch(key -> key.equalsIgnoreCase(name));
+            if (!isHostCredential) {
+                values.forEach(value -> builder.header(name, value));
+            }
+        });
+        hostHeadersFor(next).forEach(builder::header);
+        return builder.build();
+    }
+
     private static <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> handler)
             throws IOException, InterruptedException {
         IOException lastFailure = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                HttpResponse<T> response = client.send(request, handler);
+                HttpResponse<T> response = sendFollowing(request, handler);
                 int status = response.statusCode();
                 if (status / 100 == 2) {
                     return response;

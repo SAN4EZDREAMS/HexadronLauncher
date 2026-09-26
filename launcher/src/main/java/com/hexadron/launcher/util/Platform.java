@@ -12,6 +12,8 @@
 
 package com.hexadron.launcher.util;
 
+import java.util.List;
+
 import java.util.Locale;
 
 /**
@@ -135,6 +137,41 @@ public final class Platform {
     }
 
     /** Path separator for the {@code -cp} argument: ';' on Windows, ':' elsewhere. */
+    /**
+     * A system program by full path, found where the operating system keeps
+     * it rather than through PATH or the working directory.
+     *
+     * <p>Windows looks for a bare program name in the current directory before
+     * the system folders, and PATH on every system can hold a folder the user
+     * can write to. For helpers the launcher starts - the file manager, the
+     * browser opener, the registry reader - a file of the same name planted
+     * there would run instead. Falls back to the bare name only when none of
+     * the usual places has it.
+     *
+     * @param name the program, e.g. {@code "explorer.exe"}, {@code "xdg-open"}
+     */
+    public static String systemTool(String name) {
+        List<java.nio.file.Path> places = new java.util.ArrayList<>();
+        if (isWindows()) {
+            String root = System.getenv("SystemRoot");
+            if (root == null || root.isBlank()) {
+                root = "C:\\Windows";
+            }
+            places.add(java.nio.file.Path.of(root, "System32", name));
+            places.add(java.nio.file.Path.of(root, name));
+        } else {
+            for (String folder : new String[]{"/usr/bin", "/bin", "/app/bin", "/usr/local/bin"}) {
+                places.add(java.nio.file.Path.of(folder, name));
+            }
+        }
+        for (java.nio.file.Path place : places) {
+            if (java.nio.file.Files.isRegularFile(place)) {
+                return place.toString();
+            }
+        }
+        return name;
+    }
+
     public static String classpathSeparator() {
         return isWindows() ? ";" : ":";
     }

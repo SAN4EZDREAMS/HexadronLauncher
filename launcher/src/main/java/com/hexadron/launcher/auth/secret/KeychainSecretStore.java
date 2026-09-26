@@ -36,6 +36,14 @@ import java.util.Optional;
  */
 public final class KeychainSecretStore extends ProcessSecretStore {
 
+    /**
+     * By full path. The credentials go to its standard input, and a bare name
+     * is looked up through PATH, where a file of that name placed earlier
+     * (Homebrew, ~/bin) would receive them.
+     */
+    private static final String SECURITY = "/usr/bin/security";
+
+
     private static final String SERVICE = "HexadronLauncher";
 
     @Override
@@ -61,7 +69,7 @@ public final class KeychainSecretStore extends ProcessSecretStore {
         try {
             // "security help" needs no keychain access and no arguments that could
             // create anything, so this is a safe existence probe.
-            return run(List.of("security", "help"), null).exitCode() != 127;
+            return run(List.of(SECURITY, "help"), null).exitCode() != 127;
         } catch (IOException e) {
             return false;
         }
@@ -74,7 +82,7 @@ public final class KeychainSecretStore extends ProcessSecretStore {
         // for it twice, so the value is written twice and any surplus is ignored
         // when the helper exits after the first read.
         byte[] stdin = (value + "\n" + value + "\n").getBytes(StandardCharsets.UTF_8);
-        Result result = run(List.of("security", "add-generic-password",
+        Result result = run(List.of(SECURITY, "add-generic-password",
                 "-U", "-s", SERVICE, "-a", key, "-w"), stdin);
         if (!result.ok()) {
             throw new IOException("macOS Keychain refused to store the credential: " + result.stderr());
@@ -83,7 +91,7 @@ public final class KeychainSecretStore extends ProcessSecretStore {
 
     @Override
     public Optional<String> load(String key) throws IOException {
-        Result result = run(List.of("security", "find-generic-password",
+        Result result = run(List.of(SECURITY, "find-generic-password",
                 "-s", SERVICE, "-a", key, "-w"), null);
         if (!result.ok()) {
             // Exit 44 is "item not found", which is an answer rather than a failure.
@@ -98,7 +106,7 @@ public final class KeychainSecretStore extends ProcessSecretStore {
 
     @Override
     public void delete(String key) throws IOException {
-        Result result = run(List.of("security", "delete-generic-password",
+        Result result = run(List.of(SECURITY, "delete-generic-password",
                 "-s", SERVICE, "-a", key), null);
         if (!result.ok() && result.exitCode() != 44
                 && !result.stderr().contains("could not be found")) {

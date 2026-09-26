@@ -490,6 +490,17 @@ public final class Archives {
         try {
             Files.walkFileTree(dir, new SimpleFileVisitor<>() {
                 @Override
+                public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attrs) {
+                    // A symbolic link or NTFS junction (a directory that is also
+                    // "other"): remove the link, never what it points at.
+                    if (attrs.isSymbolicLink() || attrs.isOther()) {
+                        delete(directory, failed);
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     delete(file, failed);
                     return FileVisitResult.CONTINUE;

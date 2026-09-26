@@ -687,7 +687,19 @@ public final class MainWindow implements ProfileHost {
     private void openSettingsWindow() {
         SettingsDialog dialog = new SettingsDialog(service.settings(), layout(), service.dirs(),
                 service.secretStore());
+        String keyBefore = service.settings().curseForgeApiKey();
         dialog.show(stage).ifPresent(result -> {
+            // The key goes to the credential store, not launcher.json, and is
+            // applied at once. Only when it changed: touching the store costs a
+            // PowerShell launch on Windows.
+            String keyAfter = service.settings().curseForgeApiKey();
+            if (!keyAfter.equals(keyBefore)) {
+                try {
+                    service.curseForgeApiKey(keyAfter);
+                } catch (IOException e) {
+                    showError(I18n.t("settings.curseforge.notsaved"), e);
+                }
+            }
             saveSettingsQuietly();
             // Applied here rather than only at the next start: the settings
             // window is where somebody fixes a route that is not working, and
@@ -960,7 +972,7 @@ public final class MainWindow implements ProfileHost {
             // nothing to edit, and the button is disabled for it.
             return;
         }
-        new AccountDialog(account, service.skins()).show(stage).ifPresent(result -> {
+        new AccountDialog(service.accounts().withSecrets(account), service.skins()).show(stage).ifPresent(result -> {
             service.skins().put(account.id(), result.skin());
             try {
                 service.skins().save();
@@ -1857,11 +1869,11 @@ public final class MainWindow implements ProfileHost {
         try {
             String[] command;
             if (com.hexadron.launcher.util.Platform.isWindows()) {
-                command = new String[]{"rundll32", "url.dll,FileProtocolHandler", uri.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("rundll32.exe"), "url.dll,FileProtocolHandler", uri.toString()};
             } else if (com.hexadron.launcher.util.Platform.isMac()) {
-                command = new String[]{"open", uri.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("open"), uri.toString()};
             } else {
-                command = new String[]{"xdg-open", uri.toString()};
+                command = new String[]{com.hexadron.launcher.util.Platform.systemTool("xdg-open"), uri.toString()};
             }
             new ProcessBuilder(command).start();
         } catch (IOException e) {
@@ -2081,8 +2093,7 @@ public final class MainWindow implements ProfileHost {
                 Thread.currentThread().interrupt();
                 Platform.runLater(() -> setBusy(false));
             } catch (Exception e) {
-                progress.log(I18n.t("log.failed",
-                        e.getMessage() == null ? e.toString() : e.getMessage()));
+                progress.log(I18n.t("log.failed", describe(e)));
                 Platform.runLater(() -> {
                     stageLabel.setText(I18n.t("status.failed", name));
                     progressBar.setProgress(0);
@@ -2179,8 +2190,26 @@ public final class MainWindow implements ProfileHost {
         // Written down before it is shown. The dialog carries one sentence; the
         // file carries the cause chain, which is the half that says where.
         com.hexadron.launcher.core.LauncherLog.error(header, error);
-        alert(Alert.AlertType.ERROR, header,
-                error.getMessage() == null ? error.toString() : error.getMessage(), 600);
+        alert(Alert.AlertType.ERROR, header, describe(error), 600);
+    }
+
+    /**
+     * The sentence the user sees for a failure.
+     *
+     * <p>A sign-in problem the launcher recognises is said in the window's
+     * language: "no Game Pass" and "no username yet" need different actions,
+     * and a user who cannot read the English text cannot tell them apart.
+     * Everything else keeps its own message. The log file keeps the English
+     * text and the cause chain either way.
+     */
+    static String describe(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof com.hexadron.launcher.auth.MicrosoftAuth.AuthException auth
+                    && auth.problem() != null) {
+                return I18n.t(auth.problem().key(), auth.problemArgs());
+            }
+        }
+        return error.getMessage() == null ? error.toString() : error.getMessage();
     }
 
     private void alert(Alert.AlertType type, String header, String message, int width) {

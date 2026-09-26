@@ -10,7 +10,7 @@ group = 'com.hexadron'
 // into BuildConfig.version(), the User-Agent and the update window. The launcher
 // compares this string with the release tag on GitHub, so nightly builds must
 // have their own suffix in it; otherwise they cannot be compared.
-version = (project.findProperty('launcherVersion') ?: '0.9.8').toString()
+version = (project.findProperty('launcherVersion') ?: '0.9.9').toString()
 
 repositories {
 	mavenCentral()
@@ -157,6 +157,14 @@ tasks.named('jar') {
 javafx {
 	version = '25'
 	modules = ['javafx.controls']
+	// JavaFX jars are per platform, and gradle/verification-metadata.xml must
+	// hold the hash of every platform CI builds on. Writing the metadata on one
+	// machine records only that machine's jars, so the others are added with
+	// this override (docs/building.md, "Dependency verification"):
+	//   ./gradlew --write-verification-metadata sha256 :launcher:compileJava -PjavafxPlatform=linux
+	if (project.hasProperty('javafxPlatform')) {
+		platform = project.property('javafxPlatform').toString()
+	}
 }
 
 // Verifies the metadata layer: JSON parsing, rule evaluation, library dialects,
@@ -348,7 +356,18 @@ tasks.register('appImage', Exec) {
 			// running the Forge installers, with no download at all. The other
 			// three defaults are repeated because naming this option replaces
 			// the whole default list rather than adding to it.
-			'--jlink-options', '--strip-debug --no-man-pages --no-header-files',
+			//
+			// --bind-services: jpackage builds the runtime from the default root
+			// set, which holds only modules that export an API. Service-provider
+			// modules export none, so they were left out - jdk.naming.dns among
+			// them, and Minecraft resolves SRV records through it. The game then
+			// logged "ClassNotFoundException: com.sun.jndi.dns.DnsContextFactory"
+			// and could not reach any server whose address is an SRV record.
+			// Binding services adds every provider of a service the runtime
+			// uses: jdk.naming.dns, jdk.localedata (non-English date and number
+			// formats), jdk.charsets. About 33 MB more, measured with jlink on
+			// JDK 25 (Linux x64).
+			'--jlink-options', '--strip-debug --no-man-pages --no-header-files --bind-services',
 			'--dest', outputDir.get().asFile.absolutePath
 	}
 }

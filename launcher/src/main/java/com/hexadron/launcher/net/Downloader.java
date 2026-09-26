@@ -264,9 +264,18 @@ public final class Downloader {
             // never appends to the last one's leftovers.
             for (int attempt = 1; attempt <= ATTEMPTS_PER_URL; attempt++) {
                 try {
+                    long written;
                     try (InputStream in = Http.openStream(url);
                          OutputStream out = Files.newOutputStream(temp)) {
-                        in.transferTo(out);
+                        written = copyAtMost(in, out, task.size());
+                    }
+                    // Without a hash the declared size is the only check there
+                    // is, so a file of another size is refused rather than kept.
+                    if (task.sha1() == null && task.size() > 0 && written != task.size()) {
+                        Files.deleteIfExists(temp);
+                        lastFailure = new IOException("size mismatch for " + task.description()
+                                + " from " + url + ": expected " + task.size() + " bytes, got " + written);
+                        break;
                     }
 
                     if (task.sha1() != null) {
@@ -366,6 +375,28 @@ public final class Downloader {
             return attributes.size() == task.size();
         }
         return true;
+    }
+
+    /**
+     * Copies, stopping once the stream goes past the size the file was
+     * declared to have. A server that keeps sending would otherwise fill the
+     * disk before any check could run.
+     *
+     * @param limit the declared size, or zero or less for "not known"
+     * @return the bytes written
+     */
+    public static long copyAtMost(InputStream in, OutputStream out, long limit) throws IOException {
+        byte[] buffer = new byte[64 * 1024];
+        long total = 0;
+        int read;
+        while ((read = in.read(buffer)) != -1) {
+            total += read;
+            if (limit > 0 && total > limit) {
+                throw new IOException("the server sent more than the declared " + limit + " bytes");
+            }
+            out.write(buffer, 0, read);
+        }
+        return total;
     }
 
     private static void moveIntoPlace(Path temp, Path destination) throws IOException {
