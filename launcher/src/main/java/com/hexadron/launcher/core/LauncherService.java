@@ -95,6 +95,8 @@ public final class LauncherService {
     private final com.hexadron.launcher.mods.DatapackInstaller datapackInstaller;
     private final com.hexadron.launcher.mods.PackInstaller resourcePackInstaller;
     private final com.hexadron.launcher.mods.PackInstaller shaderInstaller;
+    /** The crash rules: built in, or a newer signed file from a release. */
+    private final com.hexadron.launcher.crash.CrashRuleSource crashRules;
 
     /**
      * Named stages of start-up that this class runs, in the order they run.
@@ -207,6 +209,8 @@ public final class LauncherService {
         this.shaderInstaller = new com.hexadron.launcher.mods.PackInstaller(
                 com.hexadron.launcher.mods.ContentKind.SHADER,
                 downloader, modrinth, curseForge);
+        this.crashRules = new com.hexadron.launcher.crash.CrashRuleSource(
+                dirs.cache().resolve("crash-rules"));
     }
 
     /** Builds a service rooted at the default location. */
@@ -245,10 +249,117 @@ public final class LauncherService {
             // in the instances folder's .deleting. Finished here, where nobody
             // is waiting for it.
             profiles.purgeLeftovers();
+            refreshCrashRules();
         }, "hexadron-warmup");
         warm.setDaemon(true);
         warm.setPriority(Thread.MIN_PRIORITY);
         warm.start();
+    }
+
+    /**
+     * Asks the latest release for newer crash rules, at most once a day.
+     *
+     * <p>Under the same switch as the update check: a player who told the
+     * launcher not to ask GitHub about updates did not mean "except for this".
+     */
+    private void refreshCrashRules() {
+        if (!settings.checkForUpdates()) {
+            return;
+        }
+        try {
+            crashRules.refresh(new com.hexadron.launcher.update.ReleaseFeed(), settings.updateChannel())
+                    .ifPresent(LauncherLog::info);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (RuntimeException e) {
+            LauncherLog.info("Crash rules: check failed: " + e);
+        }
+    }
+
+    // ---------------------------------------------------------------- crashes
+
+    public com.hexadron.launcher.crash.CrashRuleSource crashRules() {
+        return crashRules;
+    }
+
+    /** Every jar in a profile's mods folder, on and off; empty for a profile with none. */
+    private java.util.List<com.hexadron.launcher.mods.ModEntry> modsOf(Profile profile) {
+        Path modsDir = profiles.modsDirectory(profile);
+        if (!java.nio.file.Files.isDirectory(modsDir)) {
+            return java.util.List.of();
+        }
+        return com.hexadron.launcher.mods.ModScan.scan(modsDir, profile.minecraftVersion());
+    }
+
+    /**
+     * Explains why a game stopped, naming mods by the names in their jars.
+     *
+     * @param language two-letter code of the language to explain it in
+     */
+    public java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> analyzeCrash(
+            Profile profile, com.hexadron.launcher.crash.CrashEvidence evidence, String language) {
+        java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsOf(profile);
+        return com.hexadron.launcher.crash.CrashAnalyzer.analyze(evidence, crashRules.current(),
+                language, id -> com.hexadron.launcher.crash.CrashFixes.displayName(mods, id));
+    }
+
+    /** The fixes of one diagnosis that would change something in this profile. */
+    public java.util.List<com.hexadron.launcher.crash.CrashFixes.Prepared> prepareCrashFixes(
+            Profile profile, com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis diagnosis) {
+        java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsOf(profile);
+        long physical = Profile.physicalMemoryBytes();
+        long physicalMegabytes = physical > 0 ? physical / (1024 * 1024) : -1;
+        java.util.List<com.hexadron.launcher.crash.CrashFixes.Prepared> prepared = new java.util.ArrayList<>();
+        for (com.hexadron.launcher.crash.CrashFix fix : diagnosis.fixes()) {
+            com.hexadron.launcher.crash.CrashFixes.prepare(fix, profile, mods, physicalMegabytes)
+                    .ifPresent(prepared::add);
+        }
+        return prepared;
+    }
+
+    /**
+     * Carries out a prepared crash fix and saves the profile.
+     *
+     * @return what was done, for the log
+     */
+    public String applyCrashFix(Profile profile, com.hexadron.launcher.crash.CrashFixes.Prepared prepared,
+                                Progress progress) throws IOException, InterruptedException {
+        com.hexadron.launcher.crash.CrashFix fix = prepared.fix();
+        String done;
+        switch (fix.kind()) {
+            case DISABLE_MOD, DISABLE_FILE, DISABLE_MIXIN_OWNER, DISABLE_DUPLICATES -> {
+                java.util.List<String> off = com.hexadron.launcher.crash.CrashFixes.applySwitchOff(
+                        profiles.modsDirectory(profile), prepared);
+                done = "Crash fix: switched off " + String.join(", ", off);
+            }
+            case JAVA -> {
+                int major = prepared.number();
+                JavaLocator.JavaRuntime runtime = javaRuntimes.ensure(major, progress)
+                        .orElseThrow(() -> new IOException("Java " + major
+                                + " is not installed and could not be downloaded"));
+                profile.javaPath(runtime.executable().toString());
+                profiles.save();
+                done = "Crash fix: this profile now uses " + runtime;
+            }
+            case AUTOMATIC_JAVA -> {
+                profile.javaPath(null);
+                profiles.save();
+                done = "Crash fix: the launcher chooses Java for this profile again";
+            }
+            case RAISE_MEMORY, LOWER_MEMORY -> {
+                int before = profile.memoryMegabytes();
+                profile.memoryMegabytes(prepared.number());
+                profiles.save();
+                done = "Crash fix: memory limit " + before + " MB -> " + prepared.number() + " MB";
+            }
+            case REINSTALL -> {
+                installProfile(profile, progress, true);
+                done = "Crash fix: game files checked and downloaded again";
+            }
+            default -> throw new IllegalStateException(fix.kind().toString());
+        }
+        LauncherLog.info(done);
+        return done;
     }
 
     // ---------------------------------------------------------------- accessors

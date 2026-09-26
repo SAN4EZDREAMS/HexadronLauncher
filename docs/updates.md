@@ -129,6 +129,10 @@ The launcher checks the signature against the public keys in
 manifest. It also checks that the manifest is for the version and system on
 offer, so an old signed manifest cannot be served again.
 
+The same key signs the crash rule file published with each release
+(`hexadron-crash-rules.json` and `hexadron-crash-rules.json.sig`). See
+[crashes.md](crashes.md#rule-updates).
+
 When `PUBLIC_KEYS` has a key, the launcher refuses an update with no manifest,
 with a signature that does not verify, or with a manifest that does not name the
 full archive. It does not fall back to the unchecked archive. An assembled

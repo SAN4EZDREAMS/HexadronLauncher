@@ -192,6 +192,7 @@ public final class SelfCheck {
         offlineAccess();
         translations();
         startupSteps();
+        crashAnalysis();
 
         System.out.println();
         if (failures.isEmpty()) {
@@ -8973,6 +8974,288 @@ public final class SelfCheck {
                     socket.getInputStream(), java.nio.charset.StandardCharsets.US_ASCII));
             String status = reader.readLine();
             return status == null ? "" : status;
+        }
+    }
+
+    // ------------------------------------------------------------ crash analysis
+
+    /** The rule id that explains one piece of output first, or "none". */
+    private static String firstRule(com.hexadron.launcher.crash.CrashRules rules,
+                                    com.hexadron.launcher.crash.CrashRules.Source source,
+                                    String... lines) {
+        var evidence = com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(source, List.of(lines)));
+        var found = com.hexadron.launcher.crash.CrashAnalyzer.analyze(evidence, rules, "en");
+        return found.isEmpty() ? "none" : found.get(0).ruleId();
+    }
+
+    private static void crashAnalysis() {
+        section("Crash analysis");
+        var OUT = com.hexadron.launcher.crash.CrashRules.Source.OUTPUT;
+        var HSERR = com.hexadron.launcher.crash.CrashRules.Source.HS_ERR;
+
+        // ---- the built-in rule file
+        com.hexadron.launcher.crash.CrashRules rules = com.hexadron.launcher.crash.CrashRules.bundled();
+        check("the built-in crash rules load", rules.version() >= 1 && !rules.rules().isEmpty());
+        check("the roadmap's ten crash types are there, and more", rules.texts().size() >= 10);
+        for (var text : rules.texts().entrySet()) {
+            for (Language language : Language.values()) {
+                check("crash text " + text.getKey() + " is in " + language.code(),
+                        text.getValue().containsKey(language.code()));
+            }
+            var english = text.getValue().get("en");
+            for (var entry : text.getValue().entrySet()) {
+                var words = entry.getValue();
+                check("crash text " + text.getKey() + "/" + entry.getKey() + " uses the same values as English",
+                        com.hexadron.launcher.crash.CrashRules.placeholders(words.title() + words.cause() + words.fix())
+                                .equals(com.hexadron.launcher.crash.CrashRules.placeholders(
+                                        english.title() + english.cause() + english.fix())));
+            }
+        }
+        check("rules are tried most specific first", rules.rules().get(0).priority()
+                >= rules.rules().get(rules.rules().size() - 1).priority());
+
+        // ---- real loader and JVM output, one line (or two) each
+        String[][] cases = {
+            {"java-class-version", "java.lang.UnsupportedClassVersionError: net/minecraft/client/main/Main has been compiled by a more recent version of the Java Runtime (class file version 65.0), this version of the Java Runtime only recognizes class file versions up to 61.0"},
+            {"fabric-java-version", "\t - Mod 'Minecraft' (minecraft) 1.20.5 requires version 21 or later of 'OpenJDK 64-Bit Server VM' (java), but only the wrong version is present: 17!"},
+            {"java-too-new", "java.lang.IllegalArgumentException: Unsupported class file major version 65"},
+            {"java-heap", "java.lang.OutOfMemoryError: Java heap space"},
+            {"native-memory", "# There is insufficient memory for the Java Runtime Environment to continue."},
+            {"native-memory", "Error occurred during initialization of VM: The paging file is too small for this operation to complete"},
+            {"java-heap-reserve", "Error: Could not reserve enough space for 8388608KB object heap"},
+            {"opengl-unsupported", "[Render thread/ERROR]: GLFW error 65542: WGL: The driver does not appear to support OpenGL"},
+            {"broken-install", "\tMod ID: 'minecraft', Requested by: 'forge', Expected range: '[1.20.1]', Actual version: '[MISSING]'"},
+            {"broken-install", "Error: Could not find or load main class net.minecraft.client.main.Main"},
+            {"fabric-missing-dependency", "\t - Mod 'Mod Menu' (modmenu) 9.0.0 requires any version of fabric-api, which is missing!"},
+            {"forge-missing-dependency", "\tMod ID: 'architectury', Requested by: 'roughlyenoughitems', Expected range: '[9.1.12,)', Actual version: '[MISSING]'"},
+            {"fabric-minecraft-version", "\t - Mod 'Sodium' (sodium) 0.5.3 requires version 1.20.1 of 'Minecraft' (minecraft), but only the wrong version is present: 1.20.4!"},
+            {"forge-minecraft-version", "\tMod ID: 'minecraft', Requested by: 'jei', Expected range: '[1.19.2,1.19.3)', Actual version: '1.20.1'"},
+            {"neoforge-minecraft-version", "\t- Mod create requires minecraft 1.21.1"},
+            {"fabric-dependency-version", "\t - Mod 'Iris' (iris) 1.7 requires version 0.6 or later of 'Sodium' (sodium), but only the wrong version is present: 0.5.8!"},
+            {"forge-dependency-version", "\tMod ID: 'geckolib', Requested by: 'mowziesmobs', Expected range: '[4.4,)', Actual version: '4.2.1'"},
+            {"forge-duplicate", "\tMod ID: 'jei' from mod files: jei-1.20.1-15.2.jar, jei-1.20.1-15.3.jar"},
+            {"neoforge-duplicate", "\t- Mod jei is present in multiple files: jei-1.jar, jei-2.jar"},
+            {"fabric-incompatible", "\t - Mod 'Some Mod' (somemod) 1.0 is incompatible with any version of 'OptiFabric' (optifabric), yet a conflicting version is present: 1.13!"},
+            {"neoforge-incompatible", "\t- Mod embeddium is incompatible with rubidium any"},
+            {"fabric-mixin-apply", "[main/ERROR]: Mixin apply for mod sodium failed sodium.mixins.json:X from mod sodium -> net.minecraft.Y: InvalidInjectionException"},
+            {"fabric-mixin-failed", "MixinApplyError: Mixin [lithium.mixins.json:ai.Pathing from mod lithium] from phase [DEFAULT] in config [lithium.mixins.json] FAILED during APPLY"},
+            {"mixin-config-failed", "MixinTransformerError: Mixin [create.mixins.json:MainMixin] from phase [DEFAULT] in config [create.mixins.json] FAILED during APPLY"},
+            {"mixin-injection-failed", "InvalidInjectionException: Critical injection failure: @Inject annotation on onTick could not find any targets matching 'tick' in net.minecraft.X. [PREINJECT Applicator Phase -> examplemod.mixins.json:TickMixin -> Prepare Injections]"},
+            {"fabric-entrypoint", "java.lang.RuntimeException: Could not execute entrypoint stage 'client' due to errors, provided by 'badmod' at 'com.bad.Client'!"},
+            {"neoforge-mod-failed", "\t- Bad Mod (badmod) has failed to load correctly"},
+            {"forge-mod-instance", "[modloading-worker-0/ERROR] [ne.mi.fm.ja.FMLModContainer/LOADING]: Failed to create mod instance. ModID: badmod, class com.bad.Mod"},
+            {"fabric-corrupt-jar", "java.lang.RuntimeException: Error analyzing [C:\\\\Users\\\\x\\\\mods\\\\broken.jar]: java.util.zip.ZipException: zip END header not found"},
+            {"neoforge-not-a-jar", "\t- File mods/broken.jar is not a jar file"},
+            {"neoforge-wrong-loader", "\t- File sodium-fabric-0.5.jar is a Fabric mod and cannot be loaded"},
+        };
+        for (String[] c : cases) {
+            check("crash rule " + c[0] + " explains its output", c[0].equals(firstRule(rules, OUT, c[1])));
+        }
+        check("crash rule neoforge-missing-dependency reads the next line", "neoforge-missing-dependency".equals(
+                firstRule(rules, OUT, "\t- Mod create requires flywheel 1.0 or above", "\t  Currently, flywheel is not installed")));
+        check("crash rule neoforge-dependency-version reads the next line", "neoforge-dependency-version".equals(
+                firstRule(rules, OUT, "\t- Mod create requires flywheel 1.0 or above", "\t  Currently, flywheel is 0.6.10")));
+        check("a graphics driver crash is read from the JVM's error file", "driver-crash".equals(
+                firstRule(rules, HSERR, "# C  [atio6axx.dll+0x1c35a1]")));
+        check("the error-file rule does not read the game output", "none".equals(
+                firstRule(rules, OUT, "# C  [atio6axx.dll+0x1c35a1]")));
+
+        // Lines from a real session that ended normally. None of them is a cause.
+        check("ordinary game output explains nothing", "none".equals(firstRule(rules, OUT,
+                "[14:53:23] [Render thread/INFO]: Setting user: SAN4EZ_DREAMS",
+                "[14:57:03] [Render thread/INFO]: Connecting to mcl.oplegends.com, 25565",
+                "[14:55:01] [Worker-Main-10/ERROR]: Failed to verify signature on property Property[name=textures, value=ewog]",
+                "[14:55:53] [Worker-Main-4/ERROR]: Couldn't compile pipeline (minecraft:pipeline/cutout_terrain): ",
+                "[14:53:18] [main/WARN]: Failed to add PDH Counter: \\Paging File(_Total)\\% Usage, Error code: 0xC0000BB8",
+                "[14:53:59] [Render thread/WARN]: Client disconnected with reason: Internal Exception: io.netty.handler.codec.DecoderException: java.util.zip.DataFormatException: invalid distance too far back")));
+
+        // ---- values, names and fixes
+        var classVersion = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(cases[0][1]))), rules, "en").get(0);
+        check("a class file version becomes a Java version", "21".equals(classVersion.values().get("java"))
+                && "17".equals(classVersion.values().get("have")));
+        check("and the fix asks for that Java", classVersion.fixes().equals(List.of(
+                new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.JAVA, "21"))));
+        check("the sentence names both versions", classVersion.cause().contains("21") && classVersion.cause().contains("17"));
+
+        var named = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(cases[10][1]))), rules, "uk",
+                id -> "modmenu".equals(id) ? "Mod Menu" : id).get(0);
+        check("the explanation is in the chosen language", named.cause().startsWith("Мод "));
+        check("a mod is named the way the player knows it", named.cause().contains("Mod Menu"));
+        check("while the fix keeps the mod id", named.fixes().get(0).value().equals("modmenu"));
+        var fallback = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(cases[3][1]))), rules, "xx").get(0);
+        check("an unknown language falls back to English", fallback.cause().startsWith("Minecraft used"));
+
+        var twoMissing = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                        "\t - Mod 'A' (amod) 1.0 requires any version of fabric-api, which is missing!",
+                        "\t - Mod 'B' (bmod) 1.0 requires any version of fabric-api, which is missing!"))), rules, "en");
+        check("every missing dependency is reported, not only the first", twoMissing.size() == 2);
+        var twice = com.hexadron.launcher.crash.CrashAnalyzer.analyze(new com.hexadron.launcher.crash.CrashEvidence(1,
+                Map.of(OUT, List.of(cases[3][1]), com.hexadron.launcher.crash.CrashRules.Source.LOG, List.of(cases[3][1])),
+                Map.of()), rules, "en");
+        check("a cause seen in the output and in the log is one cause", twice.size() == 1);
+        String colours = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                        "\t- Mod \u00a7ecreate\u00a7r is present in multiple files: a.jar, b.jar"))), rules, "en")
+                .stream().findFirst().map(d -> d.values().getOrDefault("mod", "")).orElse("");
+        check("colour codes do not reach a sentence", colours.isEmpty() || !colours.contains("\u00a7"));
+
+        // ---- the rule file format refuses what it cannot trust
+        String good = """
+                {"schema":1,"version":1,"texts":{"t":{"en":{"title":"T","cause":"C {mod}","fix":"F"}}},
+                 "rules":[{"id":"r","text":"t","match":[{"contains":["x"],"regex":"x (?<mod>\\\\w+)"}],
+                           "fixes":[{"type":"disableMod","mod":"{mod}"}]}]}""";
+        check("a small rule file parses", com.hexadron.launcher.crash.CrashRules.parse(good).rules().size() == 1);
+        checkThrows("a text that uses a value nothing provides is refused", () ->
+                com.hexadron.launcher.crash.CrashRules.parse(good.replace("C {mod}", "C {other}")));
+        checkThrows("a fix this build does not know is refused", () ->
+                com.hexadron.launcher.crash.CrashRules.parse(good.replace("disableMod", "runCommand")));
+        checkThrows("a fix with a parameter it does not take is refused", () ->
+                com.hexadron.launcher.crash.CrashRules.parse(good.replace("\"mod\":\"{mod}\"", "\"url\":\"{mod}\"")));
+        checkThrows("a condition without contains is refused", () ->
+                com.hexadron.launcher.crash.CrashRules.parse(good.replace("\"contains\":[\"x\"],", "")));
+        checkThrows("a text without English is refused", () ->
+                com.hexadron.launcher.crash.CrashRules.parse(good.replace("\"en\":", "\"uk\":")));
+        checkThrows("a later schema is refused", () ->
+                com.hexadron.launcher.crash.CrashRules.parse(good.replace("\"schema\":1", "\"schema\":2")));
+        checkThrows("a bad regex is refused", () ->
+                com.hexadron.launcher.crash.CrashRules.parse(good.replace("x (?<mod>\\\\w+)", "x (?<mod>")));
+
+        // ---- a published rule file is used only when signed and newer
+        try {
+            var generator = java.security.KeyPairGenerator.getInstance("Ed25519");
+            var pair = generator.generateKeyPair();
+            List<String> keys = List.of(java.util.Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()));
+            String newer = good.replace("\"version\":1", "\"version\":999");
+            java.util.function.Function<String, byte[]> sign = text -> {
+                try {
+                    var signer = java.security.Signature.getInstance("Ed25519");
+                    signer.initSign(pair.getPrivate());
+                    signer.update(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    return java.util.Base64.getEncoder().encode(signer.sign());
+                } catch (java.security.GeneralSecurityException e) {
+                    throw new IllegalStateException(e);
+                }
+            };
+            byte[] newerBytes = newer.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            check("a signed, newer rule file is used", com.hexadron.launcher.crash.CrashRuleSource
+                    .choose(rules, newerBytes, sign.apply(newer), keys).version() == 999);
+            check("an unsigned one is not", com.hexadron.launcher.crash.CrashRuleSource
+                    .choose(rules, newerBytes, null, keys) == rules);
+            byte[] tampered = newer.replace("\"F\"", "\"Download this\"").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            check("a changed one is not", com.hexadron.launcher.crash.CrashRuleSource
+                    .choose(rules, tampered, sign.apply(newer), keys) == rules);
+            check("an older one is not, even signed", com.hexadron.launcher.crash.CrashRuleSource
+                    .choose(rules, good.getBytes(java.nio.charset.StandardCharsets.UTF_8), sign.apply(good), keys) == rules);
+            check("a signature by another key is not accepted", com.hexadron.launcher.crash.CrashRuleSource
+                    .choose(rules, newerBytes, sign.apply(newer), null) == rules);
+        } catch (java.security.GeneralSecurityException e) {
+            check("Ed25519 is available for the rule signature check: " + e, false);
+        }
+
+        // ---- fixes against a real mods folder
+        check("memory is raised by half, in 512 MB steps", com.hexadron.launcher.crash.CrashFixes.raisedMemory(4096, 32768) == 6144);
+        check("but not past three quarters of the computer", com.hexadron.launcher.crash.CrashFixes.raisedMemory(4096, 8192) == 6144
+                && com.hexadron.launcher.crash.CrashFixes.raisedMemory(6144, 8192) == 6144);
+        check("nor past 16 GB", com.hexadron.launcher.crash.CrashFixes.raisedMemory(14336, 65536) == 16384);
+        check("an unknown computer is treated as 8 GB of headroom", com.hexadron.launcher.crash.CrashFixes.raisedMemory(4096, -1) == 6144);
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-crash-check");
+            Path mods = java.nio.file.Files.createDirectories(dir.resolve("mods"));
+            writeJar(mods.resolve("fabric-api.jar"), Map.of("fabric.mod.json",
+                    "{\"id\":\"fabric-api\",\"version\":\"0.100.0\",\"name\":\"Fabric API\"}"));
+            writeJar(mods.resolve("sodium.jar"), Map.of("fabric.mod.json",
+                    "{\"id\":\"sodium\",\"version\":\"0.6\",\"name\":\"Sodium\",\"depends\":{\"fabric-api\":\"*\"}}",
+                    "sodium.mixins.json", "{}"));
+            writeJar(mods.resolve("iris.jar"), Map.of("fabric.mod.json",
+                    "{\"id\":\"iris\",\"version\":\"1.7\",\"name\":\"Iris\",\"depends\":{\"sodium\":\"*\"}}"));
+            writeJar(mods.resolve("jei-old.jar"), Map.of("fabric.mod.json", "{\"id\":\"jei\",\"version\":\"1\",\"name\":\"JEI\"}"));
+            writeJar(mods.resolve("jei-new.jar"), Map.of("fabric.mod.json", "{\"id\":\"jei\",\"version\":\"2\",\"name\":\"JEI\"}"));
+            java.nio.file.Files.setLastModifiedTime(mods.resolve("jei-old.jar"),
+                    java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() - 86_400_000L));
+            List<ModEntry> entries = ModScan.scan(mods);
+            Profile profile = Profile.create("crash", "1.21.1", LoaderType.FABRIC);
+
+            var sodiumOff = com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_MOD, "sodium"), profile, entries, 16384).orElseThrow();
+            check("switching off a mod names it", "Sodium".equals(sodiumOff.subject()) && sodiumOff.targets().size() == 1);
+            check("and the mods that need it go with it", sodiumOff.dependents().stream()
+                    .anyMatch(mod -> "Iris".equals(mod.title())));
+            check("a mod that is not in the folder is not offered", com.hexadron.launcher.crash.CrashFixes.prepare(
+                    new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_MOD, "create"),
+                    profile, entries, 16384).isEmpty());
+            check("the owner of a mixin config is found in its jar", com.hexadron.launcher.crash.CrashFixes.prepare(
+                    new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_MIXIN_OWNER, "sodium.mixins.json"),
+                    profile, entries, 16384).map(p -> p.targets().get(0).fileName()).orElse("").equals("sodium.jar"));
+            var dupes = com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_DUPLICATES, "jei"), profile, entries, 16384).orElseThrow();
+            check("of two copies the older one is switched off", dupes.targets().size() == 1
+                    && dupes.targets().get(0).fileName().equals("jei-old.jar"));
+            check("a Java version out of range is not offered", com.hexadron.launcher.crash.CrashFixes.prepare(
+                    new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.JAVA, "4"),
+                    profile, entries, 16384).isEmpty());
+            check("the automatic Java is offered only when one was chosen by hand", com.hexadron.launcher.crash.CrashFixes.prepare(
+                    new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.AUTOMATIC_JAVA, ""),
+                    profile, entries, 16384).isEmpty());
+
+            List<String> off = com.hexadron.launcher.crash.CrashFixes.applySwitchOff(mods, sodiumOff);
+            check("the fix switches the files off", off.contains("sodium.jar") && off.contains("iris.jar")
+                    && java.nio.file.Files.exists(mods.resolve("sodium.jar" + ModScan.DISABLED_SUFFIX))
+                    && java.nio.file.Files.exists(mods.resolve("iris.jar" + ModScan.DISABLED_SUFFIX)));
+            check("and leaves the rest alone", java.nio.file.Files.exists(mods.resolve("fabric-api.jar")));
+
+            // ---- what a run leaves behind
+            Path game = dir.resolve("game");
+            Path reports = java.nio.file.Files.createDirectories(game.resolve("crash-reports"));
+            Path old = reports.resolve("crash-2020-01-01_00.00.00-client.txt");
+            java.nio.file.Files.writeString(old, "java.lang.OutOfMemoryError: Java heap space\n");
+            java.nio.file.Files.setLastModifiedTime(old, java.nio.file.attribute.FileTime.fromMillis(1_000_000L));
+            long started = System.currentTimeMillis();
+            check("an old crash report is not this run's", !com.hexadron.launcher.crash.CrashEvidence
+                    .hasCrashReportSince(game, started));
+            java.nio.file.Files.writeString(reports.resolve("crash-2026-09-26_12.00.00-client.txt"),
+                    "---- Minecraft Crash Report ----\njava.lang.OutOfMemoryError: Java heap space\n");
+            java.nio.file.Files.createDirectories(game.resolve("logs"));
+            java.nio.file.Files.writeString(game.resolve("logs").resolve("latest.log"),
+                    "[main/INFO]: Loading\n");
+            var evidence = com.hexadron.launcher.crash.CrashEvidence.collect(game, started, List.of("line"), -1);
+            check("a new crash report is found", com.hexadron.launcher.crash.CrashEvidence.hasCrashReportSince(game, started)
+                    && evidence.crashReport().isPresent()
+                    && evidence.crashReport().get().getFileName().toString().startsWith("crash-2026"));
+            check("the log and the output are read", !evidence.lines(com.hexadron.launcher.crash.CrashRules.Source.LOG).isEmpty()
+                    && evidence.lines(OUT).equals(List.of("line")));
+            check("and the crash report explains the crash", "java-heap".equals(
+                    com.hexadron.launcher.crash.CrashAnalyzer.analyze(evidence, rules, "en").get(0).ruleId()));
+        } catch (IOException e) {
+            check("the crash fix check could set up its folder: " + e, false);
+        } finally {
+            if (dir != null) {
+                deleteRecursively(dir);
+            }
+        }
+
+        // ---- the window's own words
+        Map<String, String> reference = I18n.bundle(Language.DEFAULT);
+        for (String key : new String[]{"crash.title", "crash.heading.unknown",
+                "crash.unknown.body", "crash.fix.disableMod", "crash.fix.java", "crash.fix.raiseMemory",
+                "crash.fix.also", "crash.fix.failed", "crash.openReport", "crash.report", "crash.playAgain"}) {
+            check("the crash window has its words: " + key, reference.containsKey(key));
+        }
+        for (Language language : Language.values()) {
+            for (Map.Entry<String, String> entry : I18n.bundle(language).entrySet()) {
+                if (!entry.getKey().startsWith("crash.") || !entry.getValue().contains("{0}")) {
+                    continue;
+                }
+                String text = new java.text.MessageFormat(entry.getValue(), language.locale())
+                        .format(new Object[]{"X"});
+                check("crash text " + entry.getKey() + " formats cleanly in " + language.code(),
+                        text.contains("X") && !text.contains("{") && !text.contains("''"));
+            }
         }
     }
 

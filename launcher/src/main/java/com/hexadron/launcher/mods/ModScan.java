@@ -446,7 +446,7 @@ public final class ModScan {
     // ---------------------------------------------------------------- reading
 
     /** The jar's own description of itself, read once per version of the file. */
-    static LocalModInfo descriptorOf(Path file) {
+    public static LocalModInfo descriptorOf(Path file) {
         // Every entry is one small record and the key is unique per version of
         // a file, so the map only grows when files change. Clearing it wholesale
         // at a generous ceiling costs one re-read of the visible rows and cannot

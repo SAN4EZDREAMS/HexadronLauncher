@@ -14,6 +14,9 @@ package com.hexadron.launcher.ui;
 
 import com.hexadron.launcher.auth.Account;
 import com.hexadron.launcher.core.LauncherService;
+import com.hexadron.launcher.crash.CrashAnalyzer;
+import com.hexadron.launcher.crash.CrashEvidence;
+import com.hexadron.launcher.crash.CrashFixes;
 import com.hexadron.launcher.i18n.I18n;
 import com.hexadron.launcher.install.loader.LoaderType;
 import com.hexadron.launcher.install.loader.LoaderVersion;
@@ -247,6 +250,11 @@ public final class MainWindow implements ProfileHost {
     private final Label accountTitle = new Label();
 
     private GameLauncher.GameSession session;
+    /**
+     * Set when the player stops the game from here. A game stopped on purpose
+     * ends with a non-zero exit code on Windows, and it is not a crash.
+     */
+    private volatile boolean stopRequested;
     private volatile boolean busy;
     private boolean playing;
 
@@ -1445,6 +1453,7 @@ public final class MainWindow implements ProfileHost {
 
     private void play() {
         if (session != null && session.isRunning()) {
+            stopRequested = true;
             session.terminate();
             return;
         }
@@ -1475,8 +1484,22 @@ public final class MainWindow implements ProfileHost {
             // three questions about this launcher, and nothing pointed at it.
             progress.log(I18n.t("log.gameLog",
                     service.profiles().gameDirectory(profile).resolve("logs")));
+            stopRequested = false;
+            long startedAt = System.currentTimeMillis();
+            // The last lines the game printed, for the crash analysis. The log
+            // file holds them too, but a game that dies before its logger starts
+            // leaves nothing there.
+            java.util.ArrayDeque<String> outputTail = new java.util.ArrayDeque<>();
             session = service.launch(profile, account, progress,
-                    progress::log,
+                    line -> {
+                        progress.log(line);
+                        synchronized (outputTail) {
+                            if (outputTail.size() >= OUTPUT_TAIL_LINES) {
+                                outputTail.removeFirst();
+                            }
+                            outputTail.addLast(line);
+                        }
+                    },
                     exitCode -> {
                         progress.log(GameLauncher.describeExit(
                                 exitCode, profile.wrapperCommand()));
@@ -1497,6 +1520,11 @@ public final class MainWindow implements ProfileHost {
                             setBusy(false);
                             showProfile(shown);
                         });
+                        java.util.List<String> lines;
+                        synchronized (outputTail) {
+                            lines = java.util.List.copyOf(outputTail);
+                        }
+                        explainCrash(profile, exitCode, startedAt, lines);
                     },
                     // The question has been put already, by
                     // confirmWrongVersionMods above, and answered "start it".
@@ -1516,6 +1544,95 @@ public final class MainWindow implements ProfileHost {
         }, false);
     }
 
+    /** How many lines of game output are kept for the crash analysis. */
+    private static final int OUTPUT_TAIL_LINES = 4000;
+
+    /**
+     * Looks at what a game left behind and, when it stopped with an error,
+     * opens the crash window.
+     *
+     * <p>Runs on the thread that waited for the game, never on the interface
+     * thread: it reads the log, the crash report and the mods folder.
+     *
+     * <p>Nothing is shown when the player stopped the game, when it closed
+     * normally without a crash report, or for exit 92 - that is the launcher's
+     * own handshake failing, which the log line above already explains and
+     * which no crash rule describes.
+     */
+    private void explainCrash(Profile profile, int exitCode, long startedAt, java.util.List<String> lines) {
+        if (stopRequested || exitCode == 92) {
+            return;
+        }
+        Path gameDir = service.profiles().gameDirectory(profile);
+        if (exitCode == 0 && !CrashEvidence.hasCrashReportSince(gameDir, startedAt)) {
+            return;
+        }
+        try {
+            CrashEvidence evidence = CrashEvidence.collect(gameDir, startedAt, lines, exitCode);
+            java.util.List<CrashAnalyzer.Diagnosis> diagnoses =
+                    service.analyzeCrash(profile, evidence, I18n.current().code());
+            java.util.Map<CrashAnalyzer.Diagnosis, java.util.List<CrashFixes.Prepared>> fixes =
+                    new java.util.LinkedHashMap<>();
+            for (CrashAnalyzer.Diagnosis diagnosis : diagnoses) {
+                fixes.put(diagnosis, service.prepareCrashFixes(profile, diagnosis));
+            }
+            if (diagnoses.isEmpty()) {
+                progress.log(I18n.t("crash.log.none"));
+            }
+            for (CrashAnalyzer.Diagnosis diagnosis : diagnoses) {
+                progress.log(I18n.t("crash.log.cause", diagnosis.title()));
+            }
+            com.hexadron.launcher.core.LauncherLog.info("Crash analysis (" + service.crashRules().origin()
+                    + "): exit " + exitCode + ", rules "
+                    + diagnoses.stream().map(CrashAnalyzer.Diagnosis::ruleId).toList()
+                    + ", sources " + evidence.files().keySet());
+            Platform.runLater(() -> new CrashDialog(exitCode, diagnoses, fixes, evidence, gameDir,
+                    crashActions(profile)).show(stage));
+        } catch (RuntimeException e) {
+            // The analysis is a help, not a step the launcher depends on.
+            progress.log(I18n.t("log.failed", describe(e)));
+        }
+    }
+
+    private CrashDialog.Actions crashActions(Profile profile) {
+        return new CrashDialog.Actions() {
+            @Override
+            public void applyFix(CrashFixes.Prepared fix, Runnable onDone,
+                                 java.util.function.Consumer<String> onFailure) {
+                String task = I18n.t("crash.fix.task");
+                if (busy || (session != null && session.isRunning())) {
+                    onFailure.accept(I18n.t("status.busy", task));
+                    return;
+                }
+                runInBackground(task, () -> {
+                    try {
+                        progress.log(service.applyCrashFix(profile, fix, progress));
+                        Platform.runLater(() -> {
+                            onDone.run();
+                            showProfile(shown);
+                        });
+                    } catch (IOException | RuntimeException e) {
+                        String reason = describe(e);
+                        progress.log(I18n.t("crash.fix.failed", reason));
+                        Platform.runLater(() -> onFailure.accept(reason));
+                    }
+                });
+            }
+
+            @Override
+            public void playAgain() {
+                if (!busy && (session == null || !session.isRunning())) {
+                    play();
+                }
+            }
+
+            @Override
+            public void reportBug() {
+                new ReportBugDialog(service.dirs()).show(stage);
+            }
+        };
+    }
+
     /** Hides to the notification area, or minimises where there is no tray. */
     private void goToTray() {
         if (!service.settings().minimiseToTrayWhilePlaying()) {
@@ -1530,6 +1647,7 @@ public final class MainWindow implements ProfileHost {
                 I18n.t("tray.stop"),
                 () -> {
                     if (session != null && session.isRunning()) {
+                        stopRequested = true;
                         session.terminate();
                     }
                 });
@@ -2871,6 +2989,7 @@ public final class MainWindow implements ProfileHost {
         rememberAccount(accountBox.getValue());
         tray.dispose();
         if (session != null && session.isRunning() && !service.settings().keepOpenWhilePlaying()) {
+            stopRequested = true;
             session.terminate();
         }
     }

@@ -26,6 +26,7 @@ performance mod set. The project is in beta (version 0.9.8).
 | Updates | Checks the project's GitHub releases at start-up, on the Release or Nightly channel. Downloads only the changed parts when it can, then replaces the installed folder |
 | Languages | English, Ukrainian, Russian, Polish, German, Spanish, French, Italian, Portuguese (Brazil), Turkish, Indonesian, Vietnamese, Hindi, Chinese (Simplified), Japanese, Korean. The language changes without a restart |
 | While playing | The launcher hides to the notification area and comes back when the game closes |
+| Crash analysis | After a crash the launcher reads the crash report and logs, names the cause in plain words (wrong Java, memory, missing or duplicate mod, wrong version, mixin error, graphics driver, broken install and more) and offers one-click fixes. New rules arrive signed with releases |
 
 ## Install
 
@@ -73,6 +74,7 @@ missing or changed. Details are in [docs/building.md](docs/building.md).
 | [Modpacks and packs](docs/packs.md) | Modpacks, data packs, resource packs, shaders |
 | [Build files and storage](docs/builds-and-storage.md) | `.hexbuild` export and import, storage cleanup |
 | [Updates](docs/updates.md) | Self-update, channels, delta updates, VirusTotal results |
+| [Crash analysis](docs/crashes.md) | The crash window, crash types, one-click fixes, signed rule updates |
 | [Flatpak and sandboxing](docs/flatpak-and-sandboxing.md) | Flatpak permissions and build, running the game in a sandbox |
 | [Building](docs/building.md) | Gradle tasks, CI workflows, packaged clients, icons, versions |
 | [Architecture](docs/architecture.md) | Code layout, design rules, the `mod/` module |

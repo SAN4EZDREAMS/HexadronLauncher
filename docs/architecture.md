@@ -41,6 +41,7 @@ Packages:
 | `auth/secret/` | Credential stores: Windows DPAPI, macOS Keychain, freedesktop Secret Service, and an AES-256-GCM encrypted file as the fallback. `SecretStores` picks the best available |
 | `cleanup/` | The storage window's model: scans the data folder, works out what is still in use, and deletes only what passes a last safety check (`StorageCleaner`) |
 | `cli/` | `HexadronCli`, the command-line mode |
+| `crash/` | Crash analysis: what a run left behind (`CrashEvidence`), the rule file (`CrashRules`, built-in copy in `crash/rules.json`), matching (`CrashAnalyzer`), fix kinds and their checks (`CrashFix`, `CrashFixes`), and signed rule updates (`CrashRuleSource`). See [crashes.md](crashes.md) |
 | `core/` | `LauncherService` (the application layer for the UI and the CLI), `LauncherSettings` (`launcher.json`), `GameDirs` (data folder layout), `LauncherLog`, `VerifiedFiles` (the record of files already checked against their hash), `Progress` |
 | `i18n/` | `I18n` (the string table) and `Language`; strings are in `lang/<code>.properties` |
 | `install/` | `VersionInstaller`, `AssetInstaller`, `NativesExtractor` |
@@ -66,6 +67,7 @@ Resources in `launcher/src/main/resources/`:
 | `ui/` | `hexadron.css` and the application icons |
 | `packs/hexadron-optimise.json` | The Hexadron Optimise mod set |
 | `about/credits.json` | The credit list |
+| `crash/rules.json` | The built-in crash rules and their texts in 16 languages |
 | `wrapper/` | Not in the source tree. `processResources` copies the built `wrapperJar` here |
 
 ### The launch wrapper
@@ -143,4 +145,4 @@ The mods are not bundled into the jar with `include`, because that would redistr
 
 ### Loom and Minecraft 26.1+
 
-Minecraft 26.1 is the first version without obfuscation. The `net.fabricmc.fabric-loom` plugin does no remapping for it, so the `mod*` configurations (`modImplementation`, `modCompileOnly`, ...) and `remapJar` do not exist. Use `implementation`, `compileOnly`, `runtimeOnly` and `jar`. The `mod*` names are only in `net.fabricmc.fabric-loom-remap`, which is for 1.21.11 and older.
+Minecraft 26.1 is the first version without obfuscation. The `net.fabricmc.fabric-loom` plugin does no remapping for it, so the `mod*` configurations (`modImplementation`, `modCompileOnly`, ...) and `remapJar` do not exist. Use `implementation`, `compileOnly`, `runtimeOnly` and `jar`. The `mod*` names are only in `net.fabricmc.fabric-loom-remap`, which is for 1.21.11 and older.

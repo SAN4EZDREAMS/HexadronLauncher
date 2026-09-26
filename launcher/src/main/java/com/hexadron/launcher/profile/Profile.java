@@ -128,7 +128,8 @@ public final class Profile {
         return (int) Math.max(2048, Math.min(8192, half));
     }
 
-    private static long physicalMemoryBytes() {
+    /** Installed memory in bytes, or -1 when the platform will not say. */
+    public static long physicalMemoryBytes() {
         try {
             var bean = java.lang.management.ManagementFactory.getOperatingSystemMXBean();
             var method = bean.getClass().getMethod("getTotalMemorySize");

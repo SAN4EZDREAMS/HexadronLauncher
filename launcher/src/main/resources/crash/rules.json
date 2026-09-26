@@ -1,0 +1,2066 @@
+{
+  "schema": 1,
+  "version": 1,
+  "about": "Crash rules for HexadronLauncher. Format: crash/CrashRules.java. A newer signed copy is published with each release as hexadron-crash-rules.json.",
+  "texts": {
+    "javaOld": {
+      "en": {
+        "title": "Java {java} is needed",
+        "cause": "Minecraft or one of its mods needs Java {java}, but the game was started with Java {have}.",
+        "fix": "Let the launcher use Java {java} for this profile. The launcher downloads it if this computer does not have it."
+      },
+      "uk": {
+        "title": "Потрібна Java {java}",
+        "cause": "Minecraft або один з його модів потребує Java {java}, але гру запущено з Java {have}.",
+        "fix": "Дозвольте лаунчеру використовувати Java {java} для цього профілю. Якщо її немає на комп'ютері, лаунчер її завантажить."
+      },
+      "ru": {
+        "title": "Нужна Java {java}",
+        "cause": "Minecraft или один из его модов требует Java {java}, но игра запущена с Java {have}.",
+        "fix": "Разрешите лаунчеру использовать Java {java} для этого профиля. Если её нет на компьютере, лаунчер её скачает."
+      },
+      "pl": {
+        "title": "Wymagana jest Java {java}",
+        "cause": "Minecraft lub jeden z jego modów wymaga Javy {java}, ale gra została uruchomiona z Javą {have}.",
+        "fix": "Pozwól launcherowi używać Javy {java} dla tego profilu. Jeśli nie ma jej na komputerze, launcher ją pobierze."
+      },
+      "de": {
+        "title": "Java {java} wird benötigt",
+        "cause": "Minecraft oder eine seiner Mods benötigt Java {java}, aber das Spiel wurde mit Java {have} gestartet.",
+        "fix": "Lass den Launcher für dieses Profil Java {java} verwenden. Fehlt es auf diesem Computer, lädt der Launcher es herunter."
+      },
+      "es": {
+        "title": "Se necesita Java {java}",
+        "cause": "Minecraft o uno de sus mods necesita Java {java}, pero el juego se inició con Java {have}.",
+        "fix": "Deja que el launcher use Java {java} para este perfil. Si este equipo no lo tiene, el launcher lo descarga."
+      },
+      "fr": {
+        "title": "Java {java} est nécessaire",
+        "cause": "Minecraft ou l'un de ses mods a besoin de Java {java}, mais le jeu a été lancé avec Java {have}.",
+        "fix": "Laissez le launcher utiliser Java {java} pour ce profil. S'il manque sur cet ordinateur, le launcher le télécharge."
+      },
+      "it": {
+        "title": "Serve Java {java}",
+        "cause": "Minecraft o una delle sue mod richiede Java {java}, ma il gioco è stato avviato con Java {have}.",
+        "fix": "Lascia che il launcher usi Java {java} per questo profilo. Se il computer non lo ha, il launcher lo scarica."
+      },
+      "pt": {
+        "title": "É necessário o Java {java}",
+        "cause": "O Minecraft ou um dos seus mods precisa do Java {java}, mas o jogo foi iniciado com o Java {have}.",
+        "fix": "Deixe o launcher usar o Java {java} para este perfil. Se o computador não tiver, o launcher faz o download."
+      },
+      "tr": {
+        "title": "Java {java} gerekiyor",
+        "cause": "Minecraft veya modlarından biri Java {java} gerektiriyor, ancak oyun Java {have} ile başlatıldı.",
+        "fix": "Launcher'ın bu profil için Java {java} kullanmasına izin ver. Bu bilgisayarda yoksa launcher onu indirir."
+      },
+      "id": {
+        "title": "Java {java} diperlukan",
+        "cause": "Minecraft atau salah satu modnya memerlukan Java {java}, tetapi game dijalankan dengan Java {have}.",
+        "fix": "Biarkan launcher memakai Java {java} untuk profil ini. Jika komputer ini belum punya, launcher akan mengunduhnya."
+      },
+      "vi": {
+        "title": "Cần Java {java}",
+        "cause": "Minecraft hoặc một mod của nó cần Java {java}, nhưng trò chơi đã được khởi động bằng Java {have}.",
+        "fix": "Cho phép launcher dùng Java {java} cho hồ sơ này. Nếu máy tính chưa có, launcher sẽ tải về."
+      },
+      "hi": {
+        "title": "Java {java} ज़रूरी है",
+        "cause": "Minecraft या उसके किसी मॉड को Java {java} चाहिए, लेकिन गेम Java {have} से शुरू हुआ।",
+        "fix": "लॉन्चर को इस प्रोफ़ाइल के लिए Java {java} इस्तेमाल करने दें। अगर यह कंप्यूटर पर नहीं है, तो लॉन्चर इसे डाउनलोड करेगा।"
+      },
+      "zh": {
+        "title": "需要 Java {java}",
+        "cause": "Minecraft 或其某个模组需要 Java {java}，但游戏是用 Java {have} 启动的。",
+        "fix": "让启动器为此实例使用 Java {java}。如果这台电脑没有，启动器会自动下载。"
+      },
+      "ja": {
+        "title": "Java {java} が必要です",
+        "cause": "Minecraft またはその Mod の一つが Java {java} を必要としていますが、ゲームは Java {have} で起動されました。",
+        "fix": "このプロファイルで Java {java} を使うようランチャーに任せてください。このコンピューターにない場合はランチャーがダウンロードします。"
+      },
+      "ko": {
+        "title": "Java {java}이(가) 필요합니다",
+        "cause": "Minecraft 또는 모드 중 하나가 Java {java}을(를) 필요로 하지만, 게임은 Java {have}(으)로 시작되었습니다.",
+        "fix": "이 프로필에서 런처가 Java {java}을(를) 사용하게 하세요. 이 컴퓨터에 없으면 런처가 내려받습니다."
+      }
+    },
+    "javaNew": {
+      "en": {
+        "title": "Java is too new for this version",
+        "cause": "This Minecraft version or its mod loader is older than the Java that started it, and it cannot read the newer class files.",
+        "fix": "Let the launcher choose Java for this profile again. It selects the version that this Minecraft release was made for."
+      },
+      "uk": {
+        "title": "Java занадто нова для цієї версії",
+        "cause": "Ця версія Minecraft або її завантажувач модів старіші за Java, якою їх запущено, і не можуть прочитати новіші class-файли.",
+        "fix": "Дозвольте лаунчеру знову обирати Java для цього профілю. Він обере версію, для якої створено цей випуск Minecraft."
+      },
+      "ru": {
+        "title": "Java слишком новая для этой версии",
+        "cause": "Эта версия Minecraft или её загрузчик модов старше Java, которой они запущены, и не могут прочитать более новые class-файлы.",
+        "fix": "Разрешите лаунчеру снова выбирать Java для этого профиля. Он выберет версию, для которой создан этот выпуск Minecraft."
+      },
+      "pl": {
+        "title": "Java jest za nowa dla tej wersji",
+        "cause": "Ta wersja Minecrafta lub jej mod loader jest starsza niż Java, która ją uruchomiła, i nie może odczytać nowszych plików klas.",
+        "fix": "Pozwól launcherowi znowu wybierać Javę dla tego profilu. Wybierze wersję, dla której powstało to wydanie Minecrafta."
+      },
+      "de": {
+        "title": "Java ist für diese Version zu neu",
+        "cause": "Diese Minecraft-Version oder ihr Mod-Loader ist älter als das Java, mit dem sie gestartet wurde, und kann die neueren Klassendateien nicht lesen.",
+        "fix": "Lass den Launcher Java für dieses Profil wieder selbst wählen. Er wählt die Version, für die diese Minecraft-Version gemacht ist."
+      },
+      "es": {
+        "title": "Java es demasiado nuevo para esta versión",
+        "cause": "Esta versión de Minecraft o su cargador de mods es más antigua que el Java que la inició y no puede leer los archivos de clase más nuevos.",
+        "fix": "Deja que el launcher vuelva a elegir Java para este perfil. Elegirá la versión para la que se hizo esta versión de Minecraft."
+      },
+      "fr": {
+        "title": "Java est trop récent pour cette version",
+        "cause": "Cette version de Minecraft ou son chargeur de mods est plus ancienne que le Java qui l'a lancée et ne peut pas lire les fichiers de classe plus récents.",
+        "fix": "Laissez le launcher choisir à nouveau Java pour ce profil. Il choisit la version pour laquelle cette version de Minecraft a été faite."
+      },
+      "it": {
+        "title": "Java è troppo recente per questa versione",
+        "cause": "Questa versione di Minecraft o il suo mod loader è più vecchia del Java che l'ha avviata e non può leggere i file di classe più recenti.",
+        "fix": "Lascia che il launcher scelga di nuovo Java per questo profilo. Sceglierà la versione per cui è stata fatta questa versione di Minecraft."
+      },
+      "pt": {
+        "title": "O Java é novo demais para esta versão",
+        "cause": "Esta versão do Minecraft ou o seu carregador de mods é mais antiga que o Java que a iniciou e não consegue ler os arquivos de classe mais novos.",
+        "fix": "Deixe o launcher escolher o Java para este perfil de novo. Ele escolhe a versão para a qual esta versão do Minecraft foi feita."
+      },
+      "tr": {
+        "title": "Java bu sürüm için çok yeni",
+        "cause": "Bu Minecraft sürümü veya mod yükleyicisi, onu başlatan Java'dan daha eski ve daha yeni sınıf dosyalarını okuyamıyor.",
+        "fix": "Launcher'ın bu profil için Java'yı yeniden seçmesine izin ver. Bu Minecraft sürümünün yapıldığı Java sürümünü seçer."
+      },
+      "id": {
+        "title": "Java terlalu baru untuk versi ini",
+        "cause": "Versi Minecraft ini atau mod loader-nya lebih lama daripada Java yang menjalankannya, dan tidak dapat membaca file kelas yang lebih baru.",
+        "fix": "Biarkan launcher memilih Java lagi untuk profil ini. Launcher memilih versi yang dibuat untuk rilis Minecraft ini."
+      },
+      "vi": {
+        "title": "Java quá mới cho phiên bản này",
+        "cause": "Phiên bản Minecraft này hoặc trình tải mod của nó cũ hơn Java đã khởi động nó, và không đọc được các tệp class mới hơn.",
+        "fix": "Cho phép launcher chọn lại Java cho hồ sơ này. Launcher sẽ chọn phiên bản mà bản Minecraft này được tạo cho."
+      },
+      "hi": {
+        "title": "इस वर्शन के लिए Java बहुत नया है",
+        "cause": "Minecraft का यह वर्शन या इसका मॉड लोडर उस Java से पुराना है जिससे इसे शुरू किया गया, और यह नई class फ़ाइलें नहीं पढ़ सकता।",
+        "fix": "लॉन्चर को इस प्रोफ़ाइल के लिए फिर से Java चुनने दें। यह वही वर्शन चुनेगा जिसके लिए यह Minecraft रिलीज़ बना है।"
+      },
+      "zh": {
+        "title": "Java 对此版本来说太新",
+        "cause": "这个 Minecraft 版本或它的模组加载器比启动它的 Java 更旧，无法读取更新的 class 文件。",
+        "fix": "让启动器重新为此实例选择 Java。它会选择这个 Minecraft 版本所对应的 Java 版本。"
+      },
+      "ja": {
+        "title": "このバージョンには Java が新しすぎます",
+        "cause": "この Minecraft バージョンまたはその Mod ローダーは起動に使った Java より古く、新しいクラスファイルを読めません。",
+        "fix": "このプロファイルの Java を再びランチャーに選ばせてください。この Minecraft リリース向けのバージョンを選びます。"
+      },
+      "ko": {
+        "title": "이 버전에는 Java가 너무 새롭습니다",
+        "cause": "이 Minecraft 버전 또는 모드 로더가 이를 시작한 Java보다 오래되어, 더 새로운 클래스 파일을 읽을 수 없습니다.",
+        "fix": "이 프로필의 Java를 다시 런처가 고르게 하세요. 이 Minecraft 릴리스에 맞는 버전을 고릅니다."
+      }
+    },
+    "heap": {
+      "en": {
+        "title": "Not enough memory for the game",
+        "cause": "Minecraft used all the memory that this profile allows.",
+        "fix": "Raise the memory limit of this profile, or play with fewer mods."
+      },
+      "uk": {
+        "title": "Грі не вистачило пам'яті",
+        "cause": "Minecraft використав усю пам'ять, яку дозволяє цей профіль.",
+        "fix": "Збільште ліміт пам'яті цього профілю або грайте з меншою кількістю модів."
+      },
+      "ru": {
+        "title": "Игре не хватило памяти",
+        "cause": "Minecraft использовал всю память, которую разрешает этот профиль.",
+        "fix": "Увеличьте лимит памяти этого профиля или играйте с меньшим количеством модов."
+      },
+      "pl": {
+        "title": "Za mało pamięci dla gry",
+        "cause": "Minecraft zużył całą pamięć, na jaką pozwala ten profil.",
+        "fix": "Zwiększ limit pamięci tego profilu albo graj z mniejszą liczbą modów."
+      },
+      "de": {
+        "title": "Zu wenig Speicher für das Spiel",
+        "cause": "Minecraft hat den gesamten Speicher verbraucht, den dieses Profil erlaubt.",
+        "fix": "Erhöhe das Speicherlimit dieses Profils oder spiele mit weniger Mods."
+      },
+      "es": {
+        "title": "No hay memoria suficiente para el juego",
+        "cause": "Minecraft usó toda la memoria que permite este perfil.",
+        "fix": "Aumenta el límite de memoria de este perfil o juega con menos mods."
+      },
+      "fr": {
+        "title": "Pas assez de mémoire pour le jeu",
+        "cause": "Minecraft a utilisé toute la mémoire que ce profil autorise.",
+        "fix": "Augmentez la limite de mémoire de ce profil ou jouez avec moins de mods."
+      },
+      "it": {
+        "title": "Memoria insufficiente per il gioco",
+        "cause": "Minecraft ha usato tutta la memoria che questo profilo consente.",
+        "fix": "Aumenta il limite di memoria di questo profilo oppure gioca con meno mod."
+      },
+      "pt": {
+        "title": "Memória insuficiente para o jogo",
+        "cause": "O Minecraft usou toda a memória que este perfil permite.",
+        "fix": "Aumente o limite de memória deste perfil ou jogue com menos mods."
+      },
+      "tr": {
+        "title": "Oyun için yeterli bellek yok",
+        "cause": "Minecraft bu profilin izin verdiği tüm belleği kullandı.",
+        "fix": "Bu profilin bellek sınırını artır veya daha az modla oyna."
+      },
+      "id": {
+        "title": "Memori tidak cukup untuk game",
+        "cause": "Minecraft memakai semua memori yang diizinkan profil ini.",
+        "fix": "Naikkan batas memori profil ini, atau bermain dengan lebih sedikit mod."
+      },
+      "vi": {
+        "title": "Không đủ bộ nhớ cho trò chơi",
+        "cause": "Minecraft đã dùng hết bộ nhớ mà hồ sơ này cho phép.",
+        "fix": "Tăng giới hạn bộ nhớ của hồ sơ này, hoặc chơi với ít mod hơn."
+      },
+      "hi": {
+        "title": "गेम के लिए पर्याप्त मेमोरी नहीं है",
+        "cause": "Minecraft ने वह सारी मेमोरी इस्तेमाल कर ली जिसकी यह प्रोफ़ाइल अनुमति देती है।",
+        "fix": "इस प्रोफ़ाइल की मेमोरी सीमा बढ़ाएँ, या कम मॉड के साथ खेलें।"
+      },
+      "zh": {
+        "title": "游戏内存不足",
+        "cause": "Minecraft 用完了此实例允许的全部内存。",
+        "fix": "提高此实例的内存上限，或减少模组数量。"
+      },
+      "ja": {
+        "title": "ゲームのメモリが不足しています",
+        "cause": "Minecraft がこのプロファイルで許可されたメモリをすべて使い切りました。",
+        "fix": "このプロファイルのメモリ上限を上げるか、Mod の数を減らしてください。"
+      },
+      "ko": {
+        "title": "게임 메모리가 부족합니다",
+        "cause": "Minecraft가 이 프로필에서 허용하는 메모리를 모두 사용했습니다.",
+        "fix": "이 프로필의 메모리 한도를 올리거나, 모드를 줄여서 플레이하세요."
+      }
+    },
+    "systemMemory": {
+      "en": {
+        "title": "The computer has no free memory",
+        "cause": "The operating system could not give Java the memory it asked for. The memory limit of this profile and the other programs that run need more memory than the computer has.",
+        "fix": "Close other programs or lower the memory limit of this profile. On Windows, let the system set the page file size."
+      },
+      "uk": {
+        "title": "На комп'ютері немає вільної пам'яті",
+        "cause": "Операційна система не змогла дати Java потрібну пам'ять. Ліміт пам'яті цього профілю разом з іншими запущеними програмами потребує більше пам'яті, ніж є на комп'ютері.",
+        "fix": "Закрийте інші програми або зменште ліміт пам'яті цього профілю. У Windows дозвольте системі самій задавати розмір файлу підкачки."
+      },
+      "ru": {
+        "title": "На компьютере нет свободной памяти",
+        "cause": "Операционная система не смогла выделить Java нужную память. Лимит памяти этого профиля вместе с другими запущенными программами требует больше памяти, чем есть на компьютере.",
+        "fix": "Закройте другие программы или уменьшите лимит памяти этого профиля. В Windows разрешите системе самой задавать размер файла подкачки."
+      },
+      "pl": {
+        "title": "Komputer nie ma wolnej pamięci",
+        "cause": "System operacyjny nie mógł przydzielić Javie żądanej pamięci. Limit pamięci tego profilu razem z innymi uruchomionymi programami wymaga więcej pamięci, niż ma komputer.",
+        "fix": "Zamknij inne programy lub zmniejsz limit pamięci tego profilu. W Windows pozwól systemowi ustalać rozmiar pliku stronicowania."
+      },
+      "de": {
+        "title": "Der Computer hat keinen freien Speicher",
+        "cause": "Das Betriebssystem konnte Java den angeforderten Speicher nicht geben. Das Speicherlimit dieses Profils und die anderen laufenden Programme brauchen mehr Speicher, als der Computer hat.",
+        "fix": "Schließe andere Programme oder senke das Speicherlimit dieses Profils. Lass unter Windows das System die Größe der Auslagerungsdatei verwalten."
+      },
+      "es": {
+        "title": "El equipo no tiene memoria libre",
+        "cause": "El sistema operativo no pudo dar a Java la memoria que pidió. El límite de memoria de este perfil y los otros programas en ejecución necesitan más memoria de la que tiene el equipo.",
+        "fix": "Cierra otros programas o baja el límite de memoria de este perfil. En Windows, deja que el sistema administre el tamaño del archivo de paginación."
+      },
+      "fr": {
+        "title": "L'ordinateur n'a plus de mémoire libre",
+        "cause": "Le système d'exploitation n'a pas pu donner à Java la mémoire demandée. La limite de mémoire de ce profil et les autres programmes ouverts demandent plus de mémoire que l'ordinateur n'en a.",
+        "fix": "Fermez d'autres programmes ou baissez la limite de mémoire de ce profil. Sous Windows, laissez le système gérer la taille du fichier d'échange."
+      },
+      "it": {
+        "title": "Il computer non ha memoria libera",
+        "cause": "Il sistema operativo non ha potuto dare a Java la memoria richiesta. Il limite di memoria di questo profilo e gli altri programmi in esecuzione richiedono più memoria di quella del computer.",
+        "fix": "Chiudi altri programmi o abbassa il limite di memoria di questo profilo. Su Windows lascia che il sistema gestisca la dimensione del file di paging."
+      },
+      "pt": {
+        "title": "O computador está sem memória livre",
+        "cause": "O sistema operacional não conseguiu dar ao Java a memória pedida. O limite de memória deste perfil e os outros programas abertos precisam de mais memória do que o computador tem.",
+        "fix": "Feche outros programas ou diminua o limite de memória deste perfil. No Windows, deixe o sistema gerenciar o tamanho do arquivo de paginação."
+      },
+      "tr": {
+        "title": "Bilgisayarda boş bellek yok",
+        "cause": "İşletim sistemi Java'ya istediği belleği veremedi. Bu profilin bellek sınırı ve çalışan diğer programlar, bilgisayarda olandan daha fazla bellek gerektiriyor.",
+        "fix": "Diğer programları kapat veya bu profilin bellek sınırını düşür. Windows'ta disk belleği dosyası boyutunu sistemin yönetmesine izin ver."
+      },
+      "id": {
+        "title": "Komputer tidak punya memori kosong",
+        "cause": "Sistem operasi tidak dapat memberi Java memori yang diminta. Batas memori profil ini dan program lain yang berjalan memerlukan memori lebih banyak daripada yang dimiliki komputer.",
+        "fix": "Tutup program lain atau turunkan batas memori profil ini. Di Windows, biarkan sistem mengatur ukuran file paging."
+      },
+      "vi": {
+        "title": "Máy tính không còn bộ nhớ trống",
+        "cause": "Hệ điều hành không thể cấp cho Java bộ nhớ mà nó yêu cầu. Giới hạn bộ nhớ của hồ sơ này cùng các chương trình đang chạy khác cần nhiều bộ nhớ hơn máy tính có.",
+        "fix": "Đóng các chương trình khác hoặc giảm giới hạn bộ nhớ của hồ sơ này. Trên Windows, hãy để hệ thống tự quản lý kích thước tệp hoán trang."
+      },
+      "hi": {
+        "title": "कंप्यूटर में खाली मेमोरी नहीं है",
+        "cause": "ऑपरेटिंग सिस्टम Java को माँगी गई मेमोरी नहीं दे सका। इस प्रोफ़ाइल की मेमोरी सीमा और चल रहे दूसरे प्रोग्रामों को कंप्यूटर की मेमोरी से ज़्यादा चाहिए।",
+        "fix": "दूसरे प्रोग्राम बंद करें या इस प्रोफ़ाइल की मेमोरी सीमा घटाएँ। Windows पर पेज फ़ाइल का आकार सिस्टम को तय करने दें।"
+      },
+      "zh": {
+        "title": "电脑没有可用内存",
+        "cause": "操作系统无法为 Java 分配所需的内存。此实例的内存上限加上其他正在运行的程序，需要的内存超过了电脑拥有的内存。",
+        "fix": "关闭其他程序，或降低此实例的内存上限。在 Windows 上，让系统自动管理页面文件大小。"
+      },
+      "ja": {
+        "title": "コンピューターの空きメモリがありません",
+        "cause": "オペレーティングシステムが Java に要求されたメモリを渡せませんでした。このプロファイルのメモリ上限と実行中の他のプログラムが、コンピューターのメモリより多くを必要としています。",
+        "fix": "他のプログラムを閉じるか、このプロファイルのメモリ上限を下げてください。Windows ではページファイルのサイズをシステムに管理させてください。"
+      },
+      "ko": {
+        "title": "컴퓨터에 사용 가능한 메모리가 없습니다",
+        "cause": "운영 체제가 Java에 요청한 메모리를 주지 못했습니다. 이 프로필의 메모리 한도와 실행 중인 다른 프로그램이 컴퓨터에 있는 메모리보다 많이 필요합니다.",
+        "fix": "다른 프로그램을 닫거나 이 프로필의 메모리 한도를 낮추세요. Windows에서는 페이징 파일 크기를 시스템이 관리하게 하세요."
+      }
+    },
+    "heapReserve": {
+      "en": {
+        "title": "Java could not reserve the memory",
+        "cause": "Java did not start with the memory limit of this profile. This occurs with a 32-bit Java, or with a limit that is larger than the free memory.",
+        "fix": "Let the launcher choose a 64-bit Java, or lower the memory limit."
+      },
+      "uk": {
+        "title": "Java не змогла зарезервувати пам'ять",
+        "cause": "Java не запустилася з лімітом пам'яті цього профілю. Так буває з 32-бітною Java або коли ліміт більший за вільну пам'ять.",
+        "fix": "Дозвольте лаунчеру обрати 64-бітну Java або зменште ліміт пам'яті."
+      },
+      "ru": {
+        "title": "Java не смогла зарезервировать память",
+        "cause": "Java не запустилась с лимитом памяти этого профиля. Так бывает с 32-битной Java или когда лимит больше свободной памяти.",
+        "fix": "Разрешите лаунчеру выбрать 64-битную Java или уменьшите лимит памяти."
+      },
+      "pl": {
+        "title": "Java nie mogła zarezerwować pamięci",
+        "cause": "Java nie uruchomiła się z limitem pamięci tego profilu. Tak dzieje się przy 32-bitowej Javie albo przy limicie większym niż wolna pamięć.",
+        "fix": "Pozwól launcherowi wybrać 64-bitową Javę albo zmniejsz limit pamięci."
+      },
+      "de": {
+        "title": "Java konnte den Speicher nicht reservieren",
+        "cause": "Java ist mit dem Speicherlimit dieses Profils nicht gestartet. Das passiert mit einem 32-Bit-Java oder mit einem Limit, das größer als der freie Speicher ist.",
+        "fix": "Lass den Launcher ein 64-Bit-Java wählen oder senke das Speicherlimit."
+      },
+      "es": {
+        "title": "Java no pudo reservar la memoria",
+        "cause": "Java no se inició con el límite de memoria de este perfil. Ocurre con un Java de 32 bits o con un límite mayor que la memoria libre.",
+        "fix": "Deja que el launcher elija un Java de 64 bits o baja el límite de memoria."
+      },
+      "fr": {
+        "title": "Java n'a pas pu réserver la mémoire",
+        "cause": "Java n'a pas démarré avec la limite de mémoire de ce profil. Cela arrive avec un Java 32 bits ou avec une limite plus grande que la mémoire libre.",
+        "fix": "Laissez le launcher choisir un Java 64 bits ou baissez la limite de mémoire."
+      },
+      "it": {
+        "title": "Java non ha potuto riservare la memoria",
+        "cause": "Java non si è avviato con il limite di memoria di questo profilo. Succede con un Java a 32 bit o con un limite più grande della memoria libera.",
+        "fix": "Lascia che il launcher scelga un Java a 64 bit oppure abbassa il limite di memoria."
+      },
+      "pt": {
+        "title": "O Java não conseguiu reservar a memória",
+        "cause": "O Java não iniciou com o limite de memória deste perfil. Isso acontece com um Java de 32 bits ou com um limite maior que a memória livre.",
+        "fix": "Deixe o launcher escolher um Java de 64 bits ou diminua o limite de memória."
+      },
+      "tr": {
+        "title": "Java belleği ayıramadı",
+        "cause": "Java bu profilin bellek sınırıyla başlamadı. Bu, 32 bit Java ile veya boş bellekten büyük bir sınırla olur.",
+        "fix": "Launcher'ın 64 bit bir Java seçmesine izin ver veya bellek sınırını düşür."
+      },
+      "id": {
+        "title": "Java tidak dapat memesan memori",
+        "cause": "Java tidak mulai dengan batas memori profil ini. Ini terjadi dengan Java 32-bit, atau dengan batas yang lebih besar daripada memori kosong.",
+        "fix": "Biarkan launcher memilih Java 64-bit, atau turunkan batas memori."
+      },
+      "vi": {
+        "title": "Java không thể giữ trước bộ nhớ",
+        "cause": "Java không khởi động được với giới hạn bộ nhớ của hồ sơ này. Điều này xảy ra với Java 32-bit, hoặc khi giới hạn lớn hơn bộ nhớ trống.",
+        "fix": "Cho phép launcher chọn Java 64-bit, hoặc giảm giới hạn bộ nhớ."
+      },
+      "hi": {
+        "title": "Java मेमोरी आरक्षित नहीं कर सका",
+        "cause": "Java इस प्रोफ़ाइल की मेमोरी सीमा के साथ शुरू नहीं हुआ। ऐसा 32-बिट Java के साथ होता है, या तब जब सीमा खाली मेमोरी से बड़ी हो।",
+        "fix": "लॉन्चर को 64-बिट Java चुनने दें, या मेमोरी सीमा घटाएँ।"
+      },
+      "zh": {
+        "title": "Java 无法预留内存",
+        "cause": "Java 无法以此实例的内存上限启动。这通常发生在使用 32 位 Java，或上限大于可用内存时。",
+        "fix": "让启动器选择 64 位 Java，或降低内存上限。"
+      },
+      "ja": {
+        "title": "Java がメモリを確保できませんでした",
+        "cause": "Java がこのプロファイルのメモリ上限で起動しませんでした。32 ビットの Java を使っている場合や、上限が空きメモリより大きい場合に起こります。",
+        "fix": "ランチャーに 64 ビットの Java を選ばせるか、メモリ上限を下げてください。"
+      },
+      "ko": {
+        "title": "Java가 메모리를 예약하지 못했습니다",
+        "cause": "Java가 이 프로필의 메모리 한도로 시작하지 못했습니다. 32비트 Java를 쓰거나, 한도가 사용 가능한 메모리보다 클 때 발생합니다.",
+        "fix": "런처가 64비트 Java를 고르게 하거나, 메모리 한도를 낮추세요."
+      }
+    },
+    "missingDep": {
+      "en": {
+        "title": "A necessary mod is missing",
+        "cause": "The mod {mod} needs {dep}, but {dep} is not installed.",
+        "fix": "Install {dep} for this Minecraft version and mod loader, or switch off {mod}."
+      },
+      "uk": {
+        "title": "Бракує потрібного мода",
+        "cause": "Мод {mod} потребує {dep}, але {dep} не встановлено.",
+        "fix": "Встановіть {dep} для цієї версії Minecraft і завантажувача модів або вимкніть {mod}."
+      },
+      "ru": {
+        "title": "Не хватает нужного мода",
+        "cause": "Мод {mod} требует {dep}, но {dep} не установлен.",
+        "fix": "Установите {dep} для этой версии Minecraft и загрузчика модов или отключите {mod}."
+      },
+      "pl": {
+        "title": "Brakuje wymaganego moda",
+        "cause": "Mod {mod} wymaga {dep}, ale {dep} nie jest zainstalowany.",
+        "fix": "Zainstaluj {dep} dla tej wersji Minecrafta i mod loadera albo wyłącz {mod}."
+      },
+      "de": {
+        "title": "Eine benötigte Mod fehlt",
+        "cause": "Die Mod {mod} benötigt {dep}, aber {dep} ist nicht installiert.",
+        "fix": "Installiere {dep} für diese Minecraft-Version und diesen Mod-Loader oder schalte {mod} aus."
+      },
+      "es": {
+        "title": "Falta un mod necesario",
+        "cause": "El mod {mod} necesita {dep}, pero {dep} no está instalado.",
+        "fix": "Instala {dep} para esta versión de Minecraft y este cargador de mods, o desactiva {mod}."
+      },
+      "fr": {
+        "title": "Un mod nécessaire est absent",
+        "cause": "Le mod {mod} a besoin de {dep}, mais {dep} n'est pas installé.",
+        "fix": "Installez {dep} pour cette version de Minecraft et ce chargeur de mods, ou désactivez {mod}."
+      },
+      "it": {
+        "title": "Manca una mod necessaria",
+        "cause": "La mod {mod} richiede {dep}, ma {dep} non è installata.",
+        "fix": "Installa {dep} per questa versione di Minecraft e questo mod loader, oppure disattiva {mod}."
+      },
+      "pt": {
+        "title": "Falta um mod necessário",
+        "cause": "O mod {mod} precisa de {dep}, mas {dep} não está instalado.",
+        "fix": "Instale {dep} para esta versão do Minecraft e este carregador de mods, ou desative {mod}."
+      },
+      "tr": {
+        "title": "Gerekli bir mod eksik",
+        "cause": "{mod} modu {dep} gerektiriyor, ancak {dep} yüklü değil.",
+        "fix": "Bu Minecraft sürümü ve mod yükleyicisi için {dep} yükle veya {mod} modunu kapat."
+      },
+      "id": {
+        "title": "Mod yang diperlukan tidak ada",
+        "cause": "Mod {mod} memerlukan {dep}, tetapi {dep} tidak terpasang.",
+        "fix": "Pasang {dep} untuk versi Minecraft dan mod loader ini, atau matikan {mod}."
+      },
+      "vi": {
+        "title": "Thiếu một mod cần thiết",
+        "cause": "Mod {mod} cần {dep}, nhưng {dep} chưa được cài.",
+        "fix": "Cài {dep} cho phiên bản Minecraft và trình tải mod này, hoặc tắt {mod}."
+      },
+      "hi": {
+        "title": "एक ज़रूरी मॉड नहीं है",
+        "cause": "मॉड {mod} को {dep} चाहिए, लेकिन {dep} इंस्टॉल नहीं है।",
+        "fix": "इस Minecraft वर्शन और मॉड लोडर के लिए {dep} इंस्टॉल करें, या {mod} बंद करें।"
+      },
+      "zh": {
+        "title": "缺少必需的模组",
+        "cause": "模组 {mod} 需要 {dep}，但 {dep} 未安装。",
+        "fix": "为此 Minecraft 版本和模组加载器安装 {dep}，或关闭 {mod}。"
+      },
+      "ja": {
+        "title": "必要な Mod がありません",
+        "cause": "Mod {mod} には {dep} が必要ですが、{dep} がインストールされていません。",
+        "fix": "この Minecraft バージョンと Mod ローダー用の {dep} をインストールするか、{mod} をオフにしてください。"
+      },
+      "ko": {
+        "title": "필요한 모드가 없습니다",
+        "cause": "모드 {mod}에 {dep}이(가) 필요하지만, {dep}이(가) 설치되어 있지 않습니다.",
+        "fix": "이 Minecraft 버전과 모드 로더용 {dep}을(를) 설치하거나, {mod}을(를) 끄세요."
+      }
+    },
+    "depVersion": {
+      "en": {
+        "title": "A mod needs a different version of another mod",
+        "cause": "The mod {mod} needs a version of {dep} that is different from the installed version.",
+        "fix": "Install the version of {dep} that {mod} asks for, or switch off {mod}."
+      },
+      "uk": {
+        "title": "Моду потрібна інша версія іншого мода",
+        "cause": "Мод {mod} потребує версію {dep}, яка відрізняється від встановленої.",
+        "fix": "Встановіть ту версію {dep}, яку потребує {mod}, або вимкніть {mod}."
+      },
+      "ru": {
+        "title": "Моду нужна другая версия другого мода",
+        "cause": "Мод {mod} требует версию {dep}, которая отличается от установленной.",
+        "fix": "Установите версию {dep}, которую требует {mod}, или отключите {mod}."
+      },
+      "pl": {
+        "title": "Mod wymaga innej wersji innego moda",
+        "cause": "Mod {mod} wymaga wersji {dep} innej niż zainstalowana.",
+        "fix": "Zainstaluj wersję {dep}, której wymaga {mod}, albo wyłącz {mod}."
+      },
+      "de": {
+        "title": "Eine Mod braucht eine andere Version einer anderen Mod",
+        "cause": "Die Mod {mod} braucht eine Version von {dep}, die sich von der installierten unterscheidet.",
+        "fix": "Installiere die Version von {dep}, die {mod} verlangt, oder schalte {mod} aus."
+      },
+      "es": {
+        "title": "Un mod necesita otra versión de otro mod",
+        "cause": "El mod {mod} necesita una versión de {dep} distinta de la instalada.",
+        "fix": "Instala la versión de {dep} que pide {mod}, o desactiva {mod}."
+      },
+      "fr": {
+        "title": "Un mod a besoin d'une autre version d'un autre mod",
+        "cause": "Le mod {mod} a besoin d'une version de {dep} différente de celle installée.",
+        "fix": "Installez la version de {dep} demandée par {mod}, ou désactivez {mod}."
+      },
+      "it": {
+        "title": "Una mod richiede un'altra versione di un'altra mod",
+        "cause": "La mod {mod} richiede una versione di {dep} diversa da quella installata.",
+        "fix": "Installa la versione di {dep} richiesta da {mod}, oppure disattiva {mod}."
+      },
+      "pt": {
+        "title": "Um mod precisa de outra versão de outro mod",
+        "cause": "O mod {mod} precisa de uma versão de {dep} diferente da instalada.",
+        "fix": "Instale a versão de {dep} que {mod} pede, ou desative {mod}."
+      },
+      "tr": {
+        "title": "Bir mod, başka bir modun farklı bir sürümünü gerektiriyor",
+        "cause": "{mod} modu, yüklü olandan farklı bir {dep} sürümü gerektiriyor.",
+        "fix": "{mod} modunun istediği {dep} sürümünü yükle veya {mod} modunu kapat."
+      },
+      "id": {
+        "title": "Mod memerlukan versi lain dari mod lain",
+        "cause": "Mod {mod} memerlukan versi {dep} yang berbeda dari versi yang terpasang.",
+        "fix": "Pasang versi {dep} yang diminta {mod}, atau matikan {mod}."
+      },
+      "vi": {
+        "title": "Một mod cần phiên bản khác của mod khác",
+        "cause": "Mod {mod} cần một phiên bản {dep} khác với phiên bản đã cài.",
+        "fix": "Cài phiên bản {dep} mà {mod} yêu cầu, hoặc tắt {mod}."
+      },
+      "hi": {
+        "title": "एक मॉड को दूसरे मॉड का अलग वर्शन चाहिए",
+        "cause": "मॉड {mod} को {dep} का ऐसा वर्शन चाहिए जो इंस्टॉल वर्शन से अलग है।",
+        "fix": "{dep} का वह वर्शन इंस्टॉल करें जो {mod} माँगता है, या {mod} बंद करें।"
+      },
+      "zh": {
+        "title": "模组需要另一个模组的其他版本",
+        "cause": "模组 {mod} 需要的 {dep} 版本与已安装的版本不同。",
+        "fix": "安装 {mod} 要求的 {dep} 版本，或关闭 {mod}。"
+      },
+      "ja": {
+        "title": "Mod が別の Mod の異なるバージョンを必要としています",
+        "cause": "Mod {mod} は、インストールされているものとは異なるバージョンの {dep} を必要としています。",
+        "fix": "{mod} が求めるバージョンの {dep} をインストールするか、{mod} をオフにしてください。"
+      },
+      "ko": {
+        "title": "모드가 다른 모드의 다른 버전을 필요로 합니다",
+        "cause": "모드 {mod}은(는) 설치된 것과 다른 버전의 {dep}이(가) 필요합니다.",
+        "fix": "{mod}이(가) 요구하는 버전의 {dep}을(를) 설치하거나, {mod}을(를) 끄세요."
+      }
+    },
+    "wrongMinecraft": {
+      "en": {
+        "title": "A mod is for a different Minecraft version",
+        "cause": "The mod {mod} is made for a different Minecraft version than this profile.",
+        "fix": "Switch off {mod}, or replace it with a version for this Minecraft version."
+      },
+      "uk": {
+        "title": "Мод для іншої версії Minecraft",
+        "cause": "Мод {mod} створено для іншої версії Minecraft, ніж у цьому профілі.",
+        "fix": "Вимкніть {mod} або замініть його версією для цієї версії Minecraft."
+      },
+      "ru": {
+        "title": "Мод для другой версии Minecraft",
+        "cause": "Мод {mod} создан для другой версии Minecraft, чем в этом профиле.",
+        "fix": "Отключите {mod} или замените его версией для этой версии Minecraft."
+      },
+      "pl": {
+        "title": "Mod jest dla innej wersji Minecrafta",
+        "cause": "Mod {mod} powstał dla innej wersji Minecrafta niż ten profil.",
+        "fix": "Wyłącz {mod} albo zastąp go wersją dla tej wersji Minecrafta."
+      },
+      "de": {
+        "title": "Eine Mod ist für eine andere Minecraft-Version",
+        "cause": "Die Mod {mod} ist für eine andere Minecraft-Version gemacht als dieses Profil.",
+        "fix": "Schalte {mod} aus oder ersetze sie durch eine Version für diese Minecraft-Version."
+      },
+      "es": {
+        "title": "Un mod es para otra versión de Minecraft",
+        "cause": "El mod {mod} está hecho para una versión de Minecraft distinta de la de este perfil.",
+        "fix": "Desactiva {mod} o reemplázalo por una versión para esta versión de Minecraft."
+      },
+      "fr": {
+        "title": "Un mod est pour une autre version de Minecraft",
+        "cause": "Le mod {mod} est fait pour une autre version de Minecraft que ce profil.",
+        "fix": "Désactivez {mod} ou remplacez-le par une version pour cette version de Minecraft."
+      },
+      "it": {
+        "title": "Una mod è per un'altra versione di Minecraft",
+        "cause": "La mod {mod} è fatta per una versione di Minecraft diversa da quella di questo profilo.",
+        "fix": "Disattiva {mod} o sostituiscila con una versione per questa versione di Minecraft."
+      },
+      "pt": {
+        "title": "Um mod é para outra versão do Minecraft",
+        "cause": "O mod {mod} foi feito para uma versão do Minecraft diferente da deste perfil.",
+        "fix": "Desative {mod} ou troque-o por uma versão para esta versão do Minecraft."
+      },
+      "tr": {
+        "title": "Bir mod başka bir Minecraft sürümü için",
+        "cause": "{mod} modu bu profilden farklı bir Minecraft sürümü için yapılmış.",
+        "fix": "{mod} modunu kapat veya bu Minecraft sürümüne uygun bir sürümle değiştir."
+      },
+      "id": {
+        "title": "Mod untuk versi Minecraft lain",
+        "cause": "Mod {mod} dibuat untuk versi Minecraft yang berbeda dari profil ini.",
+        "fix": "Matikan {mod}, atau ganti dengan versi untuk versi Minecraft ini."
+      },
+      "vi": {
+        "title": "Một mod dành cho phiên bản Minecraft khác",
+        "cause": "Mod {mod} được tạo cho một phiên bản Minecraft khác với hồ sơ này.",
+        "fix": "Tắt {mod}, hoặc thay bằng phiên bản dành cho phiên bản Minecraft này."
+      },
+      "hi": {
+        "title": "एक मॉड दूसरे Minecraft वर्शन के लिए है",
+        "cause": "मॉड {mod} इस प्रोफ़ाइल से अलग Minecraft वर्शन के लिए बना है।",
+        "fix": "{mod} बंद करें, या इसे इस Minecraft वर्शन वाले वर्शन से बदलें।"
+      },
+      "zh": {
+        "title": "模组适用于其他 Minecraft 版本",
+        "cause": "模组 {mod} 是为与此实例不同的 Minecraft 版本制作的。",
+        "fix": "关闭 {mod}，或换成适用于此 Minecraft 版本的版本。"
+      },
+      "ja": {
+        "title": "Mod が別の Minecraft バージョン用です",
+        "cause": "Mod {mod} はこのプロファイルとは異なる Minecraft バージョン用に作られています。",
+        "fix": "{mod} をオフにするか、この Minecraft バージョン用のものに置き換えてください。"
+      },
+      "ko": {
+        "title": "모드가 다른 Minecraft 버전용입니다",
+        "cause": "모드 {mod}은(는) 이 프로필과 다른 Minecraft 버전용으로 만들어졌습니다.",
+        "fix": "{mod}을(를) 끄거나, 이 Minecraft 버전용으로 바꾸세요."
+      }
+    },
+    "wrongLoader": {
+      "en": {
+        "title": "A mod is for a different mod loader",
+        "cause": "The file {file} is made for a different mod loader, and it cannot load in this profile.",
+        "fix": "Switch off {file}, or replace it with a version for the mod loader of this profile."
+      },
+      "uk": {
+        "title": "Мод для іншого завантажувача модів",
+        "cause": "Файл {file} створено для іншого завантажувача модів, і він не може завантажитися у цьому профілі.",
+        "fix": "Вимкніть {file} або замініть його версією для завантажувача модів цього профілю."
+      },
+      "ru": {
+        "title": "Мод для другого загрузчика модов",
+        "cause": "Файл {file} создан для другого загрузчика модов и не может загрузиться в этом профиле.",
+        "fix": "Отключите {file} или замените его версией для загрузчика модов этого профиля."
+      },
+      "pl": {
+        "title": "Mod jest dla innego mod loadera",
+        "cause": "Plik {file} powstał dla innego mod loadera i nie może się załadować w tym profilu.",
+        "fix": "Wyłącz {file} albo zastąp go wersją dla mod loadera tego profilu."
+      },
+      "de": {
+        "title": "Eine Mod ist für einen anderen Mod-Loader",
+        "cause": "Die Datei {file} ist für einen anderen Mod-Loader gemacht und kann in diesem Profil nicht laden.",
+        "fix": "Schalte {file} aus oder ersetze sie durch eine Version für den Mod-Loader dieses Profils."
+      },
+      "es": {
+        "title": "Un mod es para otro cargador de mods",
+        "cause": "El archivo {file} está hecho para otro cargador de mods y no puede cargarse en este perfil.",
+        "fix": "Desactiva {file} o reemplázalo por una versión para el cargador de mods de este perfil."
+      },
+      "fr": {
+        "title": "Un mod est pour un autre chargeur de mods",
+        "cause": "Le fichier {file} est fait pour un autre chargeur de mods et ne peut pas se charger dans ce profil.",
+        "fix": "Désactivez {file} ou remplacez-le par une version pour le chargeur de mods de ce profil."
+      },
+      "it": {
+        "title": "Una mod è per un altro mod loader",
+        "cause": "Il file {file} è fatto per un altro mod loader e non può essere caricato in questo profilo.",
+        "fix": "Disattiva {file} o sostituiscilo con una versione per il mod loader di questo profilo."
+      },
+      "pt": {
+        "title": "Um mod é para outro carregador de mods",
+        "cause": "O arquivo {file} foi feito para outro carregador de mods e não pode ser carregado neste perfil.",
+        "fix": "Desative {file} ou troque-o por uma versão para o carregador de mods deste perfil."
+      },
+      "tr": {
+        "title": "Bir mod başka bir mod yükleyicisi için",
+        "cause": "{file} dosyası başka bir mod yükleyicisi için yapılmış ve bu profilde yüklenemiyor.",
+        "fix": "{file} dosyasını kapat veya bu profilin mod yükleyicisine uygun bir sürümle değiştir."
+      },
+      "id": {
+        "title": "Mod untuk mod loader lain",
+        "cause": "File {file} dibuat untuk mod loader lain dan tidak dapat dimuat di profil ini.",
+        "fix": "Matikan {file}, atau ganti dengan versi untuk mod loader profil ini."
+      },
+      "vi": {
+        "title": "Một mod dành cho trình tải mod khác",
+        "cause": "Tệp {file} được tạo cho một trình tải mod khác và không thể tải trong hồ sơ này.",
+        "fix": "Tắt {file}, hoặc thay bằng phiên bản dành cho trình tải mod của hồ sơ này."
+      },
+      "hi": {
+        "title": "एक मॉड दूसरे मॉड लोडर के लिए है",
+        "cause": "फ़ाइल {file} दूसरे मॉड लोडर के लिए बनी है, और इस प्रोफ़ाइल में लोड नहीं हो सकती।",
+        "fix": "{file} बंद करें, या इसे इस प्रोफ़ाइल के मॉड लोडर वाले वर्शन से बदलें।"
+      },
+      "zh": {
+        "title": "模组适用于其他模组加载器",
+        "cause": "文件 {file} 是为其他模组加载器制作的，无法在此实例中加载。",
+        "fix": "关闭 {file}，或换成适用于此实例模组加载器的版本。"
+      },
+      "ja": {
+        "title": "Mod が別の Mod ローダー用です",
+        "cause": "ファイル {file} は別の Mod ローダー用に作られており、このプロファイルでは読み込めません。",
+        "fix": "{file} をオフにするか、このプロファイルの Mod ローダー用のものに置き換えてください。"
+      },
+      "ko": {
+        "title": "모드가 다른 모드 로더용입니다",
+        "cause": "파일 {file}은(는) 다른 모드 로더용으로 만들어져 이 프로필에서 불러올 수 없습니다.",
+        "fix": "{file}을(를) 끄거나, 이 프로필의 모드 로더용으로 바꾸세요."
+      }
+    },
+    "duplicate": {
+      "en": {
+        "title": "The same mod is installed two times",
+        "cause": "More than one file in the mods folder contains the mod {mod}.",
+        "fix": "Keep one copy of {mod}. The launcher keeps the newest file and switches off the other files."
+      },
+      "uk": {
+        "title": "Той самий мод встановлено двічі",
+        "cause": "Мод {mod} міститься в кількох файлах у теці модів.",
+        "fix": "Залиште одну копію {mod}. Лаунчер залишить найновіший файл і вимкне інші."
+      },
+      "ru": {
+        "title": "Один и тот же мод установлен дважды",
+        "cause": "Мод {mod} содержится в нескольких файлах в папке модов.",
+        "fix": "Оставьте одну копию {mod}. Лаунчер оставит самый новый файл и отключит остальные."
+      },
+      "pl": {
+        "title": "Ten sam mod jest zainstalowany dwa razy",
+        "cause": "Mod {mod} jest w więcej niż jednym pliku w folderze modów.",
+        "fix": "Zostaw jedną kopię {mod}. Launcher zostawi najnowszy plik i wyłączy pozostałe."
+      },
+      "de": {
+        "title": "Dieselbe Mod ist zweimal installiert",
+        "cause": "Mehr als eine Datei im Mod-Ordner enthält die Mod {mod}.",
+        "fix": "Behalte eine Kopie von {mod}. Der Launcher behält die neueste Datei und schaltet die anderen aus."
+      },
+      "es": {
+        "title": "El mismo mod está instalado dos veces",
+        "cause": "Más de un archivo de la carpeta de mods contiene el mod {mod}.",
+        "fix": "Conserva una copia de {mod}. El launcher conserva el archivo más nuevo y desactiva los demás."
+      },
+      "fr": {
+        "title": "Le même mod est installé deux fois",
+        "cause": "Plus d'un fichier du dossier des mods contient le mod {mod}.",
+        "fix": "Gardez une seule copie de {mod}. Le launcher garde le fichier le plus récent et désactive les autres."
+      },
+      "it": {
+        "title": "La stessa mod è installata due volte",
+        "cause": "Più di un file nella cartella delle mod contiene la mod {mod}.",
+        "fix": "Tieni una sola copia di {mod}. Il launcher tiene il file più recente e disattiva gli altri."
+      },
+      "pt": {
+        "title": "O mesmo mod está instalado duas vezes",
+        "cause": "Mais de um arquivo na pasta de mods contém o mod {mod}.",
+        "fix": "Mantenha uma cópia de {mod}. O launcher mantém o arquivo mais novo e desativa os outros."
+      },
+      "tr": {
+        "title": "Aynı mod iki kez yüklü",
+        "cause": "Mod klasöründe birden fazla dosya {mod} modunu içeriyor.",
+        "fix": "{mod} modunun bir kopyasını tut. Launcher en yeni dosyayı tutar ve diğerlerini kapatır."
+      },
+      "id": {
+        "title": "Mod yang sama terpasang dua kali",
+        "cause": "Lebih dari satu file di folder mod berisi mod {mod}.",
+        "fix": "Simpan satu salinan {mod}. Launcher menyimpan file terbaru dan mematikan file lainnya."
+      },
+      "vi": {
+        "title": "Cùng một mod được cài hai lần",
+        "cause": "Có hơn một tệp trong thư mục mod chứa mod {mod}.",
+        "fix": "Giữ một bản của {mod}. Launcher giữ tệp mới nhất và tắt các tệp khác."
+      },
+      "hi": {
+        "title": "एक ही मॉड दो बार इंस्टॉल है",
+        "cause": "मॉड फ़ोल्डर में एक से ज़्यादा फ़ाइलों में मॉड {mod} है।",
+        "fix": "{mod} की एक कॉपी रखें। लॉन्चर सबसे नई फ़ाइल रखता है और बाकी फ़ाइलें बंद कर देता है।"
+      },
+      "zh": {
+        "title": "同一个模组安装了两次",
+        "cause": "模组文件夹中有多个文件包含模组 {mod}。",
+        "fix": "只保留一份 {mod}。启动器会保留最新的文件并关闭其他文件。"
+      },
+      "ja": {
+        "title": "同じ Mod が二重にインストールされています",
+        "cause": "Mod フォルダー内の複数のファイルに Mod {mod} が含まれています。",
+        "fix": "{mod} を一つだけ残してください。ランチャーは最新のファイルを残し、ほかのファイルをオフにします。"
+      },
+      "ko": {
+        "title": "같은 모드가 두 번 설치되어 있습니다",
+        "cause": "모드 폴더의 파일 여러 개에 모드 {mod}이(가) 들어 있습니다.",
+        "fix": "{mod}은(는) 하나만 남기세요. 런처는 가장 최신 파일을 남기고 나머지를 끕니다."
+      }
+    },
+    "incompatible": {
+      "en": {
+        "title": "Two mods do not work together",
+        "cause": "The mod {mod} is marked as incompatible with {other}.",
+        "fix": "Switch off one of the two mods, or find versions that work together."
+      },
+      "uk": {
+        "title": "Два моди не працюють разом",
+        "cause": "Мод {mod} позначено як несумісний з {other}.",
+        "fix": "Вимкніть один з двох модів або знайдіть версії, які працюють разом."
+      },
+      "ru": {
+        "title": "Два мода не работают вместе",
+        "cause": "Мод {mod} отмечен как несовместимый с {other}.",
+        "fix": "Отключите один из двух модов или найдите версии, которые работают вместе."
+      },
+      "pl": {
+        "title": "Dwa mody nie działają razem",
+        "cause": "Mod {mod} jest oznaczony jako niezgodny z {other}.",
+        "fix": "Wyłącz jeden z tych dwóch modów albo znajdź wersje, które działają razem."
+      },
+      "de": {
+        "title": "Zwei Mods funktionieren nicht zusammen",
+        "cause": "Die Mod {mod} ist als inkompatibel mit {other} markiert.",
+        "fix": "Schalte eine der beiden Mods aus oder suche Versionen, die zusammen funktionieren."
+      },
+      "es": {
+        "title": "Dos mods no funcionan juntos",
+        "cause": "El mod {mod} está marcado como incompatible con {other}.",
+        "fix": "Desactiva uno de los dos mods o busca versiones que funcionen juntas."
+      },
+      "fr": {
+        "title": "Deux mods ne fonctionnent pas ensemble",
+        "cause": "Le mod {mod} est marqué comme incompatible avec {other}.",
+        "fix": "Désactivez l'un des deux mods ou trouvez des versions qui fonctionnent ensemble."
+      },
+      "it": {
+        "title": "Due mod non funzionano insieme",
+        "cause": "La mod {mod} è segnata come incompatibile con {other}.",
+        "fix": "Disattiva una delle due mod o trova versioni che funzionano insieme."
+      },
+      "pt": {
+        "title": "Dois mods não funcionam juntos",
+        "cause": "O mod {mod} está marcado como incompatível com {other}.",
+        "fix": "Desative um dos dois mods ou encontre versões que funcionem juntas."
+      },
+      "tr": {
+        "title": "İki mod birlikte çalışmıyor",
+        "cause": "{mod} modu {other} ile uyumsuz olarak işaretlenmiş.",
+        "fix": "İki moddan birini kapat veya birlikte çalışan sürümler bul."
+      },
+      "id": {
+        "title": "Dua mod tidak bekerja bersama",
+        "cause": "Mod {mod} ditandai tidak kompatibel dengan {other}.",
+        "fix": "Matikan salah satu dari dua mod itu, atau cari versi yang bekerja bersama."
+      },
+      "vi": {
+        "title": "Hai mod không hoạt động cùng nhau",
+        "cause": "Mod {mod} được đánh dấu là không tương thích với {other}.",
+        "fix": "Tắt một trong hai mod, hoặc tìm các phiên bản hoạt động cùng nhau."
+      },
+      "hi": {
+        "title": "दो मॉड साथ में काम नहीं करते",
+        "cause": "मॉड {mod} को {other} के साथ असंगत बताया गया है।",
+        "fix": "दोनों में से एक मॉड बंद करें, या ऐसे वर्शन खोजें जो साथ में काम करें।"
+      },
+      "zh": {
+        "title": "两个模组不能一起使用",
+        "cause": "模组 {mod} 被标记为与 {other} 不兼容。",
+        "fix": "关闭其中一个模组，或寻找可以一起使用的版本。"
+      },
+      "ja": {
+        "title": "二つの Mod が一緒に動きません",
+        "cause": "Mod {mod} は {other} と互換性がないと指定されています。",
+        "fix": "どちらかの Mod をオフにするか、一緒に動くバージョンを探してください。"
+      },
+      "ko": {
+        "title": "두 모드가 함께 작동하지 않습니다",
+        "cause": "모드 {mod}은(는) {other}과(와) 호환되지 않는다고 표시되어 있습니다.",
+        "fix": "두 모드 중 하나를 끄거나, 함께 작동하는 버전을 찾으세요."
+      }
+    },
+    "mixin": {
+      "en": {
+        "title": "A mod could not change the game code",
+        "cause": "The mod {mod} failed when it changed the Minecraft code (mixin error). Usually it conflicts with a different mod or it is not made for this Minecraft version.",
+        "fix": "Switch off {mod} or update it. If the game then starts, find a newer version of {mod}."
+      },
+      "uk": {
+        "title": "Мод не зміг змінити код гри",
+        "cause": "Мод {mod} зазнав помилки, коли змінював код Minecraft (помилка mixin). Зазвичай він конфліктує з іншим модом або не створений для цієї версії Minecraft.",
+        "fix": "Вимкніть {mod} або оновіть його. Якщо після цього гра запуститься, знайдіть новішу версію {mod}."
+      },
+      "ru": {
+        "title": "Мод не смог изменить код игры",
+        "cause": "Мод {mod} выдал ошибку, когда изменял код Minecraft (ошибка mixin). Обычно он конфликтует с другим модом или не создан для этой версии Minecraft.",
+        "fix": "Отключите {mod} или обновите его. Если после этого игра запустится, найдите более новую версию {mod}."
+      },
+      "pl": {
+        "title": "Mod nie mógł zmienić kodu gry",
+        "cause": "Mod {mod} zgłosił błąd podczas zmiany kodu Minecrafta (błąd mixin). Zwykle jest w konflikcie z innym modem albo nie powstał dla tej wersji Minecrafta.",
+        "fix": "Wyłącz {mod} albo go zaktualizuj. Jeśli gra wtedy się uruchomi, znajdź nowszą wersję {mod}."
+      },
+      "de": {
+        "title": "Eine Mod konnte den Spielcode nicht ändern",
+        "cause": "Die Mod {mod} ist beim Ändern des Minecraft-Codes gescheitert (Mixin-Fehler). Meist steht sie im Konflikt mit einer anderen Mod oder ist nicht für diese Minecraft-Version gemacht.",
+        "fix": "Schalte {mod} aus oder aktualisiere sie. Startet das Spiel danach, suche eine neuere Version von {mod}."
+      },
+      "es": {
+        "title": "Un mod no pudo cambiar el código del juego",
+        "cause": "El mod {mod} falló al cambiar el código de Minecraft (error de mixin). Normalmente entra en conflicto con otro mod o no está hecho para esta versión de Minecraft.",
+        "fix": "Desactiva {mod} o actualízalo. Si después el juego se inicia, busca una versión más nueva de {mod}."
+      },
+      "fr": {
+        "title": "Un mod n'a pas pu modifier le code du jeu",
+        "cause": "Le mod {mod} a échoué en modifiant le code de Minecraft (erreur mixin). En général, il entre en conflit avec un autre mod ou n'est pas fait pour cette version de Minecraft.",
+        "fix": "Désactivez {mod} ou mettez-le à jour. Si le jeu démarre ensuite, cherchez une version plus récente de {mod}."
+      },
+      "it": {
+        "title": "Una mod non ha potuto modificare il codice del gioco",
+        "cause": "La mod {mod} ha avuto un errore mentre modificava il codice di Minecraft (errore mixin). Di solito è in conflitto con un'altra mod o non è fatta per questa versione di Minecraft.",
+        "fix": "Disattiva {mod} o aggiornala. Se poi il gioco si avvia, cerca una versione più recente di {mod}."
+      },
+      "pt": {
+        "title": "Um mod não conseguiu alterar o código do jogo",
+        "cause": "O mod {mod} falhou ao alterar o código do Minecraft (erro de mixin). Normalmente ele entra em conflito com outro mod ou não foi feito para esta versão do Minecraft.",
+        "fix": "Desative {mod} ou atualize-o. Se o jogo iniciar depois disso, procure uma versão mais nova de {mod}."
+      },
+      "tr": {
+        "title": "Bir mod oyun kodunu değiştiremedi",
+        "cause": "{mod} modu Minecraft kodunu değiştirirken hata verdi (mixin hatası). Genellikle başka bir modla çakışıyor veya bu Minecraft sürümü için yapılmamış.",
+        "fix": "{mod} modunu kapat veya güncelle. Oyun sonra açılırsa {mod} için daha yeni bir sürüm bul."
+      },
+      "id": {
+        "title": "Mod tidak dapat mengubah kode game",
+        "cause": "Mod {mod} gagal saat mengubah kode Minecraft (galat mixin). Biasanya mod ini berkonflik dengan mod lain atau tidak dibuat untuk versi Minecraft ini.",
+        "fix": "Matikan {mod} atau perbarui. Jika game kemudian berjalan, cari versi {mod} yang lebih baru."
+      },
+      "vi": {
+        "title": "Một mod không thể thay đổi mã trò chơi",
+        "cause": "Mod {mod} bị lỗi khi thay đổi mã Minecraft (lỗi mixin). Thường thì nó xung đột với mod khác hoặc không được tạo cho phiên bản Minecraft này.",
+        "fix": "Tắt {mod} hoặc cập nhật nó. Nếu sau đó trò chơi khởi động được, hãy tìm phiên bản mới hơn của {mod}."
+      },
+      "hi": {
+        "title": "एक मॉड गेम का कोड नहीं बदल सका",
+        "cause": "मॉड {mod} Minecraft का कोड बदलते समय विफल रहा (mixin त्रुटि)। आम तौर पर यह किसी दूसरे मॉड से टकराता है या इस Minecraft वर्शन के लिए नहीं बना है।",
+        "fix": "{mod} बंद करें या अपडेट करें। अगर इसके बाद गेम शुरू हो जाए, तो {mod} का नया वर्शन खोजें।"
+      },
+      "zh": {
+        "title": "模组无法修改游戏代码",
+        "cause": "模组 {mod} 在修改 Minecraft 代码时失败（mixin 错误）。通常是它与其他模组冲突，或不适用于此 Minecraft 版本。",
+        "fix": "关闭或更新 {mod}。如果之后游戏能启动，请寻找 {mod} 的更新版本。"
+      },
+      "ja": {
+        "title": "Mod がゲームのコードを変更できませんでした",
+        "cause": "Mod {mod} が Minecraft のコードを変更する際に失敗しました（mixin エラー）。通常は別の Mod と競合しているか、この Minecraft バージョン用ではありません。",
+        "fix": "{mod} をオフにするか更新してください。その後ゲームが起動するなら、{mod} の新しいバージョンを探してください。"
+      },
+      "ko": {
+        "title": "모드가 게임 코드를 변경하지 못했습니다",
+        "cause": "모드 {mod}이(가) Minecraft 코드를 변경하다가 실패했습니다(mixin 오류). 보통 다른 모드와 충돌하거나 이 Minecraft 버전용이 아닙니다.",
+        "fix": "{mod}을(를) 끄거나 업데이트하세요. 그 후 게임이 시작되면 {mod}의 새 버전을 찾으세요."
+      }
+    },
+    "modStartup": {
+      "en": {
+        "title": "A mod stopped the game during loading",
+        "cause": "The mod {mod} caused an error while the game was loading.",
+        "fix": "Switch off {mod} or update it, then start the game again."
+      },
+      "uk": {
+        "title": "Мод зупинив гру під час завантаження",
+        "cause": "Мод {mod} спричинив помилку під час завантаження гри.",
+        "fix": "Вимкніть {mod} або оновіть його, потім запустіть гру знову."
+      },
+      "ru": {
+        "title": "Мод остановил игру во время загрузки",
+        "cause": "Мод {mod} вызвал ошибку во время загрузки игры.",
+        "fix": "Отключите {mod} или обновите его, затем запустите игру снова."
+      },
+      "pl": {
+        "title": "Mod zatrzymał grę podczas ładowania",
+        "cause": "Mod {mod} spowodował błąd podczas ładowania gry.",
+        "fix": "Wyłącz {mod} albo go zaktualizuj, a potem uruchom grę ponownie."
+      },
+      "de": {
+        "title": "Eine Mod hat das Spiel beim Laden gestoppt",
+        "cause": "Die Mod {mod} hat beim Laden des Spiels einen Fehler verursacht.",
+        "fix": "Schalte {mod} aus oder aktualisiere sie und starte das Spiel erneut."
+      },
+      "es": {
+        "title": "Un mod detuvo el juego durante la carga",
+        "cause": "El mod {mod} causó un error mientras el juego cargaba.",
+        "fix": "Desactiva {mod} o actualízalo y vuelve a iniciar el juego."
+      },
+      "fr": {
+        "title": "Un mod a arrêté le jeu pendant le chargement",
+        "cause": "Le mod {mod} a causé une erreur pendant le chargement du jeu.",
+        "fix": "Désactivez {mod} ou mettez-le à jour, puis relancez le jeu."
+      },
+      "it": {
+        "title": "Una mod ha fermato il gioco durante il caricamento",
+        "cause": "La mod {mod} ha causato un errore durante il caricamento del gioco.",
+        "fix": "Disattiva {mod} o aggiornala, poi avvia di nuovo il gioco."
+      },
+      "pt": {
+        "title": "Um mod parou o jogo durante o carregamento",
+        "cause": "O mod {mod} causou um erro enquanto o jogo carregava.",
+        "fix": "Desative {mod} ou atualize-o e inicie o jogo de novo."
+      },
+      "tr": {
+        "title": "Bir mod yükleme sırasında oyunu durdurdu",
+        "cause": "{mod} modu oyun yüklenirken bir hataya neden oldu.",
+        "fix": "{mod} modunu kapat veya güncelle, sonra oyunu yeniden başlat."
+      },
+      "id": {
+        "title": "Mod menghentikan game saat memuat",
+        "cause": "Mod {mod} menyebabkan galat saat game dimuat.",
+        "fix": "Matikan {mod} atau perbarui, lalu jalankan game lagi."
+      },
+      "vi": {
+        "title": "Một mod đã dừng trò chơi khi đang tải",
+        "cause": "Mod {mod} đã gây lỗi trong lúc trò chơi đang tải.",
+        "fix": "Tắt {mod} hoặc cập nhật nó, rồi khởi động lại trò chơi."
+      },
+      "hi": {
+        "title": "एक मॉड ने लोडिंग के दौरान गेम रोक दिया",
+        "cause": "मॉड {mod} ने गेम लोड होते समय त्रुटि पैदा की।",
+        "fix": "{mod} बंद करें या अपडेट करें, फिर गेम दोबारा शुरू करें।"
+      },
+      "zh": {
+        "title": "模组在加载时使游戏停止",
+        "cause": "模组 {mod} 在游戏加载时引发了错误。",
+        "fix": "关闭或更新 {mod}，然后重新启动游戏。"
+      },
+      "ja": {
+        "title": "読み込み中に Mod がゲームを止めました",
+        "cause": "Mod {mod} がゲームの読み込み中にエラーを起こしました。",
+        "fix": "{mod} をオフにするか更新してから、ゲームを再び起動してください。"
+      },
+      "ko": {
+        "title": "로딩 중 모드가 게임을 멈췄습니다",
+        "cause": "모드 {mod}이(가) 게임 로딩 중 오류를 일으켰습니다.",
+        "fix": "{mod}을(를) 끄거나 업데이트한 다음 게임을 다시 시작하세요."
+      }
+    },
+    "corruptJar": {
+      "en": {
+        "title": "A mod file is damaged",
+        "cause": "The file {file} is not a complete jar file. It is damaged or it did not fully download.",
+        "fix": "Switch off {file} and download it again."
+      },
+      "uk": {
+        "title": "Файл мода пошкоджено",
+        "cause": "Файл {file} не є повним jar-файлом. Він пошкоджений або завантажився не повністю.",
+        "fix": "Вимкніть {file} і завантажте його знову."
+      },
+      "ru": {
+        "title": "Файл мода повреждён",
+        "cause": "Файл {file} не является полным jar-файлом. Он повреждён или скачался не полностью.",
+        "fix": "Отключите {file} и скачайте его снова."
+      },
+      "pl": {
+        "title": "Plik moda jest uszkodzony",
+        "cause": "Plik {file} nie jest pełnym plikiem jar. Jest uszkodzony albo nie pobrał się w całości.",
+        "fix": "Wyłącz {file} i pobierz go ponownie."
+      },
+      "de": {
+        "title": "Eine Mod-Datei ist beschädigt",
+        "cause": "Die Datei {file} ist keine vollständige JAR-Datei. Sie ist beschädigt oder wurde nicht vollständig heruntergeladen.",
+        "fix": "Schalte {file} aus und lade sie erneut herunter."
+      },
+      "es": {
+        "title": "Un archivo de mod está dañado",
+        "cause": "El archivo {file} no es un archivo jar completo. Está dañado o no se descargó por completo.",
+        "fix": "Desactiva {file} y descárgalo de nuevo."
+      },
+      "fr": {
+        "title": "Un fichier de mod est endommagé",
+        "cause": "Le fichier {file} n'est pas un fichier jar complet. Il est endommagé ou n'a pas été entièrement téléchargé.",
+        "fix": "Désactivez {file} et téléchargez-le à nouveau."
+      },
+      "it": {
+        "title": "Un file di mod è danneggiato",
+        "cause": "Il file {file} non è un file jar completo. È danneggiato oppure non è stato scaricato del tutto.",
+        "fix": "Disattiva {file} e scaricalo di nuovo."
+      },
+      "pt": {
+        "title": "Um arquivo de mod está danificado",
+        "cause": "O arquivo {file} não é um arquivo jar completo. Ele está danificado ou não foi baixado por completo.",
+        "fix": "Desative {file} e baixe-o de novo."
+      },
+      "tr": {
+        "title": "Bir mod dosyası hasarlı",
+        "cause": "{file} dosyası tam bir jar dosyası değil. Hasarlı veya tamamen indirilmemiş.",
+        "fix": "{file} dosyasını kapat ve yeniden indir."
+      },
+      "id": {
+        "title": "File mod rusak",
+        "cause": "File {file} bukan file jar yang lengkap. File ini rusak atau tidak terunduh sepenuhnya.",
+        "fix": "Matikan {file} dan unduh lagi."
+      },
+      "vi": {
+        "title": "Một tệp mod bị hỏng",
+        "cause": "Tệp {file} không phải là tệp jar hoàn chỉnh. Nó bị hỏng hoặc chưa được tải về đầy đủ.",
+        "fix": "Tắt {file} và tải lại."
+      },
+      "hi": {
+        "title": "एक मॉड फ़ाइल खराब है",
+        "cause": "फ़ाइल {file} पूरी jar फ़ाइल नहीं है। यह खराब है या पूरी डाउनलोड नहीं हुई।",
+        "fix": "{file} बंद करें और इसे दोबारा डाउनलोड करें।"
+      },
+      "zh": {
+        "title": "模组文件已损坏",
+        "cause": "文件 {file} 不是完整的 jar 文件。它已损坏或没有完整下载。",
+        "fix": "关闭 {file} 并重新下载。"
+      },
+      "ja": {
+        "title": "Mod ファイルが壊れています",
+        "cause": "ファイル {file} は完全な jar ファイルではありません。壊れているか、最後までダウンロードされていません。",
+        "fix": "{file} をオフにして、もう一度ダウンロードしてください。"
+      },
+      "ko": {
+        "title": "모드 파일이 손상되었습니다",
+        "cause": "파일 {file}은(는) 완전한 jar 파일이 아닙니다. 손상되었거나 끝까지 내려받지 못했습니다.",
+        "fix": "{file}을(를) 끄고 다시 내려받으세요."
+      }
+    },
+    "graphics": {
+      "en": {
+        "title": "The graphics driver does not support the game",
+        "cause": "The graphics driver did not give Minecraft the OpenGL version that it needs. The driver is too old, or the game uses a basic display adapter.",
+        "fix": "Install the newest driver from the website of your graphics card manufacturer (NVIDIA, AMD or Intel). On a laptop with two graphics cards, set Java to use the faster card."
+      },
+      "uk": {
+        "title": "Графічний драйвер не підтримує гру",
+        "cause": "Графічний драйвер не надав Minecraft потрібну версію OpenGL. Драйвер застарілий, або гра працює на базовому відеоадаптері.",
+        "fix": "Встановіть найновіший драйвер з сайту виробника відеокарти (NVIDIA, AMD або Intel). На ноутбуці з двома відеокартами налаштуйте Java на потужнішу."
+      },
+      "ru": {
+        "title": "Графический драйвер не поддерживает игру",
+        "cause": "Графический драйвер не предоставил Minecraft нужную версию OpenGL. Драйвер устарел, или игра работает на базовом видеоадаптере.",
+        "fix": "Установите самый новый драйвер с сайта производителя видеокарты (NVIDIA, AMD или Intel). На ноутбуке с двумя видеокартами настройте Java на более мощную."
+      },
+      "pl": {
+        "title": "Sterownik grafiki nie obsługuje gry",
+        "cause": "Sterownik grafiki nie dał Minecraftowi wymaganej wersji OpenGL. Sterownik jest za stary albo gra używa podstawowej karty graficznej.",
+        "fix": "Zainstaluj najnowszy sterownik ze strony producenta karty graficznej (NVIDIA, AMD lub Intel). Na laptopie z dwiema kartami graficznymi ustaw Javę na szybszą kartę."
+      },
+      "de": {
+        "title": "Der Grafiktreiber unterstützt das Spiel nicht",
+        "cause": "Der Grafiktreiber hat Minecraft nicht die benötigte OpenGL-Version gegeben. Der Treiber ist zu alt, oder das Spiel läuft auf einem einfachen Anzeigeadapter.",
+        "fix": "Installiere den neuesten Treiber von der Website deines Grafikkartenherstellers (NVIDIA, AMD oder Intel). Stelle auf einem Laptop mit zwei Grafikkarten Java auf die schnellere Karte ein."
+      },
+      "es": {
+        "title": "El controlador gráfico no admite el juego",
+        "cause": "El controlador gráfico no dio a Minecraft la versión de OpenGL que necesita. El controlador es demasiado antiguo o el juego usa un adaptador de pantalla básico.",
+        "fix": "Instala el controlador más reciente desde el sitio web del fabricante de tu tarjeta gráfica (NVIDIA, AMD o Intel). En un portátil con dos tarjetas gráficas, configura Java para usar la más rápida."
+      },
+      "fr": {
+        "title": "Le pilote graphique ne prend pas en charge le jeu",
+        "cause": "Le pilote graphique n'a pas donné à Minecraft la version d'OpenGL nécessaire. Le pilote est trop ancien, ou le jeu utilise un adaptateur d'affichage de base.",
+        "fix": "Installez le pilote le plus récent depuis le site du fabricant de votre carte graphique (NVIDIA, AMD ou Intel). Sur un portable avec deux cartes graphiques, réglez Java pour utiliser la plus rapide."
+      },
+      "it": {
+        "title": "Il driver grafico non supporta il gioco",
+        "cause": "Il driver grafico non ha dato a Minecraft la versione di OpenGL necessaria. Il driver è troppo vecchio, oppure il gioco usa una scheda video di base.",
+        "fix": "Installa il driver più recente dal sito del produttore della scheda grafica (NVIDIA, AMD o Intel). Su un portatile con due schede grafiche, imposta Java sulla scheda più veloce."
+      },
+      "pt": {
+        "title": "O driver de vídeo não suporta o jogo",
+        "cause": "O driver de vídeo não deu ao Minecraft a versão de OpenGL necessária. O driver é antigo demais ou o jogo usa um adaptador de vídeo básico.",
+        "fix": "Instale o driver mais recente do site do fabricante da sua placa de vídeo (NVIDIA, AMD ou Intel). Em um notebook com duas placas de vídeo, configure o Java para usar a mais rápida."
+      },
+      "tr": {
+        "title": "Grafik sürücüsü oyunu desteklemiyor",
+        "cause": "Grafik sürücüsü Minecraft'a gereken OpenGL sürümünü vermedi. Sürücü çok eski veya oyun temel bir ekran bağdaştırıcısı kullanıyor.",
+        "fix": "Ekran kartı üreticinin (NVIDIA, AMD veya Intel) web sitesinden en yeni sürücüyü yükle. İki ekran kartlı bir dizüstü bilgisayarda Java'yı daha hızlı kartı kullanacak şekilde ayarla."
+      },
+      "id": {
+        "title": "Driver grafis tidak mendukung game",
+        "cause": "Driver grafis tidak memberi Minecraft versi OpenGL yang diperlukan. Driver terlalu lama, atau game memakai adaptor tampilan dasar.",
+        "fix": "Pasang driver terbaru dari situs web pembuat kartu grafis Anda (NVIDIA, AMD, atau Intel). Di laptop dengan dua kartu grafis, atur Java untuk memakai kartu yang lebih cepat."
+      },
+      "vi": {
+        "title": "Trình điều khiển đồ họa không hỗ trợ trò chơi",
+        "cause": "Trình điều khiển đồ họa không cung cấp cho Minecraft phiên bản OpenGL cần thiết. Trình điều khiển quá cũ, hoặc trò chơi đang dùng bộ điều hợp hiển thị cơ bản.",
+        "fix": "Cài trình điều khiển mới nhất từ trang web của hãng sản xuất card đồ họa (NVIDIA, AMD hoặc Intel). Trên máy tính xách tay có hai card đồ họa, hãy đặt Java dùng card nhanh hơn."
+      },
+      "hi": {
+        "title": "ग्राफ़िक्स ड्राइवर गेम को सपोर्ट नहीं करता",
+        "cause": "ग्राफ़िक्स ड्राइवर ने Minecraft को ज़रूरी OpenGL वर्शन नहीं दिया। ड्राइवर बहुत पुराना है, या गेम बेसिक डिस्प्ले एडैप्टर पर चल रहा है।",
+        "fix": "अपने ग्राफ़िक्स कार्ड बनाने वाली कंपनी (NVIDIA, AMD या Intel) की वेबसाइट से सबसे नया ड्राइवर इंस्टॉल करें। दो ग्राफ़िक्स कार्ड वाले लैपटॉप पर Java को तेज़ कार्ड इस्तेमाल करने के लिए सेट करें।"
+      },
+      "zh": {
+        "title": "显卡驱动不支持此游戏",
+        "cause": "显卡驱动没有提供 Minecraft 所需的 OpenGL 版本。驱动太旧，或游戏正在使用基本显示适配器。",
+        "fix": "从显卡制造商（NVIDIA、AMD 或 Intel）的网站安装最新驱动。在有两块显卡的笔记本电脑上，将 Java 设置为使用性能更高的显卡。"
+      },
+      "ja": {
+        "title": "グラフィックドライバーがゲームに対応していません",
+        "cause": "グラフィックドライバーが Minecraft に必要な OpenGL バージョンを提供しませんでした。ドライバーが古すぎるか、ゲームが基本ディスプレイアダプターで動いています。",
+        "fix": "グラフィックカードのメーカー（NVIDIA、AMD、Intel）のウェブサイトから最新のドライバーをインストールしてください。グラフィックカードが二つあるノートパソコンでは、Java が高性能なほうを使うよう設定してください。"
+      },
+      "ko": {
+        "title": "그래픽 드라이버가 게임을 지원하지 않습니다",
+        "cause": "그래픽 드라이버가 Minecraft에 필요한 OpenGL 버전을 제공하지 않았습니다. 드라이버가 너무 오래되었거나, 게임이 기본 디스플레이 어댑터를 사용하고 있습니다.",
+        "fix": "그래픽 카드 제조사(NVIDIA, AMD 또는 Intel) 웹사이트에서 최신 드라이버를 설치하세요. 그래픽 카드가 두 개인 노트북에서는 Java가 더 빠른 카드를 사용하도록 설정하세요."
+      }
+    },
+    "driverCrash": {
+      "en": {
+        "title": "The graphics driver stopped the game",
+        "cause": "The game stopped inside the graphics driver ({dll}).",
+        "fix": "Update the graphics driver. If the problem continues, switch off shader and rendering mods and try again."
+      },
+      "uk": {
+        "title": "Графічний драйвер зупинив гру",
+        "cause": "Гра зупинилася всередині графічного драйвера ({dll}).",
+        "fix": "Оновіть графічний драйвер. Якщо проблема повториться, вимкніть шейдери та моди рендерингу і спробуйте знову."
+      },
+      "ru": {
+        "title": "Графический драйвер остановил игру",
+        "cause": "Игра остановилась внутри графического драйвера ({dll}).",
+        "fix": "Обновите графический драйвер. Если проблема повторится, отключите шейдеры и моды рендеринга и попробуйте снова."
+      },
+      "pl": {
+        "title": "Sterownik grafiki zatrzymał grę",
+        "cause": "Gra zatrzymała się wewnątrz sterownika grafiki ({dll}).",
+        "fix": "Zaktualizuj sterownik grafiki. Jeśli problem się powtórzy, wyłącz shadery i mody renderowania i spróbuj ponownie."
+      },
+      "de": {
+        "title": "Der Grafiktreiber hat das Spiel gestoppt",
+        "cause": "Das Spiel ist im Grafiktreiber ({dll}) stehen geblieben.",
+        "fix": "Aktualisiere den Grafiktreiber. Tritt das Problem weiter auf, schalte Shader- und Rendering-Mods aus und versuche es erneut."
+      },
+      "es": {
+        "title": "El controlador gráfico detuvo el juego",
+        "cause": "El juego se detuvo dentro del controlador gráfico ({dll}).",
+        "fix": "Actualiza el controlador gráfico. Si el problema continúa, desactiva los shaders y los mods de renderizado y vuelve a intentarlo."
+      },
+      "fr": {
+        "title": "Le pilote graphique a arrêté le jeu",
+        "cause": "Le jeu s'est arrêté dans le pilote graphique ({dll}).",
+        "fix": "Mettez à jour le pilote graphique. Si le problème continue, désactivez les shaders et les mods de rendu, puis réessayez."
+      },
+      "it": {
+        "title": "Il driver grafico ha fermato il gioco",
+        "cause": "Il gioco si è fermato all'interno del driver grafico ({dll}).",
+        "fix": "Aggiorna il driver grafico. Se il problema continua, disattiva shader e mod di rendering e riprova."
+      },
+      "pt": {
+        "title": "O driver de vídeo parou o jogo",
+        "cause": "O jogo parou dentro do driver de vídeo ({dll}).",
+        "fix": "Atualize o driver de vídeo. Se o problema continuar, desative shaders e mods de renderização e tente de novo."
+      },
+      "tr": {
+        "title": "Grafik sürücüsü oyunu durdurdu",
+        "cause": "Oyun grafik sürücüsünün ({dll}) içinde durdu.",
+        "fix": "Grafik sürücüsünü güncelle. Sorun devam ederse gölgelendirici ve işleme modlarını kapat ve yeniden dene."
+      },
+      "id": {
+        "title": "Driver grafis menghentikan game",
+        "cause": "Game berhenti di dalam driver grafis ({dll}).",
+        "fix": "Perbarui driver grafis. Jika masalah berlanjut, matikan shader dan mod rendering, lalu coba lagi."
+      },
+      "vi": {
+        "title": "Trình điều khiển đồ họa đã dừng trò chơi",
+        "cause": "Trò chơi đã dừng bên trong trình điều khiển đồ họa ({dll}).",
+        "fix": "Cập nhật trình điều khiển đồ họa. Nếu vẫn còn lỗi, hãy tắt shader và các mod kết xuất rồi thử lại."
+      },
+      "hi": {
+        "title": "ग्राफ़िक्स ड्राइवर ने गेम रोक दिया",
+        "cause": "गेम ग्राफ़िक्स ड्राइवर ({dll}) के अंदर रुक गया।",
+        "fix": "ग्राफ़िक्स ड्राइवर अपडेट करें। अगर समस्या बनी रहे, तो शेडर और रेंडरिंग मॉड बंद करके फिर कोशिश करें।"
+      },
+      "zh": {
+        "title": "显卡驱动使游戏停止",
+        "cause": "游戏在显卡驱动（{dll}）内部停止。",
+        "fix": "更新显卡驱动。如果问题仍然存在，请关闭光影和渲染类模组后重试。"
+      },
+      "ja": {
+        "title": "グラフィックドライバーがゲームを止めました",
+        "cause": "ゲームがグラフィックドライバー（{dll}）の内部で停止しました。",
+        "fix": "グラフィックドライバーを更新してください。問題が続く場合は、シェーダーと描画系の Mod をオフにして再度試してください。"
+      },
+      "ko": {
+        "title": "그래픽 드라이버가 게임을 멈췄습니다",
+        "cause": "게임이 그래픽 드라이버({dll}) 내부에서 멈췄습니다.",
+        "fix": "그래픽 드라이버를 업데이트하세요. 문제가 계속되면 셰이더와 렌더링 모드를 끄고 다시 시도하세요."
+      }
+    },
+    "brokenInstall": {
+      "en": {
+        "title": "The game installation is not complete",
+        "cause": "Files of Minecraft or of the mod loader are missing or damaged. A mod did not cause this.",
+        "fix": "Let the launcher examine the game files and download them again. The mods folder does not change."
+      },
+      "uk": {
+        "title": "Встановлення гри неповне",
+        "cause": "Файли Minecraft або завантажувача модів відсутні чи пошкоджені. Причина не в моді.",
+        "fix": "Дозвольте лаунчеру перевірити файли гри й завантажити їх знову. Тека модів не зміниться."
+      },
+      "ru": {
+        "title": "Установка игры неполная",
+        "cause": "Файлы Minecraft или загрузчика модов отсутствуют или повреждены. Причина не в моде.",
+        "fix": "Разрешите лаунчеру проверить файлы игры и скачать их снова. Папка модов не изменится."
+      },
+      "pl": {
+        "title": "Instalacja gry jest niepełna",
+        "cause": "Brakuje plików Minecrafta lub mod loadera albo są uszkodzone. Przyczyną nie jest mod.",
+        "fix": "Pozwól launcherowi sprawdzić pliki gry i pobrać je ponownie. Folder modów się nie zmieni."
+      },
+      "de": {
+        "title": "Die Spielinstallation ist unvollständig",
+        "cause": "Dateien von Minecraft oder vom Mod-Loader fehlen oder sind beschädigt. Eine Mod ist nicht die Ursache.",
+        "fix": "Lass den Launcher die Spieldateien prüfen und erneut herunterladen. Der Mod-Ordner bleibt unverändert."
+      },
+      "es": {
+        "title": "La instalación del juego no está completa",
+        "cause": "Faltan archivos de Minecraft o del cargador de mods, o están dañados. La causa no es un mod.",
+        "fix": "Deja que el launcher revise los archivos del juego y los descargue de nuevo. La carpeta de mods no cambia."
+      },
+      "fr": {
+        "title": "L'installation du jeu est incomplète",
+        "cause": "Des fichiers de Minecraft ou du chargeur de mods sont absents ou endommagés. Un mod n'en est pas la cause.",
+        "fix": "Laissez le launcher vérifier les fichiers du jeu et les télécharger à nouveau. Le dossier des mods ne change pas."
+      },
+      "it": {
+        "title": "L'installazione del gioco è incompleta",
+        "cause": "Alcuni file di Minecraft o del mod loader mancano o sono danneggiati. La causa non è una mod.",
+        "fix": "Lascia che il launcher controlli i file del gioco e li scarichi di nuovo. La cartella delle mod non cambia."
+      },
+      "pt": {
+        "title": "A instalação do jogo está incompleta",
+        "cause": "Arquivos do Minecraft ou do carregador de mods estão faltando ou danificados. A causa não é um mod.",
+        "fix": "Deixe o launcher verificar os arquivos do jogo e baixá-los de novo. A pasta de mods não muda."
+      },
+      "tr": {
+        "title": "Oyun kurulumu eksik",
+        "cause": "Minecraft'ın veya mod yükleyicisinin dosyaları eksik ya da hasarlı. Bunun nedeni bir mod değil.",
+        "fix": "Launcher'ın oyun dosyalarını kontrol edip yeniden indirmesine izin ver. Mod klasörü değişmez."
+      },
+      "id": {
+        "title": "Instalasi game tidak lengkap",
+        "cause": "File Minecraft atau mod loader hilang atau rusak. Penyebabnya bukan mod.",
+        "fix": "Biarkan launcher memeriksa file game dan mengunduhnya lagi. Folder mod tidak berubah."
+      },
+      "vi": {
+        "title": "Bản cài đặt trò chơi chưa đầy đủ",
+        "cause": "Các tệp của Minecraft hoặc trình tải mod bị thiếu hoặc bị hỏng. Nguyên nhân không phải do mod.",
+        "fix": "Cho phép launcher kiểm tra các tệp trò chơi và tải lại chúng. Thư mục mod không thay đổi."
+      },
+      "hi": {
+        "title": "गेम का इंस्टॉलेशन अधूरा है",
+        "cause": "Minecraft या मॉड लोडर की फ़ाइलें गायब हैं या खराब हैं। इसकी वजह कोई मॉड नहीं है।",
+        "fix": "लॉन्चर को गेम की फ़ाइलें जाँचने और दोबारा डाउनलोड करने दें। मॉड फ़ोल्डर नहीं बदलेगा।"
+      },
+      "zh": {
+        "title": "游戏安装不完整",
+        "cause": "Minecraft 或模组加载器的文件缺失或已损坏。原因不是模组。",
+        "fix": "让启动器检查游戏文件并重新下载。模组文件夹不会改变。"
+      },
+      "ja": {
+        "title": "ゲームのインストールが不完全です",
+        "cause": "Minecraft または Mod ローダーのファイルがないか、壊れています。Mod が原因ではありません。",
+        "fix": "ランチャーにゲームファイルを確認させ、再ダウンロードさせてください。Mod フォルダーは変更されません。"
+      },
+      "ko": {
+        "title": "게임 설치가 완전하지 않습니다",
+        "cause": "Minecraft 또는 모드 로더의 파일이 없거나 손상되었습니다. 모드 때문이 아닙니다.",
+        "fix": "런처가 게임 파일을 확인하고 다시 내려받게 하세요. 모드 폴더는 바뀌지 않습니다."
+      }
+    }
+  },
+  "rules": [
+    {
+      "id": "broken-install",
+      "priority": 98,
+      "text": "brokenInstall",
+      "match": [
+        {
+          "contains": [
+            "[MISSING]",
+            "NeoForge installation is corrupted",
+            "patched Minecraft jar is",
+            "The NeoForge jar is",
+            "Could not find or load main class",
+            "ClassNotFoundException: net.minecraft.client.main.Main"
+          ],
+          "regex": "'(?:minecraft|forge|neoforge|fabricloader)'.*\\[MISSING\\]|\\[MISSING\\].*'(?:minecraft|forge|neoforge|fabricloader)'|NeoForge installation is corrupted|patched Minecraft jar is (?:missing|corrupted)|The NeoForge jar is (?:missing|corrupted)|Could not find or load main class|ClassNotFoundException: net\\.minecraft\\.client\\.main\\.Main"
+        }
+      ],
+      "fixes": [
+        {
+          "type": "reinstall"
+        }
+      ]
+    },
+    {
+      "id": "java-class-version",
+      "priority": 96,
+      "text": "javaOld",
+      "match": [
+        {
+          "contains": [
+            "compiled by a more recent version of the Java Runtime"
+          ],
+          "regex": "class file version (?<cf>\\d+)\\.\\d+\\), this version of the Java Runtime only recognizes class file versions up to (?<hcf>\\d+)\\.\\d+"
+        }
+      ],
+      "values": {
+        "java": "classfile(cf)",
+        "have": "classfile(hcf)"
+      },
+      "fixes": [
+        {
+          "type": "java",
+          "major": "{java}"
+        }
+      ]
+    },
+    {
+      "id": "fabric-java-version",
+      "priority": 96,
+      "text": "javaOld",
+      "match": [
+        {
+          "contains": [
+            "(java), but only the wrong version"
+          ],
+          "regex": "requires (?:version |any )?(?<java>\\d+)(?:\\.x version| or later)? of '[^']*' \\(java\\), but only the wrong version is present: (?<have>\\d+)"
+        }
+      ],
+      "fixes": [
+        {
+          "type": "java",
+          "major": "{java}"
+        }
+      ]
+    },
+    {
+      "id": "java-too-new",
+      "priority": 90,
+      "text": "javaNew",
+      "match": [
+        {
+          "contains": [
+            "Unsupported class file major version"
+          ]
+        }
+      ],
+      "fixes": [
+        {
+          "type": "automaticJava"
+        }
+      ]
+    },
+    {
+      "id": "java-heap-reserve",
+      "priority": 95,
+      "text": "heapReserve",
+      "match": [
+        {
+          "contains": [
+            "Could not reserve enough space for",
+            "Invalid maximum heap size"
+          ]
+        }
+      ],
+      "fixes": [
+        {
+          "type": "automaticJava"
+        },
+        {
+          "type": "lowerMemory"
+        }
+      ]
+    },
+    {
+      "id": "native-memory",
+      "priority": 94,
+      "text": "systemMemory",
+      "match": [
+        {
+          "contains": [
+            "There is insufficient memory for the Java Runtime Environment to continue",
+            "The paging file is too small for this operation to complete",
+            "Native memory allocation (malloc) failed",
+            "Native memory allocation (mmap) failed"
+          ],
+          "in": [
+            "output",
+            "log",
+            "crash",
+            "hserr"
+          ]
+        }
+      ],
+      "fixes": [
+        {
+          "type": "lowerMemory"
+        }
+      ]
+    },
+    {
+      "id": "java-heap",
+      "priority": 93,
+      "text": "heap",
+      "match": [
+        {
+          "contains": [
+            "java.lang.OutOfMemoryError: Java heap space",
+            "java.lang.OutOfMemoryError: GC overhead limit exceeded"
+          ]
+        }
+      ],
+      "fixes": [
+        {
+          "type": "raiseMemory"
+        }
+      ]
+    },
+    {
+      "id": "opengl-unsupported",
+      "priority": 92,
+      "text": "graphics",
+      "match": [
+        {
+          "contains": [
+            "GLFW error 65542",
+            "GLFW error 65543",
+            "Pixel format not accelerated",
+            "WGL_ARB_create_context_profile is unavailable",
+            "The driver does not appear to support OpenGL"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "driver-crash",
+      "priority": 91,
+      "text": "driverCrash",
+      "match": [
+        {
+          "contains": [
+            "# C  ["
+          ],
+          "regex": "# C  \\[(?<dll>(?:nvoglv|nvgldmd|nvwgf2um|atio6axx|atioglxx|amdxc|amdvlk|ig[0-9a-z]*icd|libnvidia-glcore|radeonsi_dri|iris_dri)[^+\\]\\s]*)",
+          "in": [
+            "hserr"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fabric-corrupt-jar",
+      "priority": 88,
+      "text": "corruptJar",
+      "match": [
+        {
+          "contains": [
+            "Error analyzing ["
+          ],
+          "regex": "Error analyzing \\[(?<path>[^\\]]+?\\.jar)\\]: (?:java\\.util\\.zip\\.Zip|java\\.io\\.EOFException|java\\.nio\\.file\\.)"
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-not-a-jar",
+      "priority": 88,
+      "text": "corruptJar",
+      "match": [
+        {
+          "contains": [
+            "is not a jar file"
+          ],
+          "regex": "File (?<path>.+?\\.jar) is not a jar file"
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    },
+    {
+      "id": "forge-duplicate",
+      "priority": 86,
+      "text": "duplicate",
+      "match": [
+        {
+          "contains": [
+            "from mod files:"
+          ],
+          "regex": "Mod ID: '(?<mod>[a-z0-9_]+)' from mod files:",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableDuplicates",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-duplicate",
+      "priority": 86,
+      "text": "duplicate",
+      "match": [
+        {
+          "contains": [
+            "is present in multiple files:"
+          ],
+          "regex": "Mod (?<mod>[a-z0-9_]+) is present in multiple files:",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableDuplicates",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "fabric-missing-dependency",
+      "priority": 84,
+      "text": "missingDep",
+      "match": [
+        {
+          "contains": [
+            "which is missing!"
+          ],
+          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?<dep>[a-z0-9_.\\-]+), which is missing!",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "forge-missing-dependency",
+      "priority": 84,
+      "text": "missingDep",
+      "match": [
+        {
+          "contains": [
+            "Actual version: '[MISSING]'"
+          ],
+          "regex": "Mod ID: '(?<dep>[a-z0-9_]+)', Requested by: '(?<mod>[a-z0-9_]+)', Expected range: '[^']*', Actual version: '\\[MISSING\\]'",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-missing-dependency",
+      "priority": 84,
+      "text": "missingDep",
+      "match": [
+        {
+          "contains": [
+            "- Mod "
+          ],
+          "regex": "- Mod (?<mod>[a-z0-9_]+) requires (?<dep>[a-z0-9_]+)\\b[^\\n]*\\n\\s*Currently, [a-z0-9_]+ is not installed",
+          "lines": 2,
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "fabric-minecraft-version",
+      "priority": 82,
+      "text": "wrongMinecraft",
+      "match": [
+        {
+          "contains": [
+            "(minecraft), but only the wrong version"
+          ],
+          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of '[^']*' \\(minecraft\\), but only the wrong version",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "forge-minecraft-version",
+      "priority": 82,
+      "text": "wrongMinecraft",
+      "match": [
+        {
+          "contains": [
+            "Mod ID: 'minecraft', Requested by: '"
+          ],
+          "regex": "Mod ID: 'minecraft', Requested by: '(?<mod>[a-z0-9_]+)'",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-minecraft-version",
+      "priority": 82,
+      "text": "wrongMinecraft",
+      "match": [
+        {
+          "contains": [
+            "- Mod "
+          ],
+          "regex": "- Mod (?<mod>[a-z0-9_]+) requires minecraft\\b",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "fabric-dependency-version",
+      "priority": 78,
+      "text": "depVersion",
+      "match": [
+        {
+          "contains": [
+            ", but only the wrong version"
+          ],
+          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of '[^']*' \\((?<dep>(?!minecraft\\)|java\\))[a-z0-9_.\\-]+)\\), but only the wrong version",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "forge-dependency-version",
+      "priority": 78,
+      "text": "depVersion",
+      "match": [
+        {
+          "contains": [
+            "Actual version: '"
+          ],
+          "regex": "Mod ID: '(?<dep>(?!minecraft')[a-z0-9_]+)', Requested by: '(?<mod>[a-z0-9_]+)', Expected range: '[^']*', Actual version: '(?!\\[MISSING\\])[^']+'",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-dependency-version",
+      "priority": 78,
+      "text": "depVersion",
+      "match": [
+        {
+          "contains": [
+            "- Mod "
+          ],
+          "regex": "- Mod (?<mod>[a-z0-9_]+) requires (?<dep>(?!minecraft\\b)[a-z0-9_]+)\\b[^\\n]*\\n\\s*Currently, [a-z0-9_]+ is (?!not installed)\\S",
+          "lines": 2,
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "fabric-incompatible",
+      "priority": 76,
+      "text": "incompatible",
+      "match": [
+        {
+          "contains": [
+            "is incompatible with"
+          ],
+          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ is incompatible with .+? of '[^']*' \\((?<other>[a-z0-9_.\\-]+)\\), yet",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{other}"
+        },
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-incompatible",
+      "priority": 76,
+      "text": "incompatible",
+      "match": [
+        {
+          "contains": [
+            "is incompatible with"
+          ],
+          "regex": "- Mod (?<mod>[a-z0-9_]+) is incompatible with (?<other>[a-z0-9_]+)\\b",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{other}"
+        },
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "fabric-mixin-apply",
+      "priority": 70,
+      "text": "mixin",
+      "match": [
+        {
+          "contains": [
+            "Mixin apply for mod ",
+            "Mixin prepare for mod "
+          ],
+          "regex": "Mixin (?:apply|prepare) for mod (?<mod>[a-z0-9_.\\-]+) failed"
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "fabric-mixin-failed",
+      "priority": 69,
+      "text": "mixin",
+      "match": [
+        {
+          "contains": [
+            "] from phase ["
+          ],
+          "regex": "Mixin \\[[^\\]]* from mod (?<mod>[a-z0-9_.\\-]+)\\] from phase \\["
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "mixin-config-failed",
+      "priority": 68,
+      "text": "mixin",
+      "match": [
+        {
+          "contains": [
+            "] from phase ["
+          ],
+          "regex": "Mixin \\[(?<config>[A-Za-z0-9_.\\-]+\\.json):[^\\]]*\\] from phase \\[\\w+\\] in config \\[[^\\]]+\\] FAILED"
+        }
+      ],
+      "values": {
+        "mod": "stem(config)"
+      },
+      "fixes": [
+        {
+          "type": "disableMixinOwner",
+          "config": "{config}"
+        }
+      ]
+    },
+    {
+      "id": "mixin-injection-failed",
+      "priority": 67,
+      "text": "mixin",
+      "match": [
+        {
+          "contains": [
+            "Critical injection failure",
+            "could not find any targets matching"
+          ],
+          "regex": "(?<config>[A-Za-z0-9_.\\-]+\\.json):[A-Za-z0-9_.$\\-]+"
+        }
+      ],
+      "values": {
+        "mod": "stem(config)"
+      },
+      "fixes": [
+        {
+          "type": "disableMixinOwner",
+          "config": "{config}"
+        }
+      ]
+    },
+    {
+      "id": "fabric-entrypoint",
+      "priority": 60,
+      "text": "modStartup",
+      "match": [
+        {
+          "contains": [
+            "Could not execute entrypoint stage",
+            "Exception while loading entries for entrypoint"
+          ],
+          "regex": "entrypoint (?:stage )?'[^']+' (?:due to errors, )?provided by '(?<mod>[a-z0-9_.\\-]+)'"
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-mod-failed",
+      "priority": 60,
+      "text": "modStartup",
+      "match": [
+        {
+          "contains": [
+            ") has failed to load correctly",
+            ") has class loading errors",
+            ") encountered an error while dispatching"
+          ],
+          "regex": "\\((?<mod>[a-z0-9_]+)\\) (?:has failed to load correctly|has class loading errors|encountered an error while dispatching)"
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "forge-mod-instance",
+      "priority": 60,
+      "text": "modStartup",
+      "match": [
+        {
+          "contains": [
+            "Failed to create mod instance. ModID: "
+          ],
+          "regex": "Failed to create mod instance\\. ModID: (?<mod>[a-z0-9_]+)"
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-wrong-loader",
+      "priority": 40,
+      "text": "wrongLoader",
+      "match": [
+        {
+          "contains": [
+            "is a Fabric mod and cannot be loaded",
+            "is a Quilt mod and cannot be loaded",
+            "is for Minecraft Forge or an older version of NeoForge",
+            "is for an old version of Minecraft Forge"
+          ],
+          "regex": "File (?<path>.+?\\.jar) is (?:a Fabric mod|a Quilt mod|for Minecraft Forge|for an old version of Minecraft Forge)",
+          "repeat": true
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    }
+  ]
+}

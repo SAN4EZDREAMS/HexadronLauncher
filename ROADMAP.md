@@ -1,6 +1,6 @@
 # HexadronLauncher roadmap
 
-Last review: 2026-09-25, against commit 9923b33 (Beta 0.9.8.7).
+Last review: 2026-09-26, against commit fcfe2e8 (Beta 0.9.9.5). Items marked **Done** are kept for reference.
 
 This plan lists what the launcher does not do yet. It is based on a comparison with 17 other Minecraft Java launchers (see [Sources](#sources)). Each item gives the problem, the plan, the condition for "done", and the code to start from. Paths under "Start from" are relative to `launcher/src/main/java/com/hexadron/launcher/` unless they start with `.github/`.
 
@@ -20,8 +20,8 @@ This plan lists what the launcher does not do yet. It is based on a comparison w
 
 | # | Item | Priority | Size | Unique |
 |---|---|---|---|---|
-| 0.1 | Approved Microsoft sign-in | P0 | S (long wait for approval) | |
-| 1.1 | Crash analysis with fixes | P1 | M | |
+| 0.1 | Approved Microsoft sign-in | P0 | **Done** | |
+| 1.1 | Crash analysis with fixes | P1 | **Done** | |
 | 1.2 | Find the bad mod automatically (bisect) | P1 | M | Unique |
 | 1.3 | Mod update check and bulk update | P1 | M | |
 | 1.4 | Move mods with a version change in the instance dialog | P1 | S | Unique (full form) |
@@ -50,42 +50,29 @@ These are rare in other launchers. Do not remove them while you work on the item
 - The dependency guard: the launcher asks before you switch off or remove a mod that other mods need.
 - Shader loader detection (Iris, OptiFine, Canvas).
 - The bug report window names the newest launcher log.
+- Crash analysis with one-click fixes and signed rule updates (`crash/`, [docs/crashes.md](docs/crashes.md)).
 
 ---
 
 ## Phase 0: blocker
 
-### 0.1 Approved Microsoft sign-in (P0)
+### 0.1 Approved Microsoft sign-in (P0) - Done
 
-**Problem.** Microsoft sign-in is implemented (`auth/MicrosoftAuth.java`). Minecraft services accept it only with an Azure application ID that Mojang has approved; without approval, `login_with_xbox` returns HTTP 403. `LauncherSettings` has a default `microsoftClientId` (`core/LauncherSettings.java`, line 38). The code does not show whether Mojang has approved this ID.
-
-**Plan.**
-1. Confirm the approval state of the default ID. If it is not approved, register the application as described in [docs/configuration.md](docs/configuration.md).
-2. Send the application to Mojang for approval.
-3. Ship the approved ID as the default in release builds.
-
-**Done when.** A release build signs in a real Microsoft account and starts the game online.
-
-**Start from.** `auth/MicrosoftAuth.java`, `core/LauncherSettings.java` (`microsoftClientId`).
+Mojang approved the application ID in `core/LauncherSettings.java` (`microsoftClientId`). A release build signs in a real Microsoft account (bought or through PC Game Pass) and plays on official servers. When the account cannot play, `auth/MicrosoftAuth.java` names the reason from the entitlements: no licence, Game Pass ended, only other Minecraft games, no profile name yet (see [docs/configuration.md](docs/configuration.md)).
 
 ---
 
 ## Phase 1: crashes and mod updates
 
-### 1.1 Crash analysis with fixes (P1)
+### 1.1 Crash analysis with fixes (P1) - Done
 
-**Problem.** Most support questions are about crashes (PrismLauncher#2777, high priority, open). HMCL and PCL CE have crash analysis. PCL CE still shows "Unknown" for some mod conflicts (Meloong-Git/PCL#7166).
+Built as planned; see [docs/crashes.md](docs/crashes.md).
 
-**Plan.**
-1. After the game stops with an error, read `crash-reports/`, `logs/latest.log` and `hs_err_pid*.log`.
-2. Match them against a rule file. Each rule has a pattern, a plain-language cause and a fix.
-3. Publish the rule file as a JSON asset in the GitHub releases, so the launcher can get new rules without a new launcher release (PrismLauncher#2777 asks for this). The update manifest is fetched the same way. It is hash-checked, not signed (`update/ImageManifest.java`). Decide whether the rule file needs a signature.
-4. Give one-click fixes where they are safe: switch off mod X, choose Java N, raise the memory limit.
-5. When no rule matches, offer **1.2** (bisect) and the bug report window.
-
-**Done when.** The launcher explains the ten most common crash types in plain language (wrong Java, not enough memory, missing dependency, mod for another version, duplicate mod, mixin conflict, missing graphics driver features, and so on), in all 16 shipped languages.
-
-**Start from.** `launch/GameLauncher.java` (exit code), `core/LauncherLog.java`, `ui/ReportBugDialog.java`, `update/ImageManifest.java`.
+- After a crash the launcher reads the game output, `logs/latest.log`, the crash report and `hs_err_pid*.log` of that run (`crash/CrashEvidence.java`).
+- `crash/rules.json` holds 32 rules for 17 causes in all 16 languages: Java too old or too new, heap full, no system memory, heap not reserved, missing dependency, wrong dependency version, mod for another Minecraft version or loader, duplicate mod, incompatible mods, mixin error, mod crash during loading, damaged jar, missing OpenGL support, graphics driver crash, broken installation. Fabric, Forge (1.13 to 1.20.1 format) and NeoForge messages.
+- One-click fixes, checked against the profile before they are offered: switch off a mod (with the mods that need it), keep the newest of duplicate jars, use Java N, let the launcher choose Java, raise or lower memory, check the game files (`crash/CrashFixes.java`).
+- Rule updates: the release workflow publishes `hexadron-crash-rules.json` with an Ed25519 signature by the update key. A launcher uses it only when the signature is valid and its version is higher (`crash/CrashRuleSource.java`). The manifest is signed now too, so the note about hash-only checks no longer applies.
+- When no rule matches, the window links the crash report, the game logs and the bug report window. **Find the problem mod** joins them with **1.2**.
 
 ### 1.2 Find the bad mod automatically: bisect (P1, Unique)
 
@@ -98,10 +85,11 @@ These are rare in other launchers. Do not remove them while you work on the item
 4. It starts the game and waits for a crash, or asks: "Did the problem occur?"
 5. It keeps the half that fails and repeats. For 200 mods, about 8 launches are enough.
 6. At the end, it names the mod, or the pair of mods, and restores the snapshot.
+7. Offer it in the crash window (`ui/CrashDialog.java`) when no rule matches, and after a crash fix that did not help.
 
 **Done when.** On a test pack with one known bad mod, bisect finds that mod, and the mod set is the same as before the test.
 
-**Start from.** `mods/ModDependents.java`, `mods/ModScan.java`, `launch/GameLauncher.java`.
+**Start from.** `mods/ModDependents.java`, `mods/ModScan.java`, `launch/GameLauncher.java`, `crash/CrashEvidence.java` (tells a crash from a clean exit).
 
 ### 1.3 Mod update check and bulk update (P1)
 

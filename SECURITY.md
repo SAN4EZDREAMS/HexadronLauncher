@@ -182,6 +182,8 @@ The launcher replaces itself with builds from the project's GitHub releases ([do
 | Application image | Runtime and jar folder must be where jpackage puts them, or nothing is replaced. |
 | Undo | The old folder is moved aside, not deleted, until the new build is in place. |
 
+Crash rules ([docs/crashes.md](docs/crashes.md#rule-updates)) come from the same releases, once a day and only when the update check is on. A downloaded rule file is used only with a valid Ed25519 signature by the update key and a higher version than the built-in file; the signature is checked again each time the file is read. A rule can only choose among fixed fix kinds (switch off a mod in the profile's mods folder, choose Java, change the memory limit, check the game files). It cannot run a command or open a link.
+
 **Not checked:**
 
 - **No code signing of the executables.** The update manifest is signed (see above), but the executables are not signed by Microsoft or Apple. The manifest signature protects against a replaced release only when `PUBLIC_KEYS` has a key and the private key is kept out of the repository. While `PUBLIC_KEYS` is empty, anyone who can publish a release in `SAN4EZDREAMS/HexadronLauncher` can publish a build the launcher will install.
@@ -197,4 +199,4 @@ To switch the check off: Settings, Downloads, "Look for launcher updates at star
 
 ## 11. Self-check
 
-`./gradlew :launcher:selfCheck` runs without network or display. It covers, among other things: PKCE against the RFC 7636 test vector; the authorization request parameters (`S256`, `state`, `response_type=code`, loopback IP redirect, no client secret, no verifier, no `openid` or `email` scope); refusal of a wrong or missing `state`; that account metadata cannot carry a token; log redaction of registered and unregistered tokens; where the CurseForge key is sent; which releases count as newer; parsing of the VirusTotal block; delta update planning and assembly; and refusal of unsafe manifest paths.
+`./gradlew :launcher:selfCheck` runs without network or display. It covers, among other things: PKCE against the RFC 7636 test vector; the authorization request parameters (`S256`, `state`, `response_type=code`, loopback IP redirect, no client secret, no verifier, no `openid` or `email` scope); refusal of a wrong or missing `state`; that account metadata cannot carry a token; log redaction of registered and unregistered tokens; where the CurseForge key is sent; which releases count as newer; parsing of the VirusTotal block; delta update planning and assembly; and refusal of unsafe manifest paths.

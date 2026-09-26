@@ -280,8 +280,18 @@ public final class HexadronCli {
 
                 CountDownLatch finished = new CountDownLatch(1);
                 int[] exitCode = {0};
+                long startedAt = System.currentTimeMillis();
+                java.util.ArrayDeque<String> tail = new java.util.ArrayDeque<>();
                 GameLauncher.GameSession session = service.launch(profile, account, progress,
-                        System.out::println,
+                        line -> {
+                            System.out.println(line);
+                            synchronized (tail) {
+                                if (tail.size() >= 4000) {
+                                    tail.removeFirst();
+                                }
+                                tail.addLast(line);
+                            }
+                        },
                         code -> {
                             exitCode[0] = code;
                             finished.countDown();
@@ -290,6 +300,25 @@ public final class HexadronCli {
                 finished.await();
                 System.out.println(GameLauncher.describeExit(
                         exitCode[0], profile.wrapperCommand()));
+                java.nio.file.Path gameDir = service.profiles().gameDirectory(profile);
+                if (exitCode[0] != 0 && exitCode[0] != 92
+                        || com.hexadron.launcher.crash.CrashEvidence.hasCrashReportSince(gameDir, startedAt)) {
+                    java.util.List<String> lines;
+                    synchronized (tail) {
+                        lines = java.util.List.copyOf(tail);
+                    }
+                    var evidence = com.hexadron.launcher.crash.CrashEvidence.collect(
+                            gameDir, startedAt, lines, exitCode[0]);
+                    var diagnoses = service.analyzeCrash(profile, evidence, "en");
+                    if (diagnoses.isEmpty()) {
+                        System.out.println("crash analysis: no known cause");
+                    }
+                    for (var diagnosis : diagnoses) {
+                        System.out.println("crash: " + diagnosis.title());
+                        System.out.println("  " + diagnosis.cause());
+                        System.out.println("  " + diagnosis.advice());
+                    }
+                }
                 return exitCode[0] == 0 ? 0 : 1;
             }
             default -> {

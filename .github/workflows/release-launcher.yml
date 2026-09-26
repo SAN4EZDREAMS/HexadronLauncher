@@ -346,6 +346,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
+      # CRASH RULES
+      #
+      # The rule file the launcher uses to explain crashes is published with every
+      # release, so launchers already installed pick up new rules without a new
+      # launcher build. It is signed below with the same key as the manifests; a
+      # launcher uses a downloaded rule file only with a valid signature and a
+      # higher version than its built-in copy (crash/CrashRuleSource.java).
+      - name: add the crash rules
+        run: cp launcher/src/main/resources/crash/rules.json downloaded/hexadron-crash-rules.json
       # UPDATE SIGNATURES
       #
       # Each manifest is signed with Ed25519, and the signature is published beside it
@@ -383,7 +392,7 @@ jobs:
             echo "UPDATE_SIGNING_KEY is not one of the keys in $source_file"
             exit 1
           fi
-          for manifest in downloaded/HexadronLauncher-*.manifest.json; do
+          for manifest in downloaded/HexadronLauncher-*.manifest.json downloaded/hexadron-crash-rules.json; do
             openssl pkeyutl -sign -inkey "$key" -rawin -in "$manifest" | base64 -w0 > "$manifest.sig"
             openssl pkeyutl -verify -pubin -inkey <(openssl pkey -in "$key" -pubout) -rawin \
               -in "$manifest" -sigfile <(base64 -d "$manifest.sig")
@@ -414,7 +423,8 @@ jobs:
             --notes-file notes.md \
             --target "$GITHUB_SHA" \
             $flags \
-            downloaded/HexadronLauncher-*
+            downloaded/HexadronLauncher-* \
+            downloaded/hexadron-crash-rules.json*
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # About thirty nightly builds collect in a month, and nobody needs any of them
