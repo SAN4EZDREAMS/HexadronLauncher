@@ -726,6 +726,9 @@ public final class SelfCheck {
 
         check("simple substitution",
                 "Steve".equals(LaunchCommandBuilder.substitute("${auth_player_name}", values)));
+        check("the game is told the launcher's real version, not a literal",
+                com.hexadron.launcher.launch.LaunchCommandBuilder.LAUNCHER_VERSION
+                        .equals(com.hexadron.launcher.BuildConfig.version()));
         check("embedded substitution",
                 "-Duser=Steve".equals(LaunchCommandBuilder.substitute("-Duser=${auth_player_name}", values)));
         check("multiple substitutions",
@@ -3482,6 +3485,47 @@ public final class SelfCheck {
 
         check("a build with no key reports none",
                 BuildConfig.hasCurseForgeApiKey() == !BuildConfig.curseForgeApiKey().isEmpty());
+
+        // The key lives in the credential store. launcher.json is plain text
+        // and is what people attach to bug reports.
+        try {
+            Path settingsRoot = java.nio.file.Files.createTempDirectory("hexadron-settings");
+            try {
+                GameDirs settingsDirs = new GameDirs(settingsRoot);
+                java.nio.file.Files.createDirectories(settingsDirs.settingsFile().getParent());
+                String userKey = "$2a$10$selfcheckNotARealCurseForgeKey0123456789";
+
+                com.hexadron.launcher.core.LauncherSettings fresh =
+                        new com.hexadron.launcher.core.LauncherSettings(settingsDirs);
+                fresh.curseForgeApiKey(userKey).curseForgeKeyStored(true);
+                fresh.save();
+                String written = java.nio.file.Files.readString(settingsDirs.settingsFile());
+                check("launcher.json never carries the CurseForge key", !written.contains(userKey));
+                check("launcher.json says a key is in the credential store",
+                        new com.hexadron.launcher.core.LauncherSettings(settingsDirs).load()
+                                .curseForgeKeyStored());
+
+                java.nio.file.Files.writeString(settingsDirs.settingsFile(),
+                        "{\"curseForgeApiKey\":\"" + userKey + "\"}");
+                com.hexadron.launcher.core.LauncherSettings legacy =
+                        new com.hexadron.launcher.core.LauncherSettings(settingsDirs).load();
+                check("a plain-text key from an older launcher.json is still used",
+                        userKey.equals(legacy.curseForgeApiKey()));
+                legacy.save();
+                check("a plain-text key is kept until it has been moved, so it is not lost",
+                        java.nio.file.Files.readString(settingsDirs.settingsFile()).contains(userKey));
+                check("the plain-text key is handed over for the move once",
+                        userKey.equals(legacy.takePlaintextCurseForgeKey())
+                                && legacy.takePlaintextCurseForgeKey() == null);
+                legacy.curseForgeKeyStored(true).save();
+                check("after the move launcher.json no longer carries it",
+                        !java.nio.file.Files.readString(settingsDirs.settingsFile()).contains(userKey));
+            } finally {
+                deleteRecursively(settingsRoot);
+            }
+        } catch (IOException e) {
+            check("the CurseForge key storage checks ran (" + e + ")", false);
+        }
 
         // Gradle writes the version into the resources, so a run from class
         // folders reports the version in launcher/build.gradle, not a constant.
@@ -7029,6 +7073,71 @@ public final class SelfCheck {
                         com.hexadron.launcher.util.Redactor.scrub("installing 42 libraries")));
         check("a short value is not registered as a secret",
                 "ok".equals(com.hexadron.launcher.util.Redactor.scrub("ok")));
+
+        // -- Shapes found missing in the review after the first real sign-in.
+        String jsonSecret = "abcdefghijklmnopqrstuvwxyz012345";
+        check("a refresh_token value in JSON is masked",
+                !com.hexadron.launcher.util.Redactor.scrub(
+                        "{\"refresh_token\":\"" + jsonSecret + "\"}").contains(jsonSecret));
+        check("an Xbox Token value in JSON is masked, with spaces around the colon",
+                !com.hexadron.launcher.util.Redactor.scrub(
+                        "{\"Token\" : \"" + jsonSecret + "\"}").contains(jsonSecret));
+        String msaTail = "LMNOP!*xyz$123abcdefghij";
+        check("an MSA token is masked to its end, '!', '*' and '$' included",
+                !com.hexadron.launcher.util.Redactor.scrub(
+                        "M.C552_BAY.0.U.-abcdefghijklmnopqrstu" + msaTail + " done").contains("xyz$123"));
+        String ew = "EwB" + "Q".repeat(120) + "==";
+        check("an opaque consumer access token is masked",
+                !com.hexadron.launcher.util.Redactor.scrub("token=" + ew).contains(ew));
+
+        // -- A mod file name from a platform cannot leave its folder.
+        check("a mod file name with folders keeps only its last part",
+                "x.bat".equals(com.hexadron.launcher.mods.ModFile.safeFileName("..\\..\\Startup\\x.bat")));
+        check("a mod file name with forward slashes keeps only its last part",
+                "evil.jar".equals(com.hexadron.launcher.mods.ModFile.safeFileName("../../evil.jar")));
+        check("a mod file name of dots becomes a plain name",
+                "unnamed-download".equals(com.hexadron.launcher.mods.ModFile.safeFileName("..")));
+        check("an ordinary mod file name is unchanged",
+                "sodium-fabric-0.6.0+mc1.21.jar".equals(
+                        com.hexadron.launcher.mods.ModFile.safeFileName("sodium-fabric-0.6.0+mc1.21.jar")));
+
+        // -- The launch command never prints the token it carries.
+        var launchCommand = new com.hexadron.launcher.launch.LaunchCommandBuilder.LaunchCommand(
+                List.of("java"), Path.of("."), Path.of("java"), List.of(), "Main",
+                Map.of("accessToken", "secret-session-token-0123456789"), "Main");
+        check("a launch command's toString leaves the token out",
+                !launchCommand.toString().contains("secret-session-token"));
+
+        // -- The loopback listener: only its own sign-in can end the wait.
+        try {
+            var pkceForServer = com.hexadron.launcher.auth.Pkce.generate();
+            try (var listener = com.hexadron.launcher.auth.LoopbackRedirectServer.start(pkceForServer)) {
+                int port = listener.port();
+                check("a request with another Host is refused",
+                        rawGet(port, "evil.example:" + port, "/?error=x&state=" + pkceForServer.state())
+                                .startsWith("HTTP/1.1 400"));
+                check("an error without this sign-in's state is refused",
+                        rawGet(port, "127.0.0.1:" + port, "/?error=access_denied&error_description=spoof")
+                                .startsWith("HTTP/1.1 400"));
+                check("a code with the wrong state is refused",
+                        rawGet(port, "127.0.0.1:" + port, "/?code=stolen&state=wrong")
+                                .startsWith("HTTP/1.1 400"));
+                boolean stillWaiting;
+                try {
+                    listener.awaitCode(1, () -> false);
+                    stillWaiting = false;
+                } catch (IOException timedOut) {
+                    stillWaiting = timedOut.getMessage() != null
+                            && timedOut.getMessage().contains("not completed within");
+                }
+                check("none of those ended the sign-in", stillWaiting);
+                rawGet(port, "127.0.0.1:" + port, "/?code=the-real-code&state=" + pkceForServer.state());
+                check("the real redirect is accepted",
+                        "the-real-code".equals(listener.awaitCode(5, () -> false)));
+            }
+        } catch (IOException | InterruptedException e) {
+            check("the loopback listener checks ran (" + e + ")", false);
+        }
         // A value with no token shape: masked only while it is registered. This
         // is what proves the two layers are independent, and it is also why the
         // Microsoft-shaped token above stays masked after being forgotten - the
@@ -8665,6 +8774,20 @@ public final class SelfCheck {
                             text.contains("https://account.microsoft.com/services"));
                 }
             }
+        }
+    }
+
+    /** A bare HTTP/1.1 GET with a chosen Host header; returns the status line. */
+    private static String rawGet(int port, String host, String pathAndQuery) throws IOException {
+        try (java.net.Socket socket = new java.net.Socket(java.net.InetAddress.getLoopbackAddress(), port)) {
+            socket.setSoTimeout(5000);
+            socket.getOutputStream().write(("GET " + pathAndQuery + " HTTP/1.1\r\nHost: " + host
+                    + "\r\nConnection: close\r\n\r\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    socket.getInputStream(), java.nio.charset.StandardCharsets.US_ASCII));
+            String status = reader.readLine();
+            return status == null ? "" : status;
         }
     }
 

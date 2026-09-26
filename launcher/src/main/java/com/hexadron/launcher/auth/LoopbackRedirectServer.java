@@ -170,6 +170,27 @@ public final class LoopbackRedirectServer implements AutoCloseable {
         try {
             Map<String, String> query = parseQuery(exchange.getRequestURI().getRawQuery());
 
+            // Anything else on this machine can reach a loopback port - another
+            // program, or a web page that guesses it. Such a request must not be
+            // able to end the sign-in, so it is answered and otherwise ignored:
+            // the wait goes on for the real redirect, or times out.
+            //
+            // The Host check refuses DNS rebinding (a page on a name that
+            // resolves to 127.0.0.1); the browser always sends the literal the
+            // redirect URI names.
+            String host = exchange.getRequestHeaders().getFirst("Host");
+            if (!("127.0.0.1:" + port()).equals(host)) {
+                respond(exchange, 400, "Nothing here", "This page is not part of the sign-in.");
+                return;
+            }
+            // Microsoft returns the state on errors as well as on success, so a
+            // request without the right one did not come from this sign-in.
+            if (!pkce.matchesState(query.get("state"))) {
+                respond(exchange, 400, "Sign-in rejected",
+                        "The response did not match this sign-in attempt. Start again in the launcher.");
+                return;
+            }
+
             String error = query.get("error");
             if (error != null) {
                 // error_description comes from Microsoft and is safe to show, but it
@@ -182,21 +203,10 @@ public final class LoopbackRedirectServer implements AutoCloseable {
                 return;
             }
 
-            String returnedState = query.get("state");
             String authorizationCode = query.get("code");
 
             if (authorizationCode == null) {
-                // A stray request - a browser prefetch, a probe. Not the redirect.
                 respond(exchange, 404, "Nothing here", "This page is not part of the sign-in.");
-                return;
-            }
-
-            if (!pkce.matchesState(returnedState)) {
-                respond(exchange, 400, "Sign-in rejected",
-                        "The response did not match this sign-in attempt. Start again in the launcher.");
-                code.completeExceptionally(new MicrosoftAuth.AuthException(
-                        "the sign-in response did not match this attempt (state mismatch) - "
-                                + "it was not started by this launcher and has been discarded"));
                 return;
             }
 

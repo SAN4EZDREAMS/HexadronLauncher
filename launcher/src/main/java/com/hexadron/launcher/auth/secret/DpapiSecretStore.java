@@ -91,6 +91,11 @@ public final class DpapiSecretStore extends ProcessSecretStore {
             byte[] back = unprotect(blob);
             return probe.equals(new String(back, StandardCharsets.UTF_8));
         } catch (IOException | RuntimeException e) {
+            // Said in the log: without it the launcher moved the session
+            // tokens to the weaker file store and nothing showed why.
+            com.hexadron.launcher.core.LauncherLog.warn(
+                    "Windows DPAPI is not usable here (%s); credentials go to the encrypted file store",
+                    com.hexadron.launcher.util.Redactor.scrub(String.valueOf(e.getMessage())));
             return false;
         }
     }
@@ -134,8 +139,8 @@ public final class DpapiSecretStore extends ProcessSecretStore {
         String script = """
                 $ErrorActionPreference = 'Stop'
                 Add-Type -AssemblyName System.Security
-                $input = [Console]::In.ReadToEnd().Trim()
-                $bytes = [Convert]::FromBase64String($input)
+                $stdinText = [Console]::In.ReadToEnd().Trim()
+                $bytes = [Convert]::FromBase64String($stdinText)
                 $entropy = [Convert]::FromBase64String('%s')
                 $protected = [System.Security.Cryptography.ProtectedData]::Protect(
                     $bytes, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
@@ -148,8 +153,8 @@ public final class DpapiSecretStore extends ProcessSecretStore {
         String script = """
                 $ErrorActionPreference = 'Stop'
                 Add-Type -AssemblyName System.Security
-                $input = [Console]::In.ReadToEnd().Trim()
-                $bytes = [Convert]::FromBase64String($input)
+                $stdinText = [Console]::In.ReadToEnd().Trim()
+                $bytes = [Convert]::FromBase64String($stdinText)
                 $entropy = [Convert]::FromBase64String('%s')
                 $plain = [System.Security.Cryptography.ProtectedData]::Unprotect(
                     $bytes, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
@@ -158,9 +163,23 @@ public final class DpapiSecretStore extends ProcessSecretStore {
         return Base64.getDecoder().decode(runScript(script, blobBase64));
     }
 
+    /**
+     * PowerShell by full path. The session tokens go to its standard input, and
+     * a bare "powershell.exe" is looked up through the search path, where a
+     * file of that name planted earlier in the path would receive them.
+     */
+    static String powershell() {
+        String root = System.getenv("SystemRoot");
+        if (root == null || root.isBlank()) {
+            root = "C:\\Windows";
+        }
+        Path full = Path.of(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+        return Files.isRegularFile(full) ? full.toString() : "powershell.exe";
+    }
+
     private String runScript(String script, String stdin) throws IOException {
         String encoded = Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE));
-        Result result = run(List.of("powershell.exe",
+        Result result = run(List.of(powershell(),
                         "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                         "-EncodedCommand", encoded),
                 (stdin + "\n").getBytes(StandardCharsets.US_ASCII));

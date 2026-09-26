@@ -13,13 +13,13 @@
 package com.hexadron.launcher.launch;
 
 import com.hexadron.launcher.core.GameDirs;
+import com.hexadron.launcher.util.FilePermissions;
 import com.hexadron.launcher.util.Hashes;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 
 /**
  * Puts {@code com.hexadron.wrapper.GameLaunchWrapper} on disk so it can be added
@@ -48,33 +48,39 @@ public final class LaunchWrapperJar {
     /**
      * Returns the wrapper jar on disk, extracting it if needed.
      *
-     * @return the path, or null when the launcher was built without the wrapper
-     *         jar - in which case the caller falls back to passing the token on
-     *         the command line rather than refusing to start the game
+     * <p>The file name carries the hash. A game still running from an older
+     * launcher keeps its jar open, and on Windows an open file cannot be
+     * replaced; with one name per content the new jar never has to overwrite
+     * the old one.
+     *
+     * @return the path, or null only when this build carries no wrapper jar
+     * @throws IOException when the jar is in the build but could not be put on
+     *                     disk. The caller must not fall back to the command
+     *                     line for an account with a real session token.
      */
-    public static Path ensureExtracted(GameDirs dirs) {
+    public static Path ensureExtracted(GameDirs dirs) throws IOException {
+        byte[] bytes;
         try (InputStream embedded = LaunchWrapperJar.class.getResourceAsStream(RESOURCE)) {
             if (embedded == null) {
                 return null;
             }
-            byte[] bytes = embedded.readAllBytes();
-            if (bytes.length == 0) {
-                return null;
-            }
-            Path directory = dirs.root().resolve("wrapper");
-            Files.createDirectories(directory);
-            Path jar = directory.resolve("hexadron-launchwrapper.jar");
-
-            String expected = Hashes.sha256(bytes);
-            if (Files.isRegularFile(jar) && expected.equals(Hashes.sha256(Files.readAllBytes(jar)))) {
-                return jar;
-            }
-            Path temporary = directory.resolve("hexadron-launchwrapper.jar.tmp");
-            Files.write(temporary, bytes);
-            Files.move(temporary, jar, StandardCopyOption.REPLACE_EXISTING);
-            return jar;
-        } catch (IOException | RuntimeException e) {
+            bytes = embedded.readAllBytes();
+        }
+        if (bytes.length == 0) {
             return null;
         }
+        Path directory = FilePermissions.createRestrictedDirectory(dirs.root().resolve("wrapper"));
+        String expected = Hashes.sha256(bytes);
+        Path jar = directory.resolve("hexadron-launchwrapper-" + expected.substring(0, 16) + ".jar");
+
+        if (Files.isRegularFile(jar) && expected.equals(Hashes.sha256(Files.readAllBytes(jar)))) {
+            return jar;
+        }
+        // Owner-only, written to a temporary file and moved into place.
+        FilePermissions.writeRestricted(jar, bytes);
+        if (!expected.equals(Hashes.sha256(Files.readAllBytes(jar)))) {
+            throw new IOException("the launch wrapper on disk does not match the one in the launcher");
+        }
+        return jar;
     }
 }

@@ -388,12 +388,11 @@ public final class MicrosoftAuth {
             throw new AuthException("Microsoft refused the refresh token: " + errorOf(response)
                     + " - sign in again");
         }
-        // Microsoft rotates the refresh token on most grants. The old one stops
-        // working, so it is unregistered from the redactor to keep that set small.
+        // Microsoft rotates the refresh token on most grants. The old one stays
+        // registered with the redactor: it is still the one on disk until the
+        // new session has been saved, and the rest of this chain can fail.
+        // AccountStore.update unregisters it once the account is replaced.
         String rotated = response.get("refresh_token").asString(refreshToken);
-        if (!rotated.equals(refreshToken)) {
-            Redactor.forget(refreshToken);
-        }
         return fromMicrosoftToken(accessToken, rotated, progress);
     }
 

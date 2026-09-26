@@ -37,8 +37,26 @@ public final class LauncherSettings {
      */
     private String microsoftClientId = "014ab124-109d-4664-a685-c2f88aa32ea8";
 
-    /** CurseForge API key. Empty means the CurseForge provider stays disabled. */
+    /**
+     * CurseForge API key, in memory only. Empty means the CurseForge provider
+     * stays disabled.
+     *
+     * <p>It is kept in the credential store, not in launcher.json: that file is
+     * plain text, and it is the file people attach to a bug report. The service
+     * loads the key from the store and saves it there; this class only says
+     * whether there is one to load ({@link #curseForgeKeyStored}).
+     */
     private String curseForgeApiKey = "";
+
+    /** Whether a CurseForge key is waiting in the credential store. */
+    private boolean curseForgeKeyStored;
+
+    /**
+     * A key read from an older launcher.json, where it was stored in plain
+     * text. Moved to the credential store at start-up, then dropped from the
+     * file by the next save.
+     */
+    private String plaintextCurseForgeKey;
 
     /**
      * How Microsoft sign-in is started: {@code "browser"} or {@code "deviceCode"}.
@@ -246,7 +264,12 @@ public final class LauncherSettings {
         }
         Json json = Json.read(file);
         microsoftClientId = json.get("microsoftClientId").asString(microsoftClientId);
-        curseForgeApiKey = json.get("curseForgeApiKey").asString(curseForgeApiKey);
+        String legacyKey = json.get("curseForgeApiKey").asString("").trim();
+        if (!legacyKey.isEmpty()) {
+            curseForgeApiKey = legacyKey;
+            plaintextCurseForgeKey = legacyKey;
+        }
+        curseForgeKeyStored = json.get("curseForgeKeyStored").asBool(false);
         microsoftSignInMethod = json.get("microsoftSignInMethod").asString(microsoftSignInMethod);
         secureLaunchHandshake = json.get("secureLaunchHandshake").asBool(secureLaunchHandshake);
         useFileCredentialStore = json.get("useFileCredentialStore").asBool(useFileCredentialStore);
@@ -280,9 +303,16 @@ public final class LauncherSettings {
     }
 
     public void save() throws IOException {
-        Json.object()
+        Json root = Json.object();
+        if (plaintextCurseForgeKey != null) {
+            // Not moved yet (the move runs after start-up, and the CLI never
+            // runs it). Dropping it now would lose the key.
+            root.put("curseForgeApiKey", plaintextCurseForgeKey);
+        }
+        root
                 .put("microsoftClientId", microsoftClientId)
-                .put("curseForgeApiKey", curseForgeApiKey)
+                // Never the key itself - see curseForgeApiKey.
+                .put("curseForgeKeyStored", curseForgeKeyStored)
                 .put("microsoftSignInMethod", microsoftSignInMethod)
                 .put("secureLaunchHandshake", secureLaunchHandshake)
                 .put("useFileCredentialStore", useFileCredentialStore)
@@ -396,6 +426,22 @@ public final class LauncherSettings {
 
     public String curseForgeApiKey() {
         return curseForgeApiKey;
+    }
+
+    public boolean curseForgeKeyStored() {
+        return curseForgeKeyStored;
+    }
+
+    public LauncherSettings curseForgeKeyStored(boolean stored) {
+        this.curseForgeKeyStored = stored;
+        return this;
+    }
+
+    /** The plain-text key from an older launcher.json, once; null afterwards or when there was none. */
+    public String takePlaintextCurseForgeKey() {
+        String key = plaintextCurseForgeKey;
+        plaintextCurseForgeKey = null;
+        return key;
     }
 
     public LauncherSettings curseForgeApiKey(String value) {

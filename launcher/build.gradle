@@ -348,7 +348,18 @@ tasks.register('appImage', Exec) {
 			// running the Forge installers, with no download at all. The other
 			// three defaults are repeated because naming this option replaces
 			// the whole default list rather than adding to it.
-			'--jlink-options', '--strip-debug --no-man-pages --no-header-files',
+			//
+			// --bind-services: jpackage builds the runtime from the default root
+			// set, which holds only modules that export an API. Service-provider
+			// modules export none, so they were left out - jdk.naming.dns among
+			// them, and Minecraft resolves SRV records through it. The game then
+			// logged "ClassNotFoundException: com.sun.jndi.dns.DnsContextFactory"
+			// and could not reach any server whose address is an SRV record.
+			// Binding services adds every provider of a service the runtime
+			// uses: jdk.naming.dns, jdk.localedata (non-English date and number
+			// formats), jdk.charsets. About 33 MB more, measured with jlink on
+			// JDK 25 (Linux x64).
+			'--jlink-options', '--strip-debug --no-man-pages --no-header-files --bind-services',
 			'--dest', outputDir.get().asFile.absolutePath
 	}
 }

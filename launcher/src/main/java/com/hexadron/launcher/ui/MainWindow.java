@@ -687,7 +687,19 @@ public final class MainWindow implements ProfileHost {
     private void openSettingsWindow() {
         SettingsDialog dialog = new SettingsDialog(service.settings(), layout(), service.dirs(),
                 service.secretStore());
+        String keyBefore = service.settings().curseForgeApiKey();
         dialog.show(stage).ifPresent(result -> {
+            // The key goes to the credential store, not launcher.json, and is
+            // applied at once. Only when it changed: touching the store costs a
+            // PowerShell launch on Windows.
+            String keyAfter = service.settings().curseForgeApiKey();
+            if (!keyAfter.equals(keyBefore)) {
+                try {
+                    service.curseForgeApiKey(keyAfter);
+                } catch (IOException e) {
+                    showError(I18n.t("settings.curseforge.notsaved"), e);
+                }
+            }
             saveSettingsQuietly();
             // Applied here rather than only at the next start: the settings
             // window is where somebody fixes a route that is not working, and

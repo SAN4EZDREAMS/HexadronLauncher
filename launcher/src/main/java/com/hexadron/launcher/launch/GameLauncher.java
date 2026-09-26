@@ -278,8 +278,8 @@ public final class GameLauncher {
         }
         return switch (exitCode) {
             case 92 -> "The launcher could not hand the session to Minecraft "
-                    + "(launch handshake failed). Try again; if it repeats, turn off "
-                    + "the secure launch handshake in settings and report it.";
+                    + "(launch handshake failed). Try again; if it repeats, report it "
+                    + "with the launcher log.";
             case 0 -> "Minecraft closed normally.";
             case 1 -> "Minecraft exited with code 1 - usually a crash during startup. "
                     + "Check the log above for the first exception.";

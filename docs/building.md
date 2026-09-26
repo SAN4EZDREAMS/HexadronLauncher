@@ -63,6 +63,7 @@ The script finds an old header by its `SPDX-License-Identifier: LicenseRef-Hexad
 - `jpackage` builds only for the operating system it runs on.
 - The icon is `launcher/packaging/icon.ico` (Windows), `icon.icns` (macOS) or `icon.png` (Linux). The task fails if it is missing.
 - `--jlink-options` keeps `bin/java` in the embedded runtime, so the launcher can start Minecraft and the Forge installers with it. Do not add `--strip-native-commands`.
+- `--jlink-options` also carries `--bind-services`. Without it the embedded runtime has no service-provider modules, and Minecraft cannot resolve SRV records (`jdk.naming.dns`). Do not remove it.
 - No Gradle task archives the image. Gradle's `Zip` and `Tar` tasks follow symbolic links and drop the executable bit, and the image does not start without them. CI uses `tar` (Linux, macOS) and `7z` (Windows).
 
 The clients are portable archives, not installers. Without a code-signing certificate, Windows SmartScreen warns about an `.msi` and macOS refuses a `.dmg` as "damaged".
