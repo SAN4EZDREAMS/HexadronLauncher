@@ -128,11 +128,88 @@ public record CrashEvidence(int exitCode, Map<CrashRules.Source, List<String>> l
      */
     public static boolean hasFatalLine(List<String> output) {
         for (String line : output) {
-            if (line != null && line.contains("/FATAL]")) {
+            if (line != null && line.contains("/FATAL]") && !isHarmlessFatal(line)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Lines a loader logs as FATAL that stop nothing. Forge 1.12 sums up the
+     * model errors of a mod with missing textures as "Suppressed additional N
+     * model loading errors for domain x", at FATAL level, and the game plays
+     * on. Counted as a crash, it made the problem-mod search name that mod.
+     */
+    static final List<String> HARMLESS_FATAL = List.of(
+            "model loading errors for domain",
+            "[FML]: Suppressed additional");
+
+    static boolean isHarmlessFatal(String line) {
+        for (String harmless : HARMLESS_FATAL) {
+            if (line.contains(harmless)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True when a Forge 1.12 crash report shows that the loader stopped before
+     * any mod was constructed, and the game then crashed in its own loop.
+     *
+     * <p>That loop draws the loader's error screen (missing or duplicate mods,
+     * a mod for another loader). A mod hooked into the loop runs there with
+     * none of its own start-up done and throws, and the crash report names it -
+     * but it is a consequence. The report's mod table says so: every mod is
+     * still in state {@code L} (loaded) or has none, where a started mod is at
+     * {@code LC} or further.
+     */
+    public boolean loaderStoppedEarly() {
+        List<String> report = lines(CrashRules.Source.CRASH);
+        if (report.isEmpty()) {
+            return false;
+        }
+        boolean inLoop = false;
+        boolean table = false;
+        int rows = 0;
+        for (String line : report) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("at ") && (trimmed.contains(".runGameLoop(") || trimmed.contains(".func_71411_J("))) {
+                inLoop = true;
+            }
+            if (trimmed.startsWith("States:")) {
+                table = true;
+                continue;
+            }
+            if (!table) {
+                continue;
+            }
+            if (!trimmed.startsWith("|")) {
+                // A blank line may stand between the heading and the table;
+                // anything else, or anything after the rows, ends it.
+                if (rows > 0 || !trimmed.isEmpty()) {
+                    table = false;
+                }
+                continue;
+            }
+            String[] cells = trimmed.split("\\|");
+            if (cells.length < 3) {
+                continue;
+            }
+            String state = cells[1].trim();
+            if (state.equals("State") || state.startsWith(":")) {
+                continue;
+            }
+            rows++;
+            for (int i = 0; i < state.length(); i++) {
+                char c = state.charAt(i);
+                if (c != 'L' && c != 'U') {
+                    return false;
+                }
+            }
+        }
+        return inLoop && rows >= 4;
     }
 
     /**

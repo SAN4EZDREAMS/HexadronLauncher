@@ -112,7 +112,19 @@ public final class LoaderCheck {
             toForge |= id != null && BRIDGES_TO_FORGE.contains(id);
         }
         for (ModEntry mod : mods) {
-            if (mod.enabled() && !loads(loader, minecraftVersion, descriptors(mod.path()), toFabric, toForge)) {
+            if (!mod.enabled()) {
+                continue;
+            }
+            Set<Descriptor> found = descriptors(mod.path());
+            if (!loads(loader, minecraftVersion, found, toFabric, toForge)) {
+                wrong.add(mod);
+            } else if (loader == LoaderType.FORGE
+                    && (found.isEmpty() || found.contains(Descriptor.FORGE_LEGACY))
+                    && LegacyDependencies.isLegacyForge(mod.path())
+                    && LegacyDependencies.requiresOtherLoader(mod.path())) {
+                // A Forge 1.12 descriptor, but a build for Cleanroom: it says
+                // so in its @Mod annotation, and Forge stops on it before any
+                // mod is constructed.
                 wrong.add(mod);
             }
         }

@@ -1839,25 +1839,33 @@ public final class MainWindow implements ProfileHost {
             // to answer - so every crash of an ordinary game in that profile
             // went to a hidden window and vanished without a trace.
             Path gameDir = service.profiles().gameDirectory(profile);
-            boolean crashed = !stopRequested && exitCode != 92
+            boolean ended = !stopRequested && exitCode != 92
                     && (exitCode != 0 || CrashEvidence.hasCrashReportSince(gameDir, startedAt)
                             || CrashEvidence.hasFatalLine(lines));
-            boolean learned = false;
-            if (crashed) {
+            com.hexadron.launcher.core.LauncherService.BisectOutcome outcome = null;
+            if (ended) {
                 try {
-                    learned = service.bisectLearn(profile, CrashEvidence.collect(gameDir, startedAt, lines, exitCode));
-                } catch (IOException | RuntimeException e) {
-                    com.hexadron.launcher.core.LauncherLog.error("Problem-mod search: could not learn from the crash", e);
+                    outcome = service.bisectJudge(profile, CrashEvidence.collect(gameDir, startedAt, lines, exitCode),
+                            I18n.current().code());
+                } catch (RuntimeException e) {
+                    com.hexadron.launcher.core.LauncherLog.error("Problem-mod search: could not judge the crash", e);
                 }
             }
+            var verdict = outcome == null ? null : outcome.verdict();
+            boolean learned = verdict == com.hexadron.launcher.core.LauncherService.BisectVerdict.LEARNED;
+            boolean crashed = ended && (verdict == null
+                    || verdict == com.hexadron.launcher.core.LauncherService.BisectVerdict.PROBLEM);
+            String other = verdict == com.hexadron.launcher.core.LauncherService.BisectVerdict.OTHER
+                    ? outcome.detail() : null;
+            String cannotStart = learned && !outcome.detail().isEmpty() ? outcome.detail() : null;
             com.hexadron.launcher.core.LauncherLog.info("Problem-mod search: the game ended with exit "
-                    + exitCode + (learned ? ", a mod the step had switched off was missing; the step runs again"
+                    + exitCode + (learned ? ", the step itself stopped the game; the step runs again"
+                    : other != null ? ", with another crash; the player is asked"
                     : crashed ? ", counted as a crash" : ""));
-            boolean again = learned;
             Platform.runLater(() -> {
                 if (bisectWindow != null && profile.id().equals(bisectProfileId)) {
                     // Shows the window again if the player closed it while playing.
-                    bisectWindow.gameEnded(crashed, again);
+                    bisectWindow.gameEnded(crashed, learned, other, cannotStart);
                 } else {
                     findProblemMod(profile);
                 }
@@ -1884,6 +1892,8 @@ public final class MainWindow implements ProfileHost {
             CrashEvidence evidence = CrashEvidence.collect(gameDir, startedAt, lines, exitCode);
             java.util.List<CrashAnalyzer.Diagnosis> diagnoses =
                     service.analyzeCrash(profile, evidence, I18n.current().code(), quietMillis);
+            // A problem-mod search started from this window looks for this crash.
+            service.rememberCrash(profile, evidence, diagnoses);
             java.util.Map<CrashAnalyzer.Diagnosis, java.util.List<CrashFixes.Prepared>> fixes =
                     new java.util.LinkedHashMap<>();
             for (CrashAnalyzer.Diagnosis diagnosis : diagnoses) {
@@ -2022,7 +2032,7 @@ public final class MainWindow implements ProfileHost {
 
             @Override
             public java.util.Set<String> enabled(com.hexadron.launcher.bisect.Bisect.State state) {
-                return com.hexadron.launcher.bisect.Bisect.enabledFor(state, service.bisectGraph(profile, state));
+                return service.bisectOn(profile, state);
             }
 
             @Override
@@ -2417,9 +2427,11 @@ public final class MainWindow implements ProfileHost {
 
         java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
         if (answer.isEmpty() || answer.get() == cancel) {
+            logChoice("duplicate mods " + groups.keySet(), "cancel");
             return false;
         }
         if (answer.get() == launch) {
+            logChoice("duplicate mods " + groups.keySet(), "launch anyway");
             return true;
         }
         try {
@@ -2483,9 +2495,11 @@ public final class MainWindow implements ProfileHost {
         alert.getButtonTypes().setAll(cancel, launch, offSecond, offFirst);
         java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
         if (answer.isEmpty() || answer.get() == cancel) {
+            logChoice("mods that conflict", "cancel");
             return false;
         }
         if (answer.get() == launch) {
+            logChoice("mods that conflict", "launch anyway");
             return true;
         }
         try {
@@ -2534,6 +2548,7 @@ public final class MainWindow implements ProfileHost {
             return true;
         }
         java.util.Set<String> done = new java.util.HashSet<>();
+        java.util.Set<String> failedIds = new java.util.LinkedHashSet<>();
         for (com.hexadron.launcher.mods.Requirements.Missing need : missing) {
             String key = need.switchedOff() != null ? "file:" + need.switchedOff().fileName() : "id:" + need.dependency();
             if (!done.add(key)) {
@@ -2546,10 +2561,85 @@ public final class MainWindow implements ProfileHost {
                 }
             } catch (IOException e) {
                 progress.log(I18n.t("mods.missingDeps.failed", need.dependency(), describe(e)));
+                failedIds.add(need.dependency());
             }
         }
         Platform.runLater(() -> showProfile(shown));
+        if (failedIds.isEmpty()) {
+            return true;
+        }
+        // What could not be supplied still stops the game: the loader refuses
+        // to start without it, every time. Starting anyway is a crash the
+        // player has already been told about, so the launcher offers the way
+        // that does start - without the mods that need it.
+        java.util.List<ModEntry> askers = new java.util.ArrayList<>();
+        for (com.hexadron.launcher.mods.Requirements.Missing need : missing) {
+            if (failedIds.contains(need.dependency()) && !askers.contains(need.mod())) {
+                askers.add(need.mod());
+            }
+        }
+        java.util.concurrent.FutureTask<Boolean> offer = new java.util.concurrent.FutureTask<>(
+                () -> askUnresolvedRequirements(String.join(", ", failedIds), askers));
+        Platform.runLater(offer);
+        Boolean switchOff = offer.get();
+        if (switchOff == null) {
+            return false;
+        }
+        if (switchOff) {
+            java.util.List<String> off = service.switchOffMods(profile, askers);
+            progress.log(I18n.t("mods.conflict.done", String.join(", ", off)));
+            Platform.runLater(() -> showProfile(shown));
+        }
         return true;
+    }
+
+    /**
+     * Asks what to do about requirements that could not be installed.
+     *
+     * @return true to switch off the mods that need them, false to launch as it is, null to cancel
+     */
+    private Boolean askUnresolvedRequirements(String dependencies, java.util.List<ModEntry> askers) {
+        StringBuilder detail = new StringBuilder();
+        int listed = Math.min(askers.size(), WRONG_VERSION_LISTED);
+        for (int i = 0; i < listed; i++) {
+            ModEntry mod = askers.get(i);
+            String name = mod.title() == null || mod.title().isBlank() ? mod.fileName() : mod.title();
+            detail.append("\n  · ").append(name).append(" (").append(mod.fileName()).append(')');
+        }
+        if (askers.size() > listed) {
+            detail.append("\n  ").append(I18n.t("mods.wrongVersion.more", askers.size() - listed));
+        }
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                I18n.t("mods.missingDeps.unresolved", dependencies, detail.toString()));
+        alert.initOwner(stage);
+        Theme.apply(alert.getDialogPane());
+        alert.setTitle(I18n.t("mods.missingDeps.header"));
+        alert.setHeaderText(I18n.t("mods.missingDeps.header"));
+        alert.getDialogPane().setPrefWidth(620);
+        javafx.scene.control.ButtonType fix =
+                new javafx.scene.control.ButtonType(I18n.t("mods.wrongLoader.fix"),
+                        javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+        javafx.scene.control.ButtonType launch =
+                new javafx.scene.control.ButtonType(I18n.t("mods.wrongVersion.launch"),
+                        javafx.scene.control.ButtonBar.ButtonData.OTHER);
+        javafx.scene.control.ButtonType cancel =
+                new javafx.scene.control.ButtonType(I18n.t("action.cancel"),
+                        javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(cancel, launch, fix);
+        java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
+        Boolean result = answer.isEmpty() || answer.get() == cancel ? null : answer.get() == fix;
+        logChoice("requirements not installed (" + dependencies + ")", result == null ? "cancel"
+                : result ? "switch off " + askers.stream().map(ModEntry::fileName).toList() : "launch anyway");
+        return result;
+    }
+
+    /**
+     * Writes what the player chose in a question before the launch. Without
+     * it, a launch that went ahead with a known problem looks in the log
+     * exactly like a check that never ran.
+     */
+    private static void logChoice(String question, String choice) {
+        com.hexadron.launcher.core.LauncherLog.info("Before launch: " + question + ": " + choice);
     }
 
     /** @return true to supply them, false to launch as it is, null to cancel */
@@ -2586,8 +2676,10 @@ public final class MainWindow implements ProfileHost {
         alert.getButtonTypes().setAll(cancel, launch, fix);
         java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
         if (answer.isEmpty() || answer.get() == cancel) {
+            logChoice("missing requirements", "cancel");
             return null;
         }
+        logChoice("missing requirements", answer.get() == fix ? "install" : "launch anyway");
         return answer.get() == fix;
     }
 
@@ -2641,9 +2733,11 @@ public final class MainWindow implements ProfileHost {
         alert.getButtonTypes().setAll(cancel, launch, fix);
         java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
         if (answer.isEmpty() || answer.get() == cancel) {
+            logChoice("mods for another loader", "cancel");
             return false;
         }
         if (answer.get() == launch) {
+            logChoice("mods for another loader " + wrong.stream().map(ModEntry::fileName).toList(), "launch anyway");
             return true;
         }
         try {

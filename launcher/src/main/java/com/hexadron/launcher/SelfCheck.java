@@ -9433,6 +9433,155 @@ public final class SelfCheck {
             check("a library that is only switched off is switched on", libraryOff.map(e -> e.diagnosis().ruleId()).orElse("").equals("library-off")
                     && libraryOff.get().diagnosis().fixes().get(0).kind() == com.hexadron.launcher.crash.CrashFix.Kind.ENABLE_FILE);
 
+            // ---- Forge 1.12: what the old loader reports, read the way it is written
+            Path legacy = java.nio.file.Files.createDirectories(dir.resolve("legacy"));
+            // In a class file the text of a constant follows its tag (1) and a
+            // two-byte length. A length of 32 to 126 has a printable low byte
+            // ('\'' is 39) that used to join the text and hide the first requirement.
+            java.util.function.Function<String, String> constant = text ->
+                    "\u0001\u0000" + (char) text.length() + text + "\u0001\u0000\u0005other";
+            String annotation = "Lnet/minecraftforge/fml/common/Mod;";
+            Path artifacts = legacy.resolve("artifacts.jar");
+            writeJar(artifacts, Map.of(
+                    "mcmod.info", "[{\"modid\":\"artifacts\",\"name\":\"Artifacts\",\"version\":\"1\"}]",
+                    "artifacts/Artifacts.class", annotation + constant.apply("required-after:baubles;after:artemislib")));
+            check("a requirement right after a printable length byte is read",
+                    com.hexadron.launcher.mods.LegacyDependencies.of(artifacts).equals(List.of("baubles")));
+            String longer = "required-after:cofhcore@[4.6.0,4.7.0);required-after:cofhworld@[1.2.0,2.0.0);before:enderio";
+            longer = longer + ";after:x".repeat((119 - longer.length()) / 8);
+            longer = longer + "y".repeat(119 - longer.length());
+            Path thermal = legacy.resolve("thermal.jar");
+            writeJar(thermal, Map.of(
+                    "mcmod.info", "[{\"modid\":\"thermalfoundation\",\"name\":\"TF\",\"version\":\"1\"}]",
+                    "cofh/tf/ThermalFoundation.class", annotation + constant.apply(longer)));
+            check("and a length byte that is a letter does not either",
+                    com.hexadron.launcher.mods.LegacyDependencies.of(thermal).equals(List.of("cofhcore", "cofhworld")));
+            Path cleanroomMod = legacy.resolve("distanthorizons.jar");
+            writeJar(cleanroomMod, Map.of(
+                    "mcmod.info", "[{\"modid\":\"distanthorizons\",\"name\":\"Distant Horizons\",\"version\":\"3\"}]",
+                    "com/seibel/dh/cleanroom/CleanroomMain.class", annotation + constant.apply("required-after:cleanroom@[0.6.0,);"),
+                    "com/seibel/dh/cleanroom/LoadingPlugin.class", "x"));
+            writeJar(legacy.resolve("baubles.jar"), Map.of(
+                    "mcmod.info", "[{\"modid\":\"baubles\",\"name\":\"Baubles\",\"version\":\"1\"}]"));
+            writeJar(legacy.resolve("cofh.jar"), Map.of(
+                    "mcmod.info", "[{\"modid\":\"cofhcore\",\"name\":\"CoFH Core\",\"version\":\"1\"},{\"modid\":\"cofhworld\",\"name\":\"CoFH World\",\"version\":\"1\"}]"));
+            var legacyMods = ModScan.scan(legacy, "1.12.2");
+            check("a Forge 1.12 build for Cleanroom is a mod for another loader",
+                    com.hexadron.launcher.mods.LoaderCheck.wrongLoader(legacyMods, LoaderType.FORGE, "1.12.2")
+                            .stream().map(ModEntry::fileName).toList().equals(List.of("distanthorizons.jar")));
+            check("and Cleanroom is not a mod the launcher tries to install",
+                    com.hexadron.launcher.mods.Requirements.missing(legacyMods, LoaderType.FORGE, "1.12.2").stream()
+                            .noneMatch(need -> need.dependency().equals("cleanroom")));
+
+            java.util.function.Function<String, com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> missingMods = line ->
+                    com.hexadron.launcher.crash.CrashAnalyzer.analyze(com.hexadron.launcher.crash.CrashEvidence.of(0,
+                            Map.of(OUT, List.of("[14:01:35] [Client thread/FATAL] [FML]: net.minecraftforge.fml.common."
+                                    + line))), rules, "en").stream().findFirst().orElse(null);
+            var bare = missingMods.apply("MissingModsException: Mod artifacts (Artifacts) requires [baubles]");
+            check("a missing mod without a version range is a missing mod", bare != null
+                    && bare.ruleId().equals("forge-legacy-missing-dependency") && "baubles".equals(bare.values().get("dep"))
+                    && "artifacts".equals(bare.values().get("mod")));
+            var several = missingMods.apply("MissingModsException: Mod ntm_vehicles (NTM: Vehicles) requires [mts, hbm]");
+            check("and so is the first of several", several != null
+                    && several.ruleId().equals("forge-legacy-missing-dependency") && "mts".equals(several.values().get("dep")));
+            var forgeTooOld = missingMods.apply("MissingModsException: Mod jei (Just Enough Items) requires [forge@[14.23.5.2816,)]");
+            check("while the loader itself is still a version question", forgeTooOld != null
+                    && forgeTooOld.ruleId().equals("forge-legacy-loader-version"));
+
+            check("a FATAL line that sums up missing models is no crash", !com.hexadron.launcher.crash.CrashEvidence.hasFatalLine(List.of(
+                    "[14:07:29] [Client thread/FATAL] [FML]: Suppressed additional 59 model loading errors for domain bean_planet")));
+            check("a FATAL line about missing mods still is", com.hexadron.launcher.crash.CrashEvidence.hasFatalLine(List.of(
+                    "[14:01:35] [Client thread/FATAL] [FML]: net.minecraftforge.fml.common.MissingModsException: Mod a (A) requires [b]")));
+
+            // LaunchWrapper reports the real exception, then the main thread
+            // ends with ExitTrappedException, which names no mod.
+            java.util.function.Function<List<String>, com.hexadron.launcher.crash.CrashEvidence> unableToLaunch = cause -> {
+                List<String> log = new java.util.ArrayList<>(List.of(
+                        "[13:56:06] [main/ERROR] [LaunchWrapper]: Unable to launch",
+                        "java.lang.RuntimeException: An error occurred trying to configure the Minecraft home at x for Forge Mod Loader",
+                        "\tat net.minecraftforge.fml.relauncher.FMLLaunchHandler.setupHome(FMLLaunchHandler.java:111) ~[forge.jar:?]",
+                        "\tat net.minecraft.launchwrapper.Launch.main(Launch.java:28) [launchwrapper-1.12.jar:?]",
+                        "Caused by: java.lang.ExceptionInInitializerError",
+                        "\tat java.lang.Class.forName0(Native Method) ~[?:1.8.0_381]"));
+                log.addAll(cause);
+                log.addAll(List.of(
+                        "\tat net.minecraftforge.fml.relauncher.CoreModManager.loadCoreMod(CoreModManager.java:527) ~[forge.jar:?]",
+                        "Exception in thread \"main\" net.minecraftforge.fml.relauncher.FMLSecurityManager$ExitTrappedException",
+                        "\tat net.minecraftforge.fml.relauncher.FMLSecurityManager.checkPermission(FMLSecurityManager.java:49)",
+                        "\tat java.lang.System.exit(Unknown Source)"));
+                return com.hexadron.launcher.crash.CrashEvidence.of(1,
+                        Map.of(com.hexadron.launcher.crash.CrashRules.Source.LOG, log));
+            };
+            var dhCrash = unableToLaunch.apply(List.of(
+                    "Caused by: java.lang.RuntimeException: Distant Horizons: wrong loader/Java version, see message above.",
+                    "\tat com.seibel.dh.cleanroom.LoadingPlugin.check(LoadingPlugin.java:58) ~[distanthorizons.jar:3]"));
+            var dhFound = com.hexadron.launcher.core.LauncherService.analyzeCrash(legacyMods, rules, LoaderType.FORGE,
+                    dhCrash, "en", 0);
+            check("the exception LaunchWrapper reported names the mod, not ExitTrappedException",
+                    dhFound.size() == 1 && dhFound.get(0).ruleId().equals("other-loader-mod")
+                            && dhFound.get(0).fixes().get(0).value().equals("distanthorizons.jar"));
+            Path early = java.nio.file.Files.createDirectories(dir.resolve("early"));
+            writeJar(early.resolve("lootr.jar"), Map.of(
+                    "mcmod.info", "[{\"modid\":\"lootr\",\"name\":\"Lootr\",\"version\":\"1\"}]",
+                    "noobanidus/mods/lootr/LootrCore.class", "x"));
+            writeJar(early.resolve("mixinbooter.jar" + ModScan.DISABLED_SUFFIX), Map.of(
+                    "mcmod.info", "[{\"modid\":\"mixinbooter\",\"name\":\"MixinBooter\",\"version\":\"1\"}]",
+                    "zone/rong/mixinbooter/IEarlyMixinLoader.class", "x"));
+            var mixinCrash = unableToLaunch.apply(List.of(
+                    "Caused by: java.lang.NoClassDefFoundError: zone/rong/mixinbooter/IEarlyMixinLoader",
+                    "\tat noobanidus.mods.lootr.LootrCore.<clinit>(LootrCore.java:20) ~[lootr.jar:?]",
+                    "Caused by: java.lang.ClassNotFoundException: zone.rong.mixinbooter.IEarlyMixinLoader",
+                    "\tat net.minecraft.launchwrapper.LaunchClassLoader.findClass(LaunchClassLoader.java:191) ~[launchwrapper-1.12.jar:?]"));
+            var mixinFound = com.hexadron.launcher.core.LauncherService.analyzeCrash(ModScan.scan(early, "1.12.2"), rules,
+                    LoaderType.FORGE, mixinCrash, "en", 0);
+            check("and a library class it could not find is a library switched off",
+                    mixinFound.stream().anyMatch(d -> d.ruleId().equals("library-off")
+                            && "lootr.jar".equals(d.values().get("askerFile"))));
+
+            // Forge 1.12's error screen: no mod was constructed, and a mod
+            // hooked into the game loop threw there.
+            writeJar(early.resolve("replaymod.jar"), Map.of(
+                    "mcmod.info", "[{\"modid\":\"replaymod\",\"name\":\"Replay Mod\",\"version\":\"1\"}]",
+                    "com/replaymod/replay/InputReplayTimer.class", "x"));
+            java.util.function.Function<String, com.hexadron.launcher.crash.CrashEvidence> errorScreen = state ->
+                    new com.hexadron.launcher.crash.CrashEvidence(-1, Map.of(com.hexadron.launcher.crash.CrashRules.Source.CRASH, List.of(
+                            "---- Minecraft Crash Report ----", "Description: Unexpected error", "",
+                            "java.lang.NullPointerException: Unexpected error",
+                            "\tat com.replaymod.replay.InputReplayTimer.updateInReplay(InputReplayTimer.java:45)",
+                            "\tat net.minecraft.client.Minecraft.runGameLoop(Minecraft.java:1082)",
+                            "\tat net.minecraft.client.Minecraft.run(Minecraft.java:398)", "",
+                            "A detailed walkthrough of the error, its code path and all known details is as follows:",
+                            "\tStates: 'U' = Unloaded 'L' = Loaded 'C' = Constructed 'H' = Pre-initialized 'I' = Initialized 'J' = Post-initialized 'A' = Available 'D' = Disabled 'E' = Errored",
+                            "",
+                            "\t| State | ID        | Version | Source        | Signature |",
+                            "\t|:----- |:--------- |:------- |:------------- |:--------- |",
+                            "\t| " + state + " | minecraft | 1.12.2  | minecraft.jar | None      |",
+                            "\t| " + state + " | mcp       | 9.42    | minecraft.jar | None      |",
+                            "\t| " + state + " | FML       | 8.0     | forge.jar     | None      |",
+                            "\t| " + state + " | replaymod | 2.6     | replaymod.jar | None      |",
+                            "",
+                            "\tLoaded coremods (and transformers): ")), Map.of());
+            check("a crash report where no mod was started says the loader stopped", errorScreen.apply("L    ").loaderStoppedEarly()
+                    && errorScreen.apply("     ").loaderStoppedEarly());
+            check("one where the mods started does not", !errorScreen.apply("LCHIJA").loaderStoppedEarly());
+            check("and the mod that threw on the error screen is not blamed", com.hexadron.launcher.core.LauncherService
+                    .analyzeCrash(ModScan.scan(early, "1.12.2"), rules, LoaderType.FORGE, errorScreen.apply("L    "), "en", 0)
+                    .stream().noneMatch(d -> d.ruleId().equals("stack-trace")));
+            check("while in a game that got going it is", com.hexadron.launcher.core.LauncherService
+                    .analyzeCrash(ModScan.scan(early, "1.12.2"), rules, LoaderType.FORGE, errorScreen.apply("LCHIJA"), "en", 0)
+                    .stream().anyMatch(d -> d.ruleId().equals("stack-trace")));
+
+            // What a crash was, for a search that looks for it.
+            var dhSignature = com.hexadron.launcher.crash.CrashSignature.of(dhFound, dhCrash);
+            check("a crash is recognised again", dhSignature.known() && dhSignature.matches(
+                    com.hexadron.launcher.core.LauncherService.analyzeCrash(legacyMods, rules, LoaderType.FORGE, dhCrash, "en", 0),
+                    dhCrash));
+            var otherCrash = com.hexadron.launcher.crash.CrashEvidence.of(0, Map.of(OUT, List.of(
+                    "[14:01:35] [Client thread/FATAL] [FML]: net.minecraftforge.fml.common.MissingModsException: Mod artifacts (Artifacts) requires [baubles]")));
+            check("and another crash is not taken for it", !dhSignature.matches(
+                    com.hexadron.launcher.core.LauncherService.analyzeCrash(legacyMods, rules, LoaderType.FORGE, otherCrash, "en", 0),
+                    otherCrash));
+
             // ---- mods for another loader, found before the launch
             Path loaders = java.nio.file.Files.createDirectories(dir.resolve("loaders"));
             writeJar(loaders.resolve("fabric-only.jar"), Map.of("fabric.mod.json", "{\"id\":\"fonly\",\"version\":\"1\"}"));
@@ -9831,9 +9980,22 @@ public final class SelfCheck {
                     && com.hexadron.launcher.bisect.BisectFiles.learned(dir).get("a.jar").contains("d.jar"));
             check("and learning it twice is not new", !com.hexadron.launcher.bisect.BisectFiles.learn(dir,
                     Map.of("a.jar", java.util.Set.of("d.jar"))));
+            check("a mod that cannot start is kept off, and what was learned before stays",
+                    com.hexadron.launcher.bisect.BisectFiles.learnOff(dir, List.of("broken.jar"))
+                            && com.hexadron.launcher.bisect.BisectFiles.learnedOff(dir).contains("broken.jar")
+                            && com.hexadron.launcher.bisect.BisectFiles.learned(dir).get("a.jar").contains("d.jar"));
+            check("and a requirement learned after it does not switch it back on",
+                    com.hexadron.launcher.bisect.BisectFiles.learn(dir, Map.of("b.jar", java.util.Set.of("c.jar")))
+                            && com.hexadron.launcher.bisect.BisectFiles.learnedOff(dir).contains("broken.jar"));
+            com.hexadron.launcher.bisect.BisectFiles.saveProblem(dir,
+                    new com.hexadron.launcher.crash.CrashSignature("cause|missingDep|x", "X"));
+            check("the crash a search looks for is kept", com.hexadron.launcher.bisect.BisectFiles.problem(dir)
+                    .map(com.hexadron.launcher.crash.CrashSignature::key).orElse("").equals("cause|missingDep|x"));
             com.hexadron.launcher.bisect.BisectFiles.delete(dir);
             check("and forgets the search", com.hexadron.launcher.bisect.BisectFiles.load(dir).isEmpty()
-                    && com.hexadron.launcher.bisect.BisectFiles.learned(dir).isEmpty());
+                    && com.hexadron.launcher.bisect.BisectFiles.learned(dir).isEmpty()
+                    && com.hexadron.launcher.bisect.BisectFiles.learnedOff(dir).isEmpty()
+                    && com.hexadron.launcher.bisect.BisectFiles.problem(dir).isEmpty());
             // A Forge 1.12 mod that names its requirement only in @Mod.
             writeJar(modsDir.resolve("needs-lib.jar"), Map.of(
                     "mcmod.info", "[{\"modid\":\"needslib\",\"name\":\"Needs Lib\",\"version\":\"1\"}]",

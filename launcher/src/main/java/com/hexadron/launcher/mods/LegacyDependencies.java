@@ -42,6 +42,14 @@ import java.util.zip.ZipFile;
  * found by its text, with no bytecode parsing: an annotation value is stored
  * as one UTF-8 constant, and the byte after it is the tag of the next one,
  * which is never a printable character.
+ *
+ * <p>The start of the constant is not found the same way. Before its text
+ * stand the tag {@code 1} and a two-byte length, and the low byte of that
+ * length is printable for every string of 32 to 126 characters - which is
+ * most dependency strings. Read as text it joins the string
+ * ({@code 'required-after:baubles}), and the first requirement, usually the
+ * only one, was lost. So the start is taken where the tag and the length
+ * agree with the text that follows.
  */
 public final class LegacyDependencies {
 
@@ -62,6 +70,14 @@ public final class LegacyDependencies {
 
     /** Ids that are the loader or the game, not a mod in the folder. */
     static final Set<String> NOT_MODS = Set.of("forge", "minecraft", "fml", "mcp", "*");
+
+    /**
+     * Ids that name another mod loader, not a mod. A Forge 1.12 mod that
+     * requires one of them is a build for that loader: Distant Horizons ships a
+     * build with {@code required-after:cleanroom}, and plain Forge stops on it
+     * before the first mod is constructed.
+     */
+    public static final Set<String> OTHER_LOADERS = Set.of("cleanroom");
 
     private static final Map<String, List<String>> CACHE = new ConcurrentHashMap<>();
 
@@ -168,17 +184,41 @@ public final class LegacyDependencies {
         return ids;
     }
 
-    /** The whole printable string the marker is part of. */
-    private static String constantAt(byte[] bytes, int at) {
-        int start = at;
-        while (start > 0 && printable(bytes[start - 1])) {
-            start--;
+    /** True when a Forge 1.12 mod requires another loader than Forge, such as Cleanroom. */
+    public static boolean requiresOtherLoader(Path jar) {
+        for (String id : of(jar)) {
+            if (OTHER_LOADERS.contains(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The UTF-8 constant the marker is part of.
+     *
+     * <p>The end is the first byte that is not printable: the tag of the next
+     * constant. The start is where a tag {@code 1} and a two-byte length stand
+     * just before the text and the length reaches exactly that end. Without
+     * such a place (a string not in a constant pool), the printable run is
+     * taken whole, as before.
+     */
+    static String constantAt(byte[] bytes, int at) {
+        int run = at;
+        while (run > 0 && printable(bytes[run - 1])) {
+            run--;
         }
         int end = at;
-        while (end < bytes.length && printable(bytes[end]) && end - start < 4096) {
+        while (end < bytes.length && printable(bytes[end]) && end - run < 4096) {
             end++;
         }
-        return new String(bytes, start, end - start, StandardCharsets.US_ASCII);
+        for (int start = run; start <= at; start++) {
+            if (start >= 3 && bytes[start - 3] == 1
+                    && (((bytes[start - 2] & 0xff) << 8) | (bytes[start - 1] & 0xff)) == end - start) {
+                return new String(bytes, start, end - start, StandardCharsets.US_ASCII);
+            }
+        }
+        return new String(bytes, run, end - run, StandardCharsets.US_ASCII);
     }
 
     private static boolean printable(byte b) {

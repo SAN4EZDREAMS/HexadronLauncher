@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 4,
+  "version": 5,
   "about": "Crash rules for HexadronLauncher. Format: crash/CrashRules.java. A newer signed copy is published with each release as hexadron-crash-rules.json.",
   "texts": {
     "javaOld": {
@@ -2724,7 +2724,7 @@
           "contains": [
             "MissingModsException: Mod "
           ],
-          "regex": "MissingModsException: Mod (?<mod>[A-Za-z0-9_.\\-]+) \\([^)]*\\) requires \\[(?<dep>(?!forge@|minecraft@)[A-Za-z0-9_.\\-]+)@",
+          "regex": "MissingModsException: Mod (?<mod>[A-Za-z0-9_.\\-]+) \\([^)]*\\) requires \\[(?<dep>(?!(?:forge|minecraft)[@,\\]])[A-Za-z0-9_.\\-]+)[@,\\]]",
           "repeat": true
         }
       ],
@@ -3870,6 +3870,34 @@
         "forge",
         "neoforge"
       ]
+    },
+    {
+      "slug": "hbm-nuclear-tech-mod-community-edition",
+      "name": "HBM's Nuclear Tech Mod",
+      "ids": [
+        "hbm"
+      ],
+      "packages": [
+        "com.hbm."
+      ],
+      "loaders": [
+        "forge"
+      ],
+      "curseforge": "hbm-nuclear-tech-mod-community-edition"
+    },
+    {
+      "slug": "immersive-vehicles",
+      "name": "Immersive Vehicles (MTS)",
+      "ids": [
+        "mts"
+      ],
+      "packages": [
+        "minecrafttransportsimulator."
+      ],
+      "loaders": [
+        "forge"
+      ],
+      "curseforge": "minecraft-transport-simulator"
     }
   ],
   "conflicts": [

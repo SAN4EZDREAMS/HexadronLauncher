@@ -113,7 +113,13 @@ final class BisectWindow {
      *                needed one this step had switched off - and the step is
      *                set up again with both on; it does not count
      */
-    void gameEnded(boolean crashed, boolean learned) {
+    /**
+     * @param other the crash the launch ended with when it is not the one the
+     *              search looks for; the player is asked then. Null otherwise
+     * @param cannotStart mods the search found cannot start at all and keeps
+     *                    off from now on; null when there are none
+     */
+    void gameEnded(boolean crashed, boolean learned, String other, String cannotStart) {
         gameRunning = false;
         // The player may have closed the window while the game ran; the search
         // still waits for this answer, so it comes back rather than waiting unseen.
@@ -123,16 +129,16 @@ final class BisectWindow {
         stage.toFront();
         if (learned) {
             work(actions::current, state -> {
-                render(state);
-                note(I18n.t("bisect.learned"));
+                render(state, cannotStart == null ? I18n.t("bisect.learned") : I18n.t("bisect.cannotStart", cannotStart));
             });
+        } else if (other != null) {
+            ask(I18n.t("bisect.otherCrash", other));
         } else if (crashed) {
             work(() -> actions.answer(true), next -> {
-                render(next);
-                note(I18n.t("bisect.crashed"));
+                render(next, I18n.t("bisect.crashed"));
             });
         } else {
-            ask();
+            ask(null);
         }
     }
 
@@ -164,6 +170,15 @@ final class BisectWindow {
     }
 
     private void render(Bisect.State state) {
+        render(state, null);
+    }
+
+    /**
+     * @param message what happened in the last launch, shown above the step;
+     *                given here rather than added after, because the step is
+     *                drawn only once the mods are counted and would clear it
+     */
+    private void render(Bisect.State state, String message) {
         if (state.isDone()) {
             result(state);
             return;
@@ -172,6 +187,9 @@ final class BisectWindow {
             clear();
             heading(I18n.t("bisect.title"));
             muted(I18n.t("bisect.step", state.step(), Bisect.remaining(state), state.suspects().size()));
+            if (message != null) {
+                text(message);
+            }
             if (state.mode() == Bisect.Mode.LIBRARY) {
                 text(I18n.t("bisect.library", actions.title(state.context().get(0))));
             } else if (state.mode() != Bisect.Mode.SINGLE) {
@@ -197,7 +215,7 @@ final class BisectWindow {
         });
     }
 
-    private void ask() {
+    private void ask(String explanation) {
         work(actions::current, state -> {
             if (state == null) {
                 intro();
@@ -206,6 +224,9 @@ final class BisectWindow {
             clear();
             heading(I18n.t("bisect.title"));
             muted(I18n.t("bisect.step", state.step(), Bisect.remaining(state), state.suspects().size()));
+            if (explanation != null) {
+                text(explanation);
+            }
             text(I18n.t("bisect.question"));
             buttons(button(I18n.t("bisect.yes"), () -> work(() -> actions.answer(true), this::render), true),
                     button(I18n.t("bisect.no"), () -> work(() -> actions.answer(false), this::render), false),

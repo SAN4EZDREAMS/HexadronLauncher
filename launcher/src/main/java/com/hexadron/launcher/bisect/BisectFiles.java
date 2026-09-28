@@ -159,6 +159,39 @@ public final class BisectFiles {
     public static void delete(Path gameDir) throws IOException {
         Files.deleteIfExists(gameDir.resolve(STATE_FILE));
         Files.deleteIfExists(gameDir.resolve(LEARNED_FILE));
+        Files.deleteIfExists(gameDir.resolve(PROBLEM_FILE));
+    }
+
+    /**
+     * The crash a search looks for, when it was started after one. A launch
+     * that stops with another crash is not an answer to the search.
+     */
+    public static final String PROBLEM_FILE = ".hexadron-bisect-problem.json";
+
+    public static void saveProblem(Path gameDir, com.hexadron.launcher.crash.CrashSignature signature)
+            throws IOException {
+        Json root = Json.object();
+        root.put("key", signature.key());
+        root.put("label", signature.label());
+        Path temp = gameDir.resolve(PROBLEM_FILE + ".part");
+        root.write(temp);
+        Files.move(temp, gameDir.resolve(PROBLEM_FILE), StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /** The crash the search looks for; empty when it was not started after one. */
+    public static Optional<com.hexadron.launcher.crash.CrashSignature> problem(Path gameDir) {
+        Path file = gameDir.resolve(PROBLEM_FILE);
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            return Optional.empty();
+        }
+        try {
+            Json root = Json.read(file);
+            var signature = new com.hexadron.launcher.crash.CrashSignature(root.get("key").asString(""),
+                    root.get("label").asString(""));
+            return signature.known() ? Optional.of(signature) : Optional.empty();
+        } catch (IOException | RuntimeException e) {
+            return Optional.empty();
+        }
     }
 
     /**
@@ -167,6 +200,44 @@ public final class BisectFiles {
      * state, so an interrupted search keeps what it learned.
      */
     public static final String LEARNED_FILE = ".hexadron-bisect-learned.json";
+
+    /**
+     * Mods a search found that cannot start at all: they need a mod that is
+     * not in the folder. Every launch with one of them stops before the game,
+     * so the search keeps them off; they cannot be the answer either way.
+     */
+    public static Set<String> learnedOff(Path gameDir) {
+        Set<String> off = new LinkedHashSet<>();
+        Path file = gameDir.resolve(LEARNED_FILE);
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            return off;
+        }
+        try {
+            for (Json name : Json.read(file).get("off").elements()) {
+                String value = name.asString("");
+                if (!value.isBlank() && !value.contains("/") && !value.contains("\\")) {
+                    off.add(value);
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            // Teaches nothing.
+        }
+        return off;
+    }
+
+    /**
+     * Adds mods to the ones the search keeps off.
+     *
+     * @return true when any of them is new
+     */
+    public static boolean learnOff(Path gameDir, Collection<String> files) throws IOException {
+        Set<String> off = learnedOff(gameDir);
+        if (!off.addAll(files)) {
+            return false;
+        }
+        writeLearned(gameDir, learned(gameDir), off);
+        return true;
+    }
 
     /** What a search learned, file to the files it needs; empty when nothing. */
     public static Map<String, Set<String>> learned(Path gameDir) {
@@ -211,6 +282,12 @@ public final class BisectFiles {
         if (!added) {
             return false;
         }
+        writeLearned(gameDir, learned, learnedOff(gameDir));
+        return true;
+    }
+
+    private static void writeLearned(Path gameDir, Map<String, Set<String>> learned, Set<String> off)
+            throws IOException {
         Json needs = Json.object();
         learned.forEach((file, files) -> {
             Json list = Json.array();
@@ -219,9 +296,11 @@ public final class BisectFiles {
         });
         Json root = Json.object();
         root.put("needs", needs);
+        Json offList = Json.array();
+        off.forEach(name -> offList.add(Json.of(name)));
+        root.put("off", offList);
         Path temp = gameDir.resolve(LEARNED_FILE + ".part");
         root.write(temp);
         Files.move(temp, gameDir.resolve(LEARNED_FILE), StandardCopyOption.REPLACE_EXISTING);
-        return true;
     }
 }

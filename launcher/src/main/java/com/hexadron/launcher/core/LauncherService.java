@@ -314,21 +314,47 @@ public final class LauncherService {
     public java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> analyzeCrash(
             Profile profile, com.hexadron.launcher.crash.CrashEvidence evidence, String language,
             long quietMillis) {
-        java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsOf(profile);
-        com.hexadron.launcher.crash.CrashRules rules = crashRules.current();
+        return analyzeCrash(modsOf(profile), crashRules.current(), profile.loader(), evidence, language, quietMillis);
+    }
+
+    /**
+     * Explains a crash from the mods of a folder and a rule file, with no
+     * profile: the same answer {@link #analyzeCrash(Profile, com.hexadron.launcher.crash.CrashEvidence, String, long)}
+     * gives, for the self-check and for replaying real crashes.
+     *
+     * @param loader the profile's loader; null when unknown
+     */
+    public static java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> analyzeCrash(
+            java.util.List<com.hexadron.launcher.mods.ModEntry> mods, com.hexadron.launcher.crash.CrashRules rules,
+            LoaderType loader, com.hexadron.launcher.crash.CrashEvidence evidence, String language,
+            long quietMillis) {
+        String loaderKey = loader == null ? "" : loader.name().toLowerCase(java.util.Locale.ROOT);
         java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> found = new java.util.ArrayList<>(
-                com.hexadron.launcher.crash.CrashAnalyzer.analyze(evidence, rules, language,
-                        id -> com.hexadron.launcher.crash.CrashFixes.displayName(mods, id)));
+                com.hexadron.launcher.crash.CrashAnalyzer.analyze(evidence, rules, language, id -> {
+                    // A mod that is not in the folder is named by the library
+                    // list when it knows it: "HBM's Nuclear Tech Mod", not "hbm".
+                    String name = com.hexadron.launcher.crash.CrashFixes.displayName(mods, id);
+                    return name == null || name.equals(id)
+                            ? rules.libraryForMod(id, loaderKey).map(com.hexadron.launcher.crash.CrashRules.Library::name)
+                                    .orElse(id)
+                            : name;
+                }));
 
         // A cause that stopped the loader explains what crashed after it. Forge
         // 1.12 with a mod installed twice draws its error screen, a mod hooked
         // into the game loop runs there with none of its own start-up done, and
         // throws - and naming that mod would offer to switch off the wrong one.
-        boolean loaderStopped = com.hexadron.launcher.crash.CrashAnalyzer.loaderStopped(found, rules);
+        //
+        // The crash report says so even when no rule knows the cause: no mod
+        // got past loading, and the game crashed in its own loop.
+        boolean ruled = com.hexadron.launcher.crash.CrashAnalyzer.loaderStopped(found, rules);
+        boolean early = !ruled && evidence.loaderStoppedEarly();
+        boolean loaderStopped = ruled || early;
         if (loaderStopped) {
             com.hexadron.launcher.crash.StackAttribution.blame(evidence, mods).ifPresent(blame ->
                     LauncherLog.info("Crash analysis: " + blame.mod().fileName() + " threw after the loader"
-                            + " had stopped; reported as a consequence, not a cause"));
+                            + " had stopped" + (early ? " (no mod was started)" : "")
+                            + "; reported as a consequence, not a cause"));
         }
         // A class or method that is not where a mod looked for it: the answer
         // is usually on the other side - a library switched off, not installed,
@@ -336,7 +362,7 @@ public final class LauncherService {
         boolean linked = false;
         if (!loaderStopped && found.size() < com.hexadron.launcher.crash.CrashAnalyzer.MAX_DIAGNOSES) {
             java.util.Optional<com.hexadron.launcher.crash.Linkage.Explained> explained =
-                    com.hexadron.launcher.crash.Linkage.explain(evidence, mods, rules, language, profile.loader());
+                    com.hexadron.launcher.crash.Linkage.explain(evidence, mods, rules, language, loader);
             if (explained.isPresent()) {
                 linked = true;
                 com.hexadron.launcher.mods.ModEntry asker = explained.get().asker();
@@ -357,18 +383,36 @@ public final class LauncherService {
                 String id = com.hexadron.launcher.mods.ModScan.descriptorOf(mod.path()).modId();
                 // A rule that already named this mod said more than a stack can.
                 boolean named = found.stream().anyMatch(d -> d.values().containsValue(name)
-                        || (id != null && d.values().containsValue(id)));
-                if (!named) {
-                    com.hexadron.launcher.crash.CrashAnalyzer.describe(rules, language, "stack-trace", 10,
-                            com.hexadron.launcher.crash.CrashRules.TEXT_MOD_CODE,
-                            java.util.Map.of("mod", name, "error", blame.error()),
-                            java.util.List.of(new com.hexadron.launcher.crash.CrashFix(
-                                    com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_FILE, mod.fileName())),
-                            evidence.crashReport().isPresent()
-                                    ? com.hexadron.launcher.crash.CrashRules.Source.CRASH
-                                    : com.hexadron.launcher.crash.CrashRules.Source.OUTPUT,
-                            blame.className()).ifPresent(found::add);
+                        || (id != null && d.values().containsValue(id))
+                        || d.values().containsValue(mod.fileName()));
+                if (named) {
+                    return;
                 }
+                com.hexadron.launcher.crash.CrashRules.Source source = evidence.crashReport().isPresent()
+                        ? com.hexadron.launcher.crash.CrashRules.Source.CRASH
+                        : com.hexadron.launcher.crash.CrashRules.Source.OUTPUT;
+                java.util.List<com.hexadron.launcher.crash.CrashFix> off = java.util.List.of(
+                        new com.hexadron.launcher.crash.CrashFix(
+                                com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_FILE, mod.fileName()));
+                // A Forge 1.12 build for Cleanroom throws from its own loading
+                // plugin on plain Forge. "Its code crashed" is true, but "it is
+                // for another loader" is the answer.
+                if (loader == LoaderType.FORGE
+                        && com.hexadron.launcher.mods.LegacyDependencies.isLegacyForge(mod.path())
+                        && com.hexadron.launcher.mods.LegacyDependencies.requiresOtherLoader(mod.path())) {
+                    java.util.Optional<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> other =
+                            com.hexadron.launcher.crash.CrashAnalyzer.describe(rules, language, "other-loader-mod", 40,
+                                    "wrongLoader", java.util.Map.of("file", mod.fileName()), off, source,
+                                    blame.className());
+                    if (other.isPresent()) {
+                        found.add(other.get());
+                        return;
+                    }
+                }
+                com.hexadron.launcher.crash.CrashAnalyzer.describe(rules, language, "stack-trace", 10,
+                        com.hexadron.launcher.crash.CrashRules.TEXT_MOD_CODE,
+                        java.util.Map.of("mod", name, "error", blame.error()), off, source,
+                        blame.className()).ifPresent(found::add);
             });
         }
 
@@ -401,7 +445,7 @@ public final class LauncherService {
             }
         }
         return found.stream()
-                .map(d -> com.hexadron.launcher.crash.CrashFixes.withDerived(d, profile.loader()))
+                .map(d -> com.hexadron.launcher.crash.CrashFixes.withDerived(d, loader))
                 .toList();
     }
 
@@ -750,7 +794,8 @@ public final class LauncherService {
             }
             default -> throw new IllegalStateException(fix.kind().toString());
         }
-        LauncherLog.info(done);
+        // Not written to the log here: every caller hands the line to its
+        // progress, which writes it, and the log had each fix twice.
         return done;
     }
 
@@ -1221,9 +1266,9 @@ public final class LauncherService {
                 progress.log("A requirement of the update could not be installed: %s (%s)", projectId, e.getMessage());
             }
         }
-        String summary = "Updated: " + String.join(", ", done);
-        LauncherLog.info(summary);
-        return summary;
+        // The caller's progress writes it to the log; written here too, every
+        // update stood in the log twice.
+        return "Updated: " + String.join(", ", done);
     }
 
     /** True when the last update of mods, resource packs or shader packs of this profile can be undone. */
@@ -1312,13 +1357,30 @@ public final class LauncherService {
      * @return true when something was learned and the same step runs again
      */
     public boolean bisectLearn(Profile profile, com.hexadron.launcher.crash.CrashEvidence evidence) throws IOException {
+        return learnFromCrash(profile, evidence).learned();
+    }
+
+    /**
+     * What a crash of the search taught it.
+     *
+     * @param learned     true when the step runs again
+     * @param cannotStart the mods found to need a mod that is not installed
+     */
+    private record Learned(boolean learned, java.util.Set<String> cannotStart) {
+    }
+
+    private Learned learnFromCrash(Profile profile, com.hexadron.launcher.crash.CrashEvidence evidence)
+            throws IOException {
         java.util.Optional<com.hexadron.launcher.bisect.Bisect.State> saved = bisectState(profile);
         if (saved.isEmpty() || saved.get().isDone()) {
-            return false;
+            return new Learned(false, java.util.Set.of());
         }
         com.hexadron.launcher.bisect.Bisect.State state = saved.get();
         java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsOf(profile);
-        java.util.Set<String> on = com.hexadron.launcher.bisect.Bisect.enabledFor(state, bisectGraph(profile, state));
+        java.util.Set<String> on = bisectOn(profile, state);
+        Path gameDir = profiles.gameDirectory(profile);
+        java.util.Set<String> keptOff = com.hexadron.launcher.bisect.BisectFiles.learnedOff(gameDir);
+        java.util.Set<String> cannotStart = new java.util.LinkedHashSet<>();
         java.util.Map<String, String> byId = new java.util.HashMap<>();
         for (com.hexadron.launcher.mods.ModEntry mod : mods) {
             String name = com.hexadron.launcher.mods.ModScan.enabledName(mod.fileName());
@@ -1336,6 +1398,13 @@ public final class LauncherService {
             if ("missingDep".equals(diagnosis.textId())) {
                 need = byId.get(lower(diagnosis.values().get("dep")));
                 asker = byId.get(lower(diagnosis.values().get("mod")));
+                // What it needs is not in the folder at all (or is a mod the
+                // search keeps off for that reason): this mod stops every
+                // launch it is part of, whatever the step. It stays off.
+                if (asker != null && on.contains(asker) && (need == null || keptOff.contains(need))) {
+                    cannotStart.add(asker);
+                    continue;
+                }
             } else if ("library-off".equals(diagnosis.ruleId())) {
                 need = diagnosis.fixes().stream()
                         .filter(fix -> fix.kind() == com.hexadron.launcher.crash.CrashFix.Kind.ENABLE_FILE)
@@ -1354,15 +1423,119 @@ public final class LauncherService {
                 }
             }
         }
-        Path gameDir = profiles.gameDirectory(profile);
-        if (more.isEmpty() || !com.hexadron.launcher.bisect.BisectFiles.learn(gameDir, more)) {
-            return false;
+        boolean needs = !more.isEmpty() && com.hexadron.launcher.bisect.BisectFiles.learn(gameDir, more);
+        boolean broken = !cannotStart.isEmpty() && com.hexadron.launcher.bisect.BisectFiles.learnOff(gameDir, cannotStart);
+        if (!needs && !broken) {
+            return new Learned(false, java.util.Set.of());
         }
         applyBisect(profile, state);
-        LauncherLog.info("Problem-mod search: learned that %s need %s; step %d runs again",
-                more.size() > 3 ? more.size() + " mods" : more.keySet(),
-                more.values().stream().flatMap(java.util.Set::stream).distinct().toList(), state.step());
-        return true;
+        if (needs) {
+            LauncherLog.info("Problem-mod search: learned that %s need %s; step %d runs again",
+                    more.size() > 3 ? more.size() + " mods" : more.keySet(),
+                    more.values().stream().flatMap(java.util.Set::stream).distinct().toList(), state.step());
+        }
+        if (broken) {
+            LauncherLog.info("Problem-mod search: learned that %s cannot start (a mod they need is not installed);"
+                    + " kept off, step %d runs again", cannotStart, state.step());
+        }
+        return new Learned(true, broken ? cannotStart : java.util.Set.of());
+    }
+
+    /** How a launch of the search ended. */
+    public enum BisectVerdict {
+        /** The problem the search looks for. */
+        PROBLEM,
+        /** A crash the step itself caused; the step runs again. */
+        LEARNED,
+        /** Another crash: the player is asked whether the problem occurred. */
+        OTHER
+    }
+
+    /**
+     * @param verdict what the launch counts as
+     * @param detail  for {@code OTHER}, the crash it ended with, in a few words;
+     *                for {@code LEARNED}, the mods found unable to start, or empty
+     */
+    public record BisectOutcome(BisectVerdict verdict, String detail) {
+    }
+
+    /**
+     * Decides what a crash in a launch of the search counts as.
+     *
+     * <p>A search started after a crash looks for that crash: the same one is
+     * the problem, another one is not an answer. One started without a crash
+     * cannot compare, so a crash counts - except one where the loader refused
+     * the mod set (a mod missing, installed twice or for another loader),
+     * which the halving itself so often causes.
+     *
+     * @param language the language the detail is given in
+     */
+    public BisectOutcome bisectJudge(Profile profile, com.hexadron.launcher.crash.CrashEvidence evidence,
+                                     String language) {
+        java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> found;
+        try {
+            found = analyzeCrash(profile, evidence, language, 0);
+        } catch (RuntimeException e) {
+            LauncherLog.error("Problem-mod search: could not analyse the crash", e);
+            found = java.util.List.of();
+        }
+        Path gameDir = profiles.gameDirectory(profile);
+        java.util.Optional<com.hexadron.launcher.crash.CrashSignature> sought =
+                com.hexadron.launcher.bisect.BisectFiles.problem(gameDir);
+        if (sought.isPresent() && sought.get().matches(found, evidence)) {
+            return new BisectOutcome(BisectVerdict.PROBLEM, "");
+        }
+        try {
+            Learned learned = learnFromCrash(profile, evidence);
+            if (learned.learned()) {
+                return new BisectOutcome(BisectVerdict.LEARNED, learned.cannotStart().stream()
+                        .map(file -> modFileTitle(profile, file)).collect(java.util.stream.Collectors.joining(", ")));
+            }
+        } catch (IOException | RuntimeException e) {
+            LauncherLog.error("Problem-mod search: could not learn from the crash", e);
+        }
+        String detail = found.isEmpty()
+                ? com.hexadron.launcher.crash.CrashSignature.of(found, evidence).label()
+                : found.get(0).title() + ": " + found.get(0).cause();
+        if (detail.isBlank()) {
+            detail = "exit code " + evidence.exitCode();
+        }
+        if (sought.isPresent()) {
+            LauncherLog.info("Problem-mod search: another crash than the one searched for (%s): %s",
+                    sought.get().label(), com.hexadron.launcher.crash.CrashSignature.of(found, evidence).key());
+            return new BisectOutcome(BisectVerdict.OTHER, detail);
+        }
+        if (com.hexadron.launcher.crash.CrashAnalyzer.loaderStopped(found, crashRules.current())
+                || evidence.loaderStoppedEarly()) {
+            LauncherLog.info("Problem-mod search: the loader refused this mod set: %s",
+                    com.hexadron.launcher.crash.CrashSignature.of(found, evidence).key());
+            return new BisectOutcome(BisectVerdict.OTHER, detail);
+        }
+        return new BisectOutcome(BisectVerdict.PROBLEM, "");
+    }
+
+    /** The last crash explained in each profile, for a search started after it. */
+    private final java.util.Map<String, RememberedCrash> lastCrash = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private record RememberedCrash(com.hexadron.launcher.crash.CrashSignature signature, long at) {
+    }
+
+    /** How long after a crash a search started in the same profile is taken to be about it. */
+    static final long CRASH_REMEMBERED_MILLIS = 30 * 60 * 1000L;
+
+    /**
+     * Remembers what a crash was, so that a problem-mod search started after
+     * it looks for that crash and no other.
+     */
+    public void rememberCrash(Profile profile, com.hexadron.launcher.crash.CrashEvidence evidence,
+                              java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> diagnoses) {
+        com.hexadron.launcher.crash.CrashSignature signature =
+                com.hexadron.launcher.crash.CrashSignature.of(diagnoses, evidence);
+        if (signature.known()) {
+            lastCrash.put(profile.id(), new RememberedCrash(signature, System.currentTimeMillis()));
+        } else {
+            lastCrash.remove(profile.id());
+        }
     }
 
     private static String lower(String value) {
@@ -1384,8 +1557,14 @@ public final class LauncherService {
         // Saved before anything is renamed: if the launcher stops between the
         // two, the saved list is what puts the folder back.
         com.hexadron.launcher.bisect.BisectFiles.save(profiles.gameDirectory(profile), state, profile.id());
+        RememberedCrash crash = lastCrash.get(profile.id());
+        boolean afterCrash = crash != null && System.currentTimeMillis() - crash.at() < CRASH_REMEMBERED_MILLIS;
+        if (afterCrash) {
+            com.hexadron.launcher.bisect.BisectFiles.saveProblem(profiles.gameDirectory(profile), crash.signature());
+        }
         applyBisect(profile, state);
-        LauncherLog.info("Problem-mod search started in %s with %d mods", profile.name(), state.original().size());
+        LauncherLog.info("Problem-mod search started in %s with %d mods%s", profile.name(), state.original().size(),
+                afterCrash ? ", looking for: " + crash.signature().key() : "");
         return state;
     }
 
@@ -1407,11 +1586,26 @@ public final class LauncherService {
     }
 
     private void applyBisect(Profile profile, com.hexadron.launcher.bisect.Bisect.State state) throws IOException {
-        java.util.Set<String> on = com.hexadron.launcher.bisect.Bisect.enabledFor(state, bisectGraph(profile, state));
+        java.util.Set<String> on = bisectOn(profile, state);
         java.util.List<String> missing = com.hexadron.launcher.bisect.BisectFiles.apply(
                 profiles.modsDirectory(profile), state.original(), on);
-        LauncherLog.info("Problem-mod search: step %d, %d of %d mods on%s", state.step(), on.size(),
-                state.original().size(), missing.isEmpty() ? "" : ", missing: " + missing);
+        java.util.Set<String> off = com.hexadron.launcher.bisect.BisectFiles.learnedOff(profiles.gameDirectory(profile));
+        LauncherLog.info("Problem-mod search: step %d, %d of %d mods on%s%s", state.step(), on.size(),
+                state.original().size(), missing.isEmpty() ? "" : ", missing: " + missing,
+                off.isEmpty() ? "" : ", kept off (cannot start): " + off);
+    }
+
+    /**
+     * The mods a launch of the search has on: the step's set, less the mods
+     * the search found cannot start at all.
+     */
+    public java.util.Set<String> bisectOn(Profile profile, com.hexadron.launcher.bisect.Bisect.State state) {
+        java.util.Set<String> on = new java.util.LinkedHashSet<>(
+                com.hexadron.launcher.bisect.Bisect.enabledFor(state, bisectGraph(profile, state)));
+        if (!state.isDone()) {
+            on.removeAll(com.hexadron.launcher.bisect.BisectFiles.learnedOff(profiles.gameDirectory(profile)));
+        }
+        return on;
     }
 
     /**

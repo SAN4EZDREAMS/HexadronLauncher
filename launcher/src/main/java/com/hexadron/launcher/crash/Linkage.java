@@ -37,7 +37,8 @@ import java.util.zip.ZipFile;
  * folder, the way {@link StackAttribution} looks up the classes of a stack.
  *
  * <p>Only the exception of the crash itself is read - the crash report, or the
- * report or {@code main} exception the game printed. A log is full of
+ * report, the exception LaunchWrapper reported, or the {@code main} exception
+ * the game printed. A log is full of
  * {@code ClassNotFoundException}s that mods catch on purpose while they look
  * for optional companions, and none of those is a cause.
  */
@@ -230,6 +231,12 @@ public final class Linkage {
             int printed = lastIndexOf(lines, "---- Minecraft Crash Report ----");
             if (printed >= 0) {
                 return slice(lines, indexOf(lines, "Description:", printed));
+            }
+            // Forge 1.12: the real exception is the one LaunchWrapper reported,
+            // not the ExitTrappedException the main thread ended with.
+            List<String> failed = StackAttribution.launchFailure(lines);
+            if (!failed.isEmpty()) {
+                return slice(failed, 0);
             }
             int main = lastIndexOf(lines, "Exception in thread \"main\"");
             if (main >= 0) {

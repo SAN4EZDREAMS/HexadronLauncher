@@ -101,7 +101,9 @@ public final class Requirements {
                 continue;
             }
             for (String need : required(mod)) {
-                if (BUILT_IN.contains(need) || present.contains(need) || !reported.add(mod.fileName() + "|" + need)) {
+                // Another loader is not a mod to install: LoaderCheck speaks for those mods.
+                if (BUILT_IN.contains(need) || LegacyDependencies.OTHER_LOADERS.contains(need)
+                        || present.contains(need) || !reported.add(mod.fileName() + "|" + need)) {
                     continue;
                 }
                 missing.add(new Missing(mod, need, off.get(need)));

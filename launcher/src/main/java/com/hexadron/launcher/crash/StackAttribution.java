@@ -58,6 +58,14 @@ public final class StackAttribution {
             "gg.essential.loader.", "kotlin.", "kotlinx.", "scala.", "org.jetbrains.",
             "zone.rong.mixinbooter.", "com.electronwill.nightconfig.", "org.openjdk.");
 
+    /**
+     * The line LaunchWrapper (Forge 1.12 and older) prints over the exception
+     * that stopped the start. It then exits through Forge's security manager,
+     * and what reaches {@code Exception in thread "main"} is only
+     * {@code FMLSecurityManager$ExitTrappedException}, with no mod in its stack.
+     */
+    static final String LAUNCH_FAILED = "[LaunchWrapper]: Unable to launch";
+
     private static final Pattern FRAME = Pattern.compile("^\\s*at\\s+(?:\\S*/)?([A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)+)\\.[\\w$<>]+\\(");
     private static final Pattern EXCEPTION = Pattern.compile(
             "^(?:Caused by: |Exception in thread \"[^\"]*\" )?((?:[a-z_$][\\w$]*\\.)+([A-Z][\\w$]*(?:Exception|Error|Throwable)))\\b");
@@ -169,12 +177,35 @@ public final class StackAttribution {
                     return Optional.of(parse(lines, start + 1));
                 }
             }
+            List<String> failed = launchFailure(lines);
+            if (!failed.isEmpty()) {
+                return Optional.of(parse(failed, 0));
+            }
             int main = lastIndexOf(lines, "Exception in thread \"main\"");
             if (main >= 0) {
                 return Optional.of(parse(lines, main));
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * The exception LaunchWrapper reported under {@link #LAUNCH_FAILED}, up to
+     * the {@code main} exception that follows it; empty when there is none.
+     */
+    static List<String> launchFailure(List<String> lines) {
+        int failed = lastIndexOf(lines, LAUNCH_FAILED);
+        if (failed < 0) {
+            return List.of();
+        }
+        int end = lines.size();
+        for (int i = failed + 1; i < lines.size(); i++) {
+            if (lines.get(i).contains("Exception in thread \"main\"")) {
+                end = i;
+                break;
+            }
+        }
+        return lines.subList(failed + 1, end);
     }
 
     /**

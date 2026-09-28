@@ -214,7 +214,9 @@ public final class HexadronCli {
                 System.out.println(check.updates().size() + " update(s) among " + check.checked() + " mods, "
                         + check.unknown() + " on neither platform");
                 if (args.length > 2 && "--apply".equals(args[2]) && !check.updates().isEmpty()) {
-                    System.out.println(service.applyModUpdates(profile, check.updates(), progress));
+                    String updated = service.applyModUpdates(profile, check.updates(), progress);
+                    com.hexadron.launcher.core.LauncherLog.info(updated);
+                    System.out.println(updated);
                 }
             }
             case "move" -> {
