@@ -606,6 +606,43 @@ public final class CurseForgeProvider implements ModProvider {
             new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
+     * Which CurseForge mod and file each of these fingerprints is (see
+     * {@code ModUpdates.curseForgeFingerprint}), in one request.
+     *
+     * @return fingerprint to {mod id, file id}, only for exact matches
+     */
+    public java.util.Map<Long, long[]> matchFingerprints(java.util.Collection<Long> fingerprints)
+            throws IOException, InterruptedException {
+        java.util.Map<Long, long[]> found = new java.util.LinkedHashMap<>();
+        if (fingerprints.isEmpty()) {
+            return found;
+        }
+        Json list = Json.array();
+        fingerprints.forEach(fingerprint -> list.add(Json.of(fingerprint)));
+        Json body = Json.object();
+        body.put("fingerprints", list);
+        Json response;
+        try {
+            response = Http.postJson(API + "/fingerprints/" + GAME_MINECRAFT, body, headers());
+        } catch (Http.HttpStatusException e) {
+            if (e.statusCode() == 401 || e.statusCode() == 403) {
+                throw new KeyRejectedException(e.statusCode(), e);
+            }
+            throw e;
+        }
+        for (Json match : response.get("data").get("exactMatches").elements()) {
+            Json file = match.get("file");
+            long fingerprint = file.get("fileFingerprint").asLong(0);
+            long modId = match.get("id").asLong(0);
+            long fileId = file.get("id").asLong(0);
+            if (fingerprint != 0 && modId != 0 && fileId != 0) {
+                found.put(fingerprint, new long[]{modId, fileId});
+            }
+        }
+        return found;
+    }
+
+    /**
      * The mod with exactly this slug, the address its page has
      * ({@code curseforge.com/minecraft/mc-mods/<slug>}), or empty.
      */

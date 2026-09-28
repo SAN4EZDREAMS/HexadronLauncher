@@ -182,6 +182,13 @@ public final class MainWindow implements ProfileHost {
 
     /** What this profile actually loads. Read-only; the browser is where it changes. */
     private final Label modsTitle = new Label();
+    /** Checks for newer builds of the shown profile's mods, then opens the list of them. */
+    private final Button updatesButton = new Button();
+    /** What the last check found, per profile; gone once the mods change. */
+    private final java.util.Map<String, com.hexadron.launcher.mods.ModUpdates.Check> modUpdates =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    /** Profiles checked by themselves this session: once each, not on every click. */
+    private final java.util.Set<String> updatesChecked = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final ListView<ModEntry> modsList = new ListView<>();
     private final Label modsEmpty = new Label();
 
@@ -829,11 +836,16 @@ public final class MainWindow implements ProfileHost {
         actions.setAlignment(Pos.CENTER_LEFT);
 
         modsTitle.getStyleClass().add("section-title");
-        modsList.setCellFactory(view -> new ModCell(() -> modpackIds));
+        modsList.setCellFactory(view -> new ModCell(() -> modpackIds, this::shownUpdates));
         modsList.setPlaceholder(modsEmpty);
         modsList.setPrefHeight(150);
         modsList.setFocusTraversable(false);
-        VBox modsBox = new VBox(6, modsTitle, modsList);
+        updatesButton.setOnAction(event -> modUpdatesClicked());
+        Region modsSpacer = new Region();
+        HBox.setHgrow(modsSpacer, Priority.ALWAYS);
+        HBox modsHeader = new HBox(8, modsTitle, modsSpacer, updatesButton);
+        modsHeader.setAlignment(Pos.CENTER_LEFT);
+        VBox modsBox = new VBox(6, modsHeader, modsList);
         VBox.setVgrow(modsList, Priority.ALWAYS);
 
         // The two lines are stacked and the picture stands beside both of them,
@@ -888,9 +900,13 @@ public final class MainWindow implements ProfileHost {
          * and a jar out of a modpack somebody installed.
          */
         private final java.util.function.Supplier<java.util.Set<String>> modpackIds;
+        /** The newer builds found for the shown profile, by the file they replace. */
+        private final java.util.function.Supplier<java.util.Map<String, com.hexadron.launcher.mods.ModUpdates.Update>> updates;
 
-        ModCell(java.util.function.Supplier<java.util.Set<String>> modpackIds) {
+        ModCell(java.util.function.Supplier<java.util.Set<String>> modpackIds,
+                java.util.function.Supplier<java.util.Map<String, com.hexadron.launcher.mods.ModUpdates.Update>> updates) {
             this.modpackIds = modpackIds;
+            this.updates = updates;
             name.getStyleClass().add("summary-value");
             version.getStyleClass().add("instance-subtitle");
             badge.getStyleClass().add("badge");
@@ -921,8 +937,11 @@ public final class MainWindow implements ProfileHost {
             version.setText(mod.version() == null ? "" : mod.version());
             boolean fromModpack = mod.origin() == ModOrigin.PACK && mod.packId() != null
                     && modpackIds.get().contains(mod.packId());
-            badge.setText(ModLabels.badge(mod, fromModpack));
             boolean live = mod.enabled() && !mod.isWrongVersion();
+            com.hexadron.launcher.mods.ModUpdates.Update update = live ? updates.get().get(mod.fileName()) : null;
+            badge.setText(update != null ? I18n.t("mods.origin.update", update.next().displayName())
+                    : ModLabels.badge(mod, fromModpack));
+            setBadgeClass(badge, "badge-update", update != null);
             // Only when it actually differs. A style class changed from inside a
             // list cell's update is resolved a frame late - the cell is updated
             // during the list's layout, after CSS has run - so touching one for
@@ -930,6 +949,7 @@ public final class MainWindow implements ProfileHost {
             // and corrected afterwards.
             setBadgeClass(badge, "badge-off", !mod.enabled());
             setBadgeClass(badge, "badge-wrong", mod.enabled() && mod.isWrongVersion());
+            live &= update == null;
             setBadgeClass(badge, "badge-modpack", live && fromModpack);
             setBadgeClass(badge, "badge-pack",
                     live && !fromModpack && mod.origin() == ModOrigin.PACK);
@@ -1039,7 +1059,7 @@ public final class MainWindow implements ProfileHost {
     }
 
     /** Adds or removes a style class, and only when it is not already right. */
-    private static void setBadgeClass(Label badge, String name, boolean wanted) {
+    private static void setBadgeClass(javafx.scene.control.Labeled badge, String name, boolean wanted) {
         if (badge.getStyleClass().contains(name) == wanted) {
             return;
         }
@@ -1084,6 +1104,127 @@ public final class MainWindow implements ProfileHost {
         modsList.setItems(FXCollections.observableArrayList(installed));
         modsTitle.setText(I18n.t("instance.mods", installed.size()));
         modsEmpty.setText(I18n.t("instance.mods.empty"));
+        // A check describes the folder it looked at; a folder that changed is
+        // described by nothing until the next one.
+        com.hexadron.launcher.mods.ModUpdates.Check check = modUpdates.get(profile.id());
+        if (check != null && check.updates().stream().anyMatch(update ->
+                installed.stream().noneMatch(mod -> mod.enabled() && mod.fileName().equals(update.current().fileName())))) {
+            modUpdates.remove(profile.id());
+        }
+        showUpdatesButton(profile, installed.isEmpty());
+        if (!installed.isEmpty() && profile.loader() != null && profile.loader().isModded()
+                && service.settings().checkForUpdates() && updatesChecked.add(profile.id())) {
+            checkModUpdatesQuietly(profile);
+        }
+    }
+
+    // ---------------------------------------------------------------- mod updates
+
+    /** The newer builds found for the shown profile, by the file each replaces. */
+    private java.util.Map<String, com.hexadron.launcher.mods.ModUpdates.Update> shownUpdates() {
+        Profile profile = shown;
+        com.hexadron.launcher.mods.ModUpdates.Check check = profile == null ? null : modUpdates.get(profile.id());
+        if (check == null) {
+            return java.util.Map.of();
+        }
+        java.util.Map<String, com.hexadron.launcher.mods.ModUpdates.Update> byFile = new java.util.HashMap<>();
+        check.updates().forEach(update -> byFile.put(update.current().fileName(), update));
+        return byFile;
+    }
+
+    private void showUpdatesButton(Profile profile, boolean noMods) {
+        com.hexadron.launcher.mods.ModUpdates.Check check = modUpdates.get(profile.id());
+        int count = check == null ? 0 : check.updates().size();
+        updatesButton.setText(count > 0 ? I18n.t("mods.updates.available", count) : I18n.t("mods.updates.check"));
+        setBadgeClass(updatesButton, "primary", count > 0);
+        boolean modded = profile.loader() != null && profile.loader().isModded();
+        updatesButton.setVisible(modded && !noMods);
+        updatesButton.setManaged(modded && !noMods);
+    }
+
+    /**
+     * Asks the platforms in the background, once per profile and session,
+     * when update checks are on. Nothing is shown when it fails: the button
+     * still checks on request, and says why it could not.
+     */
+    private void checkModUpdatesQuietly(Profile profile) {
+        Thread thread = new Thread(() -> {
+            try {
+                com.hexadron.launcher.mods.ModUpdates.Check check = service.checkModUpdates(profile);
+                modUpdates.put(profile.id(), check);
+                Platform.runLater(() -> {
+                    if (shown != null && shown.id().equals(profile.id())) {
+                        showUpdatesButton(profile, false);
+                        modsList.refresh();
+                    }
+                });
+            } catch (IOException | RuntimeException e) {
+                com.hexadron.launcher.core.LauncherLog.info("Mod update check for " + profile.name() + " failed: " + e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "hexadron-mod-updates");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void modUpdatesClicked() {
+        Profile profile = shown;
+        if (profile == null) {
+            return;
+        }
+        com.hexadron.launcher.mods.ModUpdates.Check check = modUpdates.get(profile.id());
+        if (check != null && !check.updates().isEmpty()) {
+            showUpdatesDialog(profile, check);
+            return;
+        }
+        runInBackground(I18n.t("mods.updates.checking"), () -> {
+            com.hexadron.launcher.mods.ModUpdates.Check fresh = service.checkModUpdates(profile);
+            modUpdates.put(profile.id(), fresh);
+            fresh.notes().forEach(note -> progress.log(note));
+            if (fresh.updates().isEmpty()) {
+                progress.log(I18n.t("mods.updates.upToDate", fresh.checked()));
+            }
+            boolean canUndo = service.canRollBackModUpdates(profile);
+            Platform.runLater(() -> {
+                showProfile(shown);
+                if (!fresh.updates().isEmpty() || canUndo) {
+                    showUpdatesDialog(profile, fresh);
+                }
+            });
+        });
+    }
+
+    private void showUpdatesDialog(Profile profile, com.hexadron.launcher.mods.ModUpdates.Check check) {
+        new UpdatesDialog(profile.minecraftVersion(), check, service.canRollBackModUpdates(profile),
+                new UpdatesDialog.Actions() {
+                    @Override
+                    public void apply(java.util.List<com.hexadron.launcher.mods.ModUpdates.Update> chosen) {
+                        if (session != null && session.isRunning() && profile.id().equals(runningProfileId)) {
+                            showWarning(I18n.t("mods.updates.title"), I18n.t("profiles.remove.running", profile.name()));
+                            return;
+                        }
+                        runInBackground(I18n.t("mods.updates.applying"), () -> {
+                            progress.log(service.applyModUpdates(profile, chosen, progress));
+                            modUpdates.remove(profile.id());
+                            Platform.runLater(() -> showProfile(shown));
+                        });
+                    }
+
+                    @Override
+                    public void rollBack() {
+                        if (session != null && session.isRunning() && profile.id().equals(runningProfileId)) {
+                            showWarning(I18n.t("mods.updates.title"), I18n.t("profiles.remove.running", profile.name()));
+                            return;
+                        }
+                        runInBackground(I18n.t("mods.updates.rollback"), () -> {
+                            progress.log(service.rollBackModUpdates(profile));
+                            modUpdates.remove(profile.id());
+                            updatesChecked.remove(profile.id());
+                            Platform.runLater(() -> showProfile(shown));
+                        });
+                    }
+                }).show(stage);
     }
 
     private static Label styled(Label label) {

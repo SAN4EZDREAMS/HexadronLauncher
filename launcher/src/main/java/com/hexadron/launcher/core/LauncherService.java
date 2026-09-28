@@ -513,6 +513,20 @@ public final class LauncherService {
                     && ready.get().fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_LOADER) {
                 com.hexadron.launcher.crash.CrashFixes.Prepared offline = ready.get();
                 ready = withinLookupTime(() -> resolveLoaderUpdate(profile, offline));
+            } else if (ready.isPresent()
+                    && ready.get().fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_MOD) {
+                com.hexadron.launcher.crash.CrashFixes.Prepared offline = ready.get();
+                ready = withinLookupTime(() -> {
+                    try {
+                        return updateFor(profile, offline.fix().value()).map(update -> offline.resolved(
+                                update.title() + " " + update.next().displayName(), update.next().versionId()));
+                    } catch (IOException e) {
+                        return java.util.Optional.empty();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return java.util.Optional.empty();
+                    }
+                });
             }
             if (ready.isPresent() && same.add(ready.get().sameAs())) {
                 prepared.add(ready.get());
@@ -719,6 +733,11 @@ public final class LauncherService {
                 java.util.List<String> renamed = com.hexadron.launcher.crash.CrashFixes.applyResetConfig(prepared);
                 done = "Crash fix: damaged configuration set aside as " + String.join(", ", renamed);
             }
+            case UPDATE_MOD -> {
+                com.hexadron.launcher.mods.ModUpdates.Update update = updateFor(profile, fix.value())
+                        .orElseThrow(() -> new IOException("no newer build of " + prepared.subject() + " was found"));
+                done = "Crash fix: " + applyModUpdates(profile, java.util.List.of(update), progress);
+            }
             case DISABLE_SHADERS -> {
                 java.util.List<String> changed = com.hexadron.launcher.crash.CrashFixes.applyDisableShaders(prepared);
                 done = "Crash fix: shaders switched off (" + prepared.subject() + ") in " + String.join(", ", changed);
@@ -842,6 +861,284 @@ public final class LauncherService {
                         + " for Minecraft " + profile.minecraftVersion() + " and " + profile.loader().displayName()));
         return found.fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD
                 ? installMissingMod(profile, found, progress) : applyCrashFix(profile, found, progress);
+    }
+
+    // ---------------------------------------------------------------- mod updates
+
+    /** How many CurseForge lookups run at once; each is one small request. */
+    static final int UPDATE_LOOKUPS = 6;
+
+    /**
+     * Newer builds of the switched-on mods of a profile, for its Minecraft
+     * version and loader: two Modrinth requests for the whole folder, then
+     * CurseForge for the jars Modrinth does not know (with an API key).
+     * Mods that belong to an installed modpack are left to the pack.
+     */
+    public com.hexadron.launcher.mods.ModUpdates.Check checkModUpdates(Profile profile)
+            throws IOException, InterruptedException {
+        java.util.List<String> notes = new java.util.ArrayList<>();
+        if (profile.loader() == null || !profile.loader().isModded()) {
+            return new com.hexadron.launcher.mods.ModUpdates.Check(java.util.List.of(), 0, 0, notes);
+        }
+        return checkModUpdates(profile, modsOf(profile).stream()
+                .filter(com.hexadron.launcher.mods.ModEntry::enabled).toList(), notes);
+    }
+
+    private com.hexadron.launcher.mods.ModUpdates.Check checkModUpdates(Profile profile,
+            java.util.List<com.hexadron.launcher.mods.ModEntry> candidates, java.util.List<String> notes)
+            throws IOException, InterruptedException {
+        java.util.Set<String> modpacks = new java.util.HashSet<>();
+        modpacksIn(profile).forEach(pack -> modpacks.add(pack.id()));
+        java.util.Map<String, com.hexadron.launcher.mods.ModEntry> bySha1 = new java.util.LinkedHashMap<>();
+        for (com.hexadron.launcher.mods.ModEntry mod : candidates) {
+            if (mod.origin() == com.hexadron.launcher.mods.ModOrigin.PACK && mod.packId() != null
+                    && modpacks.contains(mod.packId())) {
+                continue;
+            }
+            try {
+                bySha1.putIfAbsent(com.hexadron.launcher.util.Hashes.sha1(mod.path()).toLowerCase(java.util.Locale.ROOT), mod);
+            } catch (IOException e) {
+                notes.add(mod.fileName() + " could not be read: " + e.getMessage());
+            }
+        }
+        com.hexadron.launcher.mods.ModLibrary library = com.hexadron.launcher.mods.ModLibrary.read(profiles.modsDirectory(profile));
+        java.util.List<com.hexadron.launcher.mods.ModUpdates.Update> updates = new java.util.ArrayList<>();
+
+        java.util.Map<String, com.hexadron.launcher.mods.ModrinthProvider.Latest> onModrinth = java.util.Map.of();
+        try {
+            onModrinth = modrinth.latestByHash(bySha1.keySet(), profile.minecraftVersion(), profile.loader());
+        } catch (IOException e) {
+            notes.add("Modrinth could not be asked: " + e.getMessage());
+        }
+        java.util.Set<String> haveModrinth = new java.util.HashSet<>();
+        onModrinth.values().forEach(latest -> haveModrinth.add(latest.projectId()));
+        library.all().stream().filter(mod -> mod.file().source() == ModProvider.Source.MODRINTH)
+                .forEach(mod -> haveModrinth.add(mod.file().projectId()));
+        for (java.util.Map.Entry<String, com.hexadron.launcher.mods.ModrinthProvider.Latest> found : onModrinth.entrySet()) {
+            com.hexadron.launcher.mods.ModrinthProvider.Latest latest = found.getValue();
+            if (latest.isNewer() && latest.newest().isDownloadable()) {
+                com.hexadron.launcher.mods.ModEntry current = bySha1.get(found.getKey());
+                updates.add(new com.hexadron.launcher.mods.ModUpdates.Update(current, titleOf(current), latest.newest(),
+                        latest.newest().dependencies().stream().filter(id -> !haveModrinth.contains(id)).toList()));
+            }
+        }
+
+        java.util.List<com.hexadron.launcher.mods.ModEntry> rest = new java.util.ArrayList<>();
+        java.util.Map<String, com.hexadron.launcher.mods.ModrinthProvider.Latest> known = onModrinth;
+        bySha1.forEach((hash, mod) -> {
+            if (!known.containsKey(hash)) {
+                rest.add(mod);
+            }
+        });
+        int unknown = rest.size();
+        if (!rest.isEmpty() && curseForge.isAvailable()) {
+            java.util.Map<Long, com.hexadron.launcher.mods.ModEntry> byFingerprint = new java.util.LinkedHashMap<>();
+            for (com.hexadron.launcher.mods.ModEntry mod : rest) {
+                try {
+                    byFingerprint.putIfAbsent(com.hexadron.launcher.mods.ModUpdates.curseForgeFingerprint(
+                            java.nio.file.Files.readAllBytes(mod.path())), mod);
+                } catch (IOException | OutOfMemoryError e) {
+                    notes.add(mod.fileName() + " could not be read for CurseForge");
+                }
+            }
+            try {
+                java.util.Map<Long, long[]> matches = curseForge.matchFingerprints(byFingerprint.keySet());
+                java.util.Set<String> haveCurseForge = new java.util.HashSet<>();
+                matches.values().forEach(match -> haveCurseForge.add(String.valueOf(match[0])));
+                library.all().stream().filter(mod -> mod.file().source() == ModProvider.Source.CURSEFORGE)
+                        .forEach(mod -> haveCurseForge.add(mod.file().projectId()));
+                unknown -= matches.size();
+                java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(UPDATE_LOOKUPS,
+                        runnable -> {
+                            Thread thread = new Thread(runnable, "hexadron-updates");
+                            thread.setDaemon(true);
+                            return thread;
+                        });
+                try {
+                    java.util.List<java.util.concurrent.Future<java.util.Optional<com.hexadron.launcher.mods.ModUpdates.Update>>> lookups =
+                            new java.util.ArrayList<>();
+                    for (java.util.Map.Entry<Long, long[]> match : matches.entrySet()) {
+                        com.hexadron.launcher.mods.ModEntry current = byFingerprint.get(match.getKey());
+                        long modId = match.getValue()[0];
+                        long fileId = match.getValue()[1];
+                        lookups.add(pool.submit(() -> curseForge.resolveLatest(String.valueOf(modId),
+                                        profile.minecraftVersion(), profile.loader())
+                                // CurseForge numbers files in the order they were uploaded; its
+                                // newest release can be older than a beta the player chose.
+                                .filter(next -> parseLong(next.versionId()) > fileId && next.isDownloadable())
+                                .map(next -> new com.hexadron.launcher.mods.ModUpdates.Update(current, titleOf(current), next,
+                                        next.dependencies().stream().filter(id -> !haveCurseForge.contains(id)).toList()))));
+                    }
+                    for (java.util.concurrent.Future<java.util.Optional<com.hexadron.launcher.mods.ModUpdates.Update>> lookup : lookups) {
+                        try {
+                            lookup.get().ifPresent(updates::add);
+                        } catch (java.util.concurrent.ExecutionException e) {
+                            notes.add("CurseForge: " + e.getCause().getMessage());
+                        }
+                    }
+                } finally {
+                    pool.shutdownNow();
+                }
+            } catch (IOException e) {
+                notes.add("CurseForge could not be asked: " + e.getMessage());
+            }
+        }
+        updates.sort(java.util.Comparator.comparing(update -> update.title().toLowerCase(java.util.Locale.ROOT)));
+        LauncherLog.info("Mod updates for %s: %d of %d mods, %d unknown%s", profile.name(), updates.size(),
+                bySha1.size(), unknown, notes.isEmpty() ? "" : "; " + notes);
+        return new com.hexadron.launcher.mods.ModUpdates.Check(updates, bySha1.size(), unknown, notes);
+    }
+
+    private static long parseLong(String value) {
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private static String titleOf(com.hexadron.launcher.mods.ModEntry mod) {
+        return mod.title() == null || mod.title().isBlank() ? mod.fileName() : mod.title();
+    }
+
+    /**
+     * Installs newer builds. Every file is downloaded before any is replaced,
+     * so a failed download leaves the folder as it was. Each old jar is set
+     * aside in {@code mods/.removed/}, the launcher's record of the mod is
+     * moved to the new build, and the change is written down for
+     * {@link #rollBackModUpdates}. Requirements the new builds added are
+     * installed after.
+     *
+     * @return what was done, for the log
+     */
+    public String applyModUpdates(Profile profile, java.util.List<com.hexadron.launcher.mods.ModUpdates.Update> updates,
+                                  Progress progress) throws IOException, InterruptedException {
+        if (updates.isEmpty()) {
+            return "Nothing to update";
+        }
+        Path modsDir = profiles.modsDirectory(profile);
+        Path gameDir = profiles.gameDirectory(profile);
+        java.util.List<com.hexadron.launcher.net.DownloadTask> tasks = new java.util.ArrayList<>();
+        for (com.hexadron.launcher.mods.ModUpdates.Update update : updates) {
+            tasks.add(com.hexadron.launcher.net.DownloadTask.of(update.next().url(),
+                    modsDir.resolve(update.next().fileName() + ".hexadron-update"),
+                    update.next().sha1(), update.next().size(), update.title()));
+        }
+        try {
+            downloader.run(tasks, progress);
+        } catch (IOException | InterruptedException e) {
+            for (com.hexadron.launcher.net.DownloadTask task : tasks) {
+                java.nio.file.Files.deleteIfExists(task.destination());
+            }
+            throw e;
+        }
+
+        com.hexadron.launcher.mods.ModLibrary library = com.hexadron.launcher.mods.ModLibrary.read(modsDir);
+        java.util.List<com.hexadron.launcher.mods.ModUpdates.Change> changes = new java.util.ArrayList<>();
+        java.util.List<String> done = new java.util.ArrayList<>();
+        for (int i = 0; i < updates.size(); i++) {
+            com.hexadron.launcher.mods.ModUpdates.Update update = updates.get(i);
+            String oldName = update.current().fileName();
+            String newName = update.next().fileName();
+            java.util.Optional<com.hexadron.launcher.mods.InstalledMod> record =
+                    com.hexadron.launcher.mods.ModUpdates.recordOf(library, oldName);
+            String aside = com.hexadron.launcher.mods.ModUpdates.setAside(modsDir, oldName);
+            if (!newName.equals(oldName) && java.nio.file.Files.exists(modsDir.resolve(newName))) {
+                // Another jar already has the new build's name: it is the same mod, set aside too.
+                com.hexadron.launcher.mods.ModUpdates.setAside(modsDir, newName);
+            }
+            java.nio.file.Files.move(tasks.get(i).destination(), modsDir.resolve(newName),
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            record.ifPresent(old -> library.forget(old.key()));
+            com.hexadron.launcher.mods.InstalledMod kept = record.orElse(null);
+            library.put(kept == null
+                    ? new com.hexadron.launcher.mods.InstalledMod(update.title(), update.next(),
+                            com.hexadron.launcher.mods.ModOrigin.MANUAL, null)
+                    : new com.hexadron.launcher.mods.InstalledMod(kept.title(), update.next(), kept.origin(),
+                            kept.packId(), kept.iconUrl(), kept.pageUrl(), kept.categories(), kept.datapack()));
+            changes.add(new com.hexadron.launcher.mods.ModUpdates.Change(oldName, aside, newName,
+                    record.map(com.hexadron.launcher.mods.InstalledMod::toJson).orElse(null)));
+            done.add(update.title() + " -> " + update.next().displayName());
+        }
+        library.write();
+        com.hexadron.launcher.mods.ModUpdates.writeJournal(gameDir, changes);
+
+        java.util.LinkedHashSet<String> requirements = new java.util.LinkedHashSet<>();
+        for (com.hexadron.launcher.mods.ModUpdates.Update update : updates) {
+            for (String projectId : update.dependencies()) {
+                requirements.add(update.source().name() + "|" + projectId);
+            }
+        }
+        for (String requirement : requirements) {
+            ModProvider.Source source = ModProvider.Source.valueOf(requirement.substring(0, requirement.indexOf('|')));
+            String projectId = requirement.substring(requirement.indexOf('|') + 1);
+            ModProvider provider = source == ModProvider.Source.CURSEFORGE ? curseForge : modrinth;
+            try {
+                java.util.Optional<ModProvider.ProjectCard> card = provider.project(projectId);
+                if (card.isPresent() && !libraryOf(profile).contains(source, projectId)) {
+                    installMod(profile, card.get(), progress);
+                    done.add("+ " + card.get().title());
+                }
+            } catch (IOException e) {
+                progress.log("A requirement of the update could not be installed: %s (%s)", projectId, e.getMessage());
+            }
+        }
+        String summary = "Mods updated: " + String.join(", ", done);
+        LauncherLog.info(summary);
+        return summary;
+    }
+
+    private com.hexadron.launcher.mods.ModLibrary libraryOf(Profile profile) {
+        return com.hexadron.launcher.mods.ModLibrary.read(profiles.modsDirectory(profile));
+    }
+
+    /** True when the last update of this profile can be undone. */
+    public boolean canRollBackModUpdates(Profile profile) {
+        return !com.hexadron.launcher.mods.ModUpdates.journal(profiles.gameDirectory(profile)).isEmpty();
+    }
+
+    /**
+     * Undoes the last update: the old jars come back, the new ones are set
+     * aside, and the launcher's record of each mod is what it was. Mods the
+     * update installed as new requirements stay.
+     */
+    public String rollBackModUpdates(Profile profile) throws IOException {
+        Path modsDir = profiles.modsDirectory(profile);
+        java.util.List<com.hexadron.launcher.mods.ModUpdates.Change> undone =
+                com.hexadron.launcher.mods.ModUpdates.rollBack(profiles.gameDirectory(profile), modsDir);
+        com.hexadron.launcher.mods.ModLibrary library = com.hexadron.launcher.mods.ModLibrary.read(modsDir);
+        for (com.hexadron.launcher.mods.ModUpdates.Change change : undone) {
+            com.hexadron.launcher.mods.ModUpdates.recordOf(library, change.newFile())
+                    .ifPresent(record -> library.forget(record.key()));
+            if (change.oldRecord() != null) {
+                library.put(com.hexadron.launcher.mods.InstalledMod.fromJson(change.oldRecord(), false, null));
+            }
+        }
+        library.write();
+        String summary = "Mod update undone: " + undone.stream()
+                .map(com.hexadron.launcher.mods.ModUpdates.Change::oldFile).toList();
+        LauncherLog.info(summary);
+        return summary;
+    }
+
+    /**
+     * The newer build of the one mod that provides this id, for a crash fix:
+     * a mod that needs another version of another mod.
+     */
+    java.util.Optional<com.hexadron.launcher.mods.ModUpdates.Update> updateFor(Profile profile, String modId)
+            throws IOException, InterruptedException {
+        java.util.List<com.hexadron.launcher.mods.ModEntry> candidates = new java.util.ArrayList<>();
+        for (com.hexadron.launcher.mods.ModEntry mod : modsOf(profile)) {
+            if (mod.enabled() && com.hexadron.launcher.mods.Requirements.provided(mod.path(),
+                    com.hexadron.launcher.mods.ModScan.descriptorOf(mod.path()).modId())
+                    .contains(modId.trim().toLowerCase(java.util.Locale.ROOT))) {
+                candidates.add(mod);
+            }
+        }
+        if (candidates.size() != 1) {
+            return java.util.Optional.empty();
+        }
+        return checkModUpdates(profile, candidates, new java.util.ArrayList<>()).updates().stream().findFirst();
     }
 
     // ---------------------------------------------------------------- problem-mod search

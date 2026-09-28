@@ -163,6 +163,25 @@ Before that, **Play** also finds a mod that is switched on in two files and offe
 
 The profile records its previous Minecraft version (`previousMinecraftVersion`). If some mods fail for the current version and none fail for the previous one, the **Play** dialog also offers **Go back to** *version*. This sets the version back, replaces each launcher-installed mod with the newest build for that version (or switches it off if there is none; leaves it if the platform cannot be reached), then switches off any mod that still fails. The game does not start; click **Play** again.
 
+## Updates
+
+The instance panel has **Check for updates** above its mod list. With **Look for launcher updates at start-up** on, the launcher also checks each profile once per session, in the background, when the profile is first shown.
+
+| Step | What happens |
+|---|---|
+| Which jars | Every switched-on jar, also the ones you added by hand. Jars of an installed modpack are left out: the pack decides their versions |
+| Modrinth | Two requests for the whole folder: `POST /v2/version_files` (which version each jar is, by SHA-1) and `POST /v2/version_files/update` (the newest version for this Minecraft version and loader). A jar has an update when the newest version is another version |
+| CurseForge | With an API key, for the jars Modrinth does not know: `POST /v1/fingerprints/432` (MurmurHash2, seed 1, whitespace left out), then the newest file for this version and loader. A file counts as newer only when its id is higher, so a newer beta you chose is not replaced by an older release |
+| Result | A mod with an update shows the **update:** *version* badge; the button says **Update (N)** and opens the list. Jars that are on neither platform are counted and named as not checked |
+
+**Update selected** downloads every new build first; a failed download leaves the folder as it was. Then each old jar is moved to `mods/.removed/`, the new one takes its place, and the launcher's record of the mod (`.hexadron-mods.json`) moves to the new build. A jar you added by hand is recorded from then on. Mods that a new build requires and the folder does not have are installed after it. `.hexadron-mod-updates.json` in the game folder records the update.
+
+**Undo the last update** puts the old jars back, sets the new ones aside in `mods/.removed/` and restores the records. Requirements the update installed stay.
+
+A crash where a mod needs another version of another mod (**Mod needs another version of a mod**) now also offers **Update** *that mod* and **Update** *the mod that needs it*, first.
+
+Command line: `updates <profile>` lists the updates, `--apply` installs all of them, `--undo` undoes the last update.
+
 ## Hexadron Optimise
 
 Hexadron Optimise is a set of performance mods defined in `launcher/src/main/resources/packs/hexadron-optimise.json`. All entries are Modrinth projects with no pinned build, so the newest compatible build is installed. The mod of the same name is described in [architecture.md](architecture.md).

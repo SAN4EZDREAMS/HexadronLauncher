@@ -196,6 +196,26 @@ public final class HexadronCli {
             // writes to the mods folder, so it exists here first: a thing that
             // rewrites a player's folder should be run by hand a few times before
             // a button is put in front of it.
+            case "updates" -> {
+                requireArgs(args, 2, "updates <profile> [--apply | --undo]");
+                Profile profile = requireProfile(service, args[1]);
+                if (args.length > 2 && "--undo".equals(args[2])) {
+                    System.out.println(service.rollBackModUpdates(profile));
+                    return 0;
+                }
+                var check = service.checkModUpdates(profile);
+                for (var update : check.updates()) {
+                    System.out.println("  " + update.title() + ": " + update.current().fileName() + " -> "
+                            + update.next().fileName() + " (" + update.source().displayName() + ")"
+                            + (update.dependencies().isEmpty() ? "" : ", needs " + update.dependencies().size() + " more"));
+                }
+                check.notes().forEach(note -> System.out.println("  note: " + note));
+                System.out.println(check.updates().size() + " update(s) among " + check.checked() + " mods, "
+                        + check.unknown() + " on neither platform");
+                if (args.length > 2 && "--apply".equals(args[2]) && !check.updates().isEmpty()) {
+                    System.out.println(service.applyModUpdates(profile, check.updates(), progress));
+                }
+            }
             case "move" -> {
                 requireArgs(args, 3, "move <profile> <mcVersion>");
                 Profile profile = requireProfile(service, args[1]);
@@ -378,6 +398,7 @@ public final class HexadronCli {
                   install <profile>                    download everything the profile needs
                   check <profile> [mcVersion]          say which mods would not load
                   move <profile> <mcVersion>           change the version, taking the mods along
+                  updates <profile> [--apply|--undo]   list newer builds of the mods; install them; undo
                   mods <profile> [pack.json]           install a mod pack (default: Hexadron Optimise)
                   addjar <profile> <jar>               copy a locally built mod jar into the profile
                   search <query> <mcVersion> <loader>  search Modrinth and CurseForge

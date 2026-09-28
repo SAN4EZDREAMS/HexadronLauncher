@@ -9505,6 +9505,49 @@ public final class SelfCheck {
             check("switching shaders off keeps the pack and sets enableShaders=false", java.nio.file.Files.readString(
                     shaded.resolve("iris.properties")).contains("enableShaders=false")
                     && java.nio.file.Files.readString(shaded.resolve("iris.properties")).contains("shaderPack=Complementary.zip"));
+            // ---- mod updates: CurseForge fingerprints, the journal and the way back
+            byte[] all256 = new byte[256];
+            for (int i = 0; i < 256; i++) {
+                all256[i] = (byte) i;
+            }
+            check("the CurseForge fingerprint is MurmurHash2 with seed 1",
+                    com.hexadron.launcher.mods.ModUpdates.curseForgeFingerprint(new byte[0]) == 1540447798L
+                    && com.hexadron.launcher.mods.ModUpdates.curseForgeFingerprint(
+                            "hello world".getBytes(java.nio.charset.StandardCharsets.US_ASCII)) == 2824650221L
+                    && com.hexadron.launcher.mods.ModUpdates.curseForgeFingerprint(all256) == 2094645347L);
+            check("and leaves out tabs, line ends and spaces", com.hexadron.launcher.mods.ModUpdates.curseForgeFingerprint(
+                    "hello\r\n world\t".getBytes(java.nio.charset.StandardCharsets.US_ASCII))
+                    == com.hexadron.launcher.mods.ModUpdates.curseForgeFingerprint(
+                    "helloworld".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
+            check("a build is newer only when it is another version", new com.hexadron.launcher.mods.ModrinthProvider.Latest(
+                    "p", "v1", new com.hexadron.launcher.mods.ModFile("p", null, "v2", "2.0", "m-2.jar", "https://x/m-2.jar",
+                    null, 1, List.of(), com.hexadron.launcher.mods.ModProvider.Source.MODRINTH, List.of())).isNewer()
+                    && !new com.hexadron.launcher.mods.ModrinthProvider.Latest("p", "v2", new com.hexadron.launcher.mods.ModFile(
+                    "p", null, "v2", "2.0", "m-2.jar", "https://x/m-2.jar", null, 1, List.of(),
+                    com.hexadron.launcher.mods.ModProvider.Source.MODRINTH, List.of())).isNewer());
+            Path updateGame = java.nio.file.Files.createDirectories(dir.resolve("update-game"));
+            Path updateMods = java.nio.file.Files.createDirectories(updateGame.resolve("mods"));
+            java.nio.file.Files.writeString(updateMods.resolve("mod-1.0.jar"), "old");
+            String aside = com.hexadron.launcher.mods.ModUpdates.setAside(updateMods, "mod-1.0.jar");
+            java.nio.file.Files.writeString(updateMods.resolve("mod-2.0.jar"), "new");
+            com.hexadron.launcher.mods.ModUpdates.writeJournal(updateGame, List.of(
+                    new com.hexadron.launcher.mods.ModUpdates.Change("mod-1.0.jar", aside, "mod-2.0.jar", null)));
+            check("an update is written down", com.hexadron.launcher.mods.ModUpdates.journal(updateGame).size() == 1
+                    && java.nio.file.Files.exists(updateMods.resolve(ModScan.DISCARD_DIR).resolve("mod-1.0.jar")));
+            var undone = com.hexadron.launcher.mods.ModUpdates.rollBack(updateGame, updateMods);
+            check("undoing it puts the old jar back and sets the new one aside", undone.size() == 1
+                    && java.nio.file.Files.readString(updateMods.resolve("mod-1.0.jar")).equals("old")
+                    && !java.nio.file.Files.exists(updateMods.resolve("mod-2.0.jar"))
+                    && java.nio.file.Files.exists(updateMods.resolve(ModScan.DISCARD_DIR).resolve("mod-2.0.jar"))
+                    && com.hexadron.launcher.mods.ModUpdates.journal(updateGame).isEmpty());
+            var versionFix = com.hexadron.launcher.crash.CrashAnalyzer.analyze(com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                    "\tMod ID: 'architectury', Requested by: 'rei', Expected range: '[9.1,)', Actual version: '9.0.8'"))), rules, "en");
+            var withUpdate = com.hexadron.launcher.crash.CrashFixes.withDerived(versionFix.get(0), LoaderType.FORGE);
+            check("a mod that needs a newer version of another mod is offered an update of that mod, then of itself",
+                    withUpdate.fixes().get(0).equals(new com.hexadron.launcher.crash.CrashFix(
+                            com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_MOD, "architectury"))
+                    && withUpdate.fixes().get(1).equals(new com.hexadron.launcher.crash.CrashFix(
+                            com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_MOD, "rei")));
             check("and with shaders off there is nothing to switch off", com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
                     com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_SHADERS, ""), profile, entries, 16384, shaded.getParent()).isEmpty());
 

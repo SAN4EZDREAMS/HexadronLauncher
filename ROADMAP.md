@@ -23,7 +23,7 @@ This plan lists what the launcher does not do yet. It is based on a comparison w
 | 0.1 | Approved Microsoft sign-in | P0 | **Done** | |
 | 1.1 | Crash analysis with fixes | P1 | **Done** | |
 | 1.2 | Find the bad mod automatically (bisect) | P1 | **Done** | Unique |
-| 1.3 | Mod update check and bulk update | P1 | M | |
+| 1.3 | Mod update check and bulk update | P1 | **Done** (mods) | |
 | 1.4 | Move mods with a version change in the instance dialog | P1 | S | Unique (full form) |
 | 2.1 | Modpack update that keeps player configs | P1 | L | Unique |
 | 2.2 | Instance snapshots and rollback | P1 | M | Unique |
@@ -82,7 +82,7 @@ Not covered yet, in order of value:
 
 1. ~~**Install** from CurseForge when Modrinth has no file~~ - done, with a CurseForge API key in the settings; 1.12 libraries have their CurseForge slugs in `libraries`.
 2. ~~Required dependencies checked before launch~~ - done: `mods/Requirements.java` reads nested jars, aliases and Forge 1.12 `@Mod` requirements (`mods/LegacyDependencies.java`); **Play** offers **Install and play**.
-3. A mod that needs a newer version of another mod: **Update** that mod. Waits for the update check (**1.3**).
+3. ~~A mod that needs a newer version of another mod~~ - done with **1.3**: **Update** that mod, or the mod that asks.
 4. ~~OptiFine with Sodium, Embeddium, Rubidium, Iris or Oculus~~ - done: `conflicts` in the rule file, `crash/Conflicts.java`, asked before launch.
 5. ~~Shader compile errors~~ - done for Iris and Oculus: **Switch off shaders**. OptiFine's shader errors are not a crash message yet.
 6. A crash in a world (`Ticking entity`, `Ticking block entity`, damaged chunk or `level.dat`): restore the world from a backup (**2.3**).
@@ -96,7 +96,15 @@ Built as planned, without waiting for **2.2**: the search records the mods that 
 - `bisect/BisectFiles.java`: switching by `.disabled` renames, the dependency graph from jar descriptors, the state saved after every step in `.hexadron-bisect.json`.
 - `ui/BisectWindow.java`: the step-by-step window. A crash counts as the problem by itself; otherwise the player answers. Started from the crash window or the profile menu; **Play** in a profile with an unfinished search reopens it.
 
-### 1.3 Mod update check and bulk update (P1)
+### 1.3 Mod update check and bulk update (P1) - Done for mods
+
+Built as planned for mods; see [docs/mods.md](docs/mods.md#updates). Without **2.2**, an update keeps the old jars in `mods/.removed/` and a journal, and **Undo the last update** restores them. Still open: step 5, the same check for resource packs and shader packs.
+
+- `mods/ModUpdates.java`: CurseForge fingerprints, the journal and the undo. `ModrinthProvider.latestByHash`, `CurseForgeProvider.matchFingerprints`.
+- `LauncherService.checkModUpdates` / `applyModUpdates` / `rollBackModUpdates`; `ui/UpdatesDialog.java`; the **update** badge in the instance's mod list; CLI `updates`.
+- Crash fix `updateMod` for a mod that needs another version of another mod.
+
+The original plan:
 
 **Problem.** Prism, Modrinth App and CurseForge show available updates. This launcher records the platform and project of each mod it installs (`mods/ModLibrary.java`, `.hexadron-mods.json`), but it does not check for updates.
 

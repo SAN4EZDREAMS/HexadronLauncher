@@ -95,7 +95,7 @@ public final class CrashFixes {
             CrashFix.Kind.UPDATE_LOADER, CrashFix.Kind.RESET_CONFIG, CrashFix.Kind.REMOVE_JVM_ARGUMENT,
             CrashFix.Kind.JAVA, CrashFix.Kind.AUTOMATIC_JAVA, CrashFix.Kind.DISABLE_DUPLICATES,
             CrashFix.Kind.REINSTALL, CrashFix.Kind.RAISE_MEMORY, CrashFix.Kind.LOWER_MEMORY,
-            CrashFix.Kind.DISABLE_SHADERS);
+            CrashFix.Kind.DISABLE_SHADERS, CrashFix.Kind.UPDATE_MOD);
 
     /**
      * The fix to apply without asking the player to choose: the only one
@@ -157,6 +157,14 @@ public final class CrashFixes {
                 LoaderType named = loaderOf(dep);
                 if (named != null && (named == loader || (named == LoaderType.FABRIC && loader == LoaderType.QUILT))) {
                     extra.add(new CrashFix(CrashFix.Kind.UPDATE_LOADER, ""));
+                } else if (dep != null && named == null && !"minecraft".equalsIgnoreCase(dep)
+                        && !"java".equalsIgnoreCase(dep)) {
+                    // Usually the mod that is asked for is older than the one asking
+                    // expects; sometimes the one asking is the old one.
+                    extra.add(new CrashFix(CrashFix.Kind.UPDATE_MOD, dep));
+                    if (values.get("mod") != null) {
+                        extra.add(new CrashFix(CrashFix.Kind.UPDATE_MOD, values.get("mod")));
+                    }
                 }
             }
             case "brokenConfig" -> {
@@ -240,6 +248,8 @@ public final class CrashFixes {
             case RESET_CONFIG -> configFiles(fix, gameDir);
             case REMOVE_JVM_ARGUMENT -> jvmArguments(fix, profile);
             case DISABLE_SHADERS -> shaderSettings(fix, gameDir);
+            // Looked up by the service, which can ask the platforms.
+            case UPDATE_MOD -> Optional.of(new Prepared(fix, fix.value(), List.of(), List.of(), 0));
         };
     }
 

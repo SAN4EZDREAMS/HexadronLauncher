@@ -460,6 +460,73 @@ public final class ModrinthProvider implements ModProvider {
         return found;
     }
 
+    /**
+     * What a file is and what its newest build is, for one Minecraft version and loader.
+     *
+     * @param projectId        the project the file belongs to
+     * @param currentVersionId the version the file is
+     * @param newest           the newest build for the version and loader, or null when there is none
+     */
+    public record Latest(String projectId, String currentVersionId, ModFile newest) {
+        /** True when the newest build is another version than the file in the folder. */
+        public boolean isNewer() {
+            return newest != null && !newest.versionId().equals(currentVersionId);
+        }
+    }
+
+    /**
+     * For each of these files, the version it is and the newest build for this
+     * Minecraft version and loader - two requests for the whole folder.
+     *
+     * <p>{@code version_files/update} answers with the newest version that
+     * matches the filters, which is the one to update to; {@code version_files}
+     * says which version the file already is, so a file that is the newest is
+     * not offered because a different file of the same version has another hash.
+     *
+     * @return digest to what is known; files Modrinth does not know are absent
+     */
+    public java.util.Map<String, Latest> latestByHash(java.util.Collection<String> sha1s, String minecraftVersion,
+                                                      LoaderType loader) throws IOException, InterruptedException {
+        java.util.Map<String, Latest> found = new java.util.LinkedHashMap<>();
+        if (sha1s.isEmpty()) {
+            return found;
+        }
+        Json hashes = Json.array();
+        sha1s.forEach(hash -> hashes.add(hash.toLowerCase(Locale.ROOT)));
+        Json current = Http.postJson(API + "/version_files",
+                Json.object().put("hashes", hashes).put("algorithm", "sha1"),
+                java.util.Map.of("Accept", "application/json"));
+
+        Json loaders = Json.array();
+        if (loader != null) {
+            loader.platformIds().forEach(loaders::add);
+        }
+        Json versions = Json.array();
+        if (minecraftVersion != null && !minecraftVersion.isBlank()) {
+            versions.add(minecraftVersion);
+        }
+        Json body = Json.object().put("hashes", hashes).put("algorithm", "sha1");
+        body.put("loaders", loaders);
+        body.put("game_versions", versions);
+        Json newest = Http.postJson(API + "/version_files/update", body,
+                java.util.Map.of("Accept", "application/json"));
+
+        current.fields().forEach((hash, version) -> {
+            String key = hash.toLowerCase(Locale.ROOT);
+            String projectId = version.get("project_id").asString(null);
+            if (projectId == null || projectId.isBlank()) {
+                return;
+            }
+            Json latest = newest.get(hash);
+            ModFile file = null;
+            if (latest.isObject() && latest.get("files").size() > 0) {
+                file = toModFile(projectId, latest);
+            }
+            found.put(key, new Latest(projectId, version.get("id").asString(""), file));
+        });
+        return found;
+    }
+
     /** Several projects in one request, for the same reason as {@link #projectsByHash}. */
     public List<ProjectCard> projects(java.util.Collection<String> projectIds)
             throws IOException, InterruptedException {

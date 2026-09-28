@@ -64,7 +64,9 @@ public record CrashFix(Kind kind, String value) {
         /** Take an option out of this profile's own Java arguments. */
         REMOVE_JVM_ARGUMENT("removeJvmArgument", List.of("option")),
         /** Switch shaders off in Iris, Oculus and OptiFine; the shader pack itself stays. */
-        DISABLE_SHADERS("disableShaders", List.of());
+        DISABLE_SHADERS("disableShaders", List.of()),
+        /** Install the newest build of a mod, found by mod id, for this profile's version and loader. */
+        UPDATE_MOD("updateMod", List.of("mod"));
 
         private final String key;
         private final List<String> params;

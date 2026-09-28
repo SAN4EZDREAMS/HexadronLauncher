@@ -933,6 +933,15 @@
     -fx-text-fill: white;
 }
 
+/* A mod with a newer build for this instance. Outlined in the accent colour:
+   worth a look, not a fault - the mod works as it is. */
+.badge-update {
+    -fx-background-color: transparent;
+    -fx-border-color: -fx-accent-0;
+    -fx-text-fill: -fx-accent-0;
+    -fx-font-weight: bold;
+}
+
 /* A switched-off mod is present but not loaded, which is neither "installed"
    nor "gone". The badge is drawn hollow so the row reads as inactive at a
    glance rather than needing the word to be read. */
