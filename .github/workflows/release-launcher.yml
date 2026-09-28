@@ -430,12 +430,15 @@ jobs:
       # About thirty nightly builds collect in a month, and nobody needs any of them
       # after the next one. The last five stay, in case a rollback to yesterday's
       # build is necessary.
+      #
+      # Only -nightly. tags are pruned. A release candidate (v1.0.0-rc.1) is a
+      # prerelease too, but it must stay for the whole test period.
       - name: prune old nightlies
         if: needs.plan.outputs.prerelease == 'true'
         run: |
           set -euo pipefail
           gh release list --limit 100 --json tagName,isPrerelease,createdAt \
-            --jq '[.[] | select(.isPrerelease) | .tagName][5:] | .[]' \
+            --jq '[.[] | select(.isPrerelease and (.tagName | test("-nightly\\."))) | .tagName][5:] | .[]' \
             | while read -r old; do
                 echo "deleting $old"
                 gh release delete "$old" --yes --cleanup-tag || true
