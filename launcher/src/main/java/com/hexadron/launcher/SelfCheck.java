@@ -9451,6 +9451,32 @@ public final class SelfCheck {
             check("with Connector a Forge profile loads Fabric mods", com.hexadron.launcher.mods.LoaderCheck.wrongLoader(
                     ModScan.scan(loaders), LoaderType.FORGE, "1.20.1").isEmpty());
 
+            // ---- requirements nobody provides, found before the launch
+            Path needs = java.nio.file.Files.createDirectories(dir.resolve("needs"));
+            Path module = dir.resolve("module.jar");
+            writeJar(module, Map.of("fabric.mod.json", "{\"id\":\"fabric-networking-api-v1\",\"version\":\"1\"}"));
+            try (var out = new java.util.zip.ZipOutputStream(java.nio.file.Files.newOutputStream(needs.resolve("fabric-api.jar")))) {
+                out.putNextEntry(new java.util.zip.ZipEntry("fabric.mod.json"));
+                out.write("{\"id\":\"fabric-api\",\"version\":\"1\",\"provides\":[\"fabric\"]}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                out.closeEntry();
+                out.putNextEntry(new java.util.zip.ZipEntry("META-INF/jars/module.jar"));
+                out.write(java.nio.file.Files.readAllBytes(module));
+                out.closeEntry();
+            }
+            writeJar(needs.resolve("chat.jar"), Map.of("fabric.mod.json",
+                    "{\"id\":\"chat\",\"version\":\"1\",\"depends\":{\"fabricloader\":\">=0.15\",\"minecraft\":\"*\",\"fabric-networking-api-v1\":\"*\",\"fabric\":\"*\"}}"));
+            writeJar(needs.resolve("menu.jar"), Map.of("fabric.mod.json",
+                    "{\"id\":\"menu\",\"version\":\"1\",\"depends\":{\"cloth-config\":\"*\"}}"));
+            var needed = com.hexadron.launcher.mods.Requirements.missing(ModScan.scan(needs), LoaderType.FABRIC, "1.21.1");
+            check("a module inside a jar and an alias count as provided; the loader and the game are not mods",
+                    needed.size() == 1 && needed.get(0).dependency().equals("cloth-config") && needed.get(0).switchedOff() == null);
+            java.nio.file.Files.move(needs.resolve("fabric-api.jar"), needs.resolve("fabric-api.jar" + ModScan.DISABLED_SUFFIX));
+            var offApi = com.hexadron.launcher.mods.Requirements.missing(ModScan.scan(needs), LoaderType.FABRIC, "1.21.1");
+            check("a requirement a switched-off jar meets names that jar", offApi.stream()
+                    .filter(m -> m.dependency().equals("fabric-networking-api-v1")).allMatch(m -> m.switchedOff() != null
+                            && m.switchedOff().fileName().startsWith("fabric-api.jar"))
+                    && offApi.stream().anyMatch(m -> m.dependency().equals("fabric")));
+
             // ---- a stack trace names the mod whose code threw
             writeJar(mods.resolve("replaymod.jar"), Map.of(
                     "mcmod.info", "[{\"modid\":\"replaymod\",\"name\":\"Replay Mod\",\"version\":\"2.6\"}]",
@@ -9586,7 +9612,7 @@ public final class SelfCheck {
         for (int i = 0; i < 200 && !state.isDone(); i++) {
             launches[0]++;
             state = com.hexadron.launcher.bisect.Bisect.next(state,
-                    problem.test(com.hexadron.launcher.bisect.Bisect.enabledFor(state, graph)));
+                    problem.test(com.hexadron.launcher.bisect.Bisect.enabledFor(state, graph)), graph);
         }
         return state.isDone() ? state.result() : null;
     }
@@ -9652,8 +9678,30 @@ public final class SelfCheck {
         }
         check("no launch has a mod on without what it needs", depsOk);
         List<String> library = searchWith(set, graph, on -> on.contains("sodium.jar"), new int[1]);
-        check("a broken library is found as itself or as the mod that brings it", library != null
-                && library.size() == 1 && graph.closure(library, set).contains("sodium.jar"));
+        check("a broken library is found as itself, not as the mod that brings it", List.of("sodium.jar").equals(library));
+        boolean everyLibrary = true;
+        for (String culprit : set) {
+            everyLibrary &= List.of(culprit).equals(searchWith(set, graph, on -> on.contains(culprit), new int[1]));
+        }
+        check("every mod is found as itself, libraries and the mods that need them alike", everyLibrary);
+        java.util.Set<String> seenOnLibraryCheck = new java.util.HashSet<>();
+        var libraryProbe = com.hexadron.launcher.bisect.Bisect.start(set);
+        for (int i = 0; i < 30 && !libraryProbe.isDone(); i++) {
+            var on = com.hexadron.launcher.bisect.Bisect.enabledFor(libraryProbe, graph);
+            if (libraryProbe.mode() == com.hexadron.launcher.bisect.Bisect.Mode.LIBRARY) {
+                seenOnLibraryCheck.addAll(on);
+                check("a library check runs without the mod that was found", !on.contains(libraryProbe.context().get(0)));
+            }
+            libraryProbe = com.hexadron.launcher.bisect.Bisect.next(libraryProbe, on.contains("iris.jar"), graph);
+        }
+        check("a mod that needs libraries, and not a library, is named when the libraries are clean",
+                List.of("iris.jar").equals(libraryProbe.result()) && !seenOnLibraryCheck.isEmpty());
+        var learnedGraph = none.plus(Map.of("a.jar", java.util.Set.of("z.jar")));
+        check("learned requirements join the graph", learnedGraph.closure(List.of("a.jar"), set).contains("z.jar"));
+        check("Forge 1.12 annotation requirements are read, the loader and soft ones left out",
+                com.hexadron.launcher.mods.LegacyDependencies.parse(
+                        "required-after:forge@[14.23.4.2705,15.0.0.0);required-after:redstoneflux@[2.1.0,2.2.0);after:jei;required:cofhcore")
+                        .equals(List.of("redstoneflux", "cofhcore")));
 
         // Saved and read back; a path in the file is refused.
         var state = com.hexadron.launcher.bisect.Bisect.next(com.hexadron.launcher.bisect.Bisect.start(set), false);
@@ -9689,8 +9737,25 @@ public final class SelfCheck {
                     new java.util.LinkedHashSet<>(files.original()));
             check("finishing puts every mod back on", com.hexadron.launcher.bisect.BisectFiles.enabledJars(modsDir)
                     .containsAll(List.of("a.jar", "b.jar", "c.jar", "d.jar")));
+            check("a requirement learned from a crash is kept", com.hexadron.launcher.bisect.BisectFiles.learn(dir,
+                    Map.of("a.jar", java.util.Set.of("d.jar")))
+                    && com.hexadron.launcher.bisect.BisectFiles.learned(dir).get("a.jar").contains("d.jar"));
+            check("and learning it twice is not new", !com.hexadron.launcher.bisect.BisectFiles.learn(dir,
+                    Map.of("a.jar", java.util.Set.of("d.jar"))));
             com.hexadron.launcher.bisect.BisectFiles.delete(dir);
-            check("and forgets the search", com.hexadron.launcher.bisect.BisectFiles.load(dir).isEmpty());
+            check("and forgets the search", com.hexadron.launcher.bisect.BisectFiles.load(dir).isEmpty()
+                    && com.hexadron.launcher.bisect.BisectFiles.learned(dir).isEmpty());
+            // A Forge 1.12 mod that names its requirement only in @Mod.
+            writeJar(modsDir.resolve("needs-lib.jar"), Map.of(
+                    "mcmod.info", "[{\"modid\":\"needslib\",\"name\":\"Needs Lib\",\"version\":\"1\"}]",
+                    "com/example/NeedsLib.class", "\u0001Lnet/minecraftforge/fml/common/Mod;\u0001"
+                            + "required-after:forge@[14.23,);required-after:somelib@[1.0,)\u0001"));
+            writeJar(modsDir.resolve("some-lib.jar"), Map.of(
+                    "mcmod.info", "[{\"modid\":\"somelib\",\"name\":\"Some Lib\",\"version\":\"1\"}]"));
+            var legacy = com.hexadron.launcher.bisect.BisectFiles.graph(ModScan.scan(modsDir),
+                    List.of("needs-lib.jar", "some-lib.jar"));
+            check("a Forge 1.12 requirement from @Mod keeps the two together in a search",
+                    legacy.closure(List.of("needs-lib.jar"), List.of("needs-lib.jar", "some-lib.jar")).contains("some-lib.jar"));
         } catch (IOException e) {
             check("the search file check could set up its folder: " + e, false);
         } finally {

@@ -70,6 +70,14 @@ public final class Bisect {
             return new Graph(Map.of());
         }
 
+        /** This graph with more requirements added: the ones a search learned from its crashes. */
+        public Graph plus(Map<String, Set<String>> more) {
+            Map<String, Set<String>> merged = new LinkedHashMap<>();
+            deps.forEach((file, needs) -> merged.put(file, new LinkedHashSet<>(needs)));
+            more.forEach((file, needs) -> merged.computeIfAbsent(file, key -> new LinkedHashSet<>()).addAll(needs));
+            return new Graph(merged);
+        }
+
         /** The files plus everything they need, directly or not, within {@code allowed}. */
         public Set<String> closure(Collection<String> files, Collection<String> allowed) {
             Set<String> result = new LinkedHashSet<>();
@@ -92,7 +100,15 @@ public final class Bisect {
         /** The first mod of a conflicting pair, with the other half on as context. */
         PAIR_FIRST,
         /** Its partner, with the first one on as context. */
-        PAIR_SECOND
+        PAIR_SECOND,
+        /**
+         * The mod found needs others, and every launch with it had them on
+         * too: one of those may be the cause. They are searched on their own;
+         * {@code context} holds the mod found first and then the mods already
+         * checked this way, and the first of it is the answer when none of
+         * them shows the problem.
+         */
+        LIBRARY
     }
 
     /** Which half of the suspects the current launch has on. */
@@ -159,20 +175,48 @@ public final class Bisect {
             return new LinkedHashSet<>(state.original());
         }
         List<String> on = new ArrayList<>(state.testedHalf());
-        on.addAll(state.context());
+        if (state.mode() != Mode.LIBRARY) {
+            // In a library check the context is the mod found, which has to stay off.
+            on.addAll(state.context());
+        }
         return graph.closure(on, state.original());
     }
 
-    /** The next state after a launch, given whether the problem occurred. */
+    /** The next state after a launch, given whether the problem occurred, for mods that need nothing. */
     public static State next(State state, boolean problem) {
+        return next(state, problem, Graph.none());
+    }
+
+    /**
+     * The next state after a launch, given whether the problem occurred.
+     *
+     * @param graph which mod needs which: a mod found is checked against the
+     *              mods it needs before it is named, because it never ran
+     *              without them
+     */
+    public static State next(State state, boolean problem, Graph graph) {
         if (state.isDone()) {
             return state;
+        }
+        if (state.mode() == Mode.LIBRARY) {
+            List<String> tested = state.testedHalf();
+            int step = state.step() + 1;
+            if (problem) {
+                return settle(state.original(), tested, state.context(), Mode.LIBRARY, step, graph);
+            }
+            if (state.half() == Half.FIRST) {
+                return new State(state.original(), state.suspects(), state.context(), Mode.LIBRARY, Half.SECOND,
+                        List.of(), step);
+            }
+            // Neither half of what it needs shows the problem: it is the mod itself.
+            return new State(state.original(), List.of(state.context().get(0)), state.context(), Mode.LIBRARY,
+                    Half.FIRST, List.of(state.context().get(0)), step);
         }
         List<String> tested = state.testedHalf();
         List<String> other = state.otherHalf();
         int step = state.step() + 1;
         if (problem) {
-            return settle(state.original(), tested, state.context(), state.mode(), step);
+            return settle(state.original(), tested, state.context(), state.mode(), step, graph);
         }
         if (state.mode() == Mode.SINGLE && state.half() == Half.FIRST) {
             // The first half is clean; now the second half on its own.
@@ -184,26 +228,49 @@ public final class Bisect {
             // first half, with the whole second half on to trigger it.
             List<String> first = state.suspects().subList(0, (state.suspects().size() + 1) / 2);
             List<String> second = state.suspects().subList(first.size(), state.suspects().size());
-            return settle(state.original(), first, second, Mode.PAIR_FIRST, step);
+            return settle(state.original(), first, second, Mode.PAIR_FIRST, step, graph);
         }
         // In a pair search the tested half was clean with the context on, so
         // the mod is in the other half.
-        return settle(state.original(), other, state.context(), state.mode(), step);
+        return settle(state.original(), other, state.context(), state.mode(), step, graph);
     }
 
     /** Narrows to {@code suspects}, finishing or moving to the partner search when one is left. */
     private static State settle(List<String> original, List<String> suspects, List<String> context,
-                                Mode mode, int step) {
+                                Mode mode, int step, Graph graph) {
         if (suspects.size() > 1) {
             return new State(original, suspects, context, mode, Half.FIRST, List.of(), step);
         }
         String found = suspects.get(0);
         return switch (mode) {
-            case SINGLE -> new State(original, suspects, List.of(), mode, Half.FIRST, List.of(found), step);
-            case PAIR_FIRST -> settle(original, context, List.of(found), Mode.PAIR_SECOND, step);
+            case SINGLE -> checkNeeds(original, found, List.of(), step, graph);
+            case LIBRARY -> checkNeeds(original, found, context, step, graph);
+            case PAIR_FIRST -> settle(original, context, List.of(found), Mode.PAIR_SECOND, step, graph);
             case PAIR_SECOND -> new State(original, suspects, context, mode, Half.FIRST,
                     List.of(context.get(0), found), step);
         };
+    }
+
+    /**
+     * A mod was found. When it needs other mods of the search, it never ran
+     * without them, and a library it needs is as likely the cause: those are
+     * searched next, the mod found kept as the answer should none of them
+     * show the problem. A library found that way is checked the same way.
+     */
+    private static State checkNeeds(List<String> original, String found, List<String> checked, int step,
+                                    Graph graph) {
+        List<String> needs = new ArrayList<>(graph.closure(List.of(found), original));
+        needs.remove(found);
+        needs.removeAll(checked);
+        if (needs.isEmpty()) {
+            return new State(original, List.of(found), checked.isEmpty() ? List.of() : checked,
+                    checked.isEmpty() ? Mode.SINGLE : Mode.LIBRARY, Half.FIRST, List.of(found), step);
+        }
+        needs.sort(String.CASE_INSENSITIVE_ORDER);
+        List<String> context = new ArrayList<>();
+        context.add(found);
+        context.addAll(checked);
+        return new State(original, needs, context, Mode.LIBRARY, Half.FIRST, List.of(), step);
     }
 
     /** About how many more launches the search needs, for the progress line. */
@@ -213,6 +280,10 @@ public final class Bisect {
         }
         int n = state.suspects().size();
         int launches = 32 - Integer.numberOfLeadingZeros(Math.max(1, n - 1));
+        if (state.mode() == Mode.LIBRARY) {
+            // Both halves of what it needs may have to be tried.
+            launches += 1;
+        }
         if (state.mode() == Mode.PAIR_FIRST) {
             int partner = state.context().size();
             launches += 32 - Integer.numberOfLeadingZeros(Math.max(1, partner - 1));

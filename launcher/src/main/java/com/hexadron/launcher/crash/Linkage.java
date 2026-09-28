@@ -124,8 +124,15 @@ public final class Linkage {
             ModEntry off = owner(cls, mods, false);
             Optional<CrashRules.Library> library = rules.libraryForClass(cls, loaderKey);
             if (off != null) {
+                Map<String, String> values = new java.util.LinkedHashMap<>();
+                values.put("library", nameOf(off));
+                values.put("class", cls);
+                if (asker != null) {
+                    // For the problem-mod search, which learns who needs whom.
+                    values.put("askerFile", asker.fileName());
+                }
                 diagnosis = CrashAnalyzer.describe(rules, language, "library-off", 12, CrashRules.TEXT_LIBRARY_OFF,
-                        Map.of("library", nameOf(off), "class", cls),
+                        values,
                         List.of(new CrashFix(CrashFix.Kind.ENABLE_FILE, off.fileName())), source, f.line());
             } else if (isGameClass(cls)) {
                 diagnosis = asker == null ? Optional.empty()

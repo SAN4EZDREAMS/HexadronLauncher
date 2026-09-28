@@ -533,12 +533,12 @@ public final class LauncherService {
                 crashRules.current().libraryForMod(id, loaderKey);
         java.util.List<String> ids = new java.util.ArrayList<>(java.util.List.of(id));
         library.ifPresent(found -> ids.addAll(found.ids()));
+        if (hasEnabledMod(mods, ids)) {
+            return java.util.Optional.empty();
+        }
         for (String alias : ids) {
             java.util.List<com.hexadron.launcher.mods.ModEntry> copies =
                     com.hexadron.launcher.crash.CrashFixes.byModId(mods, alias);
-            if (copies.stream().anyMatch(com.hexadron.launcher.mods.ModEntry::enabled)) {
-                return java.util.Optional.empty();
-            }
             if (!copies.isEmpty()) {
                 return com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
                         com.hexadron.launcher.crash.CrashFix.Kind.ENABLE_FILE,
@@ -547,6 +547,11 @@ public final class LauncherService {
         }
         java.util.LinkedHashSet<String> slugs = new java.util.LinkedHashSet<>();
         library.ifPresent(found -> slugs.add(found.slug()));
+        if ((profile.loader() == LoaderType.FABRIC || profile.loader() == LoaderType.QUILT)
+                && isFabricApiModule(id.toLowerCase(java.util.Locale.ROOT))) {
+            // One module of Fabric API; the whole of it is what gets installed.
+            slugs.add("fabric-api");
+        }
         slugs.add(id.toLowerCase(java.util.Locale.ROOT));
         slugs.add(id.toLowerCase(java.util.Locale.ROOT).replace('_', '-'));
         for (String slug : slugs) {
@@ -705,15 +710,67 @@ public final class LauncherService {
                 .map(com.hexadron.launcher.mods.ModFile::fileName).toList();
     }
 
+    /**
+     * True when a switched-on jar provides one of these ids: as its own id, an
+     * alias, another mod in the same jar, or a jar nested inside it.
+     */
     private static boolean hasEnabledMod(java.util.List<com.hexadron.launcher.mods.ModEntry> mods,
                                          java.util.List<String> ids) {
-        for (String alias : ids) {
-            if (com.hexadron.launcher.crash.CrashFixes.byModId(mods, alias).stream()
-                    .anyMatch(com.hexadron.launcher.mods.ModEntry::enabled)) {
-                return true;
+        for (com.hexadron.launcher.mods.ModEntry mod : mods) {
+            if (!mod.enabled()) {
+                continue;
+            }
+            java.util.Set<String> provided = com.hexadron.launcher.mods.Requirements.provided(mod.path(),
+                    com.hexadron.launcher.mods.ModScan.descriptorOf(mod.path()).modId());
+            for (String id : ids) {
+                if (provided.contains(id.trim().toLowerCase(java.util.Locale.ROOT))) {
+                    return true;
+                }
             }
         }
         return false;
+    }
+
+    /** A Fabric API module id: {@code fabric-networking-api-v1}, {@code fabric-api-base}. */
+    static boolean isFabricApiModule(String id) {
+        return id != null && id.startsWith("fabric-") && !id.equals("fabric-loader")
+                && (id.matches("fabric-.+-v\\d+") || id.equals("fabric-api-base") || id.endsWith("-api"));
+    }
+
+    /** The mods switched on in this profile need these, and nothing switched on provides them. */
+    public java.util.List<com.hexadron.launcher.mods.Requirements.Missing> missingRequirements(Profile profile) {
+        return com.hexadron.launcher.mods.Requirements.missing(modsOf(profile), profile.loader(),
+                profile.minecraftVersion());
+    }
+
+    /**
+     * Supplies one missing requirement before a launch: switches the jar on
+     * that has it, or installs it from Modrinth the way the crash fix does.
+     *
+     * @return what was done, or null when something done before already supplied it
+     * @throws IOException when it could be neither switched on nor installed
+     */
+    public String supplyRequirement(Profile profile, com.hexadron.launcher.mods.Requirements.Missing missing,
+                                    Progress progress) throws IOException, InterruptedException {
+        java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsOf(profile);
+        if (hasEnabledMod(mods, java.util.List.of(missing.dependency()))) {
+            return null;
+        }
+        if (missing.switchedOff() != null && java.nio.file.Files.isRegularFile(missing.switchedOff().path())) {
+            com.hexadron.launcher.mods.ModScan.setEnabled(profiles.modsDirectory(profile), missing.switchedOff(), true);
+            String done = "Before launch: switched on " + com.hexadron.launcher.mods.ModScan.enabledName(
+                    missing.switchedOff().fileName()) + " for " + missing.mod().fileName();
+            LauncherLog.info(done);
+            return done;
+        }
+        com.hexadron.launcher.crash.CrashFixes.Prepared offline = new com.hexadron.launcher.crash.CrashFixes.Prepared(
+                new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD,
+                        missing.dependency()), missing.dependency(), java.util.List.of(), java.util.List.of(), 0);
+        com.hexadron.launcher.crash.CrashFixes.Prepared found = resolveInstall(profile, offline, mods)
+                .orElseThrow(() -> new IOException(missing.dependency() + " was not found on Modrinth for Minecraft "
+                        + profile.minecraftVersion() + " and " + profile.loader().displayName()));
+        return found.fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD
+                ? installMissingMod(profile, found, progress) : applyCrashFix(profile, found, progress);
     }
 
     // ---------------------------------------------------------------- problem-mod search
@@ -726,7 +783,77 @@ public final class LauncherService {
     /** The dependency graph of a search, read from the jars in the mods folder. */
     public com.hexadron.launcher.bisect.Bisect.Graph bisectGraph(Profile profile,
                                                                  com.hexadron.launcher.bisect.Bisect.State state) {
-        return com.hexadron.launcher.bisect.BisectFiles.graph(modsOf(profile), state.original());
+        return com.hexadron.launcher.bisect.BisectFiles.graph(modsOf(profile), state.original())
+                .plus(com.hexadron.launcher.bisect.BisectFiles.learned(profiles.gameDirectory(profile)));
+    }
+
+    /**
+     * Learns from a crash in a launch of the search. When the game stopped
+     * because a mod needs another one that this step switched off, the search
+     * did that, not the problem: the two are kept together from now on, the
+     * step is set up again, and the crash does not count.
+     *
+     * <p>A mod whose need names no mod that asked for it (a library a
+     * mixin loader or a tweaker needed) is kept on whenever anything is.
+     *
+     * @return true when something was learned and the same step runs again
+     */
+    public boolean bisectLearn(Profile profile, com.hexadron.launcher.crash.CrashEvidence evidence) throws IOException {
+        java.util.Optional<com.hexadron.launcher.bisect.Bisect.State> saved = bisectState(profile);
+        if (saved.isEmpty() || saved.get().isDone()) {
+            return false;
+        }
+        com.hexadron.launcher.bisect.Bisect.State state = saved.get();
+        java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsOf(profile);
+        java.util.Set<String> on = com.hexadron.launcher.bisect.Bisect.enabledFor(state, bisectGraph(profile, state));
+        java.util.Map<String, String> byId = new java.util.HashMap<>();
+        for (com.hexadron.launcher.mods.ModEntry mod : mods) {
+            String name = com.hexadron.launcher.mods.ModScan.enabledName(mod.fileName());
+            if (state.original().contains(name)) {
+                for (String id : com.hexadron.launcher.mods.LegacyDependencies.provides(mod.path(),
+                        com.hexadron.launcher.mods.ModScan.descriptorOf(mod.path()).modId())) {
+                    byId.putIfAbsent(id, name);
+                }
+            }
+        }
+        java.util.Map<String, java.util.Set<String>> more = new java.util.LinkedHashMap<>();
+        for (com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis diagnosis : analyzeCrash(profile, evidence, "en", 0)) {
+            String need = null;
+            String asker = null;
+            if ("missingDep".equals(diagnosis.textId())) {
+                need = byId.get(lower(diagnosis.values().get("dep")));
+                asker = byId.get(lower(diagnosis.values().get("mod")));
+            } else if ("library-off".equals(diagnosis.ruleId())) {
+                need = diagnosis.fixes().stream()
+                        .filter(fix -> fix.kind() == com.hexadron.launcher.crash.CrashFix.Kind.ENABLE_FILE)
+                        .map(fix -> com.hexadron.launcher.mods.ModScan.enabledName(fix.value()))
+                        .findFirst().orElse(null);
+                asker = diagnosis.values().get("askerFile");
+            }
+            if (need == null || !state.original().contains(need) || on.contains(need)) {
+                continue;
+            }
+            if (asker != null && state.original().contains(asker)) {
+                more.computeIfAbsent(asker, key -> new java.util.LinkedHashSet<>()).add(need);
+            } else {
+                for (String file : state.original()) {
+                    more.computeIfAbsent(file, key -> new java.util.LinkedHashSet<>()).add(need);
+                }
+            }
+        }
+        Path gameDir = profiles.gameDirectory(profile);
+        if (more.isEmpty() || !com.hexadron.launcher.bisect.BisectFiles.learn(gameDir, more)) {
+            return false;
+        }
+        applyBisect(profile, state);
+        LauncherLog.info("Problem-mod search: learned that %s need %s; step %d runs again",
+                more.size() > 3 ? more.size() + " mods" : more.keySet(),
+                more.values().stream().flatMap(java.util.Set::stream).distinct().toList(), state.step());
+        return true;
+    }
+
+    private static String lower(String value) {
+        return value == null ? null : value.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     /**
@@ -739,6 +866,8 @@ public final class LauncherService {
         Path modsDir = profiles.modsDirectory(profile);
         com.hexadron.launcher.bisect.Bisect.State state = com.hexadron.launcher.bisect.Bisect.start(
                 com.hexadron.launcher.bisect.BisectFiles.enabledJars(modsDir));
+        // What an earlier search learned belongs to that search.
+        com.hexadron.launcher.bisect.BisectFiles.delete(profiles.gameDirectory(profile));
         // Saved before anything is renamed: if the launcher stops between the
         // two, the saved list is what puts the folder back.
         com.hexadron.launcher.bisect.BisectFiles.save(profiles.gameDirectory(profile), state, profile.id());
@@ -752,7 +881,8 @@ public final class LauncherService {
             throws IOException {
         com.hexadron.launcher.bisect.Bisect.State state = bisectState(profile)
                 .orElseThrow(() -> new IOException("no search is running in this profile"));
-        com.hexadron.launcher.bisect.Bisect.State next = com.hexadron.launcher.bisect.Bisect.next(state, problem);
+        com.hexadron.launcher.bisect.Bisect.State next = com.hexadron.launcher.bisect.Bisect.next(state, problem,
+                bisectGraph(profile, state));
         com.hexadron.launcher.bisect.BisectFiles.save(profiles.gameDirectory(profile), next, profile.id());
         LauncherLog.info("Problem-mod search: step %d %s", state.step(), problem ? "showed the problem" : "was clean");
         if (next.isDone()) {

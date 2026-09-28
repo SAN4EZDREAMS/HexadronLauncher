@@ -110,10 +110,17 @@ public final class BisectFiles {
                 continue;
             }
             var info = ModScan.descriptorOf(mod.path());
-            if (info.modId() != null && !info.modId().isBlank()) {
-                byId.putIfAbsent(info.modId().trim().toLowerCase(Locale.ROOT), name);
+            for (String id : com.hexadron.launcher.mods.LegacyDependencies.provides(mod.path(), info.modId())) {
+                byId.putIfAbsent(id, name);
             }
-            declared.put(name, info.depends());
+            List<String> needs = new ArrayList<>(info.depends());
+            // Forge 1.12 mods name what they need in their @Mod annotation, not
+            // in mcmod.info. Without these, half of a search's launches stop on
+            // a missing library and count as the problem.
+            if (com.hexadron.launcher.mods.LegacyDependencies.isLegacyForge(mod.path())) {
+                needs.addAll(com.hexadron.launcher.mods.LegacyDependencies.of(mod.path()));
+            }
+            declared.put(name, needs);
         }
         Map<String, Set<String>> deps = new LinkedHashMap<>();
         declared.forEach((name, ids) -> {
@@ -151,5 +158,70 @@ public final class BisectFiles {
 
     public static void delete(Path gameDir) throws IOException {
         Files.deleteIfExists(gameDir.resolve(STATE_FILE));
+        Files.deleteIfExists(gameDir.resolve(LEARNED_FILE));
+    }
+
+    /**
+     * Requirements a search found out by itself: a launch stopped because a
+     * mod needed another that the search had switched off. Kept beside the
+     * state, so an interrupted search keeps what it learned.
+     */
+    public static final String LEARNED_FILE = ".hexadron-bisect-learned.json";
+
+    /** What a search learned, file to the files it needs; empty when nothing. */
+    public static Map<String, Set<String>> learned(Path gameDir) {
+        Path file = gameDir.resolve(LEARNED_FILE);
+        Map<String, Set<String>> learned = new LinkedHashMap<>();
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            return learned;
+        }
+        try {
+            Json root = Json.read(file);
+            for (Map.Entry<String, Json> entry : root.get("needs").fields().entrySet()) {
+                Set<String> needs = new LinkedHashSet<>();
+                for (Json name : entry.getValue().elements()) {
+                    String value = name.asString("");
+                    if (!value.isBlank()) {
+                        needs.add(value);
+                    }
+                }
+                learned.put(entry.getKey(), needs);
+            }
+        } catch (IOException | RuntimeException e) {
+            // A file that does not read teaches nothing; the search goes on without it.
+        }
+        return learned;
+    }
+
+    /**
+     * Adds requirements to what the search learned.
+     *
+     * @return true when any of them is new
+     */
+    public static boolean learn(Path gameDir, Map<String, Set<String>> more) throws IOException {
+        Map<String, Set<String>> learned = learned(gameDir);
+        boolean added = false;
+        for (Map.Entry<String, Set<String>> entry : more.entrySet()) {
+            for (String need : entry.getValue()) {
+                if (!need.equals(entry.getKey())) {
+                    added |= learned.computeIfAbsent(entry.getKey(), key -> new LinkedHashSet<>()).add(need);
+                }
+            }
+        }
+        if (!added) {
+            return false;
+        }
+        Json needs = Json.object();
+        learned.forEach((file, files) -> {
+            Json list = Json.array();
+            files.forEach(name -> list.add(Json.of(name)));
+            needs.put(file, list);
+        });
+        Json root = Json.object();
+        root.put("needs", needs);
+        Path temp = gameDir.resolve(LEARNED_FILE + ".part");
+        root.write(temp);
+        Files.move(temp, gameDir.resolve(LEARNED_FILE), StandardCopyOption.REPLACE_EXISTING);
+        return true;
     }
 }

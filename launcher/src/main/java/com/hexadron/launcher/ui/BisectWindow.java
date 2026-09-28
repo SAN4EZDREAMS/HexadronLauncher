@@ -105,8 +105,15 @@ final class BisectWindow {
         stage.close();
     }
 
-    /** Called when a launch of this search ends. {@code crashed} is true when the launcher saw a crash. */
-    void gameEnded(boolean crashed) {
+    /**
+     * Called when a launch of this search ends.
+     *
+     * @param crashed true when the launcher saw a crash
+     * @param learned true when the crash was the search's own doing - a mod
+     *                needed one this step had switched off - and the step is
+     *                set up again with both on; it does not count
+     */
+    void gameEnded(boolean crashed, boolean learned) {
         gameRunning = false;
         // The player may have closed the window while the game ran; the search
         // still waits for this answer, so it comes back rather than waiting unseen.
@@ -114,7 +121,12 @@ final class BisectWindow {
             stage.show();
         }
         stage.toFront();
-        if (crashed) {
+        if (learned) {
+            work(actions::current, state -> {
+                render(state);
+                note(I18n.t("bisect.learned"));
+            });
+        } else if (crashed) {
             work(() -> actions.answer(true), next -> {
                 render(next);
                 note(I18n.t("bisect.crashed"));
@@ -160,7 +172,9 @@ final class BisectWindow {
             clear();
             heading(I18n.t("bisect.title"));
             muted(I18n.t("bisect.step", state.step(), Bisect.remaining(state), state.suspects().size()));
-            if (state.mode() != Bisect.Mode.SINGLE) {
+            if (state.mode() == Bisect.Mode.LIBRARY) {
+                text(I18n.t("bisect.library", actions.title(state.context().get(0))));
+            } else if (state.mode() != Bisect.Mode.SINGLE) {
                 text(I18n.t("bisect.pair"));
             }
             text(I18n.t("bisect.testing", on.size(), state.original().size()));

@@ -81,7 +81,7 @@ Built as planned; see [docs/crashes.md](docs/crashes.md).
 Not covered yet, in order of value:
 
 1. **Install** from CurseForge when Modrinth has no file. Most 1.12 libraries are only there; it needs the CurseForge API key.
-2. Required dependencies checked before launch. Needs the jar-in-jar libraries of each mod read too (`META-INF/jars/`), or Fabric API's own modules count as missing.
+2. ~~Required dependencies checked before launch~~ - done: `mods/Requirements.java` reads nested jars, aliases and Forge 1.12 `@Mod` requirements (`mods/LegacyDependencies.java`); **Play** offers **Install and play**.
 3. A mod that needs a newer version of another mod: **Update** that mod. Waits for the update check (**1.3**).
 4. OptiFine with Sodium, Embeddium, Rubidium, Iris or Oculus: warned before launch, with the choice of which to switch off.
 5. Shader compile errors (Iris, Oculus, OptiFine): **Switch off the shader pack**.
@@ -92,7 +92,7 @@ Not covered yet, in order of value:
 
 Built as planned, without waiting for **2.2**: the search records the mods that were on and restores exactly that set, which is all a snapshot was needed for. See [docs/crashes.md](docs/crashes.md#finding-the-problem-mod).
 
-- `bisect/Bisect.java`: halving with dependency closure, and a pair search when neither half fails alone. The self-check finds a single culprit at every position among 2 to 200 mods (at most 16 launches for 200), conflicting pairs, and broken libraries.
+- `bisect/Bisect.java`: halving with dependency closure, a pair search when neither half fails alone, and a library check: a mod found is named only after the mods it needs were tried without it. Forge 1.12 requirements come from `@Mod` annotations; a crash on a requirement the step switched off is learned, not counted. On the real ForgeOld pack (79 mods, 19 requirements) a simulated search found the culprit at 15 of 79 positions before these changes and at 79 of 79 after, in 9 launches on average and 14 at most. The self-check finds a single culprit at every position among 2 to 200 mods (at most 16 launches for 200), conflicting pairs, and broken libraries.
 - `bisect/BisectFiles.java`: switching by `.disabled` renames, the dependency graph from jar descriptors, the state saved after every step in `.hexadron-bisect.json`.
 - `ui/BisectWindow.java`: the step-by-step window. A crash counts as the problem by itself; otherwise the player answers. Started from the crash window or the profile menu; **Play** in a profile with an unfinished search reopens it.
 
