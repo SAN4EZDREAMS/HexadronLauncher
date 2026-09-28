@@ -9227,6 +9227,22 @@ public final class SelfCheck {
                     com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_DUPLICATES, "jei"), profile, entries, 16384).orElseThrow();
             check("of two copies the older one is switched off", dupes.targets().size() == 1
                     && dupes.targets().get(0).fileName().equals("jei-old.jar"));
+
+            // The version decides, not the file date: an older copy that was
+            // copied in last is still the older one.
+            Path copies = java.nio.file.Files.createDirectories(dir.resolve("copies"));
+            writeJar(copies.resolve("Controlling-3.0.12.2.jar"), Map.of("mcmod.info",
+                    "[{\"modid\":\"controlling\",\"name\":\"Controlling\",\"version\":\"3.0.12.2\"}]"));
+            writeJar(copies.resolve("Controlling-3.0.12.4.jar"), Map.of("mcmod.info",
+                    "[{\"modid\":\"controlling\",\"name\":\"Controlling\",\"version\":\"3.0.12.4\"}]"));
+            java.nio.file.Files.setLastModifiedTime(copies.resolve("Controlling-3.0.12.4.jar"),
+                    java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() - 86_400_000L));
+            var byVersion = com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_DUPLICATES, "controlling"), profile,
+                    ModScan.scan(copies), 16384).orElseThrow();
+            check("of two copies the lower version is switched off, whatever the file dates",
+                    byVersion.targets().size() == 1
+                    && byVersion.targets().get(0).fileName().equals("Controlling-3.0.12.2.jar"));
             check("a Java version out of range is not offered", com.hexadron.launcher.crash.CrashFixes.prepare(
                     new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.JAVA, "4"),
                     profile, entries, 16384).isEmpty());

@@ -42,7 +42,7 @@ The built-in rule file is `launcher/src/main/resources/crash/rules.json`. It kno
 | Required mod missing | Fabric, Forge (1.12 and 1.13+), NeoForge | **Switch off** the mod that needs it |
 | Mod needs another version of a mod | Fabric, Forge, NeoForge | **Switch off** the mod |
 | Mod for another Minecraft version | Fabric, Forge, NeoForge | **Switch off** the mod |
-| Same mod installed twice | Forge (1.12 and 1.13+), NeoForge | **Keep the newest**: switches off the older files |
+| Same mod installed twice | Forge (1.12 and 1.13+), NeoForge | **Keep the newest**: switches off the copies with a lower version in their jar; the file date decides only when the versions are equal or cannot be read |
 | Two mods marked incompatible | Fabric, NeoForge | **Switch off** either mod |
 | Mixin error | all | **Switch off** the mod (found by mod id, or by the mixin config file inside its jar) |
 | Mod crashed during loading | Fabric, Forge, NeoForge | **Switch off** the mod |
@@ -103,7 +103,7 @@ When no rule names the cause, or the problem is not a crash at all (wrong textur
 
 1. The launcher records which jars in the `mods` folder are switched on. Jars that were off stay off and take no part.
 2. It switches on half of them, together with every mod they require (read from each jar's descriptor), and switches the rest off by adding `.disabled` to their names.
-3. You press **Start the game**. A crash is recognised by itself and counts as the problem. Otherwise play until you know, close the game and answer **Did the problem occur?**
+3. You press **Start the game**. A crash is recognised by itself and counts as the problem. Otherwise play until you know, close the game and answer **Did the problem occur?** Only a launch started from this window reports to it: when you close the window while the game runs, it opens again when the game ends. A game started with **Play** opens the normal crash window, even when the search window was opened for that profile before.
 4. The half that shows the problem is halved again. About log2(n) launches find one mod among n: 6 for 46 mods, 8 for 200.
 5. When each half works on its own, two mods conflict. The launcher then keeps one half on and halves the other to find the first mod, then finds its partner the same way.
 6. The window names the mod (or the pair) and the mods it needs. **Keep it switched off** restores everything else; **Restore all mods** puts back the set from step 1.

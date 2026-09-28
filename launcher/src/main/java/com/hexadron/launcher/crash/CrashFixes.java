@@ -15,13 +15,13 @@ package com.hexadron.launcher.crash;
 import com.hexadron.launcher.mods.ModDependents;
 import com.hexadron.launcher.mods.ModEntry;
 import com.hexadron.launcher.mods.ModScan;
+import com.hexadron.launcher.mods.VersionRanges;
 import com.hexadron.launcher.profile.Profile;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -223,18 +223,35 @@ public final class CrashFixes {
         return Optional.of(new Prepared(fix, subject, targets, List.copyOf(also.values()), 0));
     }
 
-    /** Keeps the newest file of a mod and switches off the other copies. */
+    /**
+     * Keeps the newest copy of a mod and switches off the others.
+     *
+     * <p>Newest by the version in the jar. The file date decides only between
+     * copies whose versions are equal or unreadable: it records when a file was
+     * downloaded or copied, not how new the mod is, and by date alone
+     * Controlling 3.0.12.2 copied in after 3.0.12.4 was the one kept.
+     */
     private static Optional<Prepared> duplicates(CrashFix fix, List<ModEntry> mods) {
         List<ModEntry> copies = new ArrayList<>(byModId(mods, fix.value()).stream()
                 .filter(ModEntry::enabled).toList());
         if (copies.size() < 2) {
             return Optional.empty();
         }
-        copies.sort(Comparator.comparingLong(CrashFixes::modified).reversed());
-        List<ModEntry> older = copies.subList(1, copies.size());
-        String subject = copies.get(0).title() == null || copies.get(0).title().isBlank()
-                ? fix.value() : copies.get(0).title();
+        ModEntry newest = copies.get(0);
+        for (ModEntry copy : copies.subList(1, copies.size())) {
+            if (isNewer(copy, newest)) {
+                newest = copy;
+            }
+        }
+        ModEntry keep = newest;
+        List<ModEntry> older = copies.stream().filter(copy -> copy != keep).toList();
+        String subject = keep.title() == null || keep.title().isBlank() ? fix.value() : keep.title();
         return Optional.of(new Prepared(fix, subject, older, List.of(), 0));
+    }
+
+    private static boolean isNewer(ModEntry candidate, ModEntry than) {
+        int byVersion = VersionRanges.compare(candidate.version(), than.version());
+        return byVersion != 0 ? byVersion > 0 : modified(candidate) > modified(than);
     }
 
     private static long modified(ModEntry entry) {

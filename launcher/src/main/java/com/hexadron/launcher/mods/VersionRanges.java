@@ -307,6 +307,19 @@ public final class VersionRanges {
     }
 
     /**
+     * Orders two mod versions as the loaders would.
+     *
+     * @return negative when {@code a} is older, positive when newer, and 0 when
+     *         they are equal or either is not a version this class can read -
+     *         the caller then decides by something else
+     */
+    public static int compare(String a, String b) {
+        Version mine = Version.parse(a);
+        Version theirs = Version.parse(b);
+        return mine == null || theirs == null ? 0 : mine.compareTo(theirs);
+    }
+
+    /**
      * A version as the loaders read one.
      *
      * <p>Numeric components, then an optional pre-release tail. The tail is the

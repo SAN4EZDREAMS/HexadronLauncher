@@ -1542,7 +1542,7 @@ public final class MainWindow implements ProfileHost {
                             lines = java.util.List.copyOf(outputTail);
                         }
                         explainCrash(profile, exitCode, startedAt, lines,
-                                System.currentTimeMillis() - lastOutput.get());
+                                System.currentTimeMillis() - lastOutput.get(), searching);
                     },
                     // The question has been put already, by
                     // confirmWrongVersionMods above, and answered "start it".
@@ -1616,18 +1616,31 @@ public final class MainWindow implements ProfileHost {
      * normally without a crash report, or for exit 92 - that is the launcher's
      * own handshake failing, which the log line above already explains and
      * which no crash rule describes.
+     *
+     * @param searching true when the problem-mod search started this launch
      */
     private void explainCrash(Profile profile, int exitCode, long startedAt, java.util.List<String> lines,
-                              long quietMillis) {
-        if (bisectProfileId != null && bisectProfileId.equals(profile.id())) {
+                              long quietMillis, boolean searching) {
+        if (searching) {
             // A launch of the search: the search window takes the result.
+            //
+            // Decided by the launch, not by which profile the search window was
+            // last opened for. That window stays assigned to its profile after
+            // it is closed, and a search that was never started leaves nothing
+            // to answer - so every crash of an ordinary game in that profile
+            // went to a hidden window and vanished without a trace.
             Path gameDir = service.profiles().gameDirectory(profile);
             boolean crashed = !stopRequested && exitCode != 92
                     && (exitCode != 0 || CrashEvidence.hasCrashReportSince(gameDir, startedAt)
                             || CrashEvidence.hasFatalLine(lines));
+            com.hexadron.launcher.core.LauncherLog.info("Problem-mod search: the game ended with exit "
+                    + exitCode + (crashed ? ", counted as a crash" : ""));
             Platform.runLater(() -> {
-                if (bisectWindow != null) {
+                if (bisectWindow != null && profile.id().equals(bisectProfileId)) {
+                    // Shows the window again if the player closed it while playing.
                     bisectWindow.gameEnded(crashed);
+                } else {
+                    findProblemMod(profile);
                 }
             });
             return;
@@ -1639,6 +1652,8 @@ public final class MainWindow implements ProfileHost {
         // first, which is the one case where Stop is the player's answer to a
         // frozen game, and that deserves an explanation.
         if (stopRequested && quietMillis < com.hexadron.launcher.core.LauncherService.FROZEN_AFTER_MILLIS) {
+            com.hexadron.launcher.core.LauncherLog.info("Crash window not shown: the game was stopped (exit "
+                    + exitCode + ")");
             return;
         }
         Path gameDir = service.profiles().gameDirectory(profile);
@@ -1665,10 +1680,20 @@ public final class MainWindow implements ProfileHost {
                     + "): exit " + exitCode + ", quiet " + quietMillis / 1000 + " s, rules "
                     + diagnoses.stream().map(CrashAnalyzer.Diagnosis::ruleId).toList()
                     + ", sources " + evidence.files().keySet());
-            Platform.runLater(() -> new CrashDialog(exitCode, diagnoses, fixes, evidence, gameDir,
-                    crashActions(profile)).show(stage));
-        } catch (RuntimeException e) {
-            // The analysis is a help, not a step the launcher depends on.
+            Platform.runLater(() -> {
+                try {
+                    new CrashDialog(exitCode, diagnoses, fixes, evidence, gameDir,
+                            crashActions(profile)).show(stage);
+                } catch (RuntimeException e) {
+                    com.hexadron.launcher.core.LauncherLog.error("Crash window could not open", e);
+                    progress.log(I18n.t("log.failed", describe(e)));
+                }
+            });
+        } catch (RuntimeException | StackOverflowError | LinkageError e) {
+            // The analysis is a help, not a step the launcher depends on. But a
+            // failure has to leave a trace: without one, a crash window that
+            // never opens looks exactly like a crash that was never noticed.
+            com.hexadron.launcher.core.LauncherLog.error("Crash analysis failed", e);
             progress.log(I18n.t("log.failed", describe(e)));
         }
     }

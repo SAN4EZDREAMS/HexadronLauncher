@@ -108,6 +108,12 @@ final class BisectWindow {
     /** Called when a launch of this search ends. {@code crashed} is true when the launcher saw a crash. */
     void gameEnded(boolean crashed) {
         gameRunning = false;
+        // The player may have closed the window while the game ran; the search
+        // still waits for this answer, so it comes back rather than waiting unseen.
+        if (!stage.isShowing()) {
+            stage.show();
+        }
+        stage.toFront();
         if (crashed) {
             work(() -> actions.answer(true), next -> {
                 render(next);
