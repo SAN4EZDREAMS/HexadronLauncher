@@ -605,6 +605,24 @@ public final class CurseForgeProvider implements ModProvider {
     private final Map<ContentKind, Map<String, Integer>> categoryIdsByKind =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /**
+     * The mod with exactly this slug, the address its page has
+     * ({@code curseforge.com/minecraft/mc-mods/<slug>}), or empty.
+     */
+    public Optional<ProjectCard> projectBySlug(String slug) throws IOException, InterruptedException {
+        if (slug == null || !slug.matches("[a-z0-9][a-z0-9_-]{0,63}")) {
+            return Optional.empty();
+        }
+        Json response = get(API + "/mods/search?gameId=" + GAME_MINECRAFT + "&classId="
+                + ContentKind.MOD.curseForgeClassId() + "&slug=" + encode(slug));
+        for (Json mod : response.get("data").elements()) {
+            if (slug.equals(mod.get("slug").asString(""))) {
+                return project(String.valueOf(mod.get("id").asLong(0)));
+            }
+        }
+        return Optional.empty();
+    }
+
     @Override
     public Optional<ProjectCard> project(String projectId) throws IOException, InterruptedException {
         try {

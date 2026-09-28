@@ -415,6 +415,37 @@ public final class LauncherService {
         return com.hexadron.launcher.crash.CrashFixes.duplicateGroups(modsOf(profile));
     }
 
+    /** Mods switched on in this profile that the rule file says do not work together. */
+    public java.util.List<com.hexadron.launcher.crash.Conflicts.Found> modConflicts(Profile profile) {
+        return com.hexadron.launcher.crash.Conflicts.find(modsOf(profile), crashRules.current().conflicts());
+    }
+
+    /**
+     * Switches off these mods, and the mods that need them.
+     *
+     * @return the files switched off
+     */
+    public java.util.List<String> switchOffMods(Profile profile, java.util.List<com.hexadron.launcher.mods.ModEntry> off)
+            throws IOException {
+        java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsOf(profile);
+        com.hexadron.launcher.mods.ModDependents dependents = com.hexadron.launcher.mods.ModDependents.of(mods);
+        java.util.LinkedHashMap<String, com.hexadron.launcher.mods.ModEntry> all = new java.util.LinkedHashMap<>();
+        for (com.hexadron.launcher.mods.ModEntry mod : off) {
+            all.putIfAbsent(mod.key(), mod);
+            for (com.hexadron.launcher.mods.ModEntry dependent : dependents.of(mod)) {
+                if (dependent.enabled()) {
+                    all.putIfAbsent(dependent.key(), dependent);
+                }
+            }
+        }
+        java.util.List<String> done = com.hexadron.launcher.crash.CrashFixes.applySwitchOff(profiles.modsDirectory(profile),
+                new com.hexadron.launcher.crash.CrashFixes.Prepared(new com.hexadron.launcher.crash.CrashFix(
+                        com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_FILE, ""), "",
+                        java.util.List.copyOf(all.values()), java.util.List.of(), 0));
+        LauncherLog.info("Before launch in %s: switched off %s", profile.name(), String.join(", ", done));
+        return done;
+    }
+
     /** The mods switched on in this profile that its loader will not load. */
     public java.util.List<com.hexadron.launcher.mods.ModEntry> wrongLoaderMods(Profile profile) {
         return com.hexadron.launcher.mods.LoaderCheck.wrongLoader(modsOf(profile), profile.loader(),
@@ -554,24 +585,50 @@ public final class LauncherService {
         }
         slugs.add(id.toLowerCase(java.util.Locale.ROOT));
         slugs.add(id.toLowerCase(java.util.Locale.ROOT).replace('_', '-'));
+        java.util.Optional<com.hexadron.launcher.crash.CrashFixes.Prepared> found =
+                lookUp(modrinth, slugs, profile, offline, "");
+        if (found.isPresent() || !curseForge.isAvailable()) {
+            return found;
+        }
+        // Most libraries of Forge 1.12 were never published on Modrinth.
+        java.util.LinkedHashSet<String> curseForgeSlugs = new java.util.LinkedHashSet<>();
+        library.ifPresent(known -> curseForgeSlugs.add(known.curseForgeSlug()));
+        curseForgeSlugs.addAll(slugs);
+        return lookUp(curseForge, curseForgeSlugs, profile, offline, CURSEFORGE_REFERENCE);
+    }
+
+    /** Marks a missing-mod fix whose project is on CurseForge rather than Modrinth. */
+    static final String CURSEFORGE_REFERENCE = "curseforge:";
+
+    /**
+     * The first of these slugs that is a project with a file for this profile,
+     * on one platform. A connection that fails ends the lookup on that platform.
+     */
+    private java.util.Optional<com.hexadron.launcher.crash.CrashFixes.Prepared> lookUp(
+            ModProvider provider, java.util.Collection<String> slugs, Profile profile,
+            com.hexadron.launcher.crash.CrashFixes.Prepared offline, String prefix) {
         for (String slug : slugs) {
             if (!slug.matches("[a-z0-9][a-z0-9_-]{0,63}")) {
                 continue;
             }
             try {
-                java.util.Optional<ModProvider.ProjectCard> card = modrinth.project(slug);
-                if (card.isPresent() && modrinth.resolveFile(com.hexadron.launcher.mods.ContentKind.MOD,
+                java.util.Optional<ModProvider.ProjectCard> card = provider == curseForge
+                        ? curseForge.projectBySlug(slug) : provider.project(slug);
+                if (card.isPresent() && provider.resolveFile(com.hexadron.launcher.mods.ContentKind.MOD,
                         card.get().projectId(), profile.minecraftVersion(), profile.loader()).isPresent()) {
-                    return java.util.Optional.of(offline.resolved(card.get().title(), card.get().projectId()));
+                    String title = prefix.isEmpty() ? card.get().title() : card.get().title() + " (CurseForge)";
+                    return java.util.Optional.of(offline.resolved(title, prefix + card.get().projectId()));
                 }
             } catch (IOException e) {
-                LauncherLog.info("Crash fix: could not look up " + slug + " on Modrinth: " + e.getMessage());
+                LauncherLog.info("Crash fix: could not look up " + slug + " on "
+                        + provider.source().displayName() + ": " + e.getMessage());
                 return java.util.Optional.empty();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return java.util.Optional.empty();
             } catch (RuntimeException e) {
-                LauncherLog.info("Crash fix: could not look up " + slug + " on Modrinth: " + e);
+                LauncherLog.info("Crash fix: could not look up " + slug + " on "
+                        + provider.source().displayName() + ": " + e);
             }
         }
         return java.util.Optional.empty();
@@ -662,6 +719,10 @@ public final class LauncherService {
                 java.util.List<String> renamed = com.hexadron.launcher.crash.CrashFixes.applyResetConfig(prepared);
                 done = "Crash fix: damaged configuration set aside as " + String.join(", ", renamed);
             }
+            case DISABLE_SHADERS -> {
+                java.util.List<String> changed = com.hexadron.launcher.crash.CrashFixes.applyDisableShaders(prepared);
+                done = "Crash fix: shaders switched off (" + prepared.subject() + ") in " + String.join(", ", changed);
+            }
             case REMOVE_JVM_ARGUMENT -> {
                 java.util.List<String> before = profile.extraJvmArguments();
                 profile.extraJvmArguments(com.hexadron.launcher.crash.CrashFixes.withoutArguments(before, fix.value()));
@@ -691,9 +752,18 @@ public final class LauncherService {
             // Applied twice - two causes that needed the same library.
             return "Crash fix: " + prepared.subject() + " is installed already";
         }
-        ModProvider.ProjectCard card = modrinth.project(prepared.reference())
-                .orElseThrow(() -> new IOException(prepared.subject() + " is no longer on Modrinth"));
+        boolean fromCurseForge = prepared.reference().startsWith(CURSEFORGE_REFERENCE);
+        ModProvider.ProjectCard card = (fromCurseForge
+                ? curseForge.project(prepared.reference().substring(CURSEFORGE_REFERENCE.length()))
+                : modrinth.project(prepared.reference()))
+                .orElseThrow(() -> new IOException(prepared.subject() + " is no longer on "
+                        + (fromCurseForge ? "CurseForge" : "Modrinth")));
         ModInstaller.Result result = installMod(profile, card, progress);
+        if (!result.manualDownloads().isEmpty() && !hasEnabledMod(modsOf(profile), ids)) {
+            // The author allows the file only from the CurseForge website.
+            throw new IOException(card.title() + " can be downloaded only from its CurseForge page: "
+                    + String.join(", ", result.manualDownloads()));
+        }
         if (!hasEnabledMod(modsOf(profile), ids)) {
             java.nio.file.Path modsDir = profiles.modsDirectory(profile);
             for (com.hexadron.launcher.mods.ModEntry entry : modsOf(profile)) {
@@ -767,8 +837,9 @@ public final class LauncherService {
                 new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD,
                         missing.dependency()), missing.dependency(), java.util.List.of(), java.util.List.of(), 0);
         com.hexadron.launcher.crash.CrashFixes.Prepared found = resolveInstall(profile, offline, mods)
-                .orElseThrow(() -> new IOException(missing.dependency() + " was not found on Modrinth for Minecraft "
-                        + profile.minecraftVersion() + " and " + profile.loader().displayName()));
+                .orElseThrow(() -> new IOException(missing.dependency() + " was not found on Modrinth"
+                        + (curseForge.isAvailable() ? " or CurseForge" : " (CurseForge needs an API key in the settings)")
+                        + " for Minecraft " + profile.minecraftVersion() + " and " + profile.loader().displayName()));
         return found.fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD
                 ? installMissingMod(profile, found, progress) : applyCrashFix(profile, found, progress);
     }

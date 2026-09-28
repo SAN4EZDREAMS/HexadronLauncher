@@ -2298,6 +2298,88 @@
         "cause": "모드 {mod}이(가) 클래스 {class}을(를) 사용하지만 폴더의 어떤 모드에도 없습니다. 보통 라이브러리 모드가 없거나 버전이 다릅니다.",
         "fix": "{mod}에 필요한 라이브러리(다운로드 페이지에 이름이 있음)를 설치하거나 {mod}을(를) 끄십시오."
       }
+    },
+    "shaderError": {
+      "en": {
+        "title": "The shader pack crashed the game",
+        "cause": "The game stopped in the code that draws the shader pack. A shader pack that does not fit this version of Iris, Oculus or OptiFine, or this graphics driver, does this.",
+        "fix": "Switch off shaders and start the game. Then try another shader pack or another version of it, or update the graphics driver."
+      },
+      "uk": {
+        "title": "Гру зупинив шейдерпак",
+        "cause": "Гра зупинилася в коді, що малює шейдерпак. Так буває, коли шейдерпак не підходить до цієї версії Iris, Oculus чи OptiFine або до цього графічного драйвера.",
+        "fix": "Вимкніть шейдери й запустіть гру. Потім спробуйте інший шейдерпак або іншу його версію, чи оновіть графічний драйвер."
+      },
+      "ru": {
+        "title": "Игру остановил шейдерпак",
+        "cause": "Игра остановилась в коде, который рисует шейдерпак. Так бывает, когда шейдерпак не подходит к этой версии Iris, Oculus или OptiFine или к этому графическому драйверу.",
+        "fix": "Выключите шейдеры и запустите игру. Потом попробуйте другой шейдерпак или другую его версию либо обновите графический драйвер."
+      },
+      "pl": {
+        "title": "Paczka shaderów zatrzymała grę",
+        "cause": "Gra zatrzymała się w kodzie, który rysuje paczkę shaderów. Tak bywa, gdy paczka nie pasuje do tej wersji Iris, Oculus lub OptiFine albo do tego sterownika grafiki.",
+        "fix": "Wyłącz shadery i uruchom grę. Potem spróbuj innej paczki lub innej jej wersji albo zaktualizuj sterownik grafiki."
+      },
+      "de": {
+        "title": "Das Shaderpack hat das Spiel abstürzen lassen",
+        "cause": "Das Spiel hat im Code angehalten, der das Shaderpack zeichnet. Das passiert, wenn ein Shaderpack nicht zu dieser Version von Iris, Oculus oder OptiFine oder zu diesem Grafiktreiber passt.",
+        "fix": "Schalten Sie die Shader aus und starten Sie das Spiel. Versuchen Sie dann ein anderes Shaderpack oder eine andere Version davon, oder aktualisieren Sie den Grafiktreiber."
+      },
+      "es": {
+        "title": "El paquete de shaders bloqueó el juego",
+        "cause": "El juego se detuvo en el código que dibuja el paquete de shaders. Pasa cuando el paquete no encaja con esta versión de Iris, Oculus u OptiFine o con este controlador gráfico.",
+        "fix": "Desactiva los shaders e inicia el juego. Después prueba otro paquete de shaders u otra versión, o actualiza el controlador gráfico."
+      },
+      "fr": {
+        "title": "Le pack de shaders a fait planter le jeu",
+        "cause": "Le jeu s'est arrêté dans le code qui dessine le pack de shaders. Cela arrive quand le pack ne convient pas à cette version d'Iris, d'Oculus ou d'OptiFine, ou à ce pilote graphique.",
+        "fix": "Désactivez les shaders et lancez le jeu. Essayez ensuite un autre pack ou une autre version, ou mettez à jour le pilote graphique."
+      },
+      "it": {
+        "title": "Il pacchetto di shader ha bloccato il gioco",
+        "cause": "Il gioco si è fermato nel codice che disegna il pacchetto di shader. Succede quando il pacchetto non è adatto a questa versione di Iris, Oculus o OptiFine o a questo driver grafico.",
+        "fix": "Disattiva gli shader e avvia il gioco. Poi prova un altro pacchetto o un'altra versione, oppure aggiorna il driver grafico."
+      },
+      "pt": {
+        "title": "O pacote de shaders travou o jogo",
+        "cause": "O jogo parou no código que desenha o pacote de shaders. Isso acontece quando o pacote não combina com esta versão do Iris, Oculus ou OptiFine ou com este driver gráfico.",
+        "fix": "Desative os shaders e inicie o jogo. Depois tente outro pacote ou outra versão dele, ou atualize o driver gráfico."
+      },
+      "tr": {
+        "title": "Gölgelendirici paketi oyunu çökertti",
+        "cause": "Oyun, gölgelendirici paketini çizen kodda durdu. Paket bu Iris, Oculus ya da OptiFine sürümüne veya bu grafik sürücüsüne uymadığında bu olur.",
+        "fix": "Gölgelendiricileri kapatıp oyunu başlatın. Sonra başka bir paket ya da başka bir sürümünü deneyin veya grafik sürücüsünü güncelleyin."
+      },
+      "id": {
+        "title": "Paket shader membuat game berhenti",
+        "cause": "Game berhenti di kode yang menggambar paket shader. Ini terjadi jika paket shader tidak cocok dengan versi Iris, Oculus, atau OptiFine ini, atau dengan driver grafis ini.",
+        "fix": "Matikan shader dan jalankan game. Lalu coba paket shader lain atau versi lainnya, atau perbarui driver grafis."
+      },
+      "vi": {
+        "title": "Gói shader làm trò chơi bị lỗi",
+        "cause": "Trò chơi dừng trong phần mã vẽ gói shader. Điều này xảy ra khi gói shader không hợp với phiên bản Iris, Oculus hoặc OptiFine này, hoặc với trình điều khiển đồ họa này.",
+        "fix": "Tắt shader và khởi động trò chơi. Sau đó thử gói shader khác hoặc phiên bản khác của nó, hoặc cập nhật trình điều khiển đồ họa."
+      },
+      "hi": {
+        "title": "शेडर पैक ने गेम रोक दिया",
+        "cause": "गेम उस कोड में रुका जो शेडर पैक बनाता है। ऐसा तब होता है जब शेडर पैक Iris, Oculus या OptiFine के इस संस्करण या इस ग्राफ़िक्स ड्राइवर के अनुकूल नहीं होता।",
+        "fix": "शेडर बंद करें और गेम शुरू करें। फिर कोई दूसरा शेडर पैक या उसका दूसरा संस्करण आज़माएँ, या ग्राफ़िक्स ड्राइवर अपडेट करें।"
+      },
+      "zh": {
+        "title": "光影包导致游戏崩溃",
+        "cause": "游戏在绘制光影包的代码中停止。光影包与此版本的 Iris、Oculus 或 OptiFine，或与此显卡驱动不兼容时会这样。",
+        "fix": "关闭光影并启动游戏。然后换一个光影包或它的其他版本，或更新显卡驱动。"
+      },
+      "ja": {
+        "title": "シェーダーパックがゲームを停止させました",
+        "cause": "ゲームはシェーダーパックを描画するコードで停止しました。シェーダーパックがこのバージョンの Iris、Oculus、OptiFine、またはこのグラフィックス ドライバーに合わないと起こります。",
+        "fix": "シェーダーをオフにしてゲームを起動してください。その後、別のシェーダーパックや別のバージョンを試すか、グラフィックス ドライバーを更新してください。"
+      },
+      "ko": {
+        "title": "셰이더 팩이 게임을 멈추게 했습니다",
+        "cause": "셰이더 팩을 그리는 코드에서 게임이 멈췄습니다. 셰이더 팩이 이 버전의 Iris, Oculus, OptiFine 또는 이 그래픽 드라이버와 맞지 않으면 이렇게 됩니다.",
+        "fix": "셰이더를 끄고 게임을 시작하십시오. 그런 다음 다른 셰이더 팩이나 다른 버전을 사용해 보거나 그래픽 드라이버를 업데이트하십시오."
+      }
     }
   },
   "rules": [
@@ -3152,6 +3234,20 @@
           ]
         }
       ]
+    },
+    {
+      "id": "iris-shader-program",
+      "priority": 58,
+      "text": "shaderError",
+      "match": [
+        {
+          "contains": [
+            "ShaderCompileException",
+            "ProgramLinkException"
+          ],
+          "regex": "(?:net\\.coderbot|net\\.irisshaders)\\.iris\\.gl\\.shader\\.(?:ShaderCompileException|ProgramLinkException)"
+        }
+      ]
     }
   ],
   "libraries": [
@@ -3216,7 +3312,8 @@
       ],
       "loaders": [
         "forge"
-      ]
+      ],
+      "curseforge": "mixin-booter"
     },
     {
       "slug": "forge-config-api-port",
@@ -3230,7 +3327,8 @@
       "loaders": [
         "fabric",
         "quilt"
-      ]
+      ],
+      "curseforge": "forge-config-api-port-fabric"
     },
     {
       "slug": "modmenu",
@@ -3384,7 +3482,8 @@
       ],
       "packages": [
         "net.darkhax.bookshelf."
-      ]
+      ],
+      "curseforge": "bookshelf"
     },
     {
       "slug": "framework",
@@ -3435,7 +3534,8 @@
       ],
       "packages": [
         "net.mehvahdjukaar.moonlight."
-      ]
+      ],
+      "curseforge": "selene"
     },
     {
       "slug": "terrablender",
@@ -3545,6 +3645,249 @@
       ],
       "packages": [
         "com.supermartijn642.configlib."
+      ]
+    },
+    {
+      "slug": "redstone-flux",
+      "name": "Redstone Flux",
+      "ids": [
+        "redstoneflux"
+      ],
+      "packages": [
+        "cofh.redstoneflux."
+      ],
+      "loaders": [
+        "forge"
+      ]
+    },
+    {
+      "slug": "cofh-core",
+      "name": "CoFH Core",
+      "ids": [
+        "cofhcore"
+      ],
+      "packages": [
+        "cofh.core."
+      ],
+      "loaders": [
+        "forge"
+      ]
+    },
+    {
+      "slug": "cofh-world",
+      "name": "CoFH World",
+      "ids": [
+        "cofhworld"
+      ],
+      "packages": [
+        "cofh.cofhworld."
+      ],
+      "loaders": [
+        "forge"
+      ]
+    },
+    {
+      "slug": "codechicken-lib",
+      "name": "CodeChicken Lib",
+      "ids": [
+        "codechickenlib"
+      ],
+      "packages": [
+        "codechicken.lib."
+      ],
+      "loaders": [
+        "forge"
+      ],
+      "curseforge": "codechicken-lib-1-8"
+    },
+    {
+      "slug": "baubles",
+      "name": "Baubles",
+      "ids": [
+        "baubles"
+      ],
+      "packages": [
+        "baubles.api."
+      ],
+      "loaders": [
+        "forge"
+      ]
+    },
+    {
+      "slug": "thermal-foundation",
+      "name": "Thermal Foundation",
+      "ids": [
+        "thermalfoundation"
+      ],
+      "packages": [
+        "cofh.thermalfoundation."
+      ],
+      "loaders": [
+        "forge"
+      ]
+    },
+    {
+      "slug": "placebo",
+      "name": "Placebo",
+      "ids": [
+        "placebo"
+      ],
+      "packages": [
+        "shadows.placebo.",
+        "dev.shadowsoffire.placebo."
+      ],
+      "loaders": [
+        "forge",
+        "neoforge"
+      ]
+    },
+    {
+      "slug": "cucumber",
+      "name": "Cucumber",
+      "ids": [
+        "cucumber"
+      ],
+      "packages": [
+        "com.blakebr0.cucumber."
+      ],
+      "loaders": [
+        "forge",
+        "neoforge"
+      ]
+    },
+    {
+      "slug": "zerocore",
+      "name": "ZeroCore",
+      "ids": [
+        "zerocore"
+      ],
+      "packages": [
+        "it.zerono.mods.zerocore."
+      ],
+      "loaders": [
+        "forge",
+        "neoforge"
+      ]
+    },
+    {
+      "slug": "llibrary",
+      "name": "LLibrary",
+      "ids": [
+        "llibrary"
+      ],
+      "packages": [
+        "net.ilexiconn.llibrary."
+      ],
+      "loaders": [
+        "forge"
+      ]
+    },
+    {
+      "slug": "ftblib",
+      "name": "FTB Library",
+      "ids": [
+        "ftblib"
+      ],
+      "packages": [
+        "com.feed_the_beast.ftblib."
+      ],
+      "loaders": [
+        "forge"
+      ]
+    },
+    {
+      "slug": "item-filters",
+      "name": "Item Filters",
+      "ids": [
+        "itemfilters"
+      ],
+      "packages": [
+        "com.latmod.mods.itemfilters.",
+        "dev.latvian.mods.itemfilters."
+      ],
+      "loaders": [
+        "forge"
+      ]
+    },
+    {
+      "slug": "structurize",
+      "name": "Structurize",
+      "ids": [
+        "structurize"
+      ],
+      "packages": [
+        "com.ldtteam.structurize."
+      ],
+      "loaders": [
+        "forge",
+        "neoforge"
+      ]
+    },
+    {
+      "slug": "coroutil",
+      "name": "CoroUtil",
+      "ids": [
+        "coroutil"
+      ],
+      "packages": [
+        "com.corosus.coroutil."
+      ],
+      "loaders": [
+        "forge",
+        "neoforge"
+      ]
+    },
+    {
+      "slug": "konkrete",
+      "name": "Konkrete",
+      "ids": [
+        "konkrete"
+      ],
+      "packages": [
+        "de.keksuccino.konkrete."
+      ]
+    },
+    {
+      "slug": "unilib",
+      "name": "UniLib",
+      "ids": [
+        "unilib"
+      ],
+      "packages": [
+        "com.gitlab.cdagaming.unilib."
+      ]
+    },
+    {
+      "slug": "mantle",
+      "name": "Mantle",
+      "ids": [
+        "mantle"
+      ],
+      "packages": [
+        "slimeknights.mantle."
+      ],
+      "loaders": [
+        "forge",
+        "neoforge"
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "id": "optifine-renderers",
+      "mods": [
+        "optifine"
+      ],
+      "with": [
+        "sodium",
+        "embeddium",
+        "rubidium",
+        "magnesium",
+        "iris",
+        "oculus",
+        "nvidium",
+        "canvas",
+        "indium"
       ]
     }
   ]

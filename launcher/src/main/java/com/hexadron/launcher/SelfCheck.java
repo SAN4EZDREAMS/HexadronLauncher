@@ -9477,6 +9477,37 @@ public final class SelfCheck {
                             && m.switchedOff().fileName().startsWith("fabric-api.jar"))
                     && offApi.stream().anyMatch(m -> m.dependency().equals("fabric")));
 
+            // ---- CurseForge for what Modrinth does not have, known conflicts, shaders
+            check("a Forge 1.12 library is looked up on CurseForge by its own slug", rules.libraryForMod("redstoneflux", "forge")
+                    .map(l -> l.curseForgeSlug()).orElse("").equals("redstone-flux")
+                    && rules.libraryForMod("codechickenlib", "forge").map(l -> l.curseForgeSlug()).orElse("").equals("codechicken-lib-1-8")
+                    && rules.libraryForMod("geckolib", "fabric").map(l -> l.curseForgeSlug()).orElse("").equals("geckolib"));
+            checkThrows("a bad CurseForge slug is refused", () -> com.hexadron.launcher.crash.CrashRules.parse(
+                    good.substring(0, good.lastIndexOf('}')) + ",\"libraries\":[{\"slug\":\"x\",\"name\":\"x\",\"ids\":[\"x\"],\"curseforge\":\"Bad Slug\"}]}"));
+            Path clash = java.nio.file.Files.createDirectories(dir.resolve("clash"));
+            writeJar(clash.resolve("OptiFine_1.20.1_HD_U_I6.jar"), Map.of("net/optifine/Config.class", "x"));
+            writeJar(clash.resolve("sodium.jar"), Map.of("fabric.mod.json", "{\"id\":\"sodium\",\"version\":\"0.5\"}"));
+            writeJar(clash.resolve("lithium.jar"), Map.of("fabric.mod.json", "{\"id\":\"lithium\",\"version\":\"0.11\"}"));
+            var clashes = com.hexadron.launcher.crash.Conflicts.find(ModScan.scan(clash), rules.conflicts());
+            check("OptiFine with Sodium is a known conflict, found before the launch", clashes.size() == 1
+                    && clashes.get(0).first().get(0).fileName().startsWith("OptiFine")
+                    && clashes.get(0).second().stream().map(ModEntry::fileName).toList().equals(List.of("sodium.jar")));
+            java.nio.file.Files.move(clash.resolve("sodium.jar"), clash.resolve("sodium.jar" + ModScan.DISABLED_SUFFIX));
+            check("and not once one side is off", com.hexadron.launcher.crash.Conflicts.find(ModScan.scan(clash), rules.conflicts()).isEmpty());
+            check("crash rule iris-shader-program explains its output", "iris-shader-program".equals(firstRule(rules, OUT,
+                    "Caused by: net.irisshaders.iris.gl.shader.ShaderCompileException: composite1.fsh: composite1.fsh: 0(12) : error C1008: undefined variable")));
+            Path shaded = java.nio.file.Files.createDirectories(dir.resolve("shaded/config"));
+            java.nio.file.Files.writeString(shaded.resolve("iris.properties"), "enableShaders=true\nshaderPack=Complementary.zip\n");
+            var shaders = com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_SHADERS, ""), profile, entries, 16384, shaded.getParent());
+            check("the shader pack that is on is named", shaders.map(p -> p.subject()).orElse("").equals("Complementary.zip"));
+            com.hexadron.launcher.crash.CrashFixes.applyDisableShaders(shaders.orElseThrow());
+            check("switching shaders off keeps the pack and sets enableShaders=false", java.nio.file.Files.readString(
+                    shaded.resolve("iris.properties")).contains("enableShaders=false")
+                    && java.nio.file.Files.readString(shaded.resolve("iris.properties")).contains("shaderPack=Complementary.zip"));
+            check("and with shaders off there is nothing to switch off", com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_SHADERS, ""), profile, entries, 16384, shaded.getParent()).isEmpty());
+
             // ---- a stack trace names the mod whose code threw
             writeJar(mods.resolve("replaymod.jar"), Map.of(
                     "mcmod.info", "[{\"modid\":\"replaymod\",\"name\":\"Replay Mod\",\"version\":\"2.6\"}]",

@@ -1495,6 +1495,9 @@ public final class MainWindow implements ProfileHost {
         if (!searching && !confirmWrongLoaderMods()) {
             return;
         }
+        if (!searching && !confirmModConflicts()) {
+            return;
+        }
         if (!searching && !confirmWrongVersionMods()) {
             return;
         }
@@ -2236,6 +2239,79 @@ public final class MainWindow implements ProfileHost {
             showError(I18n.t("mods.duplicates.header"), e);
             return false;
         }
+    }
+
+    /**
+     * Asks before a launch with mods known not to work together - OptiFine with
+     * Sodium or Iris. The player keeps one side; the other is switched off.
+     *
+     * @return true when the launch should go ahead
+     */
+    private boolean confirmModConflicts() {
+        Profile profile = selectedProfile;
+        if (profile == null) {
+            return true;
+        }
+        java.util.List<com.hexadron.launcher.crash.Conflicts.Found> found;
+        try {
+            found = service.modConflicts(profile);
+        } catch (RuntimeException e) {
+            return true;
+        }
+        if (found.isEmpty()) {
+            return true;
+        }
+        java.util.List<ModEntry> first = new java.util.ArrayList<>();
+        java.util.List<ModEntry> second = new java.util.ArrayList<>();
+        StringBuilder detail = new StringBuilder();
+        for (com.hexadron.launcher.crash.Conflicts.Found conflict : found) {
+            conflict.first().stream().filter(mod -> !first.contains(mod)).forEach(first::add);
+            conflict.second().stream().filter(mod -> !second.contains(mod)).forEach(second::add);
+            detail.append("\n  · ").append(I18n.t("mods.conflict.line", namesOf(conflict.first()),
+                    namesOf(conflict.second())));
+        }
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, I18n.t("mods.conflict.body", detail.toString()));
+        alert.initOwner(stage);
+        Theme.apply(alert.getDialogPane());
+        alert.setTitle(I18n.t("mods.conflict.header"));
+        alert.setHeaderText(I18n.t("mods.conflict.header"));
+        alert.getDialogPane().setPrefWidth(620);
+        javafx.scene.control.ButtonType offFirst =
+                new javafx.scene.control.ButtonType(I18n.t("mods.conflict.off", namesOf(first)),
+                        javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+        javafx.scene.control.ButtonType offSecond =
+                new javafx.scene.control.ButtonType(I18n.t("mods.conflict.off", namesOf(second)),
+                        javafx.scene.control.ButtonBar.ButtonData.OTHER);
+        javafx.scene.control.ButtonType launch =
+                new javafx.scene.control.ButtonType(I18n.t("mods.wrongVersion.launch"),
+                        javafx.scene.control.ButtonBar.ButtonData.OTHER);
+        javafx.scene.control.ButtonType cancel =
+                new javafx.scene.control.ButtonType(I18n.t("action.cancel"),
+                        javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(cancel, launch, offSecond, offFirst);
+        java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
+        if (answer.isEmpty() || answer.get() == cancel) {
+            return false;
+        }
+        if (answer.get() == launch) {
+            return true;
+        }
+        try {
+            java.util.List<String> off = service.switchOffMods(profile, answer.get() == offFirst ? first : second);
+            progress.log(I18n.t("mods.conflict.done", String.join(", ", off)));
+            showProfile(shown);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            showError(I18n.t("mods.conflict.header"), e);
+            return false;
+        }
+    }
+
+    /** Names of mods, as the player knows them, joined. */
+    private static String namesOf(java.util.List<ModEntry> mods) {
+        return mods.stream()
+                .map(mod -> mod.title() == null || mod.title().isBlank() ? mod.fileName() : mod.title())
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
     /**

@@ -72,7 +72,7 @@ Mojang approved the application ID in `core/LauncherSettings.java` (`microsoftCl
 Built as planned; see [docs/crashes.md](docs/crashes.md).
 
 - After a crash the launcher reads the game output, `logs/latest.log`, the crash report and `hs_err_pid*.log` of that run (`crash/CrashEvidence.java`).
-- `crash/rules.json` (version 4) holds 42 rules for 22 causes, 6 texts for the causes found by code and 34 known libraries, in all 16 languages: Java too old or too new, heap full, no system memory, heap not reserved, missing dependency, wrong dependency version, mod for another Minecraft version or loader, duplicate mod, incompatible mods, mixin error, mod crash during loading, damaged jar, missing OpenGL support, graphics driver crash, broken installation. Fabric, Forge (1.13 to 1.20.1 format) and NeoForge messages.
+- `crash/rules.json` (version 4) holds 43 rules for 23 causes, 6 texts for the causes found by code, 51 known libraries and the known mod conflicts, in all 16 languages: Java too old or too new, heap full, no system memory, heap not reserved, missing dependency, wrong dependency version, mod for another Minecraft version or loader, duplicate mod, incompatible mods, mixin error, mod crash during loading, damaged jar, missing OpenGL support, graphics driver crash, broken installation. Fabric, Forge (1.13 to 1.20.1 format) and NeoForge messages.
 - One-click fixes, checked against the profile before they are offered: switch off a mod (with the mods that need it), keep the newest of duplicate jars, use Java N, let the launcher choose Java, raise or lower memory, check the game files (`crash/CrashFixes.java`).
 - Rule updates: the release workflow publishes `hexadron-crash-rules.json` with an Ed25519 signature by the update key. A launcher uses it only when the signature is valid and its version is higher (`crash/CrashRuleSource.java`). The manifest is signed now too, so the note about hash-only checks no longer applies.
 - A stack trace names the mod whose class threw the exception, found by the class file inside the jar (`crash/StackAttribution.java`). A game that went silent for 45 seconds before it was ended is reported as frozen; after 30 seconds of silence the launcher asks the game's thread-dump agent (in the launch wrapper jar) for its threads, and names the mod the frozen threads were in. Forge 1.12 duplicate and missing-mod errors are recognised too.
@@ -80,11 +80,11 @@ Built as planned; see [docs/crashes.md](docs/crashes.md).
 
 Not covered yet, in order of value:
 
-1. **Install** from CurseForge when Modrinth has no file. Most 1.12 libraries are only there; it needs the CurseForge API key.
+1. ~~**Install** from CurseForge when Modrinth has no file~~ - done, with a CurseForge API key in the settings; 1.12 libraries have their CurseForge slugs in `libraries`.
 2. ~~Required dependencies checked before launch~~ - done: `mods/Requirements.java` reads nested jars, aliases and Forge 1.12 `@Mod` requirements (`mods/LegacyDependencies.java`); **Play** offers **Install and play**.
 3. A mod that needs a newer version of another mod: **Update** that mod. Waits for the update check (**1.3**).
-4. OptiFine with Sodium, Embeddium, Rubidium, Iris or Oculus: warned before launch, with the choice of which to switch off.
-5. Shader compile errors (Iris, Oculus, OptiFine): **Switch off the shader pack**.
+4. ~~OptiFine with Sodium, Embeddium, Rubidium, Iris or Oculus~~ - done: `conflicts` in the rule file, `crash/Conflicts.java`, asked before launch.
+5. ~~Shader compile errors~~ - done for Iris and Oculus: **Switch off shaders**. OptiFine's shader errors are not a crash message yet.
 6. A crash in a world (`Ticking entity`, `Ticking block entity`, damaged chunk or `level.dat`): restore the world from a backup (**2.3**).
 7. Windows exit codes without an `hs_err` file (`0xC0000005` access violation, `0xC0000135` missing system DLL) and the Linux OOM killer (exit 137). Needs the exit code of a game the launcher itself stopped told apart first.
 

@@ -62,7 +62,9 @@ public record CrashFix(Kind kind, String value) {
         /** Rename a damaged configuration file so the mod writes a new one. */
         RESET_CONFIG("resetConfig", List.of("config")),
         /** Take an option out of this profile's own Java arguments. */
-        REMOVE_JVM_ARGUMENT("removeJvmArgument", List.of("option"));
+        REMOVE_JVM_ARGUMENT("removeJvmArgument", List.of("option")),
+        /** Switch shaders off in Iris, Oculus and OptiFine; the shader pack itself stays. */
+        DISABLE_SHADERS("disableShaders", List.of());
 
         private final String key;
         private final List<String> params;

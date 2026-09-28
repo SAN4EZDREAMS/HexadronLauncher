@@ -94,7 +94,8 @@ public final class CrashFixes {
     static final Set<CrashFix.Kind> REPAIRS = EnumSet.of(CrashFix.Kind.INSTALL_MOD, CrashFix.Kind.ENABLE_FILE,
             CrashFix.Kind.UPDATE_LOADER, CrashFix.Kind.RESET_CONFIG, CrashFix.Kind.REMOVE_JVM_ARGUMENT,
             CrashFix.Kind.JAVA, CrashFix.Kind.AUTOMATIC_JAVA, CrashFix.Kind.DISABLE_DUPLICATES,
-            CrashFix.Kind.REINSTALL, CrashFix.Kind.RAISE_MEMORY, CrashFix.Kind.LOWER_MEMORY);
+            CrashFix.Kind.REINSTALL, CrashFix.Kind.RAISE_MEMORY, CrashFix.Kind.LOWER_MEMORY,
+            CrashFix.Kind.DISABLE_SHADERS);
 
     /**
      * The fix to apply without asking the player to choose: the only one
@@ -163,6 +164,7 @@ public final class CrashFixes {
                     extra.add(new CrashFix(CrashFix.Kind.RESET_CONFIG, values.get("config")));
                 }
             }
+            case "shaderError" -> extra.add(new CrashFix(CrashFix.Kind.DISABLE_SHADERS, ""));
             case "jvmOptions" -> {
                 if (values.get("option") != null) {
                     extra.add(new CrashFix(CrashFix.Kind.REMOVE_JVM_ARGUMENT, values.get("option")));
@@ -237,7 +239,92 @@ public final class CrashFixes {
                     : Optional.of(new Prepared(fix, profile.loader().displayName(), List.of(), List.of(), 0));
             case RESET_CONFIG -> configFiles(fix, gameDir);
             case REMOVE_JVM_ARGUMENT -> jvmArguments(fix, profile);
+            case DISABLE_SHADERS -> shaderSettings(fix, gameDir);
         };
+    }
+
+    /** The settings files of the shader loaders, and the key that names the pack in each. */
+    static final List<String> IRIS_SETTINGS = List.of("config/iris.properties", "config/oculus.properties");
+    static final String OPTIFINE_SETTINGS = "optionsshaders.txt";
+
+    /**
+     * The shader loaders that have a pack switched on: Iris or Oculus with
+     * {@code enableShaders} not false and a {@code shaderPack}, OptiFine with
+     * a {@code shaderPack} that is not {@code OFF}.
+     */
+    private static Optional<Prepared> shaderSettings(CrashFix fix, Path gameDir) {
+        if (gameDir == null) {
+            return Optional.empty();
+        }
+        List<Path> files = new ArrayList<>();
+        Set<String> packs = new java.util.LinkedHashSet<>();
+        for (String name : IRIS_SETTINGS) {
+            Map<String, String> values = readProperties(gameDir.resolve(name));
+            String pack = values.getOrDefault("shaderPack", "").trim();
+            if (!pack.isEmpty() && !"false".equalsIgnoreCase(values.getOrDefault("enableShaders", "true").trim())) {
+                files.add(gameDir.resolve(name));
+                packs.add(pack);
+            }
+        }
+        Map<String, String> optifine = readProperties(gameDir.resolve(OPTIFINE_SETTINGS));
+        String optifinePack = optifine.getOrDefault("shaderPack", "").trim();
+        if (!optifinePack.isEmpty() && !"OFF".equalsIgnoreCase(optifinePack) && !"(internal)".equals(optifinePack)) {
+            files.add(gameDir.resolve(OPTIFINE_SETTINGS));
+            packs.add(optifinePack);
+        }
+        return files.isEmpty() ? Optional.empty()
+                : Optional.of(new Prepared(fix, String.join(", ", packs), List.of(), List.of(), 0, files, ""));
+    }
+
+    /** {@code key=value} lines; nothing when the file does not read. */
+    private static Map<String, String> readProperties(Path file) {
+        Map<String, String> values = new LinkedHashMap<>();
+        if (!Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return values;
+        }
+        try {
+            for (String line : Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8)) {
+                int equals = line.indexOf('=');
+                if (equals > 0 && !line.startsWith("#")) {
+                    values.put(line.substring(0, equals).trim(), line.substring(equals + 1));
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            values.clear();
+        }
+        return values;
+    }
+
+    /**
+     * Switches shaders off: {@code enableShaders=false} for Iris and Oculus,
+     * {@code shaderPack=OFF} for OptiFine. The pack stays in the folder and in
+     * the list; the player turns it on again in the game's shader menu.
+     *
+     * @return the files changed
+     */
+    public static List<String> applyDisableShaders(Prepared prepared) throws IOException {
+        List<String> done = new ArrayList<>();
+        for (Path file : prepared.files()) {
+            boolean optifine = file.getFileName().toString().equals(OPTIFINE_SETTINGS);
+            String key = optifine ? "shaderPack" : "enableShaders";
+            String value = optifine ? "OFF" : "false";
+            List<String> lines = new ArrayList<>(Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8));
+            boolean set = false;
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
+                int equals = line.indexOf('=');
+                if (equals > 0 && line.substring(0, equals).trim().equals(key)) {
+                    lines.set(i, key + "=" + value);
+                    set = true;
+                }
+            }
+            if (!set) {
+                lines.add(key + "=" + value);
+            }
+            Files.write(file, lines, java.nio.charset.StandardCharsets.UTF_8);
+            done.add(file.getFileName().toString());
+        }
+        return done;
     }
 
     /**

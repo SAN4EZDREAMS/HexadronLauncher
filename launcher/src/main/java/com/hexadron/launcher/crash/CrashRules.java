@@ -119,21 +119,39 @@ public final class CrashRules {
      * A library mod the launcher can name and install: by the mod ids other
      * mods ask for it by, and by the packages its classes are in.
      *
-     * @param slug     its Modrinth project
-     * @param loaders  the loaders it serves, lower case; empty for all
-     * @param packages package prefixes, each ending in a dot
+     * @param slug       its Modrinth project
+     * @param loaders    the loaders it serves, lower case; empty for all
+     * @param packages   package prefixes, each ending in a dot
+     * @param curseForge its CurseForge slug when that differs from {@code slug}; empty otherwise
      */
     public record Library(String slug, String name, List<String> ids, List<String> packages,
-                          Set<String> loaders) {
+                          Set<String> loaders, String curseForge) {
         public Library {
             ids = List.copyOf(ids);
             packages = List.copyOf(packages);
             loaders = Set.copyOf(loaders);
+            curseForge = curseForge == null ? "" : curseForge;
+        }
+
+        /** The CurseForge slug to look up: its own, or the Modrinth one, which is often the same. */
+        public String curseForgeSlug() {
+            return curseForge.isEmpty() ? slug : curseForge;
         }
 
         /** True when it serves this loader ({@code fabric}, {@code forge}, ...). */
         public boolean serves(String loader) {
             return loaders.isEmpty() || loaders.contains(loader);
+        }
+    }
+
+    /**
+     * Mods that do not work together: every mod of {@code mods} with every mod
+     * of {@code with}. Found before the launch; the player keeps one side.
+     */
+    public record Conflict(String id, List<String> mods, List<String> with) {
+        public Conflict {
+            mods = List.copyOf(mods);
+            with = List.copyOf(with);
         }
     }
 
@@ -272,13 +290,20 @@ public final class CrashRules {
     private final List<Rule> rules;
     private final Map<String, Map<String, Text>> texts;
     private final List<Library> libraries;
+    private final List<Conflict> conflicts;
 
     private CrashRules(int version, List<Rule> rules, Map<String, Map<String, Text>> texts,
-                       List<Library> libraries) {
+                       List<Library> libraries, List<Conflict> conflicts) {
         this.version = version;
         this.rules = List.copyOf(rules);
         this.texts = texts;
         this.libraries = List.copyOf(libraries);
+        this.conflicts = List.copyOf(conflicts);
+    }
+
+    /** Mods known not to work together. */
+    public List<Conflict> conflicts() {
+        return conflicts;
     }
 
     /** The library mods the file knows, in its order. */
@@ -319,7 +344,7 @@ public final class CrashRules {
 
     /** An empty set, for when even the bundled file cannot be read. */
     public static CrashRules empty() {
-        return new CrashRules(0, List.of(), Map.of(), List.of());
+        return new CrashRules(0, List.of(), Map.of(), List.of(), List.of());
     }
 
     public int version() {
@@ -425,7 +450,32 @@ public final class CrashRules {
         // Stable: rules of equal priority keep the order the file gives them.
         List<Rule> sorted = new ArrayList<>(rules);
         sorted.sort((a, b) -> Integer.compare(b.priority(), a.priority()));
-        return new CrashRules(version, sorted, texts, parseLibraries(root.get("libraries")));
+        return new CrashRules(version, sorted, texts, parseLibraries(root.get("libraries")),
+                parseConflicts(root.get("conflicts")));
+    }
+
+    /** The optional {@code conflicts} list; launchers older than it ignore it. */
+    private static List<Conflict> parseConflicts(Json node) {
+        if (!node.exists()) {
+            return List.of();
+        }
+        if (!node.isArray() || node.size() > MAX_LIBRARIES) {
+            throw new JsonException("conflicts must be an array of at most " + MAX_LIBRARIES);
+        }
+        List<Conflict> conflicts = new ArrayList<>();
+        for (Json item : node.elements()) {
+            String id = item.get("id").asString("");
+            if (!ID.matcher(id).matches()) {
+                throw new JsonException("bad conflict id '" + id + "'");
+            }
+            List<String> mods = strings(item.get("mods"), ID, "conflict " + id + " mods");
+            List<String> with = strings(item.get("with"), ID, "conflict " + id + " with");
+            if (mods.isEmpty() || with.isEmpty()) {
+                throw new JsonException("conflict " + id + " needs mods on both sides");
+            }
+            conflicts.add(new Conflict(id, mods, with));
+        }
+        return conflicts;
     }
 
     /** The optional {@code libraries} list; launchers older than it ignore it. */
@@ -456,7 +506,11 @@ public final class CrashRules {
             if (!LOADER_KEYS.containsAll(loaders)) {
                 throw new JsonException("library " + slug + " names an unknown loader");
             }
-            libraries.add(new Library(slug, name, ids, packages, loaders));
+            String curseForge = item.get("curseforge").asString("");
+            if (!curseForge.isEmpty() && !SLUG.matcher(curseForge).matches()) {
+                throw new JsonException("library " + slug + ": bad CurseForge slug '" + curseForge + "'");
+            }
+            libraries.add(new Library(slug, name, ids, packages, loaders, curseForge));
         }
         return libraries;
     }

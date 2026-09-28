@@ -293,6 +293,7 @@ final class CrashDialog {
             case UPDATE_LOADER -> I18n.t("crash.fix.updateLoader", fix.subject());
             case RESET_CONFIG -> I18n.t("crash.fix.resetConfig", fix.subject());
             case REMOVE_JVM_ARGUMENT -> I18n.t("crash.fix.removeJvmArgument", fix.subject());
+            case DISABLE_SHADERS -> I18n.t("crash.fix.disableShaders", fix.subject());
         };
     }
 
