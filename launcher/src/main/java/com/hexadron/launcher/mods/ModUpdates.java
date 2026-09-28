@@ -51,9 +51,14 @@ public final class ModUpdates {
      * @param next         the build to install
      * @param dependencies projects the new build requires that the folder does not have
      */
-    public record Update(ModEntry current, String title, ModFile next, List<String> dependencies) {
+    public record Update(ContentKind kind, ModEntry current, String title, ModFile next, List<String> dependencies) {
         public Update {
             dependencies = List.copyOf(dependencies);
+        }
+
+        /** A mod update, the kind most of them are. */
+        public Update(ModEntry current, String title, ModFile next, List<String> dependencies) {
+            this(ContentKind.MOD, current, title, next, dependencies);
         }
 
         public ModProvider.Source source() {
@@ -73,6 +78,30 @@ public final class ModUpdates {
         public Check {
             updates = List.copyOf(updates);
             notes = List.copyOf(notes);
+        }
+    }
+
+    /** What moving to another Minecraft version does to one mod. */
+    public enum MoveAction {
+        /** A build for the new version replaces the file. */
+        REPLACE,
+        /** The file in the folder serves the new version too. */
+        KEEP,
+        /** No build for the new version, or the jar itself rules it out: switched off. */
+        SWITCH_OFF,
+        /** On neither platform and says nothing against the new version: left as it is. */
+        UNKNOWN
+    }
+
+    /**
+     * One row of the plan for a version move.
+     *
+     * @param next         the build that replaces the file, for {@link MoveAction#REPLACE}
+     * @param dependencies projects that build requires that the folder does not have
+     */
+    public record MoveRow(ModEntry mod, String title, MoveAction action, ModFile next, List<String> dependencies) {
+        public MoveRow {
+            dependencies = List.copyOf(dependencies);
         }
     }
 
@@ -150,10 +179,20 @@ public final class ModUpdates {
         return target.getFileName().toString();
     }
 
-    /** The record of the last update; empty when there is none or it does not read. */
+    /** The journal of one kind: mods, resource packs or shader packs each keep their own. */
+    public static String journalName(ContentKind kind) {
+        return kind == ContentKind.MOD ? JOURNAL : ".hexadron-" + kind.modrinthProjectType() + "-updates.json";
+    }
+
+    /** The record of the last mod update; empty when there is none or it does not read. */
     public static List<Change> journal(Path gameDir) {
+        return journal(gameDir, JOURNAL);
+    }
+
+    /** The record of the last update of one kind. */
+    public static List<Change> journal(Path gameDir, String journalName) {
         List<Change> changes = new ArrayList<>();
-        Path file = gameDir.resolve(JOURNAL);
+        Path file = gameDir.resolve(journalName);
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
             return changes;
         }
@@ -174,6 +213,10 @@ public final class ModUpdates {
     }
 
     public static void writeJournal(Path gameDir, List<Change> changes) throws IOException {
+        writeJournal(gameDir, JOURNAL, changes);
+    }
+
+    public static void writeJournal(Path gameDir, String journalName, List<Change> changes) throws IOException {
         Json list = Json.array();
         for (Change change : changes) {
             Json entry = Json.object().put("old", change.oldFile()).put("aside", change.asideFile())
@@ -185,13 +228,17 @@ public final class ModUpdates {
         }
         Json root = Json.object().put("at", System.currentTimeMillis());
         root.put("changes", list);
-        Path temp = gameDir.resolve(JOURNAL + ".part");
+        Path temp = gameDir.resolve(journalName + ".part");
         root.write(temp);
-        Files.move(temp, gameDir.resolve(JOURNAL), StandardCopyOption.REPLACE_EXISTING);
+        Files.move(temp, gameDir.resolve(journalName), StandardCopyOption.REPLACE_EXISTING);
     }
 
     public static void forgetJournal(Path gameDir) throws IOException {
-        Files.deleteIfExists(gameDir.resolve(JOURNAL));
+        forgetJournal(gameDir, JOURNAL);
+    }
+
+    public static void forgetJournal(Path gameDir, String journalName) throws IOException {
+        Files.deleteIfExists(gameDir.resolve(journalName));
     }
 
     /**
@@ -202,7 +249,12 @@ public final class ModUpdates {
      *         file each belongs to; a jar the launcher never recorded has none
      */
     public static List<Change> rollBack(Path gameDir, Path modsDir) throws IOException {
-        List<Change> changes = journal(gameDir);
+        return rollBack(gameDir, modsDir, JOURNAL);
+    }
+
+    /** The same, for the folder and journal of one kind. */
+    public static List<Change> rollBack(Path gameDir, Path modsDir, String journalName) throws IOException {
+        List<Change> changes = journal(gameDir, journalName);
         List<Change> done = new ArrayList<>();
         for (int i = changes.size() - 1; i >= 0; i--) {
             Change change = changes.get(i);
@@ -224,8 +276,74 @@ public final class ModUpdates {
             Files.move(aside, target, StandardCopyOption.ATOMIC_MOVE);
             done.add(change);
         }
-        forgetJournal(gameDir);
+        forgetJournal(gameDir, journalName);
         return done;
+    }
+
+    // ------------------------------------------------------------ settings that name a pack
+
+    /** Iris, Oculus and OptiFine keep the shader pack they load by its file name. */
+    static final List<String> SHADER_SETTINGS = List.of("config/iris.properties", "config/oculus.properties",
+            "optionsshaders.txt");
+
+    /**
+     * Makes the game's settings name the new file of an updated pack, so it
+     * stays switched on. The game keeps active resource packs in
+     * {@code options.txt} ({@code "file/Name.zip"}, or {@code "Name.zip"} before
+     * 1.13) and the shader loaders keep {@code shaderPack=Name.zip}; a pack whose
+     * file changed name would otherwise be silently switched off.
+     *
+     * @return the settings files changed
+     */
+    public static List<String> renameInSettings(Path gameDir, ContentKind kind, String from, String to)
+            throws IOException {
+        List<String> changed = new ArrayList<>();
+        if (from.equals(to)) {
+            return changed;
+        }
+        if (kind == ContentKind.RESOURCEPACK) {
+            Path options = gameDir.resolve("options.txt");
+            if (rewrite(options, line -> {
+                if (!line.startsWith("resourcePacks:") && !line.startsWith("incompatibleResourcePacks:")) {
+                    return line;
+                }
+                return line.replace("\"file/" + from + "\"", "\"file/" + to + "\"")
+                        .replace("\"" + from + "\"", "\"" + to + "\"");
+            })) {
+                changed.add("options.txt");
+            }
+        } else if (kind == ContentKind.SHADER) {
+            for (String name : SHADER_SETTINGS) {
+                if (rewrite(gameDir.resolve(name), line -> {
+                    int equals = line.indexOf('=');
+                    return equals > 0 && line.substring(0, equals).trim().equals("shaderPack")
+                            && line.substring(equals + 1).trim().equals(from)
+                            ? line.substring(0, equals + 1) + to : line;
+                })) {
+                    changed.add(name);
+                }
+            }
+        }
+        return changed;
+    }
+
+    /** Rewrites a text file line by line; true when anything changed. */
+    private static boolean rewrite(Path file, java.util.function.UnaryOperator<String> edit) throws IOException {
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            return false;
+        }
+        List<String> lines = Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8);
+        List<String> edited = new ArrayList<>(lines.size());
+        boolean changed = false;
+        for (String line : lines) {
+            String next = edit.apply(line);
+            changed |= !next.equals(line);
+            edited.add(next);
+        }
+        if (changed) {
+            Files.write(file, edited, java.nio.charset.StandardCharsets.UTF_8);
+        }
+        return changed;
     }
 
     /** The record the launcher keeps for a file, if it keeps one. */

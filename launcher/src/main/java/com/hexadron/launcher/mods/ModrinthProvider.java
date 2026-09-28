@@ -487,6 +487,17 @@ public final class ModrinthProvider implements ModProvider {
      */
     public java.util.Map<String, Latest> latestByHash(java.util.Collection<String> sha1s, String minecraftVersion,
                                                       LoaderType loader) throws IOException, InterruptedException {
+        return latestByHash(ContentKind.MOD, sha1s, minecraftVersion, loader);
+    }
+
+    /**
+     * The same for files of any kind: resource packs are asked for with their
+     * own loader tag, shader packs with the shader loaders' tags and no
+     * Minecraft version, as {@link #resolveFile} asks for them.
+     */
+    public java.util.Map<String, Latest> latestByHash(ContentKind kind, java.util.Collection<String> sha1s,
+                                                      String minecraftVersion, LoaderType loader)
+            throws IOException, InterruptedException {
         java.util.Map<String, Latest> found = new java.util.LinkedHashMap<>();
         if (sha1s.isEmpty()) {
             return found;
@@ -498,16 +509,19 @@ public final class ModrinthProvider implements ModProvider {
                 java.util.Map.of("Accept", "application/json"));
 
         Json loaders = Json.array();
-        if (loader != null) {
-            loader.platformIds().forEach(loaders::add);
-        }
+        fileLoaderTags(kind, loader).forEach(loaders::add);
         Json versions = Json.array();
-        if (minecraftVersion != null && !minecraftVersion.isBlank()) {
+        if (kind.isFilteredByVersion() && minecraftVersion != null && !minecraftVersion.isBlank()) {
             versions.add(minecraftVersion);
         }
         Json body = Json.object().put("hashes", hashes).put("algorithm", "sha1");
-        body.put("loaders", loaders);
-        body.put("game_versions", versions);
+        // Left out rather than sent empty: an empty list is a filter nothing passes.
+        if (loaders.size() > 0) {
+            body.put("loaders", loaders);
+        }
+        if (versions.size() > 0) {
+            body.put("game_versions", versions);
+        }
         Json newest = Http.postJson(API + "/version_files/update", body,
                 java.util.Map.of("Accept", "application/json"));
 

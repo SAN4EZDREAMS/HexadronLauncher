@@ -142,7 +142,21 @@ When you switch off or remove a mod that other switched-on mods need, the dialog
 
 ## Mods left behind by a version change
 
-Changing an instance's Minecraft version does not move or delete its mods. Jars built for the old version then stop the loader from starting.
+### Moving the mods
+
+When you change the Minecraft version in the instance dialog (and keep the loader), the launcher looks up every switched-on mod for the new version - by its content, on Modrinth and then CurseForge, so a jar you added by hand counts too - and shows a table before anything changes: the mod, its version now, and for the new version the build that replaces it, **the same file** (it serves both), **no build: switched off**, or **not known: left as it is** (on neither platform and declaring nothing against the new version).
+
+| Button | What it does |
+|---|---|
+| **Move the mods** | Replaces each mod with its build for the new version (the old jar goes to `mods/.removed/`, and what the new build requires is installed), switches off the ones with no build, and says how many of each |
+| **Go back to** *old version* | Puts the profile back on the version it was on |
+| **Leave them as they are** | Changes nothing in the folder; the warning below follows |
+
+The same move runs for **Go back to** *version* in the wrong-version warning and for the command-line `move`. A change of loader is not a move: no mod has a build for another loader under the same name.
+
+### When the mods stay
+
+Changing an instance's Minecraft version without moving the mods leaves them where they are. Jars built for the old version then stop the loader from starting.
 
 The launcher checks the Minecraft range each jar declares, with `mods/VersionRanges`:
 
@@ -173,6 +187,8 @@ The instance panel has **Check for updates** above its mod list. With **Look for
 | Modrinth | Two requests for the whole folder: `POST /v2/version_files` (which version each jar is, by SHA-1) and `POST /v2/version_files/update` (the newest version for this Minecraft version and loader). A jar has an update when the newest version is another version |
 | CurseForge | With an API key, for the jars Modrinth does not know: `POST /v1/fingerprints/432` (MurmurHash2, seed 1, whitespace left out), then the newest file for this version and loader. A file counts as newer only when its id is higher, so a newer beta you chose is not replaced by an older release |
 | Result | A mod with an update shows the **update:** *version* badge; the button says **Update (N)** and opens the list. Jars that are on neither platform are counted and named as not checked |
+
+Resource packs and shader packs are checked the same way (`resourcepacks/`, `shaderpacks/`; shader packs without a Minecraft version, as the catalogue asks for them). When an updated pack's file name changes, the game's settings follow it: `options.txt` (`resourcePacks`) and the shader loaders' `shaderPack=` in `config/iris.properties`, `config/oculus.properties` and `optionsshaders.txt`, so the pack stays switched on. Each kind keeps its own record of the last update.
 
 **Update selected** downloads every new build first; a failed download leaves the folder as it was. Then each old jar is moved to `mods/.removed/`, the new one takes its place, and the launcher's record of the mod (`.hexadron-mods.json`) moves to the new build. A jar you added by hand is recorded from then on. Mods that a new build requires and the folder does not have are installed after it. `.hexadron-mod-updates.json` in the game folder records the update.
 

@@ -1107,13 +1107,14 @@ public final class MainWindow implements ProfileHost {
         // A check describes the folder it looked at; a folder that changed is
         // described by nothing until the next one.
         com.hexadron.launcher.mods.ModUpdates.Check check = modUpdates.get(profile.id());
-        if (check != null && check.updates().stream().anyMatch(update ->
-                installed.stream().noneMatch(mod -> mod.enabled() && mod.fileName().equals(update.current().fileName())))) {
+        if (check != null && check.updates().stream()
+                .filter(update -> update.kind() == com.hexadron.launcher.mods.ContentKind.MOD)
+                .anyMatch(update -> installed.stream()
+                        .noneMatch(mod -> mod.enabled() && mod.fileName().equals(update.current().fileName())))) {
             modUpdates.remove(profile.id());
         }
-        showUpdatesButton(profile, installed.isEmpty());
-        if (!installed.isEmpty() && profile.loader() != null && profile.loader().isModded()
-                && service.settings().checkForUpdates() && updatesChecked.add(profile.id())) {
+        showUpdatesButton(profile);
+        if (service.settings().checkForUpdates() && updatesChecked.add(profile.id())) {
             checkModUpdatesQuietly(profile);
         }
     }
@@ -1132,14 +1133,12 @@ public final class MainWindow implements ProfileHost {
         return byFile;
     }
 
-    private void showUpdatesButton(Profile profile, boolean noMods) {
+    /** Mods, resource packs and shader packs are checked alike, so the button is there for every profile. */
+    private void showUpdatesButton(Profile profile) {
         com.hexadron.launcher.mods.ModUpdates.Check check = modUpdates.get(profile.id());
         int count = check == null ? 0 : check.updates().size();
         updatesButton.setText(count > 0 ? I18n.t("mods.updates.available", count) : I18n.t("mods.updates.check"));
         setBadgeClass(updatesButton, "primary", count > 0);
-        boolean modded = profile.loader() != null && profile.loader().isModded();
-        updatesButton.setVisible(modded && !noMods);
-        updatesButton.setManaged(modded && !noMods);
     }
 
     /**
@@ -1154,7 +1153,7 @@ public final class MainWindow implements ProfileHost {
                 modUpdates.put(profile.id(), check);
                 Platform.runLater(() -> {
                     if (shown != null && shown.id().equals(profile.id())) {
-                        showUpdatesButton(profile, false);
+                        showUpdatesButton(profile);
                         modsList.refresh();
                     }
                 });
@@ -1480,7 +1479,59 @@ public final class MainWindow implements ProfileHost {
             rememberVersionPreference(dialog);
             refreshProfiles();
             select(edited);
-            reportModsLeftBehind(edited, wasVersion, wasLoader);
+            offerToMoveMods(edited, wasVersion, wasLoader);
+        });
+    }
+
+    /**
+     * After the Minecraft version of a profile with mods was changed: looks up
+     * every mod for the new version and shows what moving them would do,
+     * with the choice to move them, go back, or leave the folder as it is.
+     * A change of loader is not a move - no mod has a build for another
+     * loader under the same name - and gets the report it always did.
+     */
+    private void offerToMoveMods(Profile profile, String wasVersion, LoaderType wasLoader) {
+        String version = profile.minecraftVersion();
+        boolean movable = !version.equals(wasVersion) && profile.loader() == wasLoader
+                && profile.loader() != null && profile.loader().isModded()
+                && service.modsIn(profile).stream().anyMatch(ModEntry::enabled);
+        if (!movable) {
+            reportModsLeftBehind(profile, wasVersion, wasLoader);
+            return;
+        }
+        runInBackground(I18n.t("mods.move.planning", version), () -> {
+            java.util.List<com.hexadron.launcher.mods.ModUpdates.MoveRow> plan = service.planVersionMove(profile, version);
+            Platform.runLater(() -> new MoveModsDialog(wasVersion, version, plan, new MoveModsDialog.Actions() {
+                @Override
+                public void move() {
+                    runInBackground(I18n.t("mods.move.task"), () -> {
+                        com.hexadron.launcher.mods.ModInstaller.Migration migration =
+                                service.moveToVersion(profile, version, plan, progress);
+                        migration.updated().forEach(note -> progress.log("  %s", note));
+                        migration.switchedOff().forEach(note -> progress.log("  %s", note));
+                        Platform.runLater(() -> {
+                            modUpdates.remove(profile.id());
+                            showProfile(shown);
+                            showInfo(I18n.t("mods.move.title", version), I18n.t("mods.move.done",
+                                    migration.updated().size(), migration.switchedOff().size(),
+                                    migration.kept().size()));
+                        });
+                    });
+                }
+
+                @Override
+                public void goBack() {
+                    profile.minecraftVersion(wasVersion);
+                    saveProfilesQuietly();
+                    refreshProfiles();
+                    select(profile);
+                }
+
+                @Override
+                public void leave() {
+                    reportModsLeftBehind(profile, wasVersion, wasLoader);
+                }
+            }).show(stage));
         });
     }
 

@@ -81,8 +81,19 @@ final class UpdatesDialog {
 
         Map<CheckBox, ModUpdates.Update> boxes = new LinkedHashMap<>();
         VBox rows = new VBox(6);
-        for (ModUpdates.Update update : check.updates()) {
-            String from = update.current().version() == null || update.current().version().isBlank()
+        com.hexadron.launcher.mods.ContentKind group = null;
+        for (ModUpdates.Update update : check.updates().stream()
+                .sorted(java.util.Comparator.comparing(ModUpdates.Update::kind)).toList()) {
+            if (update.kind() != group && check.updates().stream().anyMatch(other -> other.kind() != update.kind())) {
+                // A heading per kind, when there is more than one.
+                Label kind = new Label(I18n.t(update.kind().key()));
+                kind.getStyleClass().add("form-label");
+                rows.getChildren().add(kind);
+            }
+            group = update.kind();
+            // A pack's "version" is its pack format, a number nobody knows it by; its file name says more.
+            String from = update.kind() != com.hexadron.launcher.mods.ContentKind.MOD
+                    || update.current().version() == null || update.current().version().isBlank()
                     ? update.current().fileName() : update.current().version();
             CheckBox box = new CheckBox(I18n.t("mods.updates.row", update.title(), from,
                     update.next().displayName()));

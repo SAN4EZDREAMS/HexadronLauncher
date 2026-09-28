@@ -23,8 +23,8 @@ This plan lists what the launcher does not do yet. It is based on a comparison w
 | 0.1 | Approved Microsoft sign-in | P0 | **Done** | |
 | 1.1 | Crash analysis with fixes | P1 | **Done** | |
 | 1.2 | Find the bad mod automatically (bisect) | P1 | **Done** | Unique |
-| 1.3 | Mod update check and bulk update | P1 | **Done** (mods) | |
-| 1.4 | Move mods with a version change in the instance dialog | P1 | S | Unique (full form) |
+| 1.3 | Mod update check and bulk update | P1 | **Done** | |
+| 1.4 | Move mods with a version change in the instance dialog | P1 | **Done** | Unique (full form) |
 | 2.1 | Modpack update that keeps player configs | P1 | L | Unique |
 | 2.2 | Instance snapshots and rollback | P1 | M | Unique |
 | 2.3 | World backups | P1 | S | |
@@ -96,9 +96,9 @@ Built as planned, without waiting for **2.2**: the search records the mods that 
 - `bisect/BisectFiles.java`: switching by `.disabled` renames, the dependency graph from jar descriptors, the state saved after every step in `.hexadron-bisect.json`.
 - `ui/BisectWindow.java`: the step-by-step window. A crash counts as the problem by itself; otherwise the player answers. Started from the crash window or the profile menu; **Play** in a profile with an unfinished search reopens it.
 
-### 1.3 Mod update check and bulk update (P1) - Done for mods
+### 1.3 Mod update check and bulk update (P1) - Done
 
-Built as planned for mods; see [docs/mods.md](docs/mods.md#updates). Without **2.2**, an update keeps the old jars in `mods/.removed/` and a journal, and **Undo the last update** restores them. Still open: step 5, the same check for resource packs and shader packs.
+Built as planned for mods; see [docs/mods.md](docs/mods.md#updates). Without **2.2**, an update keeps the old jars in `mods/.removed/` and a journal, and **Undo the last update** restores them. Resource packs and shader packs are checked too (step 5), and the game's settings follow a pack whose file name changed.
 
 - `mods/ModUpdates.java`: CurseForge fingerprints, the journal and the undo. `ModrinthProvider.latestByHash`, `CurseForgeProvider.matchFingerprints`.
 - `LauncherService.checkModUpdates` / `applyModUpdates` / `rollBackModUpdates`; `ui/UpdatesDialog.java`; the **update** badge in the instance's mod list; CLI `updates`.
@@ -119,7 +119,11 @@ The original plan:
 
 **Start from.** `mods/ModrinthProvider.java`, `mods/CurseForgeProvider.java`, `mods/ModInstaller.java` (`migrateMods` already replaces each launcher-installed mod with the newest build for a version).
 
-### 1.4 Move mods with a version change in the instance dialog (P1, Unique in full form)
+### 1.4 Move mods with a version change in the instance dialog (P1, Unique in full form) - Done
+
+Built as planned; see [docs/mods.md](docs/mods.md#moving-the-mods). Without **2.2**, the old jars are kept in `mods/.removed/`, and **Go back to** *version* is the way back. `LauncherService.planVersionMove` identifies every jar by content (Modrinth SHA-1, CurseForge fingerprint), not only the ones the launcher installed; `ui/MoveModsDialog.java` shows the table; `moveToVersion` carries the plan out for the dialog, the wrong-version warning and the CLI.
+
+The original plan:
 
 **Problem.** The move itself exists: `LauncherService.moveToVersion` replaces each mod the launcher installed with a build for the new version, and switches off mods with no build. Hand-added jars that declare another version are switched off too. It is available as the command-line command `move <profile> <mcVersion>` and as the **Go back to {version}** button in the wrong-version warning. When the player changes the version in the instance dialog, the launcher only sets the version and reports the mods left behind. Modrinth App only asks the player to change mod versions (modrinth/code#228); the request for more (modrinth/code#5474) is still open.
 

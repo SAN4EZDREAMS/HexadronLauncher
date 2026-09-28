@@ -9540,6 +9540,21 @@ public final class SelfCheck {
                     && !java.nio.file.Files.exists(updateMods.resolve("mod-2.0.jar"))
                     && java.nio.file.Files.exists(updateMods.resolve(ModScan.DISCARD_DIR).resolve("mod-2.0.jar"))
                     && com.hexadron.launcher.mods.ModUpdates.journal(updateGame).isEmpty());
+            java.nio.file.Files.writeString(updateGame.resolve("options.txt"),
+                    "lang:uk_ua\nresourcePacks:[\"vanilla\",\"file/Faithful-1.0.zip\"]\nincompatibleResourcePacks:[]\n");
+            java.nio.file.Files.createDirectories(updateGame.resolve("config"));
+            java.nio.file.Files.writeString(updateGame.resolve("config/iris.properties"), "enableShaders=true\nshaderPack=BSL_v8.2.zip\n");
+            com.hexadron.launcher.mods.ModUpdates.renameInSettings(updateGame, com.hexadron.launcher.mods.ContentKind.RESOURCEPACK,
+                    "Faithful-1.0.zip", "Faithful-1.1.zip");
+            com.hexadron.launcher.mods.ModUpdates.renameInSettings(updateGame, com.hexadron.launcher.mods.ContentKind.SHADER,
+                    "BSL_v8.2.zip", "BSL_v8.3.zip");
+            check("an updated pack stays switched on: the game's settings name its new file",
+                    java.nio.file.Files.readString(updateGame.resolve("options.txt")).contains("\"file/Faithful-1.1.zip\"")
+                    && java.nio.file.Files.readString(updateGame.resolve("options.txt")).contains("lang:uk_ua")
+                    && java.nio.file.Files.readString(updateGame.resolve("config/iris.properties")).contains("shaderPack=BSL_v8.3.zip"));
+            check("each kind keeps its own record of the last update", !com.hexadron.launcher.mods.ModUpdates.journalName(
+                    com.hexadron.launcher.mods.ContentKind.SHADER).equals(com.hexadron.launcher.mods.ModUpdates.journalName(
+                    com.hexadron.launcher.mods.ContentKind.MOD)));
             var versionFix = com.hexadron.launcher.crash.CrashAnalyzer.analyze(com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
                     "\tMod ID: 'architectury', Requested by: 'rei', Expected range: '[9.1,)', Actual version: '9.0.8'"))), rules, "en");
             var withUpdate = com.hexadron.launcher.crash.CrashFixes.withDerived(versionFix.get(0), LoaderType.FORGE);

@@ -205,7 +205,8 @@ public final class HexadronCli {
                 }
                 var check = service.checkModUpdates(profile);
                 for (var update : check.updates()) {
-                    System.out.println("  " + update.title() + ": " + update.current().fileName() + " -> "
+                    System.out.println("  [" + update.kind().modrinthProjectType() + "] " + update.title() + ": "
+                            + update.current().fileName() + " -> "
                             + update.next().fileName() + " (" + update.source().displayName() + ")"
                             + (update.dependencies().isEmpty() ? "" : ", needs " + update.dependencies().size() + " more"));
                 }
