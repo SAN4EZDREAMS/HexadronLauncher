@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 3,
+  "version": 4,
   "about": "Crash rules for HexadronLauncher. Format: crash/CrashRules.java. A newer signed copy is published with each release as hexadron-crash-rules.json.",
   "texts": {
     "javaOld": {
@@ -1647,6 +1647,7 @@
   "rules": [
     {
       "id": "broken-install",
+      "stopsLoading": true,
       "priority": 98,
       "text": "brokenInstall",
       "match": [
@@ -1826,6 +1827,7 @@
     },
     {
       "id": "fabric-corrupt-jar",
+      "stopsLoading": true,
       "priority": 88,
       "text": "corruptJar",
       "match": [
@@ -1848,6 +1850,7 @@
     },
     {
       "id": "neoforge-not-a-jar",
+      "stopsLoading": true,
       "priority": 88,
       "text": "corruptJar",
       "match": [
@@ -1870,6 +1873,7 @@
     },
     {
       "id": "forge-duplicate",
+      "stopsLoading": true,
       "priority": 86,
       "text": "duplicate",
       "match": [
@@ -1890,6 +1894,7 @@
     },
     {
       "id": "forge-legacy-duplicate",
+      "stopsLoading": true,
       "priority": 86,
       "text": "duplicate",
       "match": [
@@ -1910,6 +1915,7 @@
     },
     {
       "id": "neoforge-duplicate",
+      "stopsLoading": true,
       "priority": 86,
       "text": "duplicate",
       "match": [
@@ -1930,6 +1936,7 @@
     },
     {
       "id": "fabric-missing-dependency",
+      "stopsLoading": true,
       "priority": 84,
       "text": "missingDep",
       "match": [
@@ -1950,6 +1957,7 @@
     },
     {
       "id": "forge-missing-dependency",
+      "stopsLoading": true,
       "priority": 84,
       "text": "missingDep",
       "match": [
@@ -1970,6 +1978,7 @@
     },
     {
       "id": "forge-legacy-missing-dependency",
+      "stopsLoading": true,
       "priority": 84,
       "text": "missingDep",
       "match": [
@@ -1990,6 +1999,7 @@
     },
     {
       "id": "forge-legacy-loader-version",
+      "stopsLoading": true,
       "priority": 80,
       "text": "depVersion",
       "match": [
@@ -2010,6 +2020,7 @@
     },
     {
       "id": "neoforge-missing-dependency",
+      "stopsLoading": true,
       "priority": 84,
       "text": "missingDep",
       "match": [
@@ -2031,6 +2042,7 @@
     },
     {
       "id": "fabric-minecraft-version",
+      "stopsLoading": true,
       "priority": 82,
       "text": "wrongMinecraft",
       "match": [
@@ -2051,6 +2063,7 @@
     },
     {
       "id": "forge-minecraft-version",
+      "stopsLoading": true,
       "priority": 82,
       "text": "wrongMinecraft",
       "match": [
@@ -2071,6 +2084,7 @@
     },
     {
       "id": "neoforge-minecraft-version",
+      "stopsLoading": true,
       "priority": 82,
       "text": "wrongMinecraft",
       "match": [
@@ -2091,6 +2105,7 @@
     },
     {
       "id": "fabric-dependency-version",
+      "stopsLoading": true,
       "priority": 78,
       "text": "depVersion",
       "match": [
@@ -2111,6 +2126,7 @@
     },
     {
       "id": "forge-dependency-version",
+      "stopsLoading": true,
       "priority": 78,
       "text": "depVersion",
       "match": [
@@ -2131,6 +2147,7 @@
     },
     {
       "id": "neoforge-dependency-version",
+      "stopsLoading": true,
       "priority": 78,
       "text": "depVersion",
       "match": [
@@ -2152,6 +2169,7 @@
     },
     {
       "id": "fabric-incompatible",
+      "stopsLoading": true,
       "priority": 76,
       "text": "incompatible",
       "match": [
@@ -2176,6 +2194,7 @@
     },
     {
       "id": "neoforge-incompatible",
+      "stopsLoading": true,
       "priority": 76,
       "text": "incompatible",
       "match": [
@@ -2344,6 +2363,7 @@
     },
     {
       "id": "neoforge-wrong-loader",
+      "stopsLoading": true,
       "priority": 40,
       "text": "wrongLoader",
       "match": [

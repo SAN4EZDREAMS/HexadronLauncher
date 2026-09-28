@@ -224,6 +224,38 @@ public final class CrashFixes {
     }
 
     /**
+     * The mods that are switched on in more than one file, by mod id, in the
+     * order of the folder. Jars whose descriptor names no id take no part: two
+     * of them are not the same mod for any loader.
+     */
+    public static Map<String, List<ModEntry>> duplicateGroups(List<ModEntry> mods) {
+        Map<String, List<ModEntry>> byId = new LinkedHashMap<>();
+        for (ModEntry entry : mods) {
+            if (!entry.enabled()) {
+                continue;
+            }
+            String id = ModScan.descriptorOf(entry.path()).modId();
+            if (id == null || id.isBlank()) {
+                continue;
+            }
+            byId.computeIfAbsent(id.trim().toLowerCase(Locale.ROOT), key -> new ArrayList<>()).add(entry);
+        }
+        byId.values().removeIf(copies -> copies.size() < 2);
+        return byId;
+    }
+
+    /** The copy of a mod that {@code disableDuplicates} keeps: the newest version. */
+    public static ModEntry newestCopy(List<ModEntry> copies) {
+        ModEntry newest = copies.get(0);
+        for (ModEntry copy : copies.subList(1, copies.size())) {
+            if (isNewer(copy, newest)) {
+                newest = copy;
+            }
+        }
+        return newest;
+    }
+
+    /**
      * Keeps the newest copy of a mod and switches off the others.
      *
      * <p>Newest by the version in the jar. The file date decides only between
@@ -237,13 +269,7 @@ public final class CrashFixes {
         if (copies.size() < 2) {
             return Optional.empty();
         }
-        ModEntry newest = copies.get(0);
-        for (ModEntry copy : copies.subList(1, copies.size())) {
-            if (isNewer(copy, newest)) {
-                newest = copy;
-            }
-        }
-        ModEntry keep = newest;
+        ModEntry keep = newestCopy(copies);
         List<ModEntry> older = copies.stream().filter(copy -> copy != keep).toList();
         String subject = keep.title() == null || keep.title().isBlank() ? fix.value() : keep.title();
         return Optional.of(new Prepared(fix, subject, older, List.of(), 0));

@@ -75,7 +75,8 @@ import java.util.regex.PatternSyntaxException;
  *       ],
  *       "exit": [1],
  *       "values": {"java": "classfile(cf)"},
- *       "fixes": [{"type": "disableMod", "mod": "{mod}"}]
+ *       "fixes": [{"type": "disableMod", "mod": "{mod}"}],
+ *       "stopsLoading": true
  *     }
  *   ]
  * }
@@ -206,10 +207,20 @@ public final class CrashRules {
         }
     }
 
-    /** A rule, read and checked. */
+    /**
+     * A rule, read and checked.
+     *
+     * @param stopsLoading true when the cause stops the loader before the mods
+     *                     have started. Whatever crashes after that - often a
+     *                     mod whose code runs while the loader draws its error
+     *                     screen, with none of its own start-up done - is a
+     *                     consequence, and the stack trace of it is not reported
+     *                     as a cause of its own. Launchers older than this field
+     *                     ignore it.
+     */
     public record Rule(String id, int priority, String textId, List<Condition> conditions,
                        Set<Integer> exitCodes, Map<String, String> derived,
-                       List<FixTemplate> fixes) {
+                       List<FixTemplate> fixes, boolean stopsLoading) {
 
         public Rule {
             conditions = List.copyOf(conditions);
@@ -245,6 +256,16 @@ public final class CrashRules {
     /** Highest priority first; the order the analyzer tries them in. */
     public List<Rule> rules() {
         return rules;
+    }
+
+    /** True when the rule with this id stops the loader before the mods start. */
+    public boolean stopsLoading(String ruleId) {
+        for (Rule rule : rules) {
+            if (rule.id().equals(ruleId)) {
+                return rule.stopsLoading();
+            }
+        }
+        return false;
     }
 
     /** Every text id and the languages it has, for the self-check. */
@@ -470,7 +491,11 @@ public final class CrashRules {
             }
         }
 
-        return new Rule(id, priority, textId, conditions, exitCodes, derived, fixes);
+        Json stops = item.get("stopsLoading");
+        if (stops.exists() && !stops.isBool()) {
+            throw new JsonException("rule " + id + ": stopsLoading is true or false");
+        }
+        return new Rule(id, priority, textId, conditions, exitCodes, derived, fixes, stops.asBool(false));
     }
 
     private static void requireKnown(String template, Set<String> names, String where) {

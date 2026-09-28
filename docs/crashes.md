@@ -62,6 +62,21 @@ Two causes come from the launcher's own code, not from a rule. Their texts are i
 
 The window shows at most four causes, most specific first. Mods are named by the name in their jar, not by their id.
 
+A cause that stops the loader before the mods start (a mod installed twice, a missing or wrong dependency, a mod for another Minecraft version or loader, a damaged jar, a broken installation) explains what crashes after it. Forge for 1.12 draws its error screen, and a mod hooked into the game loop runs there with none of its own start-up done and throws. That mod is not reported as a cause, and `logs/launcher.log` says so (`reported as a consequence, not a cause`). Rules mark these causes with `stopsLoading`.
+
+When every cause has exactly one fix, the window has **Fix and start the game**: it applies all of them in order and starts the game. The fixes you applied one by one already are skipped. When a cause has no fix, or a choice of fixes (two incompatible mods, for example), you choose, and the button is not shown.
+
+## Checks before the launch
+
+**Play** checks the `mods` folder before the game starts, so the most common causes are fixed without a crash first.
+
+| Check | Buttons |
+|---|---|
+| A mod is switched on in two or more files (the same mod id) | **Keep the newest and play** (the default): switches off every copy but the newest version, by the version in the jar, by the file date when the versions are equal or cannot be read. **Launch anyway**, **Cancel** |
+| A mod is for another Minecraft version | See [mods.md](mods.md) |
+
+A launch started by the problem-mod search skips both checks: the search sets the mods itself.
+
 A fix is offered only when it would change something in this profile. **Switch off** needs the mod in this profile's `mods` folder, switched on. **Raise memory** needs room: the new limit is half as much again (at least 1 GB more), in 512 MB steps, and never more than three quarters of the computer's memory or 16 GB.
 
 Switching off a mod renames its jar to `.disabled`, as the mods window does. When other mods need it, the window lists them and switches them off too, after you confirm. You can switch everything back on in the mods window.
@@ -91,6 +106,7 @@ The format is documented in `crash/CrashRules.java`. In short:
 - `rules`: each has an `id`, a `priority`, a `text`, and a list of `match` conditions that all have to hold.
 - A condition has `contains` (required: plain strings, any one lets a line through), an optional `regex` whose named groups become values, `in` (sources), `lines` (1 to 5 lines joined, for messages that continue on the next line) and `repeat` (report every distinct match, up to 5).
 - `values` derives more values: `classfile(g)` (class file version to Java version), `file(g)`, `stem(g)` (mixin config name to mod name), `int(g)`, `lower(g)`.
+- `stopsLoading` (`true` or `false`, default `false`): the cause stops the loader before the mods start, so the stack trace of a mod that crashes after it is not reported. Older launchers ignore the field.
 - `fixes` are only the kinds in `crash/CrashFix.java`: `disableMod`, `disableFile`, `disableMixinOwner`, `disableDuplicates`, `java`, `automaticJava`, `raiseMemory`, `lowerMemory`, `reinstall`. A rule cannot run a command or open a link.
 
 The whole file is refused when a rule names an unknown fix, a fix parameter it does not take, a text with a value that the rule does not provide, a text without English, a condition without `contains`, a bad regular expression, or a schema other than 1.

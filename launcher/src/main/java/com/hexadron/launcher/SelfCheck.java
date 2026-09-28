@@ -9067,6 +9067,25 @@ public final class SelfCheck {
                 "net.minecraftforge.fml.common.MissingModsException: Mod pvj (Project: Vibrant Journeys) requires [biomesoplenty@[7.0.1.2439,)]")));
         check("crash rule forge-legacy-loader-version explains its output", "forge-legacy-loader-version".equals(firstRule(rules, OUT,
                 "net.minecraftforge.fml.common.MissingModsException: Mod jei (Just Enough Items) requires [forge@[14.23.5.2816,)]")));
+        check("the causes that stop the loader are marked so", rules.stopsLoading("forge-legacy-duplicate")
+                && rules.stopsLoading("forge-duplicate") && rules.stopsLoading("fabric-missing-dependency")
+                && rules.stopsLoading("forge-legacy-missing-dependency") && rules.stopsLoading("neoforge-minecraft-version"));
+        check("and the causes inside a mod are not", !rules.stopsLoading("mixin-config-failed")
+                && !rules.stopsLoading("forge-mod-instance") && !rules.stopsLoading("fabric-entrypoint")
+                && !rules.stopsLoading("java-heap") && !rules.stopsLoading("no-such-rule"));
+        // The ForgeOld crash of 28 Sep 2026: Forge 1.12 stops on two copies of
+        // Controlling, draws its error screen, and Replay Mod - hooked into the
+        // game loop, never started - throws there. The copies are the cause.
+        var stopped = com.hexadron.launcher.crash.CrashAnalyzer.analyze(com.hexadron.launcher.crash.CrashEvidence.of(-1, Map.of(
+                OUT, List.of("[10:44:31] [Client thread/FATAL] [FML]: Found a duplicate mod controlling at [C:\\mods\\Controlling-3.0.12.4.jar, C:\\mods\\Controlling-3.0.12.2.jar]",
+                        "[10:44:35] [Client thread/FATAL] [net.minecraft.client.Minecraft]: Unreported exception thrown!",
+                        "java.lang.NullPointerException: null",
+                        "\tat com.replaymod.replay.InputReplayTimer.updateInReplay(InputReplayTimer.java:45)"))), rules, "en");
+        check("a mod that crashed after the loader stopped is a consequence",
+                com.hexadron.launcher.crash.CrashAnalyzer.loaderStopped(stopped, rules));
+        check("but a mixin error alone is not", !com.hexadron.launcher.crash.CrashAnalyzer.loaderStopped(
+                com.hexadron.launcher.crash.CrashAnalyzer.analyze(com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                        "Mixin apply for mod sodium failed sodium.mixins.json:MixinFoo from mod sodium"))), rules, "en"), rules));
         check("a fatal loader error counts even with exit code 0", com.hexadron.launcher.crash.CrashEvidence.hasFatalLine(List.of(
                 "[22:22:20] [Client thread/FATAL] [FML]: Found a duplicate mod controlling at [a.jar, b.jar]")));
         check("ordinary output is not fatal", !com.hexadron.launcher.crash.CrashEvidence.hasFatalLine(List.of(
@@ -9137,6 +9156,11 @@ public final class SelfCheck {
                 com.hexadron.launcher.crash.CrashRules.parse(good.replace("\"mod\":\"{mod}\"", "\"url\":\"{mod}\"")));
         checkThrows("a condition without contains is refused", () ->
                 com.hexadron.launcher.crash.CrashRules.parse(good.replace("\"contains\":[\"x\"],", "")));
+        check("stopsLoading is read", com.hexadron.launcher.crash.CrashRules.parse(
+                good.replace("\"text\":\"t\",", "\"text\":\"t\",\"stopsLoading\":true,")).stopsLoading("r")
+                && !com.hexadron.launcher.crash.CrashRules.parse(good).stopsLoading("r"));
+        checkThrows("a stopsLoading that is not true or false is refused", () ->
+                com.hexadron.launcher.crash.CrashRules.parse(good.replace("\"text\":\"t\",", "\"text\":\"t\",\"stopsLoading\":\"yes\",")));
         checkThrows("a text without English is refused", () ->
                 com.hexadron.launcher.crash.CrashRules.parse(good.replace("\"en\":", "\"uk\":")));
         checkThrows("a later schema is refused", () ->
@@ -9243,6 +9267,15 @@ public final class SelfCheck {
             check("of two copies the lower version is switched off, whatever the file dates",
                     byVersion.targets().size() == 1
                     && byVersion.targets().get(0).fileName().equals("Controlling-3.0.12.2.jar"));
+            var groups = com.hexadron.launcher.crash.CrashFixes.duplicateGroups(ModScan.scan(copies));
+            check("a mod in the folder twice is found before the launch", groups.size() == 1
+                    && groups.containsKey("controlling") && groups.get("controlling").size() == 2);
+            check("and the copy it keeps is the newest version", com.hexadron.launcher.crash.CrashFixes
+                    .newestCopy(groups.get("controlling")).fileName().equals("Controlling-3.0.12.4.jar"));
+            java.nio.file.Files.move(copies.resolve("Controlling-3.0.12.2.jar"),
+                    copies.resolve("Controlling-3.0.12.2.jar" + ModScan.DISABLED_SUFFIX));
+            check("a copy that is switched off is not a duplicate",
+                    com.hexadron.launcher.crash.CrashFixes.duplicateGroups(ModScan.scan(copies)).isEmpty());
             check("a Java version out of range is not offered", com.hexadron.launcher.crash.CrashFixes.prepare(
                     new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.JAVA, "4"),
                     profile, entries, 16384).isEmpty());

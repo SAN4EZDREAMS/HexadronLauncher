@@ -159,6 +159,8 @@ A mod that fails the check:
 - is counted after you save a version or loader change: "The mods in this instance are for the old version";
 - stops **Play** with "Some mods are for another Minecraft version", which names up to 8 mods. **Launch anyway** starts the game, because a mod's declared range can be wrong.
 
+Before that, **Play** also finds a mod that is switched on in two files and offers **Keep the newest and play**. See [crashes.md](crashes.md#checks-before-the-launch).
+
 The profile records its previous Minecraft version (`previousMinecraftVersion`). If some mods fail for the current version and none fail for the previous one, the **Play** dialog also offers **Go back to** *version*. This sets the version back, replaces each launcher-installed mod with the newest build for that version (or switches it off if there is none; leaves it if the platform cannot be reached), then switches off any mod that still fails. The game does not start; click **Play** again.
 
 ## Hexadron Optimise

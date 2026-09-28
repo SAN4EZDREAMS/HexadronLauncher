@@ -66,6 +66,9 @@ final class CrashDialog {
 
         /** Opens the search for the mod that causes the crash. */
         void findProblemMod();
+
+        /** Applies every fix, in order, off the interface thread, then starts the game again. */
+        void applyAllAndPlay(List<CrashFixes.Prepared> fixes);
     }
 
     private static final double WIDTH = 600;
@@ -77,6 +80,8 @@ final class CrashDialog {
     private final CrashEvidence evidence;
     private final Path gameDir;
     private final Actions actions;
+    /** Fixes the player has applied one by one already; the one-click button skips them. */
+    private final java.util.Set<CrashFixes.Prepared> applied = new java.util.HashSet<>();
 
     CrashDialog(int exitCode, List<CrashAnalyzer.Diagnosis> diagnoses,
                 Map<CrashAnalyzer.Diagnosis, List<CrashFixes.Prepared>> fixes,
@@ -97,9 +102,19 @@ final class CrashDialog {
         dialog.setHeaderText(null);
         dialog.setResizable(true);
 
-        ButtonType again = new ButtonType(I18n.t("crash.playAgain"), ButtonBar.ButtonData.OK_DONE);
+        // One click for the whole answer when the answer is not in doubt: every
+        // cause found has exactly one fix. With a choice to make - two mods that
+        // are incompatible, a cause with no fix at all - the player chooses.
+        List<CrashFixes.Prepared> oneClick = oneClick();
+        ButtonType fixAll = oneClick.isEmpty() ? null
+                : new ButtonType(I18n.t("crash.fixAll"), ButtonBar.ButtonData.OK_DONE);
+        ButtonType again = new ButtonType(I18n.t("crash.playAgain"),
+                fixAll == null ? ButtonBar.ButtonData.OK_DONE : ButtonBar.ButtonData.OTHER);
         ButtonType close = new ButtonType(I18n.t("dialog.close"), ButtonBar.ButtonData.CANCEL_CLOSE);
         dialog.getDialogPane().getButtonTypes().addAll(again, close);
+        if (fixAll != null) {
+            dialog.getDialogPane().getButtonTypes().add(fixAll);
+        }
 
         VBox content = build(dialog, again);
         ScrollPane scroll = new ScrollPane(content);
@@ -119,12 +134,53 @@ final class CrashDialog {
         dialog.getDialogPane().setContent(scroll);
         Theme.apply(dialog.getDialogPane());
 
+        if (fixAll != null) {
+            Button fixAllButton = (Button) dialog.getDialogPane().lookupButton(fixAll);
+            fixAllButton.getStyleClass().add("primary");
+            // Asked while the window is still open, so "no" leaves it there.
+            fixAllButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+                for (CrashFixes.Prepared fix : pending(oneClick)) {
+                    if (!fix.dependents().isEmpty() && !confirmDependents(fix, dialog.getOwner())) {
+                        event.consume();
+                        return;
+                    }
+                }
+            });
+        }
+
         dialog.setOnHidden(event -> {
             if (again.equals(dialog.getResult())) {
                 actions.playAgain();
+            } else if (fixAll != null && fixAll.equals(dialog.getResult())) {
+                List<CrashFixes.Prepared> left = pending(oneClick);
+                if (left.isEmpty()) {
+                    actions.playAgain();
+                } else {
+                    actions.applyAllAndPlay(left);
+                }
             }
         });
         dialog.show();
+    }
+
+    /** The one fix of every cause, or nothing when any cause has none or several. */
+    private List<CrashFixes.Prepared> oneClick() {
+        if (diagnoses.isEmpty()) {
+            return List.of();
+        }
+        List<CrashFixes.Prepared> all = new java.util.ArrayList<>();
+        for (CrashAnalyzer.Diagnosis diagnosis : diagnoses) {
+            List<CrashFixes.Prepared> offered = fixes.getOrDefault(diagnosis, List.of());
+            if (offered.size() != 1) {
+                return List.of();
+            }
+            all.add(offered.get(0));
+        }
+        return all;
+    }
+
+    private List<CrashFixes.Prepared> pending(List<CrashFixes.Prepared> fixes) {
+        return fixes.stream().filter(fix -> !applied.contains(fix)).toList();
     }
 
     private VBox build(Dialog<ButtonType> dialog, ButtonType again) {
@@ -187,6 +243,7 @@ final class CrashDialog {
             }
             button.setDisable(true);
             actions.applyFix(fix, () -> {
+                applied.add(fix);
                 button.setText("✓ " + label(fix));
                 show(status, I18n.t("crash.fix.done"));
                 // The next step is plainly to try again; make it the obvious button.

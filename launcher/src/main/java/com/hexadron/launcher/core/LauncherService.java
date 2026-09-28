@@ -320,7 +320,17 @@ public final class LauncherService {
                 com.hexadron.launcher.crash.CrashAnalyzer.analyze(evidence, rules, language,
                         id -> com.hexadron.launcher.crash.CrashFixes.displayName(mods, id)));
 
-        if (found.size() < com.hexadron.launcher.crash.CrashAnalyzer.MAX_DIAGNOSES) {
+        // A cause that stopped the loader explains what crashed after it. Forge
+        // 1.12 with a mod installed twice draws its error screen, a mod hooked
+        // into the game loop runs there with none of its own start-up done, and
+        // throws - and naming that mod would offer to switch off the wrong one.
+        boolean loaderStopped = com.hexadron.launcher.crash.CrashAnalyzer.loaderStopped(found, rules);
+        if (loaderStopped) {
+            com.hexadron.launcher.crash.StackAttribution.blame(evidence, mods).ifPresent(blame ->
+                    LauncherLog.info("Crash analysis: " + blame.mod().fileName() + " threw after the loader"
+                            + " had stopped; reported as a consequence, not a cause"));
+        }
+        if (!loaderStopped && found.size() < com.hexadron.launcher.crash.CrashAnalyzer.MAX_DIAGNOSES) {
             com.hexadron.launcher.crash.StackAttribution.blame(evidence, mods).ifPresent(blame -> {
                 com.hexadron.launcher.mods.ModEntry mod = blame.mod();
                 String name = mod.title() == null || mod.title().isBlank() ? mod.fileName() : mod.title();
@@ -371,6 +381,40 @@ public final class LauncherService {
             }
         }
         return java.util.List.copyOf(found);
+    }
+
+    /**
+     * The mods that are in this profile's folder more than once, switched on:
+     * each mod id with its copies. Every loader refuses to start with such a
+     * folder, so the question is put before the launch rather than after the crash.
+     */
+    public java.util.Map<String, java.util.List<com.hexadron.launcher.mods.ModEntry>> duplicateMods(
+            Profile profile) {
+        return com.hexadron.launcher.crash.CrashFixes.duplicateGroups(modsOf(profile));
+    }
+
+    /**
+     * Keeps the newest copy of every mod that is in the folder twice and
+     * switches the others off.
+     *
+     * @return the files switched off
+     */
+    public java.util.List<String> keepNewestCopies(Profile profile) throws IOException {
+        java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsOf(profile);
+        java.util.List<String> off = new java.util.ArrayList<>();
+        for (String id : com.hexadron.launcher.crash.CrashFixes.duplicateGroups(mods).keySet()) {
+            java.util.Optional<com.hexadron.launcher.crash.CrashFixes.Prepared> prepared =
+                    com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                            com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_DUPLICATES, id), profile, mods, -1);
+            if (prepared.isPresent()) {
+                off.addAll(com.hexadron.launcher.crash.CrashFixes.applySwitchOff(
+                        profiles.modsDirectory(profile), prepared.get()));
+            }
+        }
+        if (!off.isEmpty()) {
+            LauncherLog.info("Duplicate mods in %s: switched off %s", profile.name(), String.join(", ", off));
+        }
+        return off;
     }
 
     /** The fixes of one diagnosis that would change something in this profile. */

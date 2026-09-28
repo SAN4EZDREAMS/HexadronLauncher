@@ -1489,6 +1489,9 @@ public final class MainWindow implements ProfileHost {
             findProblemMod(chosen);
             return;
         }
+        if (!searching && !confirmDuplicateMods()) {
+            return;
+        }
         if (!searching && !confirmWrongVersionMods()) {
             return;
         }
@@ -1738,6 +1741,25 @@ public final class MainWindow implements ProfileHost {
             @Override
             public void findProblemMod() {
                 MainWindow.this.findProblemMod(profile);
+            }
+
+            @Override
+            public void applyAllAndPlay(java.util.List<CrashFixes.Prepared> all) {
+                String task = I18n.t("crash.fix.task");
+                if (busy || (session != null && session.isRunning())) {
+                    showWarning(I18n.t("crash.title"), I18n.t("status.busy", task));
+                    return;
+                }
+                runInBackground(task, () -> {
+                    for (CrashFixes.Prepared fix : all) {
+                        progress.log(service.applyCrashFix(profile, fix, progress));
+                    }
+                    Platform.runLater(() -> {
+                        setBusy(false);
+                        select(profile);
+                        play();
+                    });
+                }, false);
             }
         };
     }
@@ -2121,6 +2143,78 @@ public final class MainWindow implements ProfileHost {
             return false;
         }
         return answer.get() == launch;
+    }
+
+    /**
+     * Asks before a launch that every loader refuses: a mod in the folder twice.
+     *
+     * <p>Found after a crash too, but only after the player has waited through
+     * a start that cannot succeed - and on Forge 1.12 not even reliably then,
+     * because a mod that runs on the loader's error screen crashes the game
+     * before the screen is drawn. The button that repairs the folder is the
+     * default, so the answer costs one click and the game starts with it.
+     *
+     * @return true when the launch should go ahead
+     */
+    private boolean confirmDuplicateMods() {
+        Profile profile = selectedProfile;
+        if (profile == null) {
+            return true;
+        }
+        java.util.Map<String, java.util.List<ModEntry>> groups;
+        try {
+            groups = service.duplicateMods(profile);
+        } catch (RuntimeException e) {
+            // A folder that cannot be read is not a reason to block a launch.
+            return true;
+        }
+        if (groups.isEmpty()) {
+            return true;
+        }
+
+        StringBuilder detail = new StringBuilder();
+        for (java.util.List<ModEntry> copies : groups.values()) {
+            ModEntry keep = com.hexadron.launcher.crash.CrashFixes.newestCopy(copies);
+            String off = copies.stream().filter(copy -> copy != keep).map(ModEntry::fileName)
+                    .collect(java.util.stream.Collectors.joining(", "));
+            String name = keep.title() == null || keep.title().isBlank() ? keep.fileName() : keep.title();
+            detail.append("\n  · ").append(I18n.t("mods.duplicates.line", name, keep.fileName(), off));
+        }
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                I18n.t("mods.duplicates.body", groups.size(), detail.toString()));
+        alert.initOwner(stage);
+        Theme.apply(alert.getDialogPane());
+        alert.setTitle(I18n.t("mods.duplicates.header"));
+        alert.setHeaderText(I18n.t("mods.duplicates.header"));
+        alert.getDialogPane().setPrefWidth(620);
+        javafx.scene.control.ButtonType fix =
+                new javafx.scene.control.ButtonType(I18n.t("mods.duplicates.fix"),
+                        javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+        javafx.scene.control.ButtonType launch =
+                new javafx.scene.control.ButtonType(I18n.t("mods.wrongVersion.launch"),
+                        javafx.scene.control.ButtonBar.ButtonData.OTHER);
+        javafx.scene.control.ButtonType cancel =
+                new javafx.scene.control.ButtonType(I18n.t("action.cancel"),
+                        javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(cancel, launch, fix);
+
+        java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
+        if (answer.isEmpty() || answer.get() == cancel) {
+            return false;
+        }
+        if (answer.get() == launch) {
+            return true;
+        }
+        try {
+            java.util.List<String> switchedOff = service.keepNewestCopies(profile);
+            progress.log(I18n.t("mods.duplicates.done", String.join(", ", switchedOff)));
+            showProfile(shown);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            showError(I18n.t("mods.duplicates.header"), e);
+            return false;
+        }
     }
 
     /**

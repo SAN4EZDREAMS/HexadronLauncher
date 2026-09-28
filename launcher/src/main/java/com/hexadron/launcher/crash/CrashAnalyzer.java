@@ -79,6 +79,15 @@ public final class CrashAnalyzer {
      * @param language two-letter code of the language to explain it in
      * @return the causes found, most specific first; empty when no rule matched
      */
+    /**
+     * True when one of the causes found stopped the loader before the mods
+     * started. A mod that crashed after that is a consequence of it, not a
+     * cause of its own.
+     */
+    public static boolean loaderStopped(List<Diagnosis> found, CrashRules rules) {
+        return found.stream().anyMatch(diagnosis -> rules.stopsLoading(diagnosis.ruleId()));
+    }
+
     public static List<Diagnosis> analyze(CrashEvidence evidence, CrashRules rules, String language) {
         return analyze(evidence, rules, language, UnaryOperator.identity());
     }

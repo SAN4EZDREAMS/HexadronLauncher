@@ -50,7 +50,8 @@ These are rare in other launchers. Do not remove them while you work on the item
 - The dependency guard: the launcher asks before you switch off or remove a mod that other mods need.
 - Shader loader detection (Iris, OptiFine, Canvas).
 - The bug report window names the newest launcher log.
-- Crash analysis with one-click fixes and signed rule updates (`crash/`, [docs/crashes.md](docs/crashes.md)).
+- Crash analysis with one-click fixes and signed rule updates (`crash/`, [docs/crashes.md](docs/crashes.md)). **Fix and start the game** applies every fix in one click; a mod that crashed after the loader stopped (`stopsLoading`) is not blamed.
+- Duplicate mods are found before launch: **Play** offers **Keep the newest and play**.
 - The problem-mod search (`bisect/`): it restores the exact mod set it started from.
 
 ---
