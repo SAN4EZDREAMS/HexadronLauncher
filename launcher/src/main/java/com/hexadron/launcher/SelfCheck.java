@@ -9289,6 +9289,168 @@ public final class SelfCheck {
                     && java.nio.file.Files.exists(mods.resolve("iris.jar" + ModScan.DISABLED_SUFFIX)));
             check("and leaves the rest alone", java.nio.file.Files.exists(mods.resolve("fabric-api.jar")));
 
+            // ---- scenarios added with the missing-library and loader checks
+            String[][] more = {
+                    {"jvm-option-unknown", "Unrecognized VM option 'UseZGC'"},
+                    {"jvm-option-unrecognized", "Unrecognized option: --add-opens"},
+                    {"launchwrapper-java-too-new", "java.lang.ClassCastException: class jdk.internal.loader.ClassLoaders$AppClassLoader cannot be cast to class java.net.URLClassLoader (jdk.internal.loader.ClassLoaders$AppClassLoader and java.net.URLClassLoader are in module java.base of loader 'bootstrap')"},
+                    {"disk-full", "java.io.IOException: There is not enough space on the disk"},
+                    {"forge-broken-config", "[modloading-worker-0/ERROR] [ne.mi.fm.co.ConfigTracker/CONFIG]: Failed loading config file jei-client.toml of type CLIENT for modid jei"},
+                    {"world-locked", "java.io.IOException: C:\\games\\saves\\New World\\session.lock: already locked (possibly by other Minecraft instance?)"},
+            };
+            for (String[] c : more) {
+                check("crash rule " + c[0] + " explains its output", c[0].equals(firstRule(rules, OUT, c[1])));
+            }
+            check("an overlay in the JVM's error file is named", "overlay-crash".equals(
+                    firstRule(rules, HSERR, "# C  [RTSSHooks64.dll+0x1a2b3]")));
+            check("a graphics driver is still a driver", "driver-crash".equals(
+                    firstRule(rules, HSERR, "# C  [nvoglv64.dll+0x9d1c20]")));
+            check("the known libraries are read", rules.libraries().size() >= 20
+                    && rules.libraryForMod("fabric", "fabric").map(l -> l.slug()).orElse("").equals("fabric-api")
+                    && rules.libraryForMod("fabric", "forge").isEmpty());
+            check("a library is found by its package, for the loader", rules.libraryForClass("kotlin.jvm.internal.Intrinsics", "forge")
+                    .map(l -> l.slug()).orElse("").equals("kotlin-for-forge")
+                    && rules.libraryForClass("kotlin.jvm.internal.Intrinsics", "fabric").map(l -> l.slug()).orElse("")
+                    .equals("fabric-language-kotlin"));
+            checkThrows("a library with a bad slug is refused", () -> com.hexadron.launcher.crash.CrashRules.parse(
+                    good.substring(0, good.lastIndexOf('}')) + ",\"libraries\":[{\"slug\":\"Bad Slug\",\"name\":\"x\",\"ids\":[\"x\"]}]}"));
+
+            // ---- the fixes the launcher adds by itself
+            var missing = com.hexadron.launcher.crash.CrashAnalyzer.analyze(com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                    "\t- Mod 'Sodium Extra' (sodium-extra) 0.5.4 requires any version of fabric-api, which is missing!"))), rules, "en");
+            var withInstall = com.hexadron.launcher.crash.CrashFixes.withDerived(missing.get(0), LoaderType.FABRIC);
+            check("a missing mod is installed first, and its dependent switched off only second",
+                    withInstall.fixes().get(0).kind() == com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD
+                    && withInstall.fixes().get(0).value().equals("fabric-api")
+                    && withInstall.fixes().get(1).kind() == com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_MOD);
+            var oldForge = com.hexadron.launcher.crash.CrashAnalyzer.analyze(com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                    "\tMod ID: 'forge', Requested by: 'jei', Expected range: '[47.2.0,)', Actual version: '47.1.0'"))), rules, "en");
+            check("a loader that is too old is updated rather than the mod switched off",
+                    com.hexadron.launcher.crash.CrashFixes.withDerived(oldForge.get(0), LoaderType.FORGE).fixes().get(0).kind()
+                            == com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_LOADER
+                    && com.hexadron.launcher.crash.CrashFixes.withDerived(oldForge.get(0), LoaderType.FABRIC).fixes().get(0).kind()
+                            != com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_LOADER);
+            var config = com.hexadron.launcher.crash.CrashAnalyzer.analyze(com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(more[4][1]))), rules, "en");
+            check("a damaged configuration file is reset", com.hexadron.launcher.crash.CrashFixes.withDerived(config.get(0), LoaderType.FORGE)
+                    .fixes().get(0).equals(new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.RESET_CONFIG, "jei-client.toml")));
+            Path configGame = java.nio.file.Files.createDirectories(dir.resolve("configgame"));
+            java.nio.file.Files.createDirectories(configGame.resolve("config"));
+            java.nio.file.Files.writeString(configGame.resolve("config/jei-client.toml"), "");
+            java.nio.file.Files.createDirectories(configGame.resolve("saves/World/serverconfig"));
+            java.nio.file.Files.writeString(configGame.resolve("saves/World/serverconfig/jei-client.toml"), "");
+            var reset = com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.RESET_CONFIG, "jei-client.toml"), profile, entries, 16384, configGame);
+            check("the configuration file is found in config and in each world", reset.map(p -> p.files().size()).orElse(0) == 2);
+            check("a path is not a configuration file name", com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.RESET_CONFIG, "../options.txt"), profile, entries, 16384, configGame).isEmpty());
+            com.hexadron.launcher.crash.CrashFixes.applyResetConfig(reset.orElseThrow());
+            check("resetting renames the file and deletes nothing", !java.nio.file.Files.exists(configGame.resolve("config/jei-client.toml"))
+                    && java.nio.file.Files.exists(configGame.resolve("config/jei-client.toml.broken")));
+            List<String> jvm = List.of("-Xmx2G", "--add-opens", "java.base/java.lang=ALL-UNNAMED", "-XX:+UseZGC");
+            check("an option pair is removed whole", com.hexadron.launcher.crash.CrashFixes.matchingArguments(jvm, "--add-opens").size() == 2
+                    && com.hexadron.launcher.crash.CrashFixes.withoutArguments(jvm, "--add-opens").equals(List.of("-Xmx2G", "-XX:+UseZGC"))
+                    && com.hexadron.launcher.crash.CrashFixes.withoutArguments(jvm, "UseZGC").size() == 3);
+            Profile withArgs = Profile.create("args", "1.21.1", LoaderType.FABRIC);
+            withArgs.extraJvmArguments(jvm);
+            check("an option the profile does not set is not offered", com.hexadron.launcher.crash.CrashFixes.prepare(
+                    new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.REMOVE_JVM_ARGUMENT, "UseShenandoahGC"),
+                    withArgs, entries, 16384).isEmpty()
+                    && com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.REMOVE_JVM_ARGUMENT, "UseZGC"), withArgs, entries, 16384).isPresent());
+            withArgs.javaMajor(17);
+            check("a Java version chosen by number can be given back to the launcher", com.hexadron.launcher.crash.CrashFixes.prepare(
+                    new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.AUTOMATIC_JAVA, ""),
+                    withArgs, entries, 16384).isPresent());
+            var install = new com.hexadron.launcher.crash.CrashFixes.Prepared(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD, "fabric-api"), "Fabric API", List.of(), List.of(), 0);
+            var switchOffA = new com.hexadron.launcher.crash.CrashFixes.Prepared(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_MOD, "a"), "A", List.of(), List.of(), 0);
+            var switchOffB = new com.hexadron.launcher.crash.CrashFixes.Prepared(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_MOD, "b"), "B", List.of(), List.of(), 0);
+            check("a repair offered first is the one-click fix", com.hexadron.launcher.crash.CrashFixes.recommended(
+                    List.of(install, switchOffA)).orElse(null) == install);
+            check("two ways to switch something off are a choice", com.hexadron.launcher.crash.CrashFixes.recommended(
+                    List.of(switchOffA, switchOffB)).isEmpty());
+            java.nio.file.Files.move(mods.resolve("jei-old.jar"), mods.resolve("jei-old.jar" + ModScan.DISABLED_SUFFIX));
+            java.nio.file.Files.move(mods.resolve("jei-new.jar"), mods.resolve("jei-new.jar" + ModScan.DISABLED_SUFFIX));
+            var enable = com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD, "jei"), profile, ModScan.scan(mods), 16384).orElseThrow();
+            check("a missing mod that is only switched off is switched on, the newest copy",
+                    enable.fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.ENABLE_FILE
+                    && enable.targets().get(0).fileName().startsWith("jei-new.jar"));
+            com.hexadron.launcher.crash.CrashFixes.applySwitchOn(mods, enable);
+            check("and the file is on again", java.nio.file.Files.exists(mods.resolve("jei-new.jar")));
+
+            // ---- a class or method that is not where a mod looked
+            Path linked = java.nio.file.Files.createDirectories(dir.resolve("linked"));
+            writeJar(linked.resolve("asker.jar"), Map.of(
+                    "fabric.mod.json", "{\"id\":\"asker\",\"version\":\"1\",\"name\":\"Asker\"}",
+                    "com/example/asker/Main.class", "x"));
+            writeJar(linked.resolve("helper.jar"), Map.of(
+                    "fabric.mod.json", "{\"id\":\"helper\",\"version\":\"1\",\"name\":\"Helper\"}",
+                    "com/example/helper/Api.class", "x"));
+            java.util.function.Function<String, com.hexadron.launcher.crash.CrashEvidence> crashWith = error ->
+                    new com.hexadron.launcher.crash.CrashEvidence(-1, Map.of(com.hexadron.launcher.crash.CrashRules.Source.CRASH, List.of(
+                            "---- Minecraft Crash Report ----", "Description: Initializing game", "",
+                            "java.lang.RuntimeException: Could not execute entrypoint stage 'main'",
+                            "\tat net.fabricmc.loader.impl.FabricLoaderImpl.invokeEntrypoints(FabricLoaderImpl.java:1)",
+                            "Caused by: " + error,
+                            "\tat com.example.asker.Main.onInitialize(Main.java:10)",
+                            "\tat net.fabricmc.loader.impl.FabricLoaderImpl.invokeEntrypoints(FabricLoaderImpl.java:1)")), Map.of());
+            var gecko = com.hexadron.launcher.crash.Linkage.explain(crashWith.apply(
+                    "java.lang.NoClassDefFoundError: software/bernie/geckolib/animatable/GeoEntity"),
+                    ModScan.scan(linked), rules, "en", LoaderType.FABRIC).orElseThrow();
+            check("a missing library class names the library and installs it", gecko.diagnosis().ruleId().equals("missing-library")
+                    && gecko.diagnosis().fixes().get(0).equals(new com.hexadron.launcher.crash.CrashFix(
+                    com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD, "geckolib"))
+                    && gecko.asker() != null && gecko.asker().fileName().equals("asker.jar"));
+            var unknown = com.hexadron.launcher.crash.Linkage.explain(crashWith.apply(
+                    "java.lang.NoClassDefFoundError: org/unknown/Thing"), ModScan.scan(linked), rules, "en", LoaderType.FABRIC);
+            check("a class nobody knows names the mod that asked", unknown.map(e -> e.diagnosis().ruleId()).orElse("").equals("missing-class"));
+            check("a class that is there is not a missing class", com.hexadron.launcher.crash.Linkage.explain(crashWith.apply(
+                    "java.lang.NoClassDefFoundError: com/example/helper/Api"), ModScan.scan(linked), rules, "en", LoaderType.FABRIC).isEmpty());
+            check("nor is a class the mod catches: only the crash's own exception is read", com.hexadron.launcher.crash.Linkage.find(
+                    com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(com.hexadron.launcher.crash.CrashRules.Source.LOG, List.of(
+                            "[main/INFO]: java.lang.ClassNotFoundException: mezz.jei.api.IModPlugin")))).isEmpty());
+            var game2 = com.hexadron.launcher.crash.Linkage.explain(crashWith.apply(
+                    "java.lang.NoClassDefFoundError: net/minecraft/class_1234"), ModScan.scan(linked), rules, "en", LoaderType.FABRIC);
+            check("a game class that is not there means another Minecraft version", game2.map(e -> e.diagnosis().textId()).orElse("").equals("wrongMinecraft"));
+            var method = com.hexadron.launcher.crash.Linkage.explain(crashWith.apply(
+                    "java.lang.NoSuchMethodError: 'void com.example.helper.Api.gone(int)'"), ModScan.scan(linked), rules, "en", LoaderType.FABRIC);
+            check("a method missing from another mod is a version mismatch between the two", method.map(e -> e.diagnosis().ruleId()).orElse("").equals("method-mod")
+                    && method.get().diagnosis().values().get("dep").equals("Helper"));
+            var loaderMethod = com.hexadron.launcher.crash.Linkage.explain(crashWith.apply(
+                    "java.lang.NoSuchMethodError: net.fabricmc.loader.api.FabricLoader.getRawGameVersion()Ljava/lang/String;"),
+                    ModScan.scan(linked), rules, "en", LoaderType.FABRIC);
+            check("a method missing from the loader updates the loader", loaderMethod.map(e -> e.diagnosis().fixes().get(0).kind()).orElse(null)
+                    == com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_LOADER);
+            writeJar(linked.resolve("geckolib.jar" + ModScan.DISABLED_SUFFIX), Map.of(
+                    "fabric.mod.json", "{\"id\":\"geckolib\",\"version\":\"4\",\"name\":\"GeckoLib\"}",
+                    "software/bernie/geckolib/animatable/GeoEntity.class", "x"));
+            var libraryOff = com.hexadron.launcher.crash.Linkage.explain(crashWith.apply(
+                    "java.lang.NoClassDefFoundError: software/bernie/geckolib/animatable/GeoEntity"),
+                    ModScan.scan(linked), rules, "en", LoaderType.FABRIC);
+            check("a library that is only switched off is switched on", libraryOff.map(e -> e.diagnosis().ruleId()).orElse("").equals("library-off")
+                    && libraryOff.get().diagnosis().fixes().get(0).kind() == com.hexadron.launcher.crash.CrashFix.Kind.ENABLE_FILE);
+
+            // ---- mods for another loader, found before the launch
+            Path loaders = java.nio.file.Files.createDirectories(dir.resolve("loaders"));
+            writeJar(loaders.resolve("fabric-only.jar"), Map.of("fabric.mod.json", "{\"id\":\"fonly\",\"version\":\"1\"}"));
+            writeJar(loaders.resolve("forge-only.jar"), Map.of("META-INF/mods.toml", "modLoader=\"javafml\"\n[[mods]]\nmodId=\"forgeonly\"\nversion=\"1\""));
+            writeJar(loaders.resolve("both.jar"), Map.of("fabric.mod.json", "{\"id\":\"both\",\"version\":\"1\"}",
+                    "META-INF/mods.toml", "modLoader=\"javafml\"\n[[mods]]\nmodId=\"both\"\nversion=\"1\""));
+            writeJar(loaders.resolve("plain.jar"), Map.of("org/lib/Util.class", "x"));
+            var loaderMods = ModScan.scan(loaders);
+            check("a Fabric mod in a Forge profile is found", com.hexadron.launcher.mods.LoaderCheck.wrongLoader(loaderMods, LoaderType.FORGE, "1.20.1")
+                    .stream().map(ModEntry::fileName).toList().equals(List.of("fabric-only.jar")));
+            check("Quilt loads Fabric mods", com.hexadron.launcher.mods.LoaderCheck.wrongLoader(loaderMods, LoaderType.QUILT, "1.20.1")
+                    .stream().map(ModEntry::fileName).toList().equals(List.of("forge-only.jar")));
+            check("NeoForge before 1.20.5 reads mods.toml, and not after", com.hexadron.launcher.mods.LoaderCheck.wrongLoader(loaderMods, LoaderType.NEOFORGE, "1.20.1").size() == 1
+                    && com.hexadron.launcher.mods.LoaderCheck.wrongLoader(loaderMods, LoaderType.NEOFORGE, "1.21.1").size() == 3);
+            writeJar(loaders.resolve("connector.jar"), Map.of("META-INF/mods.toml", "modLoader=\"javafml\"\n[[mods]]\nmodId=\"connector\"\nversion=\"1\""));
+            check("with Connector a Forge profile loads Fabric mods", com.hexadron.launcher.mods.LoaderCheck.wrongLoader(
+                    ModScan.scan(loaders), LoaderType.FORGE, "1.20.1").isEmpty());
+
             // ---- a stack trace names the mod whose code threw
             writeJar(mods.resolve("replaymod.jar"), Map.of(
                     "mcmod.info", "[{\"modid\":\"replaymod\",\"name\":\"Replay Mod\",\"version\":\"2.6\"}]",

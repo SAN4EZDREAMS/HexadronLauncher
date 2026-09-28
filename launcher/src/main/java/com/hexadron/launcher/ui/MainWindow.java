@@ -1492,6 +1492,9 @@ public final class MainWindow implements ProfileHost {
         if (!searching && !confirmDuplicateMods()) {
             return;
         }
+        if (!searching && !confirmWrongLoaderMods()) {
+            return;
+        }
         if (!searching && !confirmWrongVersionMods()) {
             return;
         }
@@ -2213,6 +2216,72 @@ public final class MainWindow implements ProfileHost {
             return true;
         } catch (IOException | RuntimeException e) {
             showError(I18n.t("mods.duplicates.header"), e);
+            return false;
+        }
+    }
+
+    /**
+     * Asks before a launch with mods the loader will not load: a Fabric mod in
+     * a Forge profile, a Forge mod in a NeoForge 1.21 profile. Most loaders
+     * stop on one, a few skip it silently and the player wonders where it went.
+     *
+     * @return true when the launch should go ahead
+     */
+    private boolean confirmWrongLoaderMods() {
+        Profile profile = selectedProfile;
+        if (profile == null) {
+            return true;
+        }
+        java.util.List<ModEntry> wrong;
+        try {
+            wrong = service.wrongLoaderMods(profile);
+        } catch (RuntimeException e) {
+            return true;
+        }
+        if (wrong.isEmpty()) {
+            return true;
+        }
+        StringBuilder detail = new StringBuilder();
+        int listed = Math.min(wrong.size(), WRONG_VERSION_LISTED);
+        for (int i = 0; i < listed; i++) {
+            ModEntry mod = wrong.get(i);
+            String name = mod.title() == null || mod.title().isBlank() ? mod.fileName() : mod.title();
+            detail.append("\n  · ").append(name).append(" (").append(mod.fileName()).append(')');
+        }
+        if (wrong.size() > listed) {
+            detail.append("\n  ").append(I18n.t("mods.wrongVersion.more", wrong.size() - listed));
+        }
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, I18n.t("mods.wrongLoader.body", wrong.size(),
+                profile.loader().displayName(), detail.toString()));
+        alert.initOwner(stage);
+        Theme.apply(alert.getDialogPane());
+        alert.setTitle(I18n.t("mods.wrongLoader.header"));
+        alert.setHeaderText(I18n.t("mods.wrongLoader.header"));
+        alert.getDialogPane().setPrefWidth(620);
+        javafx.scene.control.ButtonType fix =
+                new javafx.scene.control.ButtonType(I18n.t("mods.wrongLoader.fix"),
+                        javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+        javafx.scene.control.ButtonType launch =
+                new javafx.scene.control.ButtonType(I18n.t("mods.wrongVersion.launch"),
+                        javafx.scene.control.ButtonBar.ButtonData.OTHER);
+        javafx.scene.control.ButtonType cancel =
+                new javafx.scene.control.ButtonType(I18n.t("action.cancel"),
+                        javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(cancel, launch, fix);
+        java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
+        if (answer.isEmpty() || answer.get() == cancel) {
+            return false;
+        }
+        if (answer.get() == launch) {
+            return true;
+        }
+        try {
+            java.util.List<String> off = service.switchOffWrongLoaderMods(profile);
+            progress.log(I18n.t("mods.wrongLoader.done", String.join(", ", off)));
+            showProfile(shown);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            showError(I18n.t("mods.wrongLoader.header"), e);
             return false;
         }
     }

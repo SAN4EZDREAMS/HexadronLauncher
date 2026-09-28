@@ -103,8 +103,9 @@ final class CrashDialog {
         dialog.setResizable(true);
 
         // One click for the whole answer when the answer is not in doubt: every
-        // cause found has exactly one fix. With a choice to make - two mods that
-        // are incompatible, a cause with no fix at all - the player chooses.
+        // cause found has one fix, or a repair first among several. With a
+        // choice to make - two mods that are incompatible, a cause with no fix
+        // at all - the player chooses.
         List<CrashFixes.Prepared> oneClick = oneClick();
         ButtonType fixAll = oneClick.isEmpty() ? null
                 : new ButtonType(I18n.t("crash.fixAll"), ButtonBar.ButtonData.OK_DONE);
@@ -163,18 +164,25 @@ final class CrashDialog {
         dialog.show();
     }
 
-    /** The one fix of every cause, or nothing when any cause has none or several. */
+    /**
+     * The recommended fix of every cause, each once, or nothing when any cause
+     * has none - then one click would not be the whole answer.
+     */
     private List<CrashFixes.Prepared> oneClick() {
         if (diagnoses.isEmpty()) {
             return List.of();
         }
         List<CrashFixes.Prepared> all = new java.util.ArrayList<>();
+        java.util.Set<String> same = new java.util.HashSet<>();
         for (CrashAnalyzer.Diagnosis diagnosis : diagnoses) {
-            List<CrashFixes.Prepared> offered = fixes.getOrDefault(diagnosis, List.of());
-            if (offered.size() != 1) {
+            java.util.Optional<CrashFixes.Prepared> recommended =
+                    CrashFixes.recommended(fixes.getOrDefault(diagnosis, List.of()));
+            if (recommended.isEmpty()) {
                 return List.of();
             }
-            all.add(offered.get(0));
+            if (same.add(recommended.get().sameAs())) {
+                all.add(recommended.get());
+            }
         }
         return all;
     }
@@ -280,6 +288,11 @@ final class CrashDialog {
             case RAISE_MEMORY -> I18n.t("crash.fix.raiseMemory", fix.subject());
             case LOWER_MEMORY -> I18n.t("crash.fix.lowerMemory", fix.subject());
             case REINSTALL -> I18n.t("crash.fix.reinstall");
+            case INSTALL_MOD -> I18n.t("crash.fix.installMod", fix.subject());
+            case ENABLE_FILE -> I18n.t("crash.fix.enableFile", fix.subject());
+            case UPDATE_LOADER -> I18n.t("crash.fix.updateLoader", fix.subject());
+            case RESET_CONFIG -> I18n.t("crash.fix.resetConfig", fix.subject());
+            case REMOVE_JVM_ARGUMENT -> I18n.t("crash.fix.removeJvmArgument", fix.subject());
         };
     }
 

@@ -330,7 +330,27 @@ public final class LauncherService {
                     LauncherLog.info("Crash analysis: " + blame.mod().fileName() + " threw after the loader"
                             + " had stopped; reported as a consequence, not a cause"));
         }
+        // A class or method that is not where a mod looked for it: the answer
+        // is usually on the other side - a library switched off, not installed,
+        // or of another version - so it goes before the mod the stack names.
+        boolean linked = false;
         if (!loaderStopped && found.size() < com.hexadron.launcher.crash.CrashAnalyzer.MAX_DIAGNOSES) {
+            java.util.Optional<com.hexadron.launcher.crash.Linkage.Explained> explained =
+                    com.hexadron.launcher.crash.Linkage.explain(evidence, mods, rules, language, profile.loader());
+            if (explained.isPresent()) {
+                linked = true;
+                com.hexadron.launcher.mods.ModEntry asker = explained.get().asker();
+                String askerId = asker == null ? null
+                        : com.hexadron.launcher.mods.ModScan.descriptorOf(asker.path()).modId();
+                // "Mod X failed to start" says less than "X needs GeckoLib", and
+                // its fix - switch X off - would undo the better one.
+                if (askerId != null) {
+                    found.removeIf(d -> "modStartup".equals(d.textId()) && askerId.equals(d.values().get("mod")));
+                }
+                found.add(explained.get().diagnosis());
+            }
+        }
+        if (!loaderStopped && !linked && found.size() < com.hexadron.launcher.crash.CrashAnalyzer.MAX_DIAGNOSES) {
             com.hexadron.launcher.crash.StackAttribution.blame(evidence, mods).ifPresent(blame -> {
                 com.hexadron.launcher.mods.ModEntry mod = blame.mod();
                 String name = mod.title() == null || mod.title().isBlank() ? mod.fileName() : mod.title();
@@ -380,7 +400,9 @@ public final class LauncherService {
                         com.hexadron.launcher.crash.CrashRules.Source.OUTPUT, lastLine).ifPresent(found::add);
             }
         }
-        return java.util.List.copyOf(found);
+        return found.stream()
+                .map(d -> com.hexadron.launcher.crash.CrashFixes.withDerived(d, profile.loader()))
+                .toList();
     }
 
     /**
@@ -391,6 +413,30 @@ public final class LauncherService {
     public java.util.Map<String, java.util.List<com.hexadron.launcher.mods.ModEntry>> duplicateMods(
             Profile profile) {
         return com.hexadron.launcher.crash.CrashFixes.duplicateGroups(modsOf(profile));
+    }
+
+    /** The mods switched on in this profile that its loader will not load. */
+    public java.util.List<com.hexadron.launcher.mods.ModEntry> wrongLoaderMods(Profile profile) {
+        return com.hexadron.launcher.mods.LoaderCheck.wrongLoader(modsOf(profile), profile.loader(),
+                profile.minecraftVersion());
+    }
+
+    /**
+     * Switches off the mods this profile's loader will not load.
+     *
+     * @return the files switched off
+     */
+    public java.util.List<String> switchOffWrongLoaderMods(Profile profile) throws IOException {
+        java.nio.file.Path modsDir = profiles.modsDirectory(profile);
+        java.util.List<String> off = new java.util.ArrayList<>();
+        for (com.hexadron.launcher.mods.ModEntry mod : wrongLoaderMods(profile)) {
+            com.hexadron.launcher.mods.ModScan.setEnabled(modsDir, mod, false);
+            off.add(mod.fileName());
+        }
+        if (!off.isEmpty()) {
+            LauncherLog.info("Mods for another loader in %s: switched off %s", profile.name(), String.join(", ", off));
+        }
+        return off;
     }
 
     /**
@@ -424,11 +470,134 @@ public final class LauncherService {
         long physical = Profile.physicalMemoryBytes();
         long physicalMegabytes = physical > 0 ? physical / (1024 * 1024) : -1;
         java.util.List<com.hexadron.launcher.crash.CrashFixes.Prepared> prepared = new java.util.ArrayList<>();
+        java.util.Set<String> same = new java.util.HashSet<>();
+        Path gameDir = profiles.gameDirectory(profile);
         for (com.hexadron.launcher.crash.CrashFix fix : diagnosis.fixes()) {
-            com.hexadron.launcher.crash.CrashFixes.prepare(fix, profile, mods, physicalMegabytes)
-                    .ifPresent(prepared::add);
+            java.util.Optional<com.hexadron.launcher.crash.CrashFixes.Prepared> ready =
+                    com.hexadron.launcher.crash.CrashFixes.prepare(fix, profile, mods, physicalMegabytes, gameDir);
+            if (ready.isPresent() && ready.get().fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD) {
+                com.hexadron.launcher.crash.CrashFixes.Prepared offline = ready.get();
+                ready = withinLookupTime(() -> resolveInstall(profile, offline, mods));
+            } else if (ready.isPresent()
+                    && ready.get().fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_LOADER) {
+                com.hexadron.launcher.crash.CrashFixes.Prepared offline = ready.get();
+                ready = withinLookupTime(() -> resolveLoaderUpdate(profile, offline));
+            }
+            if (ready.isPresent() && same.add(ready.get().sameAs())) {
+                prepared.add(ready.get());
+            }
         }
         return prepared;
+    }
+
+    /** How long the crash window waits for a fix that has to ask the network. */
+    static final long FIX_LOOKUP_SECONDS = 8;
+
+    /**
+     * Runs a network lookup for a fix, and gives up on it after
+     * {@link #FIX_LOOKUP_SECONDS}: the crash window is not held back for a
+     * button, and a slow network loses that button, not the window.
+     */
+    private java.util.Optional<com.hexadron.launcher.crash.CrashFixes.Prepared> withinLookupTime(
+            java.util.function.Supplier<java.util.Optional<com.hexadron.launcher.crash.CrashFixes.Prepared>> lookup) {
+        java.util.concurrent.CompletableFuture<java.util.Optional<com.hexadron.launcher.crash.CrashFixes.Prepared>> future =
+                java.util.concurrent.CompletableFuture.supplyAsync(lookup);
+        try {
+            return future.get(FIX_LOOKUP_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            future.cancel(true);
+            LauncherLog.info("Crash fix: the lookup took longer than " + FIX_LOOKUP_SECONDS + " s; not offered");
+            return java.util.Optional.empty();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return java.util.Optional.empty();
+        } catch (java.util.concurrent.ExecutionException e) {
+            LauncherLog.info("Crash fix: the lookup failed: " + e.getCause());
+            return java.util.Optional.empty();
+        }
+    }
+
+    /**
+     * Finds the mod a missing-mod fix would install: switched on again when a
+     * copy under another of its ids is in the folder, otherwise a Modrinth
+     * project with a file for this profile's version and loader. Asked here,
+     * on the thread that analyses the crash, so a button is shown only when it
+     * can work; with no connection there is no button.
+     */
+    private java.util.Optional<com.hexadron.launcher.crash.CrashFixes.Prepared> resolveInstall(
+            Profile profile, com.hexadron.launcher.crash.CrashFixes.Prepared offline,
+            java.util.List<com.hexadron.launcher.mods.ModEntry> mods) {
+        String id = offline.fix().value();
+        String loaderKey = profile.loader().name().toLowerCase(java.util.Locale.ROOT);
+        java.util.Optional<com.hexadron.launcher.crash.CrashRules.Library> library =
+                crashRules.current().libraryForMod(id, loaderKey);
+        java.util.List<String> ids = new java.util.ArrayList<>(java.util.List.of(id));
+        library.ifPresent(found -> ids.addAll(found.ids()));
+        for (String alias : ids) {
+            java.util.List<com.hexadron.launcher.mods.ModEntry> copies =
+                    com.hexadron.launcher.crash.CrashFixes.byModId(mods, alias);
+            if (copies.stream().anyMatch(com.hexadron.launcher.mods.ModEntry::enabled)) {
+                return java.util.Optional.empty();
+            }
+            if (!copies.isEmpty()) {
+                return com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                        com.hexadron.launcher.crash.CrashFix.Kind.ENABLE_FILE,
+                        com.hexadron.launcher.crash.CrashFixes.newestCopy(copies).fileName()), profile, mods, -1);
+            }
+        }
+        java.util.LinkedHashSet<String> slugs = new java.util.LinkedHashSet<>();
+        library.ifPresent(found -> slugs.add(found.slug()));
+        slugs.add(id.toLowerCase(java.util.Locale.ROOT));
+        slugs.add(id.toLowerCase(java.util.Locale.ROOT).replace('_', '-'));
+        for (String slug : slugs) {
+            if (!slug.matches("[a-z0-9][a-z0-9_-]{0,63}")) {
+                continue;
+            }
+            try {
+                java.util.Optional<ModProvider.ProjectCard> card = modrinth.project(slug);
+                if (card.isPresent() && modrinth.resolveFile(com.hexadron.launcher.mods.ContentKind.MOD,
+                        card.get().projectId(), profile.minecraftVersion(), profile.loader()).isPresent()) {
+                    return java.util.Optional.of(offline.resolved(card.get().title(), card.get().projectId()));
+                }
+            } catch (IOException e) {
+                LauncherLog.info("Crash fix: could not look up " + slug + " on Modrinth: " + e.getMessage());
+                return java.util.Optional.empty();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return java.util.Optional.empty();
+            } catch (RuntimeException e) {
+                LauncherLog.info("Crash fix: could not look up " + slug + " on Modrinth: " + e);
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    /** The newest build of this profile's loader, when it is newer than the one it has. */
+    private java.util.Optional<com.hexadron.launcher.crash.CrashFixes.Prepared> resolveLoaderUpdate(
+            Profile profile, com.hexadron.launcher.crash.CrashFixes.Prepared offline) {
+        try {
+            java.util.List<LoaderVersion> versions = loaderVersions(profile.loader(), profile.minecraftVersion());
+            if (versions.isEmpty()) {
+                return java.util.Optional.empty();
+            }
+            // Forge marks only its recommended build stable, which is often
+            // older than a mod asks for; the newest build is the answer there.
+            LoaderVersion target = profile.loader() == LoaderType.FORGE ? versions.get(0)
+                    : versions.stream().filter(LoaderVersion::stable).findFirst().orElse(versions.get(0));
+            String current = profile.loaderVersion();
+            if (current != null && (target.version().equals(current)
+                    || com.hexadron.launcher.mods.VersionRanges.compare(target.version(), current) < 0)) {
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(offline.resolved(
+                    profile.loader().displayName() + " " + target.version(), target.version()));
+        } catch (IOException e) {
+            LauncherLog.info("Crash fix: could not list " + profile.loader().displayName() + " builds: " + e.getMessage());
+            return java.util.Optional.empty();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return java.util.Optional.empty();
+        }
     }
 
     /**
@@ -457,6 +626,7 @@ public final class LauncherService {
             }
             case AUTOMATIC_JAVA -> {
                 profile.javaPath(null);
+                profile.javaMajor(null);
                 profiles.save();
                 done = "Crash fix: the launcher chooses Java for this profile again";
             }
@@ -470,10 +640,80 @@ public final class LauncherService {
                 installProfile(profile, progress, true);
                 done = "Crash fix: game files checked and downloaded again";
             }
+            case ENABLE_FILE -> {
+                java.util.List<String> on = com.hexadron.launcher.crash.CrashFixes.applySwitchOn(
+                        profiles.modsDirectory(profile), prepared);
+                done = "Crash fix: switched on " + String.join(", ", on);
+            }
+            case INSTALL_MOD -> done = installMissingMod(profile, prepared, progress);
+            case UPDATE_LOADER -> {
+                String before = profile.loaderVersion();
+                profile.loaderVersion(prepared.reference());
+                profiles.save();
+                installProfile(profile, progress);
+                done = "Crash fix: " + profile.loader().displayName() + " " + before + " -> " + prepared.reference();
+            }
+            case RESET_CONFIG -> {
+                java.util.List<String> renamed = com.hexadron.launcher.crash.CrashFixes.applyResetConfig(prepared);
+                done = "Crash fix: damaged configuration set aside as " + String.join(", ", renamed);
+            }
+            case REMOVE_JVM_ARGUMENT -> {
+                java.util.List<String> before = profile.extraJvmArguments();
+                profile.extraJvmArguments(com.hexadron.launcher.crash.CrashFixes.withoutArguments(before, fix.value()));
+                profiles.save();
+                done = "Crash fix: removed " + prepared.subject() + " from the Java arguments";
+            }
             default -> throw new IllegalStateException(fix.kind().toString());
         }
         LauncherLog.info(done);
         return done;
+    }
+
+    /**
+     * Installs the mod a crash said was missing, with what it needs in turn,
+     * and keeps it only when a jar in the download carries the mod id that
+     * was asked for. A Modrinth project found by that id could be something
+     * else of the same name; a jar that is not the missing mod is switched off
+     * again, and the fix reports that it did not work.
+     */
+    private String installMissingMod(Profile profile, com.hexadron.launcher.crash.CrashFixes.Prepared prepared,
+                                     Progress progress) throws IOException, InterruptedException {
+        String id = prepared.fix().value();
+        String loaderKey = profile.loader().name().toLowerCase(java.util.Locale.ROOT);
+        java.util.List<String> ids = new java.util.ArrayList<>(java.util.List.of(id));
+        crashRules.current().libraryForMod(id, loaderKey).ifPresent(found -> ids.addAll(found.ids()));
+        if (hasEnabledMod(modsOf(profile), ids)) {
+            // Applied twice - two causes that needed the same library.
+            return "Crash fix: " + prepared.subject() + " is installed already";
+        }
+        ModProvider.ProjectCard card = modrinth.project(prepared.reference())
+                .orElseThrow(() -> new IOException(prepared.subject() + " is no longer on Modrinth"));
+        ModInstaller.Result result = installMod(profile, card, progress);
+        if (!hasEnabledMod(modsOf(profile), ids)) {
+            java.nio.file.Path modsDir = profiles.modsDirectory(profile);
+            for (com.hexadron.launcher.mods.ModEntry entry : modsOf(profile)) {
+                boolean fromThis = result.installed().stream()
+                        .anyMatch(file -> file.fileName().equals(entry.fileName()));
+                if (fromThis && entry.enabled()) {
+                    com.hexadron.launcher.mods.ModScan.setEnabled(modsDir, entry, false);
+                }
+            }
+            throw new IOException(card.title() + " was downloaded, but no jar in it is the mod " + id
+                    + "; it was switched off again");
+        }
+        return "Crash fix: installed " + result.installed().stream()
+                .map(com.hexadron.launcher.mods.ModFile::fileName).toList();
+    }
+
+    private static boolean hasEnabledMod(java.util.List<com.hexadron.launcher.mods.ModEntry> mods,
+                                         java.util.List<String> ids) {
+        for (String alias : ids) {
+            if (com.hexadron.launcher.crash.CrashFixes.byModId(mods, alias).stream()
+                    .anyMatch(com.hexadron.launcher.mods.ModEntry::enabled)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------- problem-mod search

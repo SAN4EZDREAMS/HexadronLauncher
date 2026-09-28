@@ -48,7 +48,21 @@ public record CrashFix(Kind kind, String value) {
         /** Give the game less memory, back to the default for this computer. */
         LOWER_MEMORY("lowerMemory", List.of()),
         /** Check every game and loader file and download the broken ones again. */
-        REINSTALL("reinstall", List.of());
+        REINSTALL("reinstall", List.of()),
+        /**
+         * Install a mod by its mod id from Modrinth, for this profile's version
+         * and loader; switch it on instead when a switched-off copy is there.
+         * The download is kept only when a jar in it carries that mod id.
+         */
+        INSTALL_MOD("installMod", List.of("mod")),
+        /** Switch a jar in the mods folder back on, found by file name. */
+        ENABLE_FILE("enableFile", List.of("file")),
+        /** Move this profile to the newest build of its loader for its Minecraft version. */
+        UPDATE_LOADER("updateLoader", List.of()),
+        /** Rename a damaged configuration file so the mod writes a new one. */
+        RESET_CONFIG("resetConfig", List.of("config")),
+        /** Take an option out of this profile's own Java arguments. */
+        REMOVE_JVM_ARGUMENT("removeJvmArgument", List.of("option"));
 
         private final String key;
         private final List<String> params;

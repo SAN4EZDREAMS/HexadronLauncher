@@ -35,12 +35,13 @@ The built-in rule file is `launcher/src/main/resources/crash/rules.json`. It kno
 | Cause | Loaders | One-click fixes |
 |---|---|---|
 | Java too old (class file version, Fabric's `(java)` requirement) | all | **Use Java N**: sets this profile's Java to version N; downloads it when needed |
-| Java too new (`Unsupported class file major version`) | all | **Let the launcher choose Java** (only when a Java path was set by hand) |
+| Java too new (`Unsupported class file major version`; LaunchWrapper's `cannot be cast to class java.net.URLClassLoader` for 1.12 and older on Java 9+) | all | **Let the launcher choose Java** (only when a Java path or version was set by hand) |
+| Java refuses a start option (`Unrecognized VM option`, `Unrecognized option:`) | all | **Remove** *option* **from the Java arguments** (only when the profile's own arguments have it; a `--option value` pair goes whole), **Let the launcher choose Java** |
 | Game heap full (`OutOfMemoryError: Java heap space`) | all | **Raise memory to N GB** |
 | No free system memory (page file, `insufficient memory for the Java Runtime`) | all | **Lower memory to N GB** |
 | Java could not reserve the heap (32-bit Java, too large a limit) | all | **Let the launcher choose Java**, **Lower memory** |
-| Required mod missing | Fabric, Forge (1.12 and 1.13+), NeoForge | **Switch off** the mod that needs it |
-| Mod needs another version of a mod | Fabric, Forge, NeoForge | **Switch off** the mod |
+| Required mod missing | Fabric, Forge (1.12 and 1.13+), NeoForge | **Switch on** *mod* when a switched-off copy is in the folder; otherwise **Install** *mod* from Modrinth (see below); **Switch off** the mod that needs it |
+| Mod needs another version of a mod | Fabric, Forge, NeoForge | **Switch off** the mod. When the other "mod" is the loader itself (`forge`, `neoforge`, `fabricloader`): **Update to** *loader version* first |
 | Mod for another Minecraft version | Fabric, Forge, NeoForge | **Switch off** the mod |
 | Same mod installed twice | Forge (1.12 and 1.13+), NeoForge | **Keep the newest**: switches off the copies with a lower version in their jar; the file date decides only when the versions are equal or cannot be read |
 | Two mods marked incompatible | Fabric, NeoForge | **Switch off** either mod |
@@ -50,21 +51,35 @@ The built-in rule file is `launcher/src/main/resources/crash/rules.json`. It kno
 | Mod for another loader | NeoForge | **Switch off** the file |
 | Graphics driver without the OpenGL the game needs | all | none: update the driver |
 | Crash inside the graphics driver (`hs_err` file) | all | none: update the driver |
+| Crash inside an overlay program (`hs_err` file: RivaTuner/Afterburner, Discord, Steam, OBS, ShadowPlay, Overwolf, Nahimic, Bandicam, Fraps, Mumble, XSplit) | all | none: close the program or switch off its overlay |
+| Damaged configuration file (`Failed loading config file X.toml of type ... for modid ...`, NightConfig) | Forge 1.13+, NeoForge | **Reset** *file*: renames it to `.broken` in `config/`, `defaultconfigs/` and each world's `serverconfig/`; the mod writes a new one |
+| Disk full (`There is not enough space on the disk`, `No space left on device`) | all | none: the text points at **Storage and cleanup** |
+| World open in another game (`session.lock: already locked`) | all | none: close the other game or server |
 | Game or loader files missing or damaged | all | **Check the game files**: verifies every file and downloads the broken ones again |
 
-Two causes come from the launcher's own code, not from a rule. Their texts are in the same rule file (`modCode`, `frozen`); a downloaded rule file without them is refused.
+Some causes come from the launcher's own code, not from a rule. Their texts are in the same rule file (`modCode`, `frozen`, `frozenMod`, `missingLibrary`, `libraryOff`, `missingClass`); a downloaded rule file without them is refused.
 
 | Cause | How it is found | Fix |
 |---|---|---|
 | A mod's code threw the exception | The stack trace of the crash report (or of the report the game printed, or of `Exception in thread "main"`) is read from the root cause outwards. Frames of the JDK, the game, the loaders and common libraries are skipped. The first class that a jar in the `mods` folder contains (looked up as `com/example/Foo.class` inside the jar) names the mod | **Switch off** that jar |
 | The game froze in a mod | As below, and the thread dump names a mod: its deadlocked threads, render thread or main thread were running a class from that mod's jar | **Switch off** that jar |
+| A class is missing (`NoClassDefFoundError`, `ClassNotFoundException` in the crash's own exception) | `crash/Linkage.java` looks the class up in every jar. Only a switched-off jar has it: that mod is off. No jar has it: the `libraries` list of the rule file names the library by the package. A game class (`net.minecraft.`): the mod that asked is for another Minecraft version. A loader class: the mod is for another loader. Otherwise: the mod that asked needs something nobody has. The log is not searched: mods catch these exceptions on purpose while they look for optional companions | **Switch on** *library*; **Install** *library*; **Switch off** the mod that asked |
+| A method is missing (`NoSuchMethodError`) | The class the method was looked for in names the other side: the game (another Minecraft version), the loader (too old), or another mod (the two do not match) | **Update to** *loader version*; **Switch off** the mod that asked |
 | The game stopped responding | The game ended with an error, wrote no crash report, no other cause was found, and it printed nothing for 45 seconds or more before it ended - typically a frozen start that was stopped | none: switch off the mods added last |
 
 The window shows at most four causes, most specific first. Mods are named by the name in their jar, not by their id.
 
 A cause that stops the loader before the mods start (a mod installed twice, a missing or wrong dependency, a mod for another Minecraft version or loader, a damaged jar, a broken installation) explains what crashes after it. Forge for 1.12 draws its error screen, and a mod hooked into the game loop runs there with none of its own start-up done and throws. That mod is not reported as a cause, and `logs/launcher.log` says so (`reported as a consequence, not a cause`). Rules mark these causes with `stopsLoading`.
 
-When every cause has exactly one fix, the window has **Fix and start the game**: it applies all of them in order and starts the game. The fixes you applied one by one already are skipped. When a cause has no fix, or a choice of fixes (two incompatible mods, for example), you choose, and the button is not shown.
+When every cause has a recommended fix, the window has **Fix and start the game**: it applies them in order, each only once, and starts the game. A fix is recommended when it is the only one, or when it is first and repairs rather than removes (install, switch on, update the loader, reset a file, remove an option, Java, memory, keep the newest copy, check the game files). The fixes you applied one by one already are skipped. When a cause has no fix, or a choice between two things to switch off (two incompatible mods, for example), you choose, and the button is not shown.
+
+### Fixes that need the network
+
+**Install** and **Update to** are looked up while the crash is analysed, at most 8 seconds each, and are offered only when they can work: a Modrinth project with a file for this Minecraft version and loader, or a loader build newer than the profile's. With no connection there is no button, not a button that fails.
+
+**Install** looks the mod id up in the rule file's `libraries` list first (`fabric` is Fabric API, `cloth-config2` is Cloth Config), then as a Modrinth slug. It installs with the mod's own required dependencies, and keeps the download only when a jar in it carries the mod id that was asked for; otherwise the jars are switched off again and the fix says it did not work. **Update to** takes Forge's newest build (Forge marks only its recommended build as stable, and that is often older than a mod asks for) and the newest stable build of the other loaders.
+
+These fixes are added by the launcher to the causes (`CrashFixes.withDerived`), not written in the rule file. A launcher refuses a whole rule file that names a fix kind it does not know, so a rule that used the new kinds would stop every older launcher from taking any rule update.
 
 ## Checks before the launch
 
@@ -73,9 +88,10 @@ When every cause has exactly one fix, the window has **Fix and start the game**:
 | Check | Buttons |
 |---|---|
 | A mod is switched on in two or more files (the same mod id) | **Keep the newest and play** (the default): switches off every copy but the newest version, by the version in the jar, by the file date when the versions are equal or cannot be read. **Launch anyway**, **Cancel** |
+| A mod is for another mod loader: its jar has descriptors, and none is for this profile's loader (`fabric.mod.json` in a Forge profile; `mods.toml` only, in a NeoForge 1.20.5+ profile). Quilt loads Fabric mods; Sinytra Connector lets Forge and NeoForge load them; Kilt lets Fabric load Forge mods. A jar without descriptors is not judged | **Switch off and play** (the default), **Launch anyway**, **Cancel** |
 | A mod is for another Minecraft version | See [mods.md](mods.md) |
 
-A launch started by the problem-mod search skips both checks: the search sets the mods itself.
+A launch started by the problem-mod search skips these checks: the search sets the mods itself.
 
 A fix is offered only when it would change something in this profile. **Switch off** needs the mod in this profile's `mods` folder, switched on. **Raise memory** needs room: the new limit is half as much again (at least 1 GB more), in 512 MB steps, and never more than three quarters of the computer's memory or 16 GB.
 
@@ -106,8 +122,9 @@ The format is documented in `crash/CrashRules.java`. In short:
 - `rules`: each has an `id`, a `priority`, a `text`, and a list of `match` conditions that all have to hold.
 - A condition has `contains` (required: plain strings, any one lets a line through), an optional `regex` whose named groups become values, `in` (sources), `lines` (1 to 5 lines joined, for messages that continue on the next line) and `repeat` (report every distinct match, up to 5).
 - `values` derives more values: `classfile(g)` (class file version to Java version), `file(g)`, `stem(g)` (mixin config name to mod name), `int(g)`, `lower(g)`.
+- `libraries` (optional): library mods the launcher can name and install. Each has a Modrinth `slug`, a `name`, the mod `ids` other mods ask for it by, the `packages` its classes are in (each ends with a dot), and optional `loaders` (`fabric`, `quilt`, `forge`, `neoforge`). Older launchers ignore the list.
 - `stopsLoading` (`true` or `false`, default `false`): the cause stops the loader before the mods start, so the stack trace of a mod that crashes after it is not reported. Older launchers ignore the field.
-- `fixes` are only the kinds in `crash/CrashFix.java`: `disableMod`, `disableFile`, `disableMixinOwner`, `disableDuplicates`, `java`, `automaticJava`, `raiseMemory`, `lowerMemory`, `reinstall`. A rule cannot run a command or open a link.
+- `fixes` are only the kinds in `crash/CrashFix.java`: `disableMod`, `disableFile`, `disableMixinOwner`, `disableDuplicates`, `java`, `automaticJava`, `raiseMemory`, `lowerMemory`, `reinstall`, and since rule version 4 `installMod`, `enableFile`, `updateLoader`, `resetConfig`, `removeJvmArgument`. Use the new five in the published file only when no launcher older than them needs updates any more (see above). A rule cannot run a command or open a link.
 
 The whole file is refused when a rule names an unknown fix, a fix parameter it does not take, a text with a value that the rule does not provide, a text without English, a condition without `contains`, a bad regular expression, or a schema other than 1.
 

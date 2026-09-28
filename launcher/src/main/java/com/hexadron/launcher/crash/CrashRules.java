@@ -106,7 +106,41 @@ public final class CrashRules {
      */
     /** The text the launcher uses when the threads of a silent game point at a mod. */
     public static final String TEXT_FROZEN_MOD = "frozenMod";
-    public static final List<String> CODE_TEXTS = List.of(TEXT_MOD_CODE, TEXT_FROZEN, TEXT_FROZEN_MOD);
+    /** A class no jar has, from a library the rule file knows (see {@link Linkage}). */
+    public static final String TEXT_MISSING_LIBRARY = "missingLibrary";
+    /** A class only a switched-off jar has. */
+    public static final String TEXT_LIBRARY_OFF = "libraryOff";
+    /** A class no jar has, from a library nobody knows. */
+    public static final String TEXT_MISSING_CLASS = "missingClass";
+    public static final List<String> CODE_TEXTS = List.of(TEXT_MOD_CODE, TEXT_FROZEN, TEXT_FROZEN_MOD,
+            TEXT_MISSING_LIBRARY, TEXT_LIBRARY_OFF, TEXT_MISSING_CLASS);
+
+    /**
+     * A library mod the launcher can name and install: by the mod ids other
+     * mods ask for it by, and by the packages its classes are in.
+     *
+     * @param slug     its Modrinth project
+     * @param loaders  the loaders it serves, lower case; empty for all
+     * @param packages package prefixes, each ending in a dot
+     */
+    public record Library(String slug, String name, List<String> ids, List<String> packages,
+                          Set<String> loaders) {
+        public Library {
+            ids = List.copyOf(ids);
+            packages = List.copyOf(packages);
+            loaders = Set.copyOf(loaders);
+        }
+
+        /** True when it serves this loader ({@code fabric}, {@code forge}, ...). */
+        public boolean serves(String loader) {
+            return loaders.isEmpty() || loaders.contains(loader);
+        }
+    }
+
+    private static final Pattern SLUG = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
+    private static final Pattern PACKAGE = Pattern.compile("[a-z][a-zA-Z0-9_]*(?:\\.[a-zA-Z0-9_]+)*\\.");
+    private static final Set<String> LOADER_KEYS = Set.of("fabric", "quilt", "forge", "neoforge");
+    static final int MAX_LIBRARIES = 500;
 
     /** Where the copy built into the launcher lives. */
     public static final String BUNDLED_RESOURCE = "/crash/rules.json";
@@ -237,16 +271,55 @@ public final class CrashRules {
     private final int version;
     private final List<Rule> rules;
     private final Map<String, Map<String, Text>> texts;
+    private final List<Library> libraries;
 
-    private CrashRules(int version, List<Rule> rules, Map<String, Map<String, Text>> texts) {
+    private CrashRules(int version, List<Rule> rules, Map<String, Map<String, Text>> texts,
+                       List<Library> libraries) {
         this.version = version;
         this.rules = List.copyOf(rules);
         this.texts = texts;
+        this.libraries = List.copyOf(libraries);
+    }
+
+    /** The library mods the file knows, in its order. */
+    public List<Library> libraries() {
+        return libraries;
+    }
+
+    /** The library that other mods ask for by this mod id, for this loader. */
+    public java.util.Optional<Library> libraryForMod(String modId, String loader) {
+        if (modId == null) {
+            return java.util.Optional.empty();
+        }
+        String wanted = modId.trim().toLowerCase(Locale.ROOT);
+        return libraries.stream().filter(library -> library.serves(loader))
+                .filter(library -> library.ids().contains(wanted)).findFirst();
+    }
+
+    /** The library whose packages hold this class, for this loader; the longest prefix wins. */
+    public java.util.Optional<Library> libraryForClass(String className, String loader) {
+        if (className == null) {
+            return java.util.Optional.empty();
+        }
+        Library best = null;
+        int length = 0;
+        for (Library library : libraries) {
+            if (!library.serves(loader)) {
+                continue;
+            }
+            for (String prefix : library.packages()) {
+                if (className.startsWith(prefix) && prefix.length() > length) {
+                    best = library;
+                    length = prefix.length();
+                }
+            }
+        }
+        return java.util.Optional.ofNullable(best);
     }
 
     /** An empty set, for when even the bundled file cannot be read. */
     public static CrashRules empty() {
-        return new CrashRules(0, List.of(), Map.of());
+        return new CrashRules(0, List.of(), Map.of(), List.of());
     }
 
     public int version() {
@@ -352,7 +425,58 @@ public final class CrashRules {
         // Stable: rules of equal priority keep the order the file gives them.
         List<Rule> sorted = new ArrayList<>(rules);
         sorted.sort((a, b) -> Integer.compare(b.priority(), a.priority()));
-        return new CrashRules(version, sorted, texts);
+        return new CrashRules(version, sorted, texts, parseLibraries(root.get("libraries")));
+    }
+
+    /** The optional {@code libraries} list; launchers older than it ignore it. */
+    private static List<Library> parseLibraries(Json node) {
+        if (!node.exists()) {
+            return List.of();
+        }
+        if (!node.isArray() || node.size() > MAX_LIBRARIES) {
+            throw new JsonException("libraries must be an array of at most " + MAX_LIBRARIES);
+        }
+        List<Library> libraries = new ArrayList<>();
+        for (Json item : node.elements()) {
+            String slug = item.get("slug").asString("");
+            if (!SLUG.matcher(slug).matches()) {
+                throw new JsonException("bad library slug '" + slug + "'");
+            }
+            String name = item.get("name").asString("");
+            if (name.isBlank() || name.length() > 64) {
+                throw new JsonException("library " + slug + " needs a name");
+            }
+            List<String> ids = strings(item.get("ids"), ID, "library " + slug + " ids");
+            if (ids.isEmpty()) {
+                throw new JsonException("library " + slug + " names no mod id");
+            }
+            List<String> packages = strings(item.get("packages"), PACKAGE, "library " + slug + " packages");
+            Set<String> loaders = new LinkedHashSet<>(
+                    strings(item.get("loaders"), Pattern.compile("[a-z]+"), "library " + slug + " loaders"));
+            if (!LOADER_KEYS.containsAll(loaders)) {
+                throw new JsonException("library " + slug + " names an unknown loader");
+            }
+            libraries.add(new Library(slug, name, ids, packages, loaders));
+        }
+        return libraries;
+    }
+
+    private static List<String> strings(Json node, Pattern allowed, String what) {
+        if (!node.exists()) {
+            return List.of();
+        }
+        if (!node.isArray() || node.size() > 20) {
+            throw new JsonException(what + " must be an array of at most 20");
+        }
+        List<String> values = new ArrayList<>();
+        for (Json element : node.elements()) {
+            String value = element.asString("");
+            if (!allowed.matcher(value).matches()) {
+                throw new JsonException(what + ": bad value '" + value + "'");
+            }
+            values.add(value);
+        }
+        return values;
     }
 
     private static Map<String, Map<String, Text>> parseTexts(Json node) {

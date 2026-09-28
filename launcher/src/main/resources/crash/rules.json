@@ -1642,6 +1642,662 @@
         "cause": "게임이 {seconds}초 동안 응답하지 않았습니다. 그때 {mod}의 코드를 실행하고 있었습니다.",
         "fix": "{mod}을(를) 끄거나 업데이트한 다음 게임을 다시 시작하세요. 게임이 시작되면 보고서와 스레드 파일을 {mod} 제작자에게 보내세요."
       }
+    },
+    "brokenConfig": {
+      "en": {
+        "title": "A configuration file is damaged",
+        "cause": "The file {config} of the mod {mod} cannot be read. It is often empty after the game or the computer stopped while it was written.",
+        "fix": "Reset {config}: the launcher renames the damaged file, and {mod} writes a new one with its default settings."
+      },
+      "uk": {
+        "title": "Пошкоджено файл налаштувань",
+        "cause": "Файл {config} мода {mod} не читається. Часто він порожній, бо гра або комп'ютер зупинилися під час запису.",
+        "fix": "Скиньте {config}: лаунчер перейменує пошкоджений файл, і {mod} створить новий зі стандартними налаштуваннями."
+      },
+      "ru": {
+        "title": "Повреждён файл настроек",
+        "cause": "Файл {config} мода {mod} не читается. Часто он пуст, потому что игра или компьютер остановились во время записи.",
+        "fix": "Сбросьте {config}: лаунчер переименует повреждённый файл, и {mod} создаст новый с настройками по умолчанию."
+      },
+      "pl": {
+        "title": "Plik konfiguracji jest uszkodzony",
+        "cause": "Nie można odczytać pliku {config} moda {mod}. Często jest pusty, bo gra lub komputer zatrzymały się podczas zapisu.",
+        "fix": "Zresetuj {config}: launcher zmieni nazwę uszkodzonego pliku, a {mod} zapisze nowy z ustawieniami domyślnymi."
+      },
+      "de": {
+        "title": "Eine Konfigurationsdatei ist beschädigt",
+        "cause": "Die Datei {config} des Mods {mod} kann nicht gelesen werden. Oft ist sie leer, weil das Spiel oder der Computer beim Schreiben angehalten hat.",
+        "fix": "Setzen Sie {config} zurück: Der Launcher benennt die beschädigte Datei um, und {mod} schreibt eine neue mit den Standardeinstellungen."
+      },
+      "es": {
+        "title": "Un archivo de configuración está dañado",
+        "cause": "No se puede leer el archivo {config} del mod {mod}. A menudo está vacío porque el juego o el equipo se detuvo mientras se escribía.",
+        "fix": "Restablece {config}: el launcher cambia el nombre del archivo dañado y {mod} escribe uno nuevo con la configuración predeterminada."
+      },
+      "fr": {
+        "title": "Un fichier de configuration est endommagé",
+        "cause": "Le fichier {config} du mod {mod} est illisible. Il est souvent vide, car le jeu ou l'ordinateur s'est arrêté pendant l'écriture.",
+        "fix": "Réinitialisez {config} : le launcher renomme le fichier endommagé et {mod} en écrit un nouveau avec les réglages par défaut."
+      },
+      "it": {
+        "title": "Un file di configurazione è danneggiato",
+        "cause": "Il file {config} della mod {mod} non si può leggere. Spesso è vuoto perché il gioco o il computer si è fermato durante la scrittura.",
+        "fix": "Reimposta {config}: il launcher rinomina il file danneggiato e {mod} ne scrive uno nuovo con le impostazioni predefinite."
+      },
+      "pt": {
+        "title": "Um arquivo de configuração está danificado",
+        "cause": "O arquivo {config} do mod {mod} não pode ser lido. Muitas vezes ele está vazio porque o jogo ou o computador parou durante a gravação.",
+        "fix": "Redefina {config}: o launcher renomeia o arquivo danificado e {mod} grava um novo com as configurações padrão."
+      },
+      "tr": {
+        "title": "Bir yapılandırma dosyası bozuk",
+        "cause": "{mod} modunun {config} dosyası okunamıyor. Genellikle yazılırken oyun ya da bilgisayar durduğu için boştur.",
+        "fix": "{config} dosyasını sıfırlayın: başlatıcı bozuk dosyanın adını değiştirir ve {mod} varsayılan ayarlarla yenisini yazar."
+      },
+      "id": {
+        "title": "File konfigurasi rusak",
+        "cause": "File {config} milik mod {mod} tidak dapat dibaca. Biasanya file itu kosong karena game atau komputer berhenti saat menulisnya.",
+        "fix": "Setel ulang {config}: launcher mengganti nama file yang rusak, dan {mod} menulis file baru dengan pengaturan bawaan."
+      },
+      "vi": {
+        "title": "Một tệp cấu hình bị hỏng",
+        "cause": "Không đọc được tệp {config} của mod {mod}. Tệp thường bị trống vì trò chơi hoặc máy tính dừng lại khi đang ghi.",
+        "fix": "Đặt lại {config}: trình khởi chạy đổi tên tệp hỏng, và {mod} ghi một tệp mới với cài đặt mặc định."
+      },
+      "hi": {
+        "title": "एक कॉन्फ़िगरेशन फ़ाइल खराब है",
+        "cause": "मॉड {mod} की फ़ाइल {config} पढ़ी नहीं जा सकती। अक्सर यह खाली होती है, क्योंकि लिखते समय गेम या कंप्यूटर रुक गया था।",
+        "fix": "{config} रीसेट करें: लॉन्चर खराब फ़ाइल का नाम बदलता है, और {mod} डिफ़ॉल्ट सेटिंग्स के साथ नई फ़ाइल लिखता है।"
+      },
+      "zh": {
+        "title": "配置文件已损坏",
+        "cause": "无法读取模组 {mod} 的文件 {config}。通常是因为写入时游戏或电脑停止，文件变成了空文件。",
+        "fix": "重置 {config}：启动器会重命名损坏的文件，{mod} 会用默认设置写入新文件。"
+      },
+      "ja": {
+        "title": "設定ファイルが壊れています",
+        "cause": "Mod {mod} のファイル {config} を読み込めません。書き込み中にゲームやコンピューターが止まり、空になっていることがよくあります。",
+        "fix": "{config} をリセットしてください。ランチャーが壊れたファイルの名前を変え、{mod} が既定の設定で新しいファイルを書き込みます。"
+      },
+      "ko": {
+        "title": "설정 파일이 손상되었습니다",
+        "cause": "모드 {mod}의 파일 {config}을(를) 읽을 수 없습니다. 파일을 쓰는 중에 게임이나 컴퓨터가 멈춰 비어 있는 경우가 많습니다.",
+        "fix": "{config}을(를) 초기화하십시오. 런처가 손상된 파일의 이름을 바꾸면 {mod}이(가) 기본 설정으로 새 파일을 씁니다."
+      }
+    },
+    "jvmOptions": {
+      "en": {
+        "title": "Java does not accept a start option",
+        "cause": "Java stopped before the game started, because it does not know the option {option}.",
+        "fix": "Remove {option} from the Java arguments of this profile, or use the Java version that the option is for."
+      },
+      "uk": {
+        "title": "Java не приймає параметр запуску",
+        "cause": "Java зупинилася до запуску гри, бо не знає параметр {option}.",
+        "fix": "Приберіть {option} з аргументів Java цього профілю або використайте версію Java, для якої цей параметр."
+      },
+      "ru": {
+        "title": "Java не принимает параметр запуска",
+        "cause": "Java остановилась до запуска игры, потому что не знает параметр {option}.",
+        "fix": "Уберите {option} из аргументов Java этого профиля или используйте версию Java, для которой этот параметр."
+      },
+      "pl": {
+        "title": "Java nie przyjmuje opcji uruchomienia",
+        "cause": "Java zatrzymała się przed startem gry, bo nie zna opcji {option}.",
+        "fix": "Usuń {option} z argumentów Javy tego profilu albo użyj wersji Javy, dla której jest ta opcja."
+      },
+      "de": {
+        "title": "Java akzeptiert eine Startoption nicht",
+        "cause": "Java hat vor dem Spielstart angehalten, weil es die Option {option} nicht kennt.",
+        "fix": "Entfernen Sie {option} aus den Java-Argumenten dieses Profils, oder verwenden Sie die Java-Version, für die die Option gedacht ist."
+      },
+      "es": {
+        "title": "Java no acepta una opción de inicio",
+        "cause": "Java se detuvo antes de iniciar el juego porque no conoce la opción {option}.",
+        "fix": "Quita {option} de los argumentos de Java de este perfil o usa la versión de Java para la que es esa opción."
+      },
+      "fr": {
+        "title": "Java refuse une option de démarrage",
+        "cause": "Java s'est arrêté avant le démarrage du jeu, car il ne connaît pas l'option {option}.",
+        "fix": "Retirez {option} des arguments Java de ce profil, ou utilisez la version de Java prévue pour cette option."
+      },
+      "it": {
+        "title": "Java non accetta un'opzione di avvio",
+        "cause": "Java si è fermato prima dell'avvio del gioco perché non conosce l'opzione {option}.",
+        "fix": "Rimuovi {option} dagli argomenti Java di questo profilo, oppure usa la versione di Java per cui è l'opzione."
+      },
+      "pt": {
+        "title": "O Java não aceita uma opção de início",
+        "cause": "O Java parou antes de o jogo iniciar, porque não conhece a opção {option}.",
+        "fix": "Remova {option} dos argumentos Java deste perfil ou use a versão do Java para a qual a opção existe."
+      },
+      "tr": {
+        "title": "Java bir başlatma seçeneğini kabul etmiyor",
+        "cause": "Java, {option} seçeneğini tanımadığı için oyun başlamadan durdu.",
+        "fix": "{option} seçeneğini bu profilin Java bağımsız değişkenlerinden kaldırın ya da seçeneğin ait olduğu Java sürümünü kullanın."
+      },
+      "id": {
+        "title": "Java tidak menerima opsi mulai",
+        "cause": "Java berhenti sebelum game dimulai karena tidak mengenal opsi {option}.",
+        "fix": "Hapus {option} dari argumen Java profil ini, atau gunakan versi Java yang sesuai untuk opsi itu."
+      },
+      "vi": {
+        "title": "Java không chấp nhận một tùy chọn khởi động",
+        "cause": "Java đã dừng trước khi trò chơi bắt đầu, vì nó không biết tùy chọn {option}.",
+        "fix": "Xóa {option} khỏi đối số Java của hồ sơ này, hoặc dùng phiên bản Java dành cho tùy chọn đó."
+      },
+      "hi": {
+        "title": "Java एक शुरुआती विकल्प स्वीकार नहीं करता",
+        "cause": "गेम शुरू होने से पहले Java रुक गया, क्योंकि वह विकल्प {option} नहीं जानता।",
+        "fix": "इस प्रोफ़ाइल के Java आर्ग्युमेंट से {option} हटाएँ, या वह Java संस्करण इस्तेमाल करें जिसके लिए यह विकल्प है।"
+      },
+      "zh": {
+        "title": "Java 不接受某个启动选项",
+        "cause": "Java 在游戏启动前停止了，因为它不认识选项 {option}。",
+        "fix": "从此配置的 Java 参数中移除 {option}，或使用支持该选项的 Java 版本。"
+      },
+      "ja": {
+        "title": "Java が起動オプションを受け付けません",
+        "cause": "Java はオプション {option} を認識できないため、ゲームの起動前に停止しました。",
+        "fix": "このプロファイルの Java 引数から {option} を削除するか、そのオプションに対応する Java を使ってください。"
+      },
+      "ko": {
+        "title": "Java가 시작 옵션을 받아들이지 않습니다",
+        "cause": "Java가 옵션 {option}을(를) 알지 못해 게임이 시작되기 전에 멈췄습니다.",
+        "fix": "이 프로필의 Java 인수에서 {option}을(를) 제거하거나 그 옵션에 맞는 Java 버전을 사용하십시오."
+      }
+    },
+    "overlayCrash": {
+      "en": {
+        "title": "An overlay program crashed the game",
+        "cause": "The game stopped inside {dll}. This file belongs to a program that draws over games: a recorder, an FPS counter, a chat or a sound tool.",
+        "fix": "Close that program or switch off its overlay for Minecraft (Java), then start the game again."
+      },
+      "uk": {
+        "title": "Гру зупинила програма-оверлей",
+        "cause": "Гра зупинилася всередині {dll}. Цей файл належить програмі, що малює поверх ігор: запис екрана, лічильник FPS, чат або звукова утиліта.",
+        "fix": "Закрийте цю програму або вимкніть її оверлей для Minecraft (Java), потім запустіть гру знову."
+      },
+      "ru": {
+        "title": "Игру остановила программа-оверлей",
+        "cause": "Игра остановилась внутри {dll}. Этот файл принадлежит программе, которая рисует поверх игр: запись экрана, счётчик FPS, чат или звуковая утилита.",
+        "fix": "Закройте эту программу или отключите её оверлей для Minecraft (Java), затем запустите игру снова."
+      },
+      "pl": {
+        "title": "Program z nakładką zatrzymał grę",
+        "cause": "Gra zatrzymała się w {dll}. Ten plik należy do programu, który rysuje na grach: nagrywania, licznika FPS, czatu lub narzędzia dźwięku.",
+        "fix": "Zamknij ten program lub wyłącz jego nakładkę dla Minecrafta (Java), a potem uruchom grę ponownie."
+      },
+      "de": {
+        "title": "Ein Overlay-Programm hat das Spiel abstürzen lassen",
+        "cause": "Das Spiel hat in {dll} angehalten. Diese Datei gehört zu einem Programm, das über Spiele zeichnet: Aufnahme, FPS-Anzeige, Chat oder Sound-Tool.",
+        "fix": "Schließen Sie dieses Programm oder schalten Sie sein Overlay für Minecraft (Java) aus, und starten Sie das Spiel erneut."
+      },
+      "es": {
+        "title": "Un programa de superposición bloqueó el juego",
+        "cause": "El juego se detuvo dentro de {dll}. Este archivo pertenece a un programa que dibuja sobre los juegos: grabador, contador de FPS, chat o herramienta de sonido.",
+        "fix": "Cierra ese programa o desactiva su superposición para Minecraft (Java) y vuelve a iniciar el juego."
+      },
+      "fr": {
+        "title": "Un programme de superposition a fait planter le jeu",
+        "cause": "Le jeu s'est arrêté dans {dll}. Ce fichier appartient à un programme qui dessine par-dessus les jeux : enregistreur, compteur de FPS, chat ou outil audio.",
+        "fix": "Fermez ce programme ou désactivez sa superposition pour Minecraft (Java), puis relancez le jeu."
+      },
+      "it": {
+        "title": "Un programma di overlay ha bloccato il gioco",
+        "cause": "Il gioco si è fermato dentro {dll}. Questo file appartiene a un programma che disegna sopra i giochi: registratore, contatore FPS, chat o strumento audio.",
+        "fix": "Chiudi quel programma o disattiva il suo overlay per Minecraft (Java), poi avvia di nuovo il gioco."
+      },
+      "pt": {
+        "title": "Um programa de sobreposição travou o jogo",
+        "cause": "O jogo parou dentro de {dll}. Esse arquivo pertence a um programa que desenha sobre os jogos: gravador, contador de FPS, chat ou ferramenta de som.",
+        "fix": "Feche esse programa ou desative a sobreposição dele para o Minecraft (Java) e inicie o jogo de novo."
+      },
+      "tr": {
+        "title": "Bir kaplama programı oyunu çökertti",
+        "cause": "Oyun {dll} içinde durdu. Bu dosya oyunların üzerine çizen bir programa ait: kayıt aracı, FPS sayacı, sohbet ya da ses aracı.",
+        "fix": "O programı kapatın ya da Minecraft (Java) için kaplamasını kapatın, sonra oyunu yeniden başlatın."
+      },
+      "id": {
+        "title": "Program overlay membuat game berhenti",
+        "cause": "Game berhenti di dalam {dll}. File ini milik program yang menggambar di atas game: perekam, penghitung FPS, chat, atau alat suara.",
+        "fix": "Tutup program itu atau matikan overlay-nya untuk Minecraft (Java), lalu jalankan game lagi."
+      },
+      "vi": {
+        "title": "Một chương trình lớp phủ làm trò chơi bị lỗi",
+        "cause": "Trò chơi dừng bên trong {dll}. Tệp này thuộc về một chương trình vẽ đè lên trò chơi: ghi hình, đếm FPS, trò chuyện hoặc công cụ âm thanh.",
+        "fix": "Đóng chương trình đó hoặc tắt lớp phủ của nó cho Minecraft (Java), rồi khởi động lại trò chơi."
+      },
+      "hi": {
+        "title": "एक ओवरले प्रोग्राम ने गेम रोक दिया",
+        "cause": "गेम {dll} के अंदर रुक गया। यह फ़ाइल ऐसे प्रोग्राम की है जो गेम के ऊपर बनाता है: रिकॉर्डर, FPS काउंटर, चैट या साउंड टूल।",
+        "fix": "वह प्रोग्राम बंद करें या Minecraft (Java) के लिए उसका ओवरले बंद करें, फिर गेम दोबारा शुरू करें।"
+      },
+      "zh": {
+        "title": "覆盖层程序导致游戏崩溃",
+        "cause": "游戏在 {dll} 中停止。该文件属于在游戏上方绘制内容的程序：录屏、帧数显示、聊天或音效工具。",
+        "fix": "关闭该程序，或为 Minecraft (Java) 关闭它的覆盖层，然后重新启动游戏。"
+      },
+      "ja": {
+        "title": "オーバーレイ プログラムがゲームを停止させました",
+        "cause": "ゲームは {dll} の中で停止しました。このファイルは、録画、FPS 表示、チャット、サウンド ツールなど、ゲームの上に描画するプログラムのものです。",
+        "fix": "そのプログラムを閉じるか、Minecraft (Java) のオーバーレイをオフにしてから、ゲームをもう一度起動してください。"
+      },
+      "ko": {
+        "title": "오버레이 프로그램이 게임을 멈추게 했습니다",
+        "cause": "게임이 {dll} 안에서 멈췄습니다. 이 파일은 녹화, FPS 표시, 채팅, 사운드 도구처럼 게임 위에 그리는 프로그램의 것입니다.",
+        "fix": "그 프로그램을 닫거나 Minecraft (Java)에 대한 오버레이를 끈 다음 게임을 다시 시작하십시오."
+      }
+    },
+    "diskFull": {
+      "en": {
+        "title": "The disk is full",
+        "cause": "The game could not write a file, because there is no free space on the disk.",
+        "fix": "Make space on the disk. The window Storage and cleanup of the launcher shows what you can remove safely."
+      },
+      "uk": {
+        "title": "Диск заповнено",
+        "cause": "Гра не змогла записати файл, бо на диску немає вільного місця.",
+        "fix": "Звільніть місце на диску. Вікно лаунчера «Сховище та очищення» показує, що можна безпечно видалити."
+      },
+      "ru": {
+        "title": "Диск заполнен",
+        "cause": "Игра не смогла записать файл, потому что на диске нет свободного места.",
+        "fix": "Освободите место на диске. Окно лаунчера «Хранилище и очистка» показывает, что можно безопасно удалить."
+      },
+      "pl": {
+        "title": "Dysk jest pełny",
+        "cause": "Gra nie mogła zapisać pliku, bo na dysku nie ma wolnego miejsca.",
+        "fix": "Zwolnij miejsce na dysku. Okno launchera „Pamięć i czyszczenie” pokazuje, co można bezpiecznie usunąć."
+      },
+      "de": {
+        "title": "Der Datenträger ist voll",
+        "cause": "Das Spiel konnte keine Datei schreiben, weil auf dem Datenträger kein Platz frei ist.",
+        "fix": "Schaffen Sie Platz auf dem Datenträger. Das Fenster „Speicher und Bereinigung“ des Launchers zeigt, was Sie sicher entfernen können."
+      },
+      "es": {
+        "title": "El disco está lleno",
+        "cause": "El juego no pudo escribir un archivo porque no hay espacio libre en el disco.",
+        "fix": "Libera espacio en el disco. La ventana «Almacenamiento y limpieza» del launcher muestra lo que puedes quitar con seguridad."
+      },
+      "fr": {
+        "title": "Le disque est plein",
+        "cause": "Le jeu n'a pas pu écrire un fichier, car il n'y a plus d'espace libre sur le disque.",
+        "fix": "Libérez de l'espace sur le disque. La fenêtre « Stockage et nettoyage » du launcher montre ce que vous pouvez supprimer sans risque."
+      },
+      "it": {
+        "title": "Il disco è pieno",
+        "cause": "Il gioco non ha potuto scrivere un file perché sul disco non c'è spazio libero.",
+        "fix": "Libera spazio sul disco. La finestra «Spazio e pulizia» del launcher mostra cosa puoi rimuovere in sicurezza."
+      },
+      "pt": {
+        "title": "O disco está cheio",
+        "cause": "O jogo não conseguiu gravar um arquivo porque não há espaço livre no disco.",
+        "fix": "Libere espaço no disco. A janela “Armazenamento e limpeza” do launcher mostra o que você pode remover com segurança."
+      },
+      "tr": {
+        "title": "Disk dolu",
+        "cause": "Diskte boş alan olmadığı için oyun bir dosyayı yazamadı.",
+        "fix": "Diskte yer açın. Başlatıcının “Depolama ve temizlik” penceresi neyi güvenle kaldırabileceğinizi gösterir."
+      },
+      "id": {
+        "title": "Disk penuh",
+        "cause": "Game tidak dapat menulis file karena tidak ada ruang kosong di disk.",
+        "fix": "Kosongkan ruang di disk. Jendela “Penyimpanan dan pembersihan” di launcher menunjukkan apa yang aman untuk dihapus."
+      },
+      "vi": {
+        "title": "Ổ đĩa đã đầy",
+        "cause": "Trò chơi không thể ghi tệp vì ổ đĩa không còn chỗ trống.",
+        "fix": "Giải phóng dung lượng ổ đĩa. Cửa sổ “Lưu trữ và dọn dẹp” của trình khởi chạy cho biết những gì có thể xóa an toàn."
+      },
+      "hi": {
+        "title": "डिस्क भर गई है",
+        "cause": "गेम एक फ़ाइल नहीं लिख सका, क्योंकि डिस्क पर खाली जगह नहीं है।",
+        "fix": "डिस्क पर जगह बनाएँ। लॉन्चर की \"स्टोरेज और सफ़ाई\" विंडो बताती है कि क्या सुरक्षित रूप से हटाया जा सकता है।"
+      },
+      "zh": {
+        "title": "磁盘已满",
+        "cause": "游戏无法写入文件，因为磁盘上没有可用空间。",
+        "fix": "请释放磁盘空间。启动器的“存储与清理”窗口会显示哪些内容可以安全删除。"
+      },
+      "ja": {
+        "title": "ディスクがいっぱいです",
+        "cause": "ディスクに空き容量がないため、ゲームはファイルを書き込めませんでした。",
+        "fix": "ディスクの空き容量を増やしてください。ランチャーの「ストレージとクリーンアップ」ウィンドウに、安全に削除できるものが表示されます。"
+      },
+      "ko": {
+        "title": "디스크가 가득 찼습니다",
+        "cause": "디스크에 여유 공간이 없어 게임이 파일을 쓸 수 없었습니다.",
+        "fix": "디스크 공간을 확보하십시오. 런처의 \"저장 공간 및 정리\" 창에서 안전하게 제거할 수 있는 항목을 볼 수 있습니다."
+      }
+    },
+    "worldLocked": {
+      "en": {
+        "title": "The world is open in another game",
+        "cause": "The game could not open the world, because another Minecraft process uses it (session.lock).",
+        "fix": "Close the other Minecraft window or server that uses this world, then start the game again."
+      },
+      "uk": {
+        "title": "Світ відкритий в іншій грі",
+        "cause": "Гра не змогла відкрити світ, бо його використовує інший процес Minecraft (session.lock).",
+        "fix": "Закрийте інше вікно Minecraft або сервер, що використовує цей світ, потім запустіть гру знову."
+      },
+      "ru": {
+        "title": "Мир открыт в другой игре",
+        "cause": "Игра не смогла открыть мир, потому что его использует другой процесс Minecraft (session.lock).",
+        "fix": "Закройте другое окно Minecraft или сервер, который использует этот мир, затем запустите игру снова."
+      },
+      "pl": {
+        "title": "Świat jest otwarty w innej grze",
+        "cause": "Gra nie mogła otworzyć świata, bo używa go inny proces Minecrafta (session.lock).",
+        "fix": "Zamknij inne okno Minecrafta lub serwer, który używa tego świata, a potem uruchom grę ponownie."
+      },
+      "de": {
+        "title": "Die Welt ist in einem anderen Spiel geöffnet",
+        "cause": "Das Spiel konnte die Welt nicht öffnen, weil ein anderer Minecraft-Prozess sie verwendet (session.lock).",
+        "fix": "Schließen Sie das andere Minecraft-Fenster oder den Server, der diese Welt verwendet, und starten Sie das Spiel erneut."
+      },
+      "es": {
+        "title": "El mundo está abierto en otro juego",
+        "cause": "El juego no pudo abrir el mundo porque otro proceso de Minecraft lo usa (session.lock).",
+        "fix": "Cierra la otra ventana de Minecraft o el servidor que usa este mundo y vuelve a iniciar el juego."
+      },
+      "fr": {
+        "title": "Le monde est ouvert dans un autre jeu",
+        "cause": "Le jeu n'a pas pu ouvrir le monde, car un autre processus Minecraft l'utilise (session.lock).",
+        "fix": "Fermez l'autre fenêtre Minecraft ou le serveur qui utilise ce monde, puis relancez le jeu."
+      },
+      "it": {
+        "title": "Il mondo è aperto in un altro gioco",
+        "cause": "Il gioco non ha potuto aprire il mondo perché lo usa un altro processo di Minecraft (session.lock).",
+        "fix": "Chiudi l'altra finestra di Minecraft o il server che usa questo mondo, poi avvia di nuovo il gioco."
+      },
+      "pt": {
+        "title": "O mundo está aberto em outro jogo",
+        "cause": "O jogo não conseguiu abrir o mundo porque outro processo do Minecraft o está usando (session.lock).",
+        "fix": "Feche a outra janela do Minecraft ou o servidor que usa este mundo e inicie o jogo de novo."
+      },
+      "tr": {
+        "title": "Dünya başka bir oyunda açık",
+        "cause": "Başka bir Minecraft işlemi kullandığı için oyun dünyayı açamadı (session.lock).",
+        "fix": "Bu dünyayı kullanan diğer Minecraft penceresini ya da sunucuyu kapatın, sonra oyunu yeniden başlatın."
+      },
+      "id": {
+        "title": "Dunia terbuka di game lain",
+        "cause": "Game tidak dapat membuka dunia karena proses Minecraft lain sedang memakainya (session.lock).",
+        "fix": "Tutup jendela Minecraft lain atau server yang memakai dunia ini, lalu jalankan game lagi."
+      },
+      "vi": {
+        "title": "Thế giới đang mở trong trò chơi khác",
+        "cause": "Trò chơi không thể mở thế giới vì một tiến trình Minecraft khác đang dùng nó (session.lock).",
+        "fix": "Đóng cửa sổ Minecraft khác hoặc máy chủ đang dùng thế giới này, rồi khởi động lại trò chơi."
+      },
+      "hi": {
+        "title": "दुनिया दूसरे गेम में खुली है",
+        "cause": "गेम दुनिया नहीं खोल सका, क्योंकि कोई दूसरी Minecraft प्रक्रिया उसे इस्तेमाल कर रही है (session.lock)।",
+        "fix": "इस दुनिया का इस्तेमाल करने वाली दूसरी Minecraft विंडो या सर्वर बंद करें, फिर गेम दोबारा शुरू करें।"
+      },
+      "zh": {
+        "title": "该世界已在另一个游戏中打开",
+        "cause": "游戏无法打开该世界，因为另一个 Minecraft 进程正在使用它（session.lock）。",
+        "fix": "关闭正在使用此世界的另一个 Minecraft 窗口或服务器，然后重新启动游戏。"
+      },
+      "ja": {
+        "title": "ワールドが別のゲームで開かれています",
+        "cause": "別の Minecraft プロセスが使用しているため、ゲームはワールドを開けませんでした (session.lock)。",
+        "fix": "このワールドを使っている別の Minecraft ウィンドウまたはサーバーを閉じてから、ゲームをもう一度起動してください。"
+      },
+      "ko": {
+        "title": "월드가 다른 게임에서 열려 있습니다",
+        "cause": "다른 Minecraft 프로세스가 사용 중이라 게임이 월드를 열 수 없었습니다 (session.lock).",
+        "fix": "이 월드를 사용하는 다른 Minecraft 창이나 서버를 닫은 다음 게임을 다시 시작하십시오."
+      }
+    },
+    "missingLibrary": {
+      "en": {
+        "title": "A required library is not installed",
+        "cause": "The game needs {library} (class {class}), and no mod in the folder has it.",
+        "fix": "Install {library} for this Minecraft version and mod loader."
+      },
+      "uk": {
+        "title": "Не встановлено потрібну бібліотеку",
+        "cause": "Грі потрібна {library} (клас {class}), і жоден мод у теці її не містить.",
+        "fix": "Встановіть {library} для цієї версії Minecraft і завантажувача модів."
+      },
+      "ru": {
+        "title": "Не установлена нужная библиотека",
+        "cause": "Игре нужна {library} (класс {class}), и ни один мод в папке её не содержит.",
+        "fix": "Установите {library} для этой версии Minecraft и загрузчика модов."
+      },
+      "pl": {
+        "title": "Brak wymaganej biblioteki",
+        "cause": "Gra potrzebuje {library} (klasa {class}), a żaden mod w folderze jej nie ma.",
+        "fix": "Zainstaluj {library} dla tej wersji Minecrafta i loadera modów."
+      },
+      "de": {
+        "title": "Eine benötigte Bibliothek ist nicht installiert",
+        "cause": "Das Spiel braucht {library} (Klasse {class}), und kein Mod im Ordner enthält sie.",
+        "fix": "Installieren Sie {library} für diese Minecraft-Version und diesen Mod-Loader."
+      },
+      "es": {
+        "title": "Falta una biblioteca necesaria",
+        "cause": "El juego necesita {library} (clase {class}) y ningún mod de la carpeta la tiene.",
+        "fix": "Instala {library} para esta versión de Minecraft y este cargador de mods."
+      },
+      "fr": {
+        "title": "Une bibliothèque nécessaire n'est pas installée",
+        "cause": "Le jeu a besoin de {library} (classe {class}), et aucun mod du dossier ne la contient.",
+        "fix": "Installez {library} pour cette version de Minecraft et ce chargeur de mods."
+      },
+      "it": {
+        "title": "Manca una libreria necessaria",
+        "cause": "Il gioco ha bisogno di {library} (classe {class}) e nessuna mod nella cartella la contiene.",
+        "fix": "Installa {library} per questa versione di Minecraft e questo mod loader."
+      },
+      "pt": {
+        "title": "Uma biblioteca necessária não está instalada",
+        "cause": "O jogo precisa de {library} (classe {class}), e nenhum mod da pasta a contém.",
+        "fix": "Instale {library} para esta versão do Minecraft e este carregador de mods."
+      },
+      "tr": {
+        "title": "Gerekli bir kitaplık kurulu değil",
+        "cause": "Oyunun {library} kitaplığına ihtiyacı var ({class} sınıfı) ve klasördeki hiçbir mod bunu içermiyor.",
+        "fix": "Bu Minecraft sürümü ve mod yükleyici için {library} kurun."
+      },
+      "id": {
+        "title": "Pustaka yang diperlukan tidak terpasang",
+        "cause": "Game memerlukan {library} (kelas {class}), dan tidak ada mod di folder yang memilikinya.",
+        "fix": "Pasang {library} untuk versi Minecraft dan mod loader ini."
+      },
+      "vi": {
+        "title": "Thiếu một thư viện cần thiết",
+        "cause": "Trò chơi cần {library} (lớp {class}), và không có mod nào trong thư mục chứa nó.",
+        "fix": "Cài {library} cho phiên bản Minecraft và trình tải mod này."
+      },
+      "hi": {
+        "title": "एक ज़रूरी लाइब्रेरी इंस्टॉल नहीं है",
+        "cause": "गेम को {library} (क्लास {class}) चाहिए, और फ़ोल्डर के किसी मॉड में यह नहीं है।",
+        "fix": "इस Minecraft संस्करण और मॉड लोडर के लिए {library} इंस्टॉल करें।"
+      },
+      "zh": {
+        "title": "缺少必需的库",
+        "cause": "游戏需要 {library}（类 {class}），但文件夹中没有模组包含它。",
+        "fix": "为此 Minecraft 版本和模组加载器安装 {library}。"
+      },
+      "ja": {
+        "title": "必要なライブラリがインストールされていません",
+        "cause": "ゲームには {library} (クラス {class}) が必要ですが、フォルダー内のどの Mod にも含まれていません。",
+        "fix": "この Minecraft バージョンと Mod ローダー用の {library} をインストールしてください。"
+      },
+      "ko": {
+        "title": "필요한 라이브러리가 설치되지 않았습니다",
+        "cause": "게임에 {library}(클래스 {class})이(가) 필요하지만 폴더의 어떤 모드에도 없습니다.",
+        "fix": "이 Minecraft 버전과 모드 로더에 맞는 {library}을(를) 설치하십시오."
+      }
+    },
+    "libraryOff": {
+      "en": {
+        "title": "A required mod is switched off",
+        "cause": "The game needs {library} (class {class}), but {library} is switched off.",
+        "fix": "Switch {library} on again."
+      },
+      "uk": {
+        "title": "Потрібний мод вимкнено",
+        "cause": "Грі потрібен {library} (клас {class}), але {library} вимкнено.",
+        "fix": "Увімкніть {library} знову."
+      },
+      "ru": {
+        "title": "Нужный мод выключен",
+        "cause": "Игре нужен {library} (класс {class}), но {library} выключен.",
+        "fix": "Включите {library} снова."
+      },
+      "pl": {
+        "title": "Wymagany mod jest wyłączony",
+        "cause": "Gra potrzebuje {library} (klasa {class}), ale {library} jest wyłączony.",
+        "fix": "Włącz {library} z powrotem."
+      },
+      "de": {
+        "title": "Ein benötigter Mod ist ausgeschaltet",
+        "cause": "Das Spiel braucht {library} (Klasse {class}), aber {library} ist ausgeschaltet.",
+        "fix": "Schalten Sie {library} wieder ein."
+      },
+      "es": {
+        "title": "Un mod necesario está desactivado",
+        "cause": "El juego necesita {library} (clase {class}), pero {library} está desactivado.",
+        "fix": "Vuelve a activar {library}."
+      },
+      "fr": {
+        "title": "Un mod nécessaire est désactivé",
+        "cause": "Le jeu a besoin de {library} (classe {class}), mais {library} est désactivé.",
+        "fix": "Réactivez {library}."
+      },
+      "it": {
+        "title": "Una mod necessaria è disattivata",
+        "cause": "Il gioco ha bisogno di {library} (classe {class}), ma {library} è disattivata.",
+        "fix": "Riattiva {library}."
+      },
+      "pt": {
+        "title": "Um mod necessário está desativado",
+        "cause": "O jogo precisa de {library} (classe {class}), mas {library} está desativado.",
+        "fix": "Ative {library} de novo."
+      },
+      "tr": {
+        "title": "Gerekli bir mod kapalı",
+        "cause": "Oyunun {library} moduna ihtiyacı var ({class} sınıfı), ancak {library} kapalı.",
+        "fix": "{library} modunu yeniden açın."
+      },
+      "id": {
+        "title": "Mod yang diperlukan dimatikan",
+        "cause": "Game memerlukan {library} (kelas {class}), tetapi {library} dimatikan.",
+        "fix": "Aktifkan {library} lagi."
+      },
+      "vi": {
+        "title": "Một mod cần thiết đang bị tắt",
+        "cause": "Trò chơi cần {library} (lớp {class}), nhưng {library} đang bị tắt.",
+        "fix": "Bật lại {library}."
+      },
+      "hi": {
+        "title": "एक ज़रूरी मॉड बंद है",
+        "cause": "गेम को {library} (क्लास {class}) चाहिए, लेकिन {library} बंद है।",
+        "fix": "{library} फिर से चालू करें।"
+      },
+      "zh": {
+        "title": "必需的模组已被禁用",
+        "cause": "游戏需要 {library}（类 {class}），但 {library} 已被禁用。",
+        "fix": "重新启用 {library}。"
+      },
+      "ja": {
+        "title": "必要な Mod がオフになっています",
+        "cause": "ゲームには {library} (クラス {class}) が必要ですが、{library} はオフになっています。",
+        "fix": "{library} をもう一度オンにしてください。"
+      },
+      "ko": {
+        "title": "필요한 모드가 꺼져 있습니다",
+        "cause": "게임에 {library}(클래스 {class})이(가) 필요하지만 {library}이(가) 꺼져 있습니다.",
+        "fix": "{library}을(를) 다시 켜십시오."
+      }
+    },
+    "missingClass": {
+      "en": {
+        "title": "A mod needs code that is not installed",
+        "cause": "The mod {mod} uses the class {class}, and no mod in the folder has it. Usually a library mod is missing, or it has a different version.",
+        "fix": "Install the library that {mod} needs (its download page names it), or switch off {mod}."
+      },
+      "uk": {
+        "title": "Мод потребує коду, якого не встановлено",
+        "cause": "Мод {mod} використовує клас {class}, і жоден мод у теці його не містить. Зазвичай бракує мода-бібліотеки або він іншої версії.",
+        "fix": "Встановіть бібліотеку, потрібну {mod} (її названо на сторінці завантаження), або вимкніть {mod}."
+      },
+      "ru": {
+        "title": "Моду нужен код, который не установлен",
+        "cause": "Мод {mod} использует класс {class}, и ни один мод в папке его не содержит. Обычно не хватает мода-библиотеки или он другой версии.",
+        "fix": "Установите библиотеку, нужную {mod} (она указана на странице загрузки), или выключите {mod}."
+      },
+      "pl": {
+        "title": "Mod potrzebuje kodu, którego nie zainstalowano",
+        "cause": "Mod {mod} używa klasy {class}, a żaden mod w folderze jej nie ma. Zwykle brakuje moda-biblioteki albo ma on inną wersję.",
+        "fix": "Zainstaluj bibliotekę, której potrzebuje {mod} (podaje ją strona pobierania), albo wyłącz {mod}."
+      },
+      "de": {
+        "title": "Ein Mod braucht Code, der nicht installiert ist",
+        "cause": "Der Mod {mod} verwendet die Klasse {class}, und kein Mod im Ordner enthält sie. Meist fehlt ein Bibliotheks-Mod, oder er hat eine andere Version.",
+        "fix": "Installieren Sie die Bibliothek, die {mod} braucht (die Download-Seite nennt sie), oder schalten Sie {mod} aus."
+      },
+      "es": {
+        "title": "Un mod necesita código que no está instalado",
+        "cause": "El mod {mod} usa la clase {class} y ningún mod de la carpeta la tiene. Normalmente falta un mod de biblioteca o tiene otra versión.",
+        "fix": "Instala la biblioteca que necesita {mod} (su página de descarga la indica) o desactiva {mod}."
+      },
+      "fr": {
+        "title": "Un mod a besoin de code qui n'est pas installé",
+        "cause": "Le mod {mod} utilise la classe {class}, et aucun mod du dossier ne la contient. En général, un mod de bibliothèque manque ou n'a pas la bonne version.",
+        "fix": "Installez la bibliothèque dont {mod} a besoin (sa page de téléchargement la nomme), ou désactivez {mod}."
+      },
+      "it": {
+        "title": "Una mod ha bisogno di codice non installato",
+        "cause": "La mod {mod} usa la classe {class} e nessuna mod nella cartella la contiene. Di solito manca una mod libreria, oppure ha un'altra versione.",
+        "fix": "Installa la libreria che serve a {mod} (la pagina di download la indica), oppure disattiva {mod}."
+      },
+      "pt": {
+        "title": "Um mod precisa de código que não está instalado",
+        "cause": "O mod {mod} usa a classe {class}, e nenhum mod da pasta a contém. Normalmente falta um mod de biblioteca, ou ele tem outra versão.",
+        "fix": "Instale a biblioteca de que {mod} precisa (a página de download a indica) ou desative {mod}."
+      },
+      "tr": {
+        "title": "Bir mod kurulu olmayan koda ihtiyaç duyuyor",
+        "cause": "{mod} modu {class} sınıfını kullanıyor ve klasördeki hiçbir mod bunu içermiyor. Genellikle bir kitaplık modu eksiktir ya da sürümü farklıdır.",
+        "fix": "{mod} için gereken kitaplığı kurun (indirme sayfasında yazar) ya da {mod} modunu kapatın."
+      },
+      "id": {
+        "title": "Sebuah mod memerlukan kode yang tidak terpasang",
+        "cause": "Mod {mod} memakai kelas {class}, dan tidak ada mod di folder yang memilikinya. Biasanya mod pustaka tidak ada, atau versinya berbeda.",
+        "fix": "Pasang pustaka yang diperlukan {mod} (halaman unduhannya menyebutkannya), atau matikan {mod}."
+      },
+      "vi": {
+        "title": "Một mod cần mã chưa được cài",
+        "cause": "Mod {mod} dùng lớp {class}, và không có mod nào trong thư mục chứa nó. Thường là thiếu một mod thư viện, hoặc nó có phiên bản khác.",
+        "fix": "Cài thư viện mà {mod} cần (trang tải xuống có ghi tên), hoặc tắt {mod}."
+      },
+      "hi": {
+        "title": "एक मॉड को ऐसा कोड चाहिए जो इंस्टॉल नहीं है",
+        "cause": "मॉड {mod} क्लास {class} इस्तेमाल करता है, और फ़ोल्डर के किसी मॉड में यह नहीं है। आमतौर पर कोई लाइब्रेरी मॉड नहीं है, या उसका संस्करण अलग है।",
+        "fix": "{mod} को जो लाइब्रेरी चाहिए उसे इंस्टॉल करें (डाउनलोड पेज पर उसका नाम है), या {mod} बंद करें।"
+      },
+      "zh": {
+        "title": "模组需要未安装的代码",
+        "cause": "模组 {mod} 使用类 {class}，但文件夹中没有模组包含它。通常是缺少某个库模组，或其版本不同。",
+        "fix": "安装 {mod} 需要的库（下载页面会写明），或禁用 {mod}。"
+      },
+      "ja": {
+        "title": "Mod がインストールされていないコードを必要としています",
+        "cause": "Mod {mod} はクラス {class} を使いますが、フォルダー内のどの Mod にも含まれていません。多くの場合、ライブラリ Mod がないか、バージョンが違います。",
+        "fix": "{mod} が必要とするライブラリ (ダウンロード ページに記載) をインストールするか、{mod} をオフにしてください。"
+      },
+      "ko": {
+        "title": "모드에 설치되지 않은 코드가 필요합니다",
+        "cause": "모드 {mod}이(가) 클래스 {class}을(를) 사용하지만 폴더의 어떤 모드에도 없습니다. 보통 라이브러리 모드가 없거나 버전이 다릅니다.",
+        "fix": "{mod}에 필요한 라이브러리(다운로드 페이지에 이름이 있음)를 설치하거나 {mod}을(를) 끄십시오."
+      }
     }
   },
   "rules": [
@@ -2386,6 +3042,509 @@
           "type": "disableFile",
           "file": "{file}"
         }
+      ]
+    },
+    {
+      "id": "jvm-option-unknown",
+      "stopsLoading": true,
+      "priority": 97,
+      "text": "jvmOptions",
+      "match": [
+        {
+          "contains": [
+            "Unrecognized VM option '",
+            "Improperly specified VM option '"
+          ],
+          "regex": "(?:Unrecognized VM option|Improperly specified VM option) '(?<option>[^'\\s]{1,200})'",
+          "in": [
+            "output"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "jvm-option-unrecognized",
+      "stopsLoading": true,
+      "priority": 97,
+      "text": "jvmOptions",
+      "match": [
+        {
+          "contains": [
+            "Unrecognized option: "
+          ],
+          "regex": "^(?:Error: )?Unrecognized option: (?<option>\\S{1,200})",
+          "in": [
+            "output"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "launchwrapper-java-too-new",
+      "stopsLoading": true,
+      "priority": 90,
+      "text": "javaNew",
+      "match": [
+        {
+          "contains": [
+            "cannot be cast to class java.net.URLClassLoader",
+            "cannot be cast to java.net.URLClassLoader"
+          ]
+        }
+      ],
+      "fixes": [
+        {
+          "type": "automaticJava"
+        }
+      ]
+    },
+    {
+      "id": "overlay-crash",
+      "priority": 91,
+      "text": "overlayCrash",
+      "match": [
+        {
+          "contains": [
+            "# C  ["
+          ],
+          "regex": "# C  \\[(?<dll>(?:RTSSHooks|DiscordHook|gameoverlayrenderer|graphics-hook|obs-vulkan|nvspcap|OWClient|NahimicOSD|Nahimic|bdcamvk|bdcap|fraps|mumble_ol|XSplit)[^+\\]\\s]*)",
+          "in": [
+            "hserr"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "disk-full",
+      "priority": 89,
+      "text": "diskFull",
+      "match": [
+        {
+          "contains": [
+            "There is not enough space on the disk",
+            "No space left on device"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "forge-broken-config",
+      "stopsLoading": true,
+      "priority": 72,
+      "text": "brokenConfig",
+      "match": [
+        {
+          "contains": [
+            "Failed loading config file "
+          ],
+          "regex": "Failed loading config file (?<config>[A-Za-z0-9_.\\-]{1,100}\\.toml) of type [A-Z]+ for modid (?<mod>[a-z0-9_]{1,64})"
+        }
+      ]
+    },
+    {
+      "id": "world-locked",
+      "priority": 50,
+      "text": "worldLocked",
+      "match": [
+        {
+          "contains": [
+            "session.lock: already locked"
+          ]
+        }
+      ]
+    }
+  ],
+  "libraries": [
+    {
+      "slug": "fabric-api",
+      "name": "Fabric API",
+      "ids": [
+        "fabric-api",
+        "fabric"
+      ],
+      "packages": [
+        "net.fabricmc.fabric.api.",
+        "net.fabricmc.fabric.impl."
+      ],
+      "loaders": [
+        "fabric",
+        "quilt"
+      ]
+    },
+    {
+      "slug": "fabric-language-kotlin",
+      "name": "Fabric Language Kotlin",
+      "ids": [
+        "fabric-language-kotlin",
+        "fabric_language_kotlin"
+      ],
+      "packages": [
+        "net.fabricmc.language.kotlin.",
+        "kotlin.",
+        "kotlinx."
+      ],
+      "loaders": [
+        "fabric",
+        "quilt"
+      ]
+    },
+    {
+      "slug": "kotlin-for-forge",
+      "name": "Kotlin for Forge",
+      "ids": [
+        "kotlinforforge"
+      ],
+      "packages": [
+        "thedarkcolour.kotlinforforge.",
+        "kotlin.",
+        "kotlinx."
+      ],
+      "loaders": [
+        "forge",
+        "neoforge"
+      ]
+    },
+    {
+      "slug": "mixinbooter",
+      "name": "MixinBooter",
+      "ids": [
+        "mixinbooter"
+      ],
+      "packages": [
+        "zone.rong.mixinbooter.",
+        "org.spongepowered.asm."
+      ],
+      "loaders": [
+        "forge"
+      ]
+    },
+    {
+      "slug": "forge-config-api-port",
+      "name": "Forge Config API Port",
+      "ids": [
+        "forgeconfigapiport"
+      ],
+      "packages": [
+        "fuzs.forgeconfigapiport."
+      ],
+      "loaders": [
+        "fabric",
+        "quilt"
+      ]
+    },
+    {
+      "slug": "modmenu",
+      "name": "Mod Menu",
+      "ids": [
+        "modmenu"
+      ],
+      "packages": [
+        "com.terraformersmc.modmenu."
+      ],
+      "loaders": [
+        "fabric",
+        "quilt"
+      ]
+    },
+    {
+      "slug": "trinkets",
+      "name": "Trinkets",
+      "ids": [
+        "trinkets"
+      ],
+      "packages": [
+        "dev.emi.trinkets."
+      ],
+      "loaders": [
+        "fabric",
+        "quilt"
+      ]
+    },
+    {
+      "slug": "curios",
+      "name": "Curios API",
+      "ids": [
+        "curios"
+      ],
+      "packages": [
+        "top.theillusivec4.curios."
+      ],
+      "loaders": [
+        "forge",
+        "neoforge"
+      ]
+    },
+    {
+      "slug": "geckolib",
+      "name": "GeckoLib",
+      "ids": [
+        "geckolib",
+        "geckolib3",
+        "geckolib4"
+      ],
+      "packages": [
+        "software.bernie.geckolib."
+      ]
+    },
+    {
+      "slug": "architectury-api",
+      "name": "Architectury API",
+      "ids": [
+        "architectury"
+      ],
+      "packages": [
+        "dev.architectury.",
+        "me.shedaniel.architectury."
+      ]
+    },
+    {
+      "slug": "cloth-config",
+      "name": "Cloth Config API",
+      "ids": [
+        "cloth-config",
+        "cloth-config2",
+        "cloth_config"
+      ],
+      "packages": [
+        "me.shedaniel.clothconfig2.",
+        "me.shedaniel.autoconfig."
+      ]
+    },
+    {
+      "slug": "yacl",
+      "name": "YetAnotherConfigLib",
+      "ids": [
+        "yet_another_config_lib_v3",
+        "yet-another-config-lib",
+        "yacl"
+      ],
+      "packages": [
+        "dev.isxander.yacl3.",
+        "dev.isxander.yacl."
+      ]
+    },
+    {
+      "slug": "owo-lib",
+      "name": "owo-lib",
+      "ids": [
+        "owo"
+      ],
+      "packages": [
+        "io.wispforest.owo."
+      ]
+    },
+    {
+      "slug": "resourceful-lib",
+      "name": "Resourceful Lib",
+      "ids": [
+        "resourcefullib"
+      ],
+      "packages": [
+        "com.teamresourceful.resourcefullib."
+      ]
+    },
+    {
+      "slug": "puzzles-lib",
+      "name": "Puzzles Lib",
+      "ids": [
+        "puzzleslib"
+      ],
+      "packages": [
+        "fuzs.puzzleslib."
+      ]
+    },
+    {
+      "slug": "balm",
+      "name": "Balm",
+      "ids": [
+        "balm",
+        "balm-fabric",
+        "balm-forge",
+        "balm-neoforge"
+      ],
+      "packages": [
+        "net.blay09.mods.balm."
+      ]
+    },
+    {
+      "slug": "jei",
+      "name": "Just Enough Items",
+      "ids": [
+        "jei"
+      ],
+      "packages": [
+        "mezz.jei."
+      ]
+    },
+    {
+      "slug": "bookshelf-lib",
+      "name": "Bookshelf",
+      "ids": [
+        "bookshelf"
+      ],
+      "packages": [
+        "net.darkhax.bookshelf."
+      ]
+    },
+    {
+      "slug": "framework",
+      "name": "Framework",
+      "ids": [
+        "framework"
+      ],
+      "packages": [
+        "com.mrcrayfish.framework."
+      ]
+    },
+    {
+      "slug": "playeranimator",
+      "name": "playerAnimator",
+      "ids": [
+        "playeranimator",
+        "player-animator"
+      ],
+      "packages": [
+        "dev.kosmx.playerAnim."
+      ]
+    },
+    {
+      "slug": "creativecore",
+      "name": "CreativeCore",
+      "ids": [
+        "creativecore"
+      ],
+      "packages": [
+        "team.creative.creativecore."
+      ]
+    },
+    {
+      "slug": "citadel",
+      "name": "Citadel",
+      "ids": [
+        "citadel"
+      ],
+      "packages": [
+        "com.github.alexthe666.citadel."
+      ]
+    },
+    {
+      "slug": "moonlight",
+      "name": "Moonlight Lib",
+      "ids": [
+        "moonlight"
+      ],
+      "packages": [
+        "net.mehvahdjukaar.moonlight."
+      ]
+    },
+    {
+      "slug": "terrablender",
+      "name": "TerraBlender",
+      "ids": [
+        "terrablender"
+      ],
+      "packages": [
+        "terrablender."
+      ]
+    },
+    {
+      "slug": "collective",
+      "name": "Collective",
+      "ids": [
+        "collective"
+      ],
+      "packages": [
+        "com.natamus.collective."
+      ]
+    },
+    {
+      "slug": "midnightlib",
+      "name": "MidnightLib",
+      "ids": [
+        "midnightlib"
+      ],
+      "packages": [
+        "eu.midnightdust.lib."
+      ]
+    },
+    {
+      "slug": "patchouli",
+      "name": "Patchouli",
+      "ids": [
+        "patchouli"
+      ],
+      "packages": [
+        "vazkii.patchouli."
+      ]
+    },
+    {
+      "slug": "autoreglib",
+      "name": "AutoRegLib",
+      "ids": [
+        "autoreglib"
+      ],
+      "packages": [
+        "vazkii.arl."
+      ]
+    },
+    {
+      "slug": "zeta",
+      "name": "Zeta",
+      "ids": [
+        "zeta"
+      ],
+      "packages": [
+        "org.violetmoon.zeta."
+      ]
+    },
+    {
+      "slug": "iceberg",
+      "name": "Iceberg",
+      "ids": [
+        "iceberg"
+      ],
+      "packages": [
+        "com.anthonyhilyard.iceberg."
+      ]
+    },
+    {
+      "slug": "prism-lib",
+      "name": "Prism",
+      "ids": [
+        "prism"
+      ],
+      "packages": [
+        "com.anthonyhilyard.prism."
+      ]
+    },
+    {
+      "slug": "glitchcore",
+      "name": "GlitchCore",
+      "ids": [
+        "glitchcore"
+      ],
+      "packages": [
+        "glitchcore."
+      ]
+    },
+    {
+      "slug": "supermartijn642s-core-lib",
+      "name": "SuperMartijn642's Core Lib",
+      "ids": [
+        "supermartijn642corelib"
+      ],
+      "packages": [
+        "com.supermartijn642.core."
+      ]
+    },
+    {
+      "slug": "supermartijn642s-config-lib",
+      "name": "SuperMartijn642's Config Lib",
+      "ids": [
+        "supermartijn642configlib"
+      ],
+      "packages": [
+        "com.supermartijn642.configlib."
       ]
     }
   ]
