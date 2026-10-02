@@ -25,6 +25,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
@@ -90,6 +91,8 @@ final class AppearanceTab {
     private final Label changedNote = SettingsDialog.note("appearance.theme.note");
     private final Hyperlink resetColors = new Hyperlink();
     private final Label contrastWarning = new Label();
+    private final CheckBox patternBox = new CheckBox();
+    private final Label patternNote = new Label();
 
     private final Label pictureName = new Label();
     private final Button removePicture = new Button();
@@ -156,6 +159,19 @@ final class AppearanceTab {
         changedLine.setAlignment(Pos.BASELINE_LEFT);
         HBox.setHgrow(changedNote, Priority.ALWAYS);
         grid.addRow(row++, new Label(), changedLine);
+
+        patternBox.setText(I18n.t("appearance.pattern"));
+        patternBox.selectedProperty().addListener((observable, previous, on) -> {
+            if (!filling) {
+                change(current.withPattern(on), true);
+            }
+        });
+        patternNote.getStyleClass().add("muted");
+        patternNote.setWrapText(true);
+        patternNote.setMaxWidth(Double.MAX_VALUE);
+        patternNote.setMinHeight(Region.USE_PREF_SIZE);
+        VBox patternLine = new VBox(4, patternBox, patternNote);
+        grid.addRow(row++, new Label(), patternLine);
 
         grid.addRow(row++, top(SettingsDialog.label("appearance.colors")), colorGrid());
         contrastWarning.getStyleClass().addAll("muted", "dialog-warning");
@@ -258,7 +274,8 @@ final class AppearanceTab {
             picture.setMinSize(112, 60);
             picture.setPrefSize(112, 60);
             picture.setMaxSize(112, 60);
-            picture.setStyle(fill(palette.get(Palette.Slot.BACKGROUND)) + " -fx-background-radius: 6;");
+            picture.setStyle(fill(palette.get(Palette.Slot.BACKGROUND)) + " -fx-background-radius: 6;"
+                    + patternStyle(preset));
 
             Region side = block(28, 48, palette.get(Palette.Slot.PANEL));
             Region line1 = block(46, 5, palette.get(Palette.Slot.TEXT));
@@ -295,6 +312,21 @@ final class AppearanceTab {
             gallery.getChildren().add(card);
         }
         return gallery;
+    }
+
+    /**
+     * The theme's tile behind its card, small, so a card shows what the
+     * window will; nothing for a theme without one.
+     */
+    private static String patternStyle(ThemePreset preset) {
+        String name = preset.patternResource();
+        var url = name == null ? null : AppearanceTab.class.getResource(name);
+        if (url == null) {
+            return "";
+        }
+        return " -fx-background-image: url(\"" + url.toExternalForm().replace("\"", "%22") + "\");"
+                + " -fx-background-size: 128 128; -fx-background-repeat: repeat;"
+                + " -fx-background-position: left top;";
     }
 
     /** The twelve colours, each a swatch that opens the colour chooser. */
@@ -403,9 +435,20 @@ final class AppearanceTab {
             dimSlider.setValue(current.dim());
             blurSlider.setValue(current.blur());
             panelSlider.setValue(current.panelOpacity());
-            for (Node control : List.of(fitBox, dimSlider, blurSlider, panelSlider)) {
+            boolean pattern = current.showsPattern();
+            for (Node control : List.of(fitBox, blurSlider)) {
                 control.setDisable(!picture);
             }
+            // A theme's pattern is faded and shows through the panels as a
+            // picture does; it is not stretched or blurred.
+            for (Node control : List.of(dimSlider, panelSlider)) {
+                control.setDisable(!picture && !pattern);
+            }
+            boolean hasPattern = current.preset().hasPattern();
+            patternBox.setSelected(current.pattern());
+            patternBox.setDisable(!hasPattern || picture);
+            patternNote.setText(!hasPattern ? I18n.t("appearance.pattern.none")
+                    : picture ? I18n.t("appearance.pattern.replaced") : I18n.t("appearance.pattern.note"));
             dimValue.setText(I18n.t("appearance.value.percent", String.valueOf(current.dim())));
             blurValue.setText(I18n.t("appearance.value.pixels", String.valueOf(current.blur())));
             panelValue.setText(I18n.t("appearance.value.percent", String.valueOf(current.panelOpacity())));

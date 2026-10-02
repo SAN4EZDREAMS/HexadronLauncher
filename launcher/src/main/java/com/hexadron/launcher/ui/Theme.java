@@ -122,7 +122,7 @@ public final class Theme {
         if (dataRoot == null) {
             return;
         }
-        Path keep = appearance.hasBackground() ? preparedBackground : null;
+        Path keep = appearance.hasBackground() || appearance.showsPattern() ? preparedBackground : null;
         WORKER.execute(() -> BackdropImage.prune(cacheDir(), keep));
     }
 
@@ -359,7 +359,21 @@ public final class Theme {
                     LauncherLog.warn("Theme: background picture is missing: %s", picture);
                 }
             }
-            String css = ThemeCss.build(baseCss, lightCss, look, backgroundUrl);
+            Appearance drawn = look;
+            if (look.showsPattern()) {
+                try {
+                    prepared = preparePattern(look, cache);
+                    if (prepared != null) {
+                        backgroundUrl = prepared.toUri().toString();
+                        preparedBackground = prepared;
+                        // A pattern is a tile: it is only ever repeated.
+                        drawn = look.withFit(Appearance.Fit.TILE);
+                    }
+                } catch (IOException | RuntimeException e) {
+                    LauncherLog.warn("Theme: the theme's pattern not drawn: %s", e.toString());
+                }
+            }
+            String css = ThemeCss.build(baseCss, lightCss, drawn, backgroundUrl);
             Path file = cache.resolve("theme-" + ProcessHandle.current().pid() + "-" + generation + ".css");
             Files.writeString(file, css, StandardCharsets.UTF_8);
             return file.toUri().toString();
@@ -368,6 +382,39 @@ public final class Theme {
             return null;
         }
     }
+
+    /**
+     * The theme's tile, laid on the window colour and faded as a picture
+     * would be. Not blurred: a blur reaches past the tile's edge and would
+     * show a seam at every repeat.
+     */
+    private static Path preparePattern(Appearance look, Path cache) throws IOException {
+        String name = look.preset().patternResource();
+        if (name == null) {
+            return null;
+        }
+        byte[] tile;
+        try (InputStream in = Theme.class.getResourceAsStream(name)) {
+            if (in == null) {
+                throw new IOException("missing from the jar: " + name);
+            }
+            tile = in.readAllBytes();
+        }
+        return BackdropImage.prepareTile(tile, look.preset().id(), cache,
+                look.palette().get(Palette.Slot.BACKGROUND), patternFade(look.dim()));
+    }
+
+    /**
+     * How far a pattern is faded, for the Fade slider's value. Never less than
+     * {@link #PATTERN_FADE_MIN}: a picture has calm areas where text can sit,
+     * but a pattern is busy everywhere, and headings lie straight on it.
+     */
+    static int patternFade(int dim) {
+        return PATTERN_FADE_MIN + dim * (100 - PATTERN_FADE_MIN) / 100;
+    }
+
+    /** The least a pattern is faded, in percent, with the Fade slider at zero. */
+    static final int PATTERN_FADE_MIN = 45;
 
     private static String resource(String name) throws IOException {
         try (InputStream in = Theme.class.getResourceAsStream(name)) {

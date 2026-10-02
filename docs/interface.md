@@ -157,7 +157,7 @@ The cog button in either view opens the settings window. Save writes to `launche
 | Tab | Settings |
 |---|---|
 | General | Language (As the system, or one of the 16 languages); While the game runs (Hide to the notification area / Minimise the window / Keep the window as it is); Closing the launcher stops the game; Grid columns; Grid rows; Start-up window, seconds |
-| Appearance | Theme (7 themes); Colours (12 colours over the theme, Back to the theme's colours); Background picture with Placement, Fade, Blur and Panel opacity; Interface font; Fixed-width font; Text size (80-150 %); Export theme, Import theme, Reset appearance. See [Appearance](#appearance) |
+| Appearance | Theme (11 themes, 4 with a pattern); Colours (12 colours over the theme, Back to the theme's colours); Background picture with Placement, Fade, Blur and Panel opacity; Interface font; Fixed-width font; Text size (80-150 %); Export theme, Import theme, Reset appearance. See [Appearance](#appearance) |
 | Game | When Java is missing: Ask each time / Download it / Never download it; Memory for new instances, MB, with Automatic; Advanced: Check every file before each launch |
 | Network | Simultaneous downloads (1-32); Look for launcher updates at start-up; Update channel (Release / Nightly); Check for updates; Proxy (This computer's settings / Straight out, no proxy / A proxy I type in) with Address, Port, User, Password and Test the connection; SOCKS proxy for the game with Port |
 | Mods | Warn before breaking a mod's dependency; Look for mod updates; CurseForge API key, with a button that opens console.curseforge.com |
@@ -188,6 +188,12 @@ The Appearance tab of the settings window changes how every launcher window look
 | Nether | `nether` | Dark red-brown, orange accent |
 | End | `end` | Dark violet, purple accent |
 | Birch | `birch` | Warm light |
+| Pixel Moss | `moss` | Dark forest green. Pattern: pixel blocks, sprouts, gems, mushrooms, fuses and sparks |
+| Unicorn | `unicorn` | Light lavender, purple accent. Pattern: unicorns, rainbows, clouds, stars and hearts |
+| Pink Bows | `bows` | Light pink, pink accent. Pattern: bows, strawberries, flowers and hearts |
+| Sakura Night | `sakura` | Night violet, pink accent. Pattern: cherry blossoms, petals, lanterns and moons |
+
+**Theme pattern.** The last four themes have a pattern: a 512 x 512 tile in the jar (`ui/patterns/<theme>.png`), drawn on transparency. The launcher lays the tile on the window colour and repeats it behind the panels, so a changed window colour changes the pattern's background too. **Fade** and **Panel opacity** apply to the pattern (a pattern is always faded at least 45 %, because headings lie directly on it); Placement and Blur do not (a blur would show a seam at each repeat). The prepared tile is a PNG in `cache/theme/`. **Show the theme's pattern** turns it off. A background picture replaces the pattern; remove the picture to see the pattern again. The theme card in the gallery shows the pattern, small.
 
 **Colours.** Click a colour to change it with the colour chooser. A changed colour is marked with `*`. A change applies on top of the chosen theme; choosing another theme removes the changes, and **Back to the theme's colours** removes them too. When text on panels has a contrast below 4.5:1, a warning shows under the colours.
 

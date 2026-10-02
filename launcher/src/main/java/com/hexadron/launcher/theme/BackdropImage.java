@@ -126,6 +126,41 @@ public final class BackdropImage {
         return target;
     }
 
+    /**
+     * A theme's pattern tile as it is drawn: laid on the window colour and
+     * faded, at its own size. Written as PNG, not JPEG: the tiles have hard
+     * edges, and JPEG would ring around every one of them.
+     *
+     * @param tile the PNG from the jar
+     * @param id   the theme, for the file name
+     * @return the prepared file in {@code cacheDir}; made only if it is not there yet
+     */
+    public static Path prepareTile(byte[] tile, String id, Path cacheDir, String windowColor, int dim)
+            throws IOException {
+        String colour = Palette.parse(windowColor) == null ? "#000000" : Palette.parse(windowColor);
+        String safeId = id.replaceAll("[^a-z0-9]", "");
+        Path target = cacheDir.resolve("bg-tile-" + safeId + "-" + sha1(tile).substring(0, 8) + "-"
+                + colour.substring(1) + "-d" + dim + ".png");
+        if (Files.isRegularFile(target)) {
+            return target;
+        }
+        BufferedImage image = read(tile);
+        if (image == null) {
+            throw new IOException("the pattern of theme " + safeId + " cannot be read");
+        }
+        BufferedImage flat = flatten(image, colour);
+        if (dim > 0) {
+            fade(flat, colour, dim / 100.0);
+        }
+        Files.createDirectories(cacheDir);
+        Path partial = cacheDir.resolve(target.getFileName() + ".part");
+        if (!javax.imageio.ImageIO.write(flat, "png", partial.toFile())) {
+            throw new IOException("no PNG writer");
+        }
+        Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING);
+        return target;
+    }
+
     private static BufferedImage read(byte[] bytes) throws IOException {
         try (InputStream in = new java.io.ByteArrayInputStream(bytes)) {
             return javax.imageio.ImageIO.read(in);

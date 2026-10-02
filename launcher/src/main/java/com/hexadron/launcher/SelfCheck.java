@@ -3127,6 +3127,9 @@ public final class SelfCheck {
                 "appearance.changed", "appearance.colors.reset", "appearance.preset.hexadron",
                 "appearance.preset.light", "appearance.preset.oled", "appearance.preset.midnight",
                 "appearance.preset.nether", "appearance.preset.end", "appearance.preset.birch",
+                "appearance.preset.moss", "appearance.preset.unicorn", "appearance.preset.bows",
+                "appearance.preset.sakura", "appearance.pattern", "appearance.pattern.note",
+                "appearance.pattern.none", "appearance.pattern.replaced",
                 "appearance.colors", "appearance.color.background", "appearance.color.panel",
                 "appearance.color.control", "appearance.color.border", "appearance.color.text",
                 "appearance.color.textMuted", "appearance.color.accent",
@@ -7833,6 +7836,36 @@ public final class SelfCheck {
                         && com.hexadron.launcher.theme.ThemePreset.BIRCH.palette().isLight()
                         && !com.hexadron.launcher.theme.ThemePreset.OLED.palette().isLight()
                         && !own.isLight());
+
+        check("the pattern themes are light or dark as their tiles were drawn for",
+                com.hexadron.launcher.theme.ThemePreset.UNICORN.palette().isLight()
+                        && com.hexadron.launcher.theme.ThemePreset.BOWS.palette().isLight()
+                        && !com.hexadron.launcher.theme.ThemePreset.MOSS.palette().isLight()
+                        && !com.hexadron.launcher.theme.ThemePreset.SAKURA.palette().isLight());
+        for (var preset : com.hexadron.launcher.theme.ThemePreset.values()) {
+            String tile = preset.patternResource();
+            if (tile == null) {
+                continue;
+            }
+            java.awt.image.BufferedImage image = null;
+            try (var in = SelfCheck.class.getResourceAsStream(tile)) {
+                image = in == null ? null : javax.imageio.ImageIO.read(in);
+            } catch (java.io.IOException e) {
+                image = null;
+            }
+            check("theme " + preset.id() + ": its pattern is in the jar and is a picture", image != null);
+            check("theme " + preset.id() + ": the pattern has transparency, to lie on the window colour",
+                    image != null && image.getColorModel().hasAlpha());
+        }
+        var patterned = com.hexadron.launcher.theme.Appearance.DEFAULT
+                .withPreset(com.hexadron.launcher.theme.ThemePreset.SAKURA);
+        check("a pattern theme shows its pattern", patterned.showsPattern());
+        check("a picture replaces it", !patterned.withBackground("backgrounds/0123456789abcdef.png").showsPattern());
+        check("and it can be turned off", !patterned.withPattern(false).showsPattern());
+        check("a theme without one shows none", !com.hexadron.launcher.theme.Appearance.DEFAULT.showsPattern());
+        check("turning it off is saved",
+                !com.hexadron.launcher.theme.Appearance.fromJson(patterned.withPattern(false).toJson()).pattern()
+                        && com.hexadron.launcher.theme.Appearance.fromJson(patterned.toJson()).pattern());
 
         var look = com.hexadron.launcher.theme.Appearance.DEFAULT;
         String plain = com.hexadron.launcher.theme.ThemeCss.build(base, light, look, null);

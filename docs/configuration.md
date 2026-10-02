@@ -110,7 +110,7 @@ A key that is missing, or has a value of the wrong JSON type, gets its default.
 
 | Key | Type | Default | Values and limits |
 |---|---|---|---|
-| `theme` | string | `"hexadron"` | `hexadron`, `light`, `oled`, `midnight`, `nether`, `end`, `birch`. Other values mean `hexadron` |
+| `theme` | string | `"hexadron"` | `hexadron`, `light`, `oled`, `midnight`, `nether`, `end`, `birch`, `moss`, `unicorn`, `bows`, `sakura`. Other values mean `hexadron` |
 | `colors` | object | `{}` | Colours changed over the theme, by name: `background`, `panel`, `control`, `border`, `text`, `textMuted`, `accent`, `accentHover`, `danger`, `warning`, `modpack`, `datapack`. Values are `#rrggbb` (`#rgb` is accepted). Other names and values are ignored; a colour equal to the theme's is dropped |
 | `background` | string | `""` | The picture, as `backgrounds/<16 hex characters>.<png, jpg, jpeg, gif or bmp>`. Any other value means no picture |
 | `backgroundFit` | string | `"cover"` | `cover`, `contain`, `stretch`, `center` or `tile` |
@@ -120,6 +120,7 @@ A key that is missing, or has a value of the wrong JSON type, gets its default.
 | `font` | string | `""` | Interface font family. Empty: the launcher's own (`Segoe UI`, `Inter`, `Noto Sans`, sans-serif) |
 | `monoFont` | string | `""` | Fixed-width font family. Empty: `Consolas`, `Menlo`, monospace |
 | `fontScale` | number | `100` | Text size, %. Rounded to 5 and clamped to 80-150 |
+| `themePattern` | boolean | `true` | Draw the theme's pattern when there is no background picture. No effect for a theme without a pattern |
 
 Font names lose quotes, backslashes, `;`, `{`, `}`, `<`, `>` and control characters, and are cut to 100 characters.
 

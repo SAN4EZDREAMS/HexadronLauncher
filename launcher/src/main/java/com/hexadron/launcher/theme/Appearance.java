@@ -77,7 +77,7 @@ public final class Appearance {
 
     /** What a first run looks like: the launcher's own theme, no picture, the default fonts. */
     public static final Appearance DEFAULT = new Appearance(ThemePreset.HEXADRON,
-            new EnumMap<>(Palette.Slot.class), "", Fit.COVER, 35, 0, 85, "", "", 100);
+            new EnumMap<>(Palette.Slot.class), "", Fit.COVER, 35, 0, 85, "", "", 100, true);
 
     private final ThemePreset preset;
     private final EnumMap<Palette.Slot, String> overrides;
@@ -89,10 +89,11 @@ public final class Appearance {
     private final String font;
     private final String monoFont;
     private final int fontScale;
+    private final boolean pattern;
 
     private Appearance(ThemePreset preset, EnumMap<Palette.Slot, String> overrides, String background,
                        Fit fit, int dim, int blur, int panelOpacity, String font, String monoFont,
-                       int fontScale) {
+                       int fontScale, boolean pattern) {
         this.preset = preset == null ? ThemePreset.HEXADRON : preset;
         // Only colours that differ from the preset are kept: a theme that was
         // changed back by hand is the theme again, not a copy of it.
@@ -113,6 +114,7 @@ public final class Appearance {
         this.monoFont = fontName(monoFont);
         int scale = Math.round(fontScale / (float) FONT_SCALE_STEP) * FONT_SCALE_STEP;
         this.fontScale = Math.max(FONT_SCALE_MIN, Math.min(FONT_SCALE_MAX, scale));
+        this.pattern = pattern;
     }
 
     /**
@@ -186,6 +188,16 @@ public final class Appearance {
         return monoFont;
     }
 
+    /** True unless the player turned the theme's pattern off. */
+    public boolean pattern() {
+        return pattern;
+    }
+
+    /** True when the theme's pattern is drawn: the theme has one, it is on, and no picture replaces it. */
+    public boolean showsPattern() {
+        return pattern && preset.hasPattern() && !hasBackground();
+    }
+
     /** Text size in percent of the launcher's own, 80-150 in steps of 5. */
     public int fontScale() {
         return fontScale;
@@ -196,7 +208,7 @@ public final class Appearance {
     /** Another theme, with the colour changes dropped: they belonged to the old one. */
     public Appearance withPreset(ThemePreset value) {
         return new Appearance(value, new EnumMap<>(Palette.Slot.class), background, fit, dim, blur,
-                panelOpacity, font, monoFont, fontScale);
+                panelOpacity, font, monoFont, fontScale, pattern);
     }
 
     public Appearance withColor(Palette.Slot slot, String hex) {
@@ -207,45 +219,51 @@ public final class Appearance {
         } else {
             copy.put(slot, colour);
         }
-        return new Appearance(preset, copy, background, fit, dim, blur, panelOpacity, font, monoFont, fontScale);
+        return new Appearance(preset, copy, background, fit, dim, blur, panelOpacity, font, monoFont, fontScale, pattern);
     }
 
     /** The theme's own colours again. */
     public Appearance withoutColorChanges() {
         return new Appearance(preset, new EnumMap<>(Palette.Slot.class), background, fit, dim, blur,
-                panelOpacity, font, monoFont, fontScale);
+                panelOpacity, font, monoFont, fontScale, pattern);
     }
 
     public Appearance withBackground(String value) {
-        return new Appearance(preset, overrides, value, fit, dim, blur, panelOpacity, font, monoFont, fontScale);
+        return new Appearance(preset, overrides, value, fit, dim, blur, panelOpacity, font, monoFont, fontScale, pattern);
     }
 
     public Appearance withFit(Fit value) {
-        return new Appearance(preset, overrides, background, value, dim, blur, panelOpacity, font, monoFont, fontScale);
+        return new Appearance(preset, overrides, background, value, dim, blur, panelOpacity, font, monoFont, fontScale, pattern);
     }
 
     public Appearance withDim(int value) {
-        return new Appearance(preset, overrides, background, fit, value, blur, panelOpacity, font, monoFont, fontScale);
+        return new Appearance(preset, overrides, background, fit, value, blur, panelOpacity, font, monoFont, fontScale, pattern);
     }
 
     public Appearance withBlur(int value) {
-        return new Appearance(preset, overrides, background, fit, dim, value, panelOpacity, font, monoFont, fontScale);
+        return new Appearance(preset, overrides, background, fit, dim, value, panelOpacity, font, monoFont, fontScale, pattern);
     }
 
     public Appearance withPanelOpacity(int value) {
-        return new Appearance(preset, overrides, background, fit, dim, blur, value, font, monoFont, fontScale);
+        return new Appearance(preset, overrides, background, fit, dim, blur, value, font, monoFont, fontScale, pattern);
     }
 
     public Appearance withFont(String value) {
-        return new Appearance(preset, overrides, background, fit, dim, blur, panelOpacity, value, monoFont, fontScale);
+        return new Appearance(preset, overrides, background, fit, dim, blur, panelOpacity, value, monoFont, fontScale, pattern);
     }
 
     public Appearance withMonoFont(String value) {
-        return new Appearance(preset, overrides, background, fit, dim, blur, panelOpacity, font, value, fontScale);
+        return new Appearance(preset, overrides, background, fit, dim, blur, panelOpacity, font, value, fontScale, pattern);
+    }
+
+    /** Whether the theme's own pattern is drawn when there is no picture. */
+    public Appearance withPattern(boolean value) {
+        return new Appearance(preset, overrides, background, fit, dim, blur, panelOpacity, font, monoFont,
+                fontScale, value);
     }
 
     public Appearance withFontScale(int value) {
-        return new Appearance(preset, overrides, background, fit, dim, blur, panelOpacity, font, monoFont, value);
+        return new Appearance(preset, overrides, background, fit, dim, blur, panelOpacity, font, monoFont, value, pattern);
     }
 
     // ---------------------------------------------------------------- json
@@ -264,7 +282,8 @@ public final class Appearance {
                 .put("panelOpacity", panelOpacity)
                 .put("font", font)
                 .put("monoFont", monoFont)
-                .put("fontScale", fontScale);
+                .put("fontScale", fontScale)
+                .put("themePattern", pattern);
     }
 
     /** Reads what {@link #toJson} wrote; anything missing or unusable is the default. */
@@ -291,7 +310,8 @@ public final class Appearance {
                 json.get("panelOpacity").asInt(DEFAULT.panelOpacity),
                 json.get("font").asString(""),
                 json.get("monoFont").asString(""),
-                json.get("fontScale").asInt(100));
+                json.get("fontScale").asInt(100),
+                json.get("themePattern").asBool(true));
     }
 
     /**
@@ -319,11 +339,13 @@ public final class Appearance {
         return other instanceof Appearance that && preset == that.preset && overrides.equals(that.overrides)
                 && background.equals(that.background) && fit == that.fit && dim == that.dim
                 && blur == that.blur && panelOpacity == that.panelOpacity && font.equals(that.font)
-                && monoFont.equals(that.monoFont) && fontScale == that.fontScale;
+                && monoFont.equals(that.monoFont) && fontScale == that.fontScale
+                && pattern == that.pattern;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(preset, overrides, background, fit, dim, blur, panelOpacity, font, monoFont, fontScale);
+        return Objects.hash(preset, overrides, background, fit, dim, blur, panelOpacity, font, monoFont, fontScale,
+                pattern);
     }
 }
