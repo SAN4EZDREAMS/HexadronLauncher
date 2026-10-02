@@ -579,6 +579,43 @@ public final class LauncherService {
         return prepared;
     }
 
+    /**
+     * The missing mods of a crash, from all its causes, with the fix found for
+     * each: what the crash window's one "install them all" button installs.
+     */
+    public com.hexadron.launcher.crash.MissingMods missingMods(Profile profile,
+            java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> diagnoses,
+            java.util.Map<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis,
+                    java.util.List<com.hexadron.launcher.crash.CrashFixes.Prepared>> fixes) {
+        java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsOf(profile);
+        String loaderKey = profile.loader().name().toLowerCase(java.util.Locale.ROOT);
+        com.hexadron.launcher.crash.CrashRules rules = crashRules.current();
+        return com.hexadron.launcher.crash.MissingMods.of(diagnoses, fixes, id -> {
+            String name = com.hexadron.launcher.crash.CrashFixes.displayName(mods, id);
+            return name == null || name.equals(id)
+                    ? rules.libraryForMod(id, loaderKey).map(com.hexadron.launcher.crash.CrashRules.Library::name)
+                            .orElse(id)
+                    : name;
+        }, profile.minecraftVersion(), profile.loader().displayName());
+    }
+
+    /**
+     * What to switch off when these mods need something that cannot be had:
+     * them, everything that needs them, and the libraries only they needed.
+     * Read from the folder as it is now, so installs made a moment ago count.
+     */
+    public java.util.Optional<com.hexadron.launcher.crash.CrashFixes.SwitchOffPlan> planCrashSwitchOff(
+            Profile profile, java.util.Collection<String> modIds) {
+        String loaderKey = profile.loader().name().toLowerCase(java.util.Locale.ROOT);
+        java.util.Set<String> known = new java.util.HashSet<>();
+        for (com.hexadron.launcher.crash.CrashRules.Library library : crashRules.current().libraries()) {
+            if (library.serves(loaderKey)) {
+                known.addAll(library.ids());
+            }
+        }
+        return com.hexadron.launcher.crash.CrashFixes.planSwitchOff(modIds, modsOf(profile), known::contains);
+    }
+
     /** How long the crash window waits for a fix that has to ask the network. */
     static final long FIX_LOOKUP_SECONDS = 8;
 

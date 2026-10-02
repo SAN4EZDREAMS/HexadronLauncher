@@ -1903,6 +1903,7 @@ public final class MainWindow implements ProfileHost {
             for (CrashAnalyzer.Diagnosis diagnosis : diagnoses) {
                 fixes.put(diagnosis, service.prepareCrashFixes(profile, diagnosis));
             }
+            com.hexadron.launcher.crash.MissingMods missing = service.missingMods(profile, diagnoses, fixes);
             if (diagnoses.isEmpty()) {
                 progress.log(I18n.t("crash.log.none"));
             }
@@ -1915,7 +1916,7 @@ public final class MainWindow implements ProfileHost {
                     + ", sources " + evidence.files().keySet());
             Platform.runLater(() -> {
                 try {
-                    new CrashDialog(exitCode, diagnoses, fixes, evidence, gameDir,
+                    new CrashDialog(exitCode, diagnoses, fixes, missing, evidence, gameDir,
                             crashActions(profile)).show(stage);
                 } catch (RuntimeException e) {
                     com.hexadron.launcher.core.LauncherLog.error("Crash window could not open", e);
@@ -1954,6 +1955,41 @@ public final class MainWindow implements ProfileHost {
                         Platform.runLater(() -> onFailure.accept(reason));
                     }
                 });
+            }
+
+            @Override
+            public boolean applyEach(java.util.List<CrashFixes.Prepared> all,
+                                     java.util.function.BiConsumer<CrashFixes.Prepared, String> each,
+                                     Runnable done) {
+                if (busy || (session != null && session.isRunning())) {
+                    return false;
+                }
+                // One background task for the lot: the launcher takes one task at
+                // a time, and a second one started from the first one's callback
+                // would find it still running and be refused.
+                runInBackground(I18n.t("crash.fix.task"), () -> {
+                    for (CrashFixes.Prepared fix : all) {
+                        String failure = null;
+                        try {
+                            progress.log(service.applyCrashFix(profile, fix, progress));
+                        } catch (IOException | RuntimeException e) {
+                            failure = describe(e);
+                            progress.log(I18n.t("crash.fix.failed", failure));
+                        }
+                        String reported = failure;
+                        Platform.runLater(() -> each.accept(fix, reported));
+                    }
+                    Platform.runLater(() -> {
+                        done.run();
+                        showProfile(shown);
+                    });
+                });
+                return true;
+            }
+
+            @Override
+            public java.util.Optional<CrashFixes.SwitchOffPlan> planSwitchOff(java.util.Collection<String> modIds) {
+                return service.planCrashSwitchOff(profile, modIds);
             }
 
             @Override

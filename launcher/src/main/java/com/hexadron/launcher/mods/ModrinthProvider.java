@@ -76,7 +76,7 @@ public final class ModrinthProvider implements ModProvider {
             // One group, several tags: a Modrinth facet group is an OR, and for
             // Quilt the honest question is "quilt or fabric", not "quilt".
             List<String> tags = new ArrayList<>();
-            for (String platformId : loader.platformIds()) {
+            for (String platformId : loader.platformIds(minecraftVersion)) {
                 tags.add("\"categories:" + platformId + "\"");
             }
             facetGroups.add("[" + String.join(",", tags) + "]");
@@ -144,7 +144,7 @@ public final class ModrinthProvider implements ModProvider {
         // programs this instance can actually load a pack with, and no rule
         // written against a LoaderType can work that out.
         List<String> tags = loaderTags == null || loaderTags.isEmpty()
-                ? fileLoaderTags(kind, loader)
+                ? fileLoaderTags(kind, loader, minecraftVersion)
                 : loaderTags;
         if (!tags.isEmpty()) {
             StringBuilder loaders = new StringBuilder("[");
@@ -208,10 +208,10 @@ public final class ModrinthProvider implements ModProvider {
      * @param loader the loader to ask for, or {@link LoaderType#VANILLA} for the
      *               plain pack
      */
-    private static List<String> fileLoaderTags(ContentKind kind, LoaderType loader) {
+    private static List<String> fileLoaderTags(ContentKind kind, LoaderType loader, String minecraftVersion) {
         boolean modded = loader != null && loader.isModded();
         if (kind == ContentKind.DATAPACK) {
-            return modded ? loader.platformIds() : List.of(kind.modrinthLoaderTag());
+            return modded ? loader.platformIds(minecraftVersion) : List.of(kind.modrinthLoaderTag());
         }
         if (kind == ContentKind.SHADER) {
             // Nothing was said about which program will load it, so any of the
@@ -226,7 +226,7 @@ public final class ModrinthProvider implements ModProvider {
             // answer meant for the resourcepacks folder.
             return List.of(kind.modrinthLoaderTag());
         }
-        return kind.isFilteredByLoader() && modded ? loader.platformIds() : List.of();
+        return kind.isFilteredByLoader() && modded ? loader.platformIds(minecraftVersion) : List.of();
     }
 
     @Override
@@ -509,7 +509,7 @@ public final class ModrinthProvider implements ModProvider {
                 java.util.Map.of("Accept", "application/json"));
 
         Json loaders = Json.array();
-        fileLoaderTags(kind, loader).forEach(loaders::add);
+        fileLoaderTags(kind, loader, minecraftVersion).forEach(loaders::add);
         Json versions = Json.array();
         if (kind.isFilteredByVersion() && minecraftVersion != null && !minecraftVersion.isBlank()) {
             versions.add(minecraftVersion);

@@ -583,6 +583,113 @@ public final class CrashFixes {
         return found;
     }
 
+    /**
+     * What has to go when a mod some others need cannot be had.
+     *
+     * @param askers     the mods that need it, switched on
+     * @param dependents the mods that need one of those, at any depth; they go
+     *                   with them or they stop the game the same way
+     * @param libraries  the mods only these needed, with nothing left that does
+     */
+    public record SwitchOffPlan(List<ModEntry> askers, List<ModEntry> dependents, List<Library> libraries) {
+        public SwitchOffPlan {
+            askers = List.copyOf(askers);
+            dependents = List.copyOf(dependents);
+            libraries = List.copyOf(libraries);
+        }
+
+        /**
+         * A library left over.
+         *
+         * @param likely true when it is plainly a library - the rule file
+         *               lists it, or its platform files it under libraries -
+         *               and so worth switching off unasked. A content mod that
+         *               only an add-on needed (Create, for a Create add-on) is
+         *               not, and is offered unticked
+         */
+        public record Library(ModEntry mod, boolean likely) {
+        }
+
+        /** The fix that switches these off: every asker, every dependent, and these libraries. */
+        public Prepared prepared(List<ModEntry> chosenLibraries) {
+            List<ModEntry> also = new ArrayList<>(dependents);
+            also.addAll(chosenLibraries);
+            String subject = askers.stream().map(CrashFixes::nameOf)
+                    .collect(java.util.stream.Collectors.joining(", "));
+            String id = ModScan.descriptorOf(askers.get(0).path()).modId();
+            return new Prepared(new CrashFix(CrashFix.Kind.DISABLE_MOD, id == null ? askers.get(0).fileName() : id),
+                    subject, askers, also, 0);
+        }
+    }
+
+    /**
+     * The mods to switch off because something they need cannot be had: the
+     * switched-on mods with one of these ids, everything that needs them, and
+     * the libraries nothing that stays needs any more.
+     *
+     * @param knownLibrary true for a mod id the rule file lists as a library
+     */
+    public static Optional<SwitchOffPlan> planSwitchOff(java.util.Collection<String> modIds, List<ModEntry> mods,
+                                                        java.util.function.Predicate<String> knownLibrary) {
+        Map<String, ModEntry> askers = new LinkedHashMap<>();
+        for (String id : modIds) {
+            for (ModEntry entry : byModId(mods, id)) {
+                if (entry.enabled()) {
+                    askers.putIfAbsent(entry.key(), entry);
+                }
+            }
+        }
+        if (askers.isEmpty()) {
+            return Optional.empty();
+        }
+        ModDependents graph = ModDependents.of(mods);
+        Map<String, ModEntry> dependents = new LinkedHashMap<>();
+        java.util.ArrayDeque<ModEntry> queue = new java.util.ArrayDeque<>(askers.values());
+        while (!queue.isEmpty()) {
+            for (ModEntry dependent : graph.of(queue.poll())) {
+                if (dependent.enabled() && !askers.containsKey(dependent.key())
+                        && dependents.putIfAbsent(dependent.key(), dependent) == null) {
+                    queue.add(dependent);
+                }
+            }
+        }
+
+        // Round by round: a library that goes can leave a library of its own
+        // with nothing that needs it.
+        Set<String> leaving = new java.util.HashSet<>(askers.keySet());
+        leaving.addAll(dependents.keySet());
+        Map<String, SwitchOffPlan.Library> libraries = new LinkedHashMap<>();
+        for (boolean grew = true; grew; ) {
+            grew = false;
+            Set<String> neededByLeaving = new java.util.HashSet<>();
+            Set<String> neededByStaying = new java.util.HashSet<>();
+            for (ModEntry mod : mods) {
+                if (mod.enabled()) {
+                    (leaving.contains(mod.key()) ? neededByLeaving : neededByStaying)
+                            .addAll(com.hexadron.launcher.mods.Requirements.required(mod));
+                }
+            }
+            for (ModEntry mod : mods) {
+                if (!mod.enabled() || leaving.contains(mod.key())) {
+                    continue;
+                }
+                String id = ModScan.descriptorOf(mod.path()).modId();
+                Set<String> provides = com.hexadron.launcher.mods.Requirements.provided(mod.path(), id);
+                boolean wanted = provides.stream().anyMatch(neededByLeaving::contains);
+                boolean stillWanted = provides.stream().anyMatch(neededByStaying::contains);
+                if (wanted && !stillWanted) {
+                    boolean likely = mod.categories().contains(com.hexadron.launcher.mods.ModCategory.LIBRARY)
+                            || provides.stream().anyMatch(knownLibrary);
+                    libraries.put(mod.key(), new SwitchOffPlan.Library(mod, likely));
+                    leaving.add(mod.key());
+                    grew = true;
+                }
+            }
+        }
+        return Optional.of(new SwitchOffPlan(List.copyOf(askers.values()), List.copyOf(dependents.values()),
+                List.copyOf(libraries.values())));
+    }
+
     private static Optional<Prepared> switchOff(CrashFix fix, List<ModEntry> mods,
                                                 List<ModEntry> candidates) {
         List<ModEntry> targets = candidates.stream().filter(ModEntry::enabled).toList();

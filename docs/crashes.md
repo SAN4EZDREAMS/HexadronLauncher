@@ -40,7 +40,7 @@ The built-in rule file is `launcher/src/main/resources/crash/rules.json`. It kno
 | Game heap full (`OutOfMemoryError: Java heap space`) | all | **Raise memory to N GB** |
 | No free system memory (page file, `insufficient memory for the Java Runtime`) | all | **Lower memory to N GB** |
 | Java could not reserve the heap (32-bit Java, too large a limit) | all | **Let the launcher choose Java**, **Lower memory** |
-| Required mod missing | Fabric, Forge (1.12 and 1.13+), NeoForge | **Switch on** *mod* when a switched-off copy is in the folder; otherwise **Install** *mod* from Modrinth (see below); **Switch off** the mod that needs it |
+| Required mod missing | Fabric, Forge (1.12 and 1.13+), NeoForge | Shown together in the **Required mods are missing** block (see below): **Install all required mods**, **Switch off the mods that need them**, a web search for each mod not found |
 | Mod needs another version of a mod | Fabric, Forge, NeoForge | **Switch off** the mod. When the other "mod" is the loader itself (`forge`, `neoforge`, `fabricloader`): **Update to** *loader version* first |
 | Mod for another Minecraft version | Fabric, Forge, NeoForge | **Switch off** the mod |
 | Same mod installed twice | Forge (1.12 and 1.13+), NeoForge | **Keep the newest**: switches off the copies with a lower version in their jar; the file date decides only when the versions are equal or cannot be read |
@@ -77,6 +77,29 @@ A cause that stops the loader before the mods start (a mod installed twice, a mi
 When every cause has a recommended fix, the window has **Fix and start the game**: it applies them in order, each only once, and starts the game. A fix is recommended when it is the only one, or when it is first and repairs rather than removes (install, switch on, update the loader, reset a file, remove an option, Java, memory, keep the newest copy, check the game files). The fixes you applied one by one already are skipped. When a cause has no fix, or a choice between two things to switch off (two incompatible mods, for example), you choose, and the button is not shown.
 
 ### Fixes that need the network
+
+### Required mods are missing
+
+When one or more causes are a missing mod, the window shows them in one block above the other causes, each missing mod once, with the mods that need it. The causes of that kind get no card of their own.
+
+| State of a missing mod | What the block shows |
+|---|---|
+| Modrinth or CurseForge has a file for this Minecraft version and loader | **Found on Modrinth** (or CurseForge): installs with its own required dependencies |
+| A switched-off copy is in the `mods` folder | It will be switched on |
+| Nothing found | **Not found for Minecraft** *version* · *loader*, and **Search the web:** *Minecraft version loader name* - a link that opens a Google search with these words in the browser |
+| Installing it failed | The reason, and the same search link |
+
+**Install all required mods (N)** installs or switches on every mod that was found, one after another in one task. A failure does not stop the others. When all are there, **Start the game again** becomes the main button.
+
+**Switch off the mods that need them** is shown while at least one mod is not found or did not install. It reads the `mods` folder again and asks first. The question lists:
+
+- the mods that need the missing mods;
+- the mods that need those, at any depth: without them these do not start either, so they go too;
+- the libraries that nothing left switched on needs any more, each with a tick box. A box is ticked when the mod is plainly a library (the rule file lists it, or its platform files it under libraries). A content mod that only an add-on needed is not ticked.
+
+Switching off renames the jars to `.disabled`. Nothing is deleted.
+
+NeoForge for Minecraft 1.20.1 is the Forge of 1.20.1 under a new name and loads Forge mods. For that version the launcher accepts `neoforge` and `forge` files: in Modrinth searches and file lookups, and in CurseForge file lookups (a CurseForge search takes one loader and stays `neoforge`). From 1.20.2 on, only `neoforge`.
 
 **Install** and **Update to** are looked up while the crash is analysed, at most 8 seconds each, and are offered only when they can work: a Modrinth project with a file for this Minecraft version and loader, or a loader build newer than the profile's. With no connection there is no button, not a button that fails.
 

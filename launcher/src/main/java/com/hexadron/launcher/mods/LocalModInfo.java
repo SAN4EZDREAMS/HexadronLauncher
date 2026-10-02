@@ -752,6 +752,17 @@ public record LocalModInfo(String modId, String name, String version, String des
                 if (line.isEmpty() || line.startsWith("#")) {
                     continue;
                 }
+                if (line.startsWith("[")) {
+                    // A comment after a header: "[[mods]] #mandatory", which is
+                    // how the Forge MDK's own example file writes it, and so how
+                    // a great many mods ship. Read as it stands, the header is
+                    // not a header, and the mod has no id - no fix can find it.
+                    // Cut only after the first ']', where no quoted key can be.
+                    int hash = line.indexOf('#', Math.max(0, line.indexOf(']')));
+                    if (hash > 0) {
+                        line = line.substring(0, hash).trim();
+                    }
+                }
                 if (line.startsWith("[[") && line.endsWith("]]")) {
                     Map<String, String> table = new LinkedHashMap<>();
                     arrays.computeIfAbsent(line.substring(2, line.length() - 2).trim(),

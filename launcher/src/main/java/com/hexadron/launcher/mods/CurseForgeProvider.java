@@ -771,7 +771,7 @@ public final class CurseForgeProvider implements ModProvider {
         // that is the Quilt build when the author published one and the Fabric
         // build otherwise - which is the file Quilt Loader will load either way.
         List<String> platformIds = kind.isFilteredByLoader() && loader != null
-                ? loader.platformIds() : List.of();
+                ? loader.platformIds(minecraftVersion) : List.of();
         if (platformIds.isEmpty()) {
             return resolveLatestFor(projectId, version, null);
         }

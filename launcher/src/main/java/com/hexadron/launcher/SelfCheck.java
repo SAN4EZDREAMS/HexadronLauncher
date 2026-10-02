@@ -193,6 +193,7 @@ public final class SelfCheck {
         translations();
         startupSteps();
         crashAnalysis();
+        missingModsCard();
         problemModSearch();
 
         System.out.println();
@@ -2924,7 +2925,8 @@ public final class SelfCheck {
                 "mods.curseforge.key.saved", "mods.searchPartial",
                 "editor.wrapper", "editor.wrapper.prompt", "editor.wrapper.note",
                 "ui.mode.grid", "ui.mode.toGrid", "ui.mode.toList", "inventory.hint",
-                "profiles.sort", "profiles.new.item", "groups.new", "groups.new.title", "groups.new.header",
+                "profiles.sort", "profiles.new.item", "crash.missing.title", "crash.missing.installAll",
+                "crash.missing.disable", "crash.missing.search", "crash.missing.confirm.header", "groups.new", "groups.new.title", "groups.new.header",
                 "groups.new.body", "groups.new.default", "groups.remove", "groups.remove.header",
                 "groups.remove.body", "groups.collapse", "groups.expand",
                 "groups.settings", "groups.settings.title", "groups.name",
@@ -7534,6 +7536,13 @@ public final class SelfCheck {
                 !LoaderType.NEOFORGE.platformIds().contains("forge"));
         check("nor Forge NeoForge ones",
                 !LoaderType.FORGE.platformIds().contains("neoforge"));
+        // NeoForge for 1.20.1 is the Forge of 1.20.1 renamed, and most mods for
+        // it were only published as Forge files: playerAnimator, for one.
+        check("NeoForge for 1.20.1 is offered Forge files too",
+                LoaderType.NEOFORGE.platformIds("1.20.1").equals(java.util.List.of("neoforge", "forge")));
+        check("and from 1.20.2 on it is not",
+                LoaderType.NEOFORGE.platformIds("1.20.2").equals(java.util.List.of("neoforge"))
+                        && LoaderType.FORGE.platformIds("1.20.1").equals(java.util.List.of("forge")));
         check("a profile with no loader asks for nothing",
                 LoaderType.VANILLA.platformIds().isEmpty()
                         && LoaderType.VANILLA.searchPlatformId() == null);
@@ -8996,6 +9005,91 @@ public final class SelfCheck {
         var evidence = com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(source, List.of(lines)));
         var found = com.hexadron.launcher.crash.CrashAnalyzer.analyze(evidence, rules, "en");
         return found.isEmpty() ? "none" : found.get(0).ruleId();
+    }
+
+    /** A mods.toml the way the Forge MDK writes one: a comment after every header. */
+    private static String mdkToml(String id, String name, String... requires) {
+        StringBuilder toml = new StringBuilder("modLoader=\"javafml\" #mandatory\n[[mods]] #mandatory\n")
+                .append("modId=\"").append(id).append("\" #mandatory\n")
+                .append("version=\"1.0\"\ndisplayName=\"").append(name).append("\"\n");
+        for (String need : requires) {
+            toml.append("[[dependencies.").append(id).append("]] #optional\n")
+                    .append("modId=\"").append(need).append("\"\nmandatory=true #mandatory\n")
+                    .append("versionRange=\"[1,)\"\n");
+        }
+        return toml.toString();
+    }
+
+    private static void missingModsCard() {
+        section("Missing mods in the crash window");
+        try {
+            Path dir = java.nio.file.Files.createTempDirectory("hexadron-missing");
+            writeJar(dir.resolve("bettercombat.jar"), Map.of("META-INF/mods.toml",
+                    mdkToml("bettercombat", "Better Combat", "playeranimator", "cloth_config", "shared", "forge")));
+            writeJar(dir.resolve("addon.jar"), Map.of("META-INF/mods.toml",
+                    mdkToml("combataddon", "Combat Addon", "bettercombat", "content")));
+            writeJar(dir.resolve("cloth.jar"), Map.of("META-INF/mods.toml", mdkToml("cloth_config", "Cloth Config")));
+            writeJar(dir.resolve("content.jar"), Map.of("META-INF/mods.toml", mdkToml("content", "Big Content Mod")));
+            writeJar(dir.resolve("shared.jar"), Map.of("META-INF/mods.toml", mdkToml("shared", "Shared Library")));
+            writeJar(dir.resolve("other.jar"), Map.of("META-INF/mods.toml", mdkToml("other", "Other", "shared")));
+            List<ModEntry> mods = ModScan.scan(dir, "1.20.1");
+
+            check("a header with a comment after it is still a header",
+                    "bettercombat".equals(ModScan.descriptorOf(dir.resolve("bettercombat.jar")).modId())
+                            && "Better Combat".equals(ModScan.descriptorOf(dir.resolve("bettercombat.jar")).name()));
+            check("and its requirements are read past the comments",
+                    ModScan.descriptorOf(dir.resolve("bettercombat.jar")).depends().contains("playeranimator"));
+            check("so the plain switch-off fix finds the mod again",
+                    com.hexadron.launcher.crash.CrashFixes.prepare(new com.hexadron.launcher.crash.CrashFix(
+                            com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_MOD, "bettercombat"),
+                            null, mods, -1, null).isPresent());
+
+            var plan = com.hexadron.launcher.crash.CrashFixes.planSwitchOff(List.of("bettercombat"), mods,
+                    "cloth_config"::equals);
+            java.util.function.Function<List<ModEntry>, List<String>> titles =
+                    list -> list.stream().map(ModEntry::title).sorted().toList();
+            check("the switch-off plan takes the mod that asked",
+                    plan.isPresent() && titles.apply(plan.get().askers()).equals(List.of("Better Combat")));
+            check("and the mods that need it, which would stop the game the same way",
+                    plan.isPresent() && titles.apply(plan.get().dependents()).equals(List.of("Combat Addon")));
+            java.util.Map<String, Boolean> libraries = new java.util.TreeMap<>();
+            plan.ifPresent(found -> found.libraries().forEach(library ->
+                    libraries.put(library.mod().title(), library.likely())));
+            check("and offers the libraries left with nothing that needs them",
+                    libraries.keySet().equals(java.util.Set.of("Big Content Mod", "Cloth Config")));
+            check("ticking a known library, and not a content mod an add-on needed",
+                    Boolean.TRUE.equals(libraries.get("Cloth Config"))
+                            && Boolean.FALSE.equals(libraries.get("Big Content Mod")));
+            check("a library something staying still needs is left alone",
+                    !libraries.containsKey("Shared Library"));
+            check("the fix switches off asker, dependents and the chosen libraries",
+                    plan.isPresent() && plan.get().prepared(List.of()).targets().size() == 1
+                            && plan.get().prepared(List.of()).dependents().size() == 1);
+            check("nothing to plan when the mod that asked is off already",
+                    com.hexadron.launcher.crash.CrashFixes.planSwitchOff(List.of("nosuchmod"), mods, id -> false)
+                            .isEmpty());
+
+            var OUT = com.hexadron.launcher.crash.CrashRules.Source.OUTPUT;
+            java.util.function.BiFunction<String, String, com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> missing =
+                    (dep, mod) -> new com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis("forge-missing-dependency",
+                            "missingDep", 84, "", "", "", List.of(), Map.of("dep", dep, "mod", mod), OUT, "");
+            var first = missing.apply("playeranimator", "bettercombat");
+            var second = missing.apply("playeranimator", "combataddon");
+            var loader = missing.apply("forge", "bettercombat");
+            var gathered = com.hexadron.launcher.crash.MissingMods.of(List.of(first, second, loader), Map.of(),
+                    id -> "playeranimator".equals(id) ? "playerAnimator" : id, "1.20.1", "NeoForge");
+            check("two causes that miss the same mod are one line",
+                    gathered.needs().size() == 1
+                            && gathered.needs().get(0).neededBy().equals(List.of("bettercombat", "combataddon")));
+            check("a loader is not a missing mod",
+                    gathered.needs().stream().noneMatch(need -> need.id().equals("forge")));
+            check("with nothing found for it there is no install",
+                    gathered.needs().get(0).supply().isEmpty());
+            check("and the web search names version, loader and mod",
+                    "Minecraft 1.20.1 NeoForge playerAnimator".equals(gathered.searchQuery(gathered.needs().get(0))));
+        } catch (IOException e) {
+            check("the missing-mods jars could be written", false);
+        }
     }
 
     private static void crashAnalysis() {

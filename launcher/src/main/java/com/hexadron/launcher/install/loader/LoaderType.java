@@ -85,6 +85,22 @@ public enum LoaderType {
     }
 
     /**
+     * The platform tags this loader can run on one Minecraft version.
+     *
+     * <p>NeoForge for 1.20.1 is the Forge of 1.20.1 under a new name: it loads
+     * Forge mods, and most mods for that version were only ever published
+     * tagged {@code forge}. Asking for {@code neoforge} alone there finds
+     * nothing for a library such as playerAnimator. From 1.20.2 the two loaders
+     * differ and the tags are their own again.
+     */
+    public List<String> platformIds(String minecraftVersion) {
+        if (this == NEOFORGE && "1.20.1".equals(minecraftVersion == null ? null : minecraftVersion.trim())) {
+            return List.of("neoforge", "forge");
+        }
+        return platformIds();
+    }
+
+    /**
      * The single tag to send when a platform will only accept one.
      *
      * <p>CurseForge's {@code modLoaderType} is one number, so Quilt has to
