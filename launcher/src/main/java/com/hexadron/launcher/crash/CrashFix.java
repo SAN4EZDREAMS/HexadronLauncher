@@ -66,7 +66,14 @@ public record CrashFix(Kind kind, String value) {
         /** Switch shaders off in Iris, Oculus and OptiFine; the shader pack itself stays. */
         DISABLE_SHADERS("disableShaders", List.of()),
         /** Install the newest build of a mod, found by mod id, for this profile's version and loader. */
-        UPDATE_MOD("updateMod", List.of("mod"));
+        UPDATE_MOD("updateMod", List.of("mod")),
+        /**
+         * Swap a jar for the build of the same project made for this profile's
+         * Minecraft version and loader, found by mod id or file name. Offered
+         * when a jar is for another version or loader: the platform that knows
+         * the file usually has the right build of it too.
+         */
+        REPLACE_BUILD("replaceBuild", List.of("file"));
 
         private final String key;
         private final List<String> params;

@@ -2925,7 +2925,7 @@ public final class SelfCheck {
                 "mods.curseforge.key.saved", "mods.searchPartial",
                 "editor.wrapper", "editor.wrapper.prompt", "editor.wrapper.note",
                 "ui.mode.grid", "ui.mode.toGrid", "ui.mode.toList", "inventory.hint",
-                "profiles.sort", "profiles.new.item", "crash.missing.title", "crash.missing.installAll",
+                "profiles.sort", "profiles.new.item", "crash.fix.replaceBuild", "crash.missing.title", "crash.missing.installAll",
                 "crash.missing.disable", "crash.missing.search", "crash.missing.confirm.header", "groups.new", "groups.new.title", "groups.new.header",
                 "groups.new.body", "groups.new.default", "groups.remove", "groups.remove.header",
                 "groups.remove.body", "groups.collapse", "groups.expand",
@@ -9151,10 +9151,62 @@ public final class SelfCheck {
             {"fabric-corrupt-jar", "java.lang.RuntimeException: Error analyzing [C:\\\\Users\\\\x\\\\mods\\\\broken.jar]: java.util.zip.ZipException: zip END header not found"},
             {"neoforge-not-a-jar", "\t- File mods/broken.jar is not a jar file"},
             {"neoforge-wrong-loader", "\t- File sodium-fabric-0.5.jar is a Fabric mod and cannot be loaded"},
+            {"neoforge-wrong-loader", "\t- File old-mod-1.0.jar is for an older version of Forge and cannot be loaded"},
+            // The mods.toml names a mod, and no class of it has this loader's
+            // @Mod: a NeoForge 1.20.4 jar in a NeoForge 1.20.1 profile.
+            {"forge-mod-classes-missing", "net.minecraftforge.fml.ModLoadingException: The Mod File C:\\Users\\x\\mods\\ImmediatelyFast-NeoForge-1.5.5+1.20.4.jar has mods that were not found"},
+            {"neoforge-dangling-entrypoint", "\t- File broken-1.0.jar contains mod entrypoint class com.example.Main for mod with id example, which does not exist or is not in the same file."},
+            {"neoforge-mixin-config-missing", "\t- A mixin config named foo.mixins.json was declared in foo-1.0.jar, but doesn't exist"},
+            {"fml-loader-too-old", "\t- Mod File C:\\mods\\newmod-2.0.jar needs language provider javafml:47 to load"},
+            {"fml-language-provider", "\t- Mod File C:\\mods\\kotlin-thing-1.0.jar needs language provider kotlinforforge:4 to load"},
+            {"neoforge-mixin-behaviour-too-new", "\t- Mixin config foo.mixins.json from foo-1.0.jar requests Mixin behavior version 0.8.7, which is newer than the highest supported version 0.8.5. This may be fixable by updating NeoForge"},
+            {"fml-invalid-mod-file", "\t- File C:\\mods\\EssentialsX-2.20.jar is a Bukkit or Bukkit-implementor (Spigot, Paper, etc.) plugin and cannot be loaded"},
+            {"fml-invalid-mod-file", "\t- File OptiFine_1.20.1_HD_U_I5.jar is an incompatible version of OptiFine"},
+            {"forge-missing-license", "net.minecraftforge.fml.loading.moddiscovery.InvalidModFileException: Missing License Information in file Mod File: C:\\mods\\old-1.0.jar"},
+            {"forge-report-missing-dependency", "\tFailure message: Mod bettercombat requires playeranimator 1 or above\n\t\tCurrently, playeranimator is not installed"},
+            {"forge-report-minecraft-version", "\tFailure message: Mod immediatelyfast requires minecraft [1.20.2,1.20.4]\n\t\tCurrently, minecraft is 1.20.1"},
+            {"forge-report-dependency-version", "\tFailure message: Mod createaddon requires create 6.0.0 or above\n\t\tCurrently, create is 0.5.1"},
+            {"neoforge-mod-failed", "\tFailure message: Create (create) encountered an error during the common_setup event phase"},
+            {"neoforge-mixin-application", "\t- Mixin application of foo.mixins.json from Foo Mod (foomod) has failed"},
+            {"fml-feature-missing", "\t- Shiny Mod (shinymod) is missing a feature it requires to run\n\tIt requires javaVersion [21,) but 17 is available"},
+            {"fml-jarjar-conflict", "\t- Some mods have requested conflicting versions of: mixinextras. Requested by: create, sodium."},
         };
         for (String[] c : cases) {
             check("crash rule " + c[0] + " explains its output", c[0].equals(firstRule(rules, OUT, c[1])));
         }
+        // A jar for another version or loader is swapped for the right build
+        // first; switching it off is what is left when there is none.
+        var wrongBuild = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                        "The Mod File C:\\mods\\ImmediatelyFast-NeoForge-1.5.5+1.20.4.jar has mods that were not found"))),
+                rules, "en");
+        var derived = wrongBuild.isEmpty() ? null
+                : com.hexadron.launcher.crash.CrashFixes.withDerived(wrongBuild.get(0), LoaderType.NEOFORGE);
+        var longPath = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                        "The Mod File C:\\Users\\someone\\AppData\\Roaming\\.hexadronlauncher\\instances\\neoold-235fa9\\mods\\ImmediatelyFast-NeoForge-1.5.5+1.20.4.jar has mods that were not found"))),
+                rules, "en");
+        check("a file deep in a long path is named whole, not cut at the sentence limit",
+                !longPath.isEmpty() && "ImmediatelyFast-NeoForge-1.5.5+1.20.4.jar".equals(longPath.get(0).values().get("file")));
+        check("a jar for another build is named by its file",
+                derived != null && "ImmediatelyFast-NeoForge-1.5.5+1.20.4.jar".equals(derived.values().get("file")));
+        check("and replacing it comes before switching it off", derived != null
+                && derived.fixes().get(0).kind() == com.hexadron.launcher.crash.CrashFix.Kind.REPLACE_BUILD
+                && derived.fixes().get(1).kind() == com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_FILE);
+        var kotlin = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                        "Mod File C:\\mods\\thing-1.0.jar needs language provider kotlinforforge:4 to load"))),
+                rules, "en");
+        check("a missing language provider is installed by its id", !kotlin.isEmpty()
+                && kotlin.get(0).fixes().get(0).equals(new com.hexadron.launcher.crash.CrashFix(
+                        com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD, "kotlinforforge")));
+        var oldLoader = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                        "Mod File C:\\mods\\new-2.0.jar needs language provider javafml:47 to load"))),
+                rules, "en");
+        check("and javafml means the loader is too old, not a library", !oldLoader.isEmpty()
+                && "loaderTooOld".equals(oldLoader.get(0).textId())
+                && oldLoader.get(0).fixes().get(0).kind() == com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_LOADER);
         check("crash rule forge-legacy-duplicate explains its output", "forge-legacy-duplicate".equals(firstRule(rules, OUT,
                 "[22:22:20] [Client thread/FATAL] [FML]: Found a duplicate mod controlling at [C:\\mods\\Controlling-3.0.12.2.jar, C:\\mods\\Controlling-3.0.12.4.jar]")));
         check("crash rule forge-legacy-missing-dependency explains its output", "forge-legacy-missing-dependency".equals(firstRule(rules, OUT,

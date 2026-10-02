@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 5,
+  "version": 6,
   "about": "Crash rules for HexadronLauncher. Format: crash/CrashRules.java. A newer signed copy is published with each release as hexadron-crash-rules.json.",
   "texts": {
     "javaOld": {
@@ -2380,6 +2380,498 @@
         "cause": "셰이더 팩을 그리는 코드에서 게임이 멈췄습니다. 셰이더 팩이 이 버전의 Iris, Oculus, OptiFine 또는 이 그래픽 드라이버와 맞지 않으면 이렇게 됩니다.",
         "fix": "셰이더를 끄고 게임을 시작하십시오. 그런 다음 다른 셰이더 팩이나 다른 버전을 사용해 보거나 그래픽 드라이버를 업데이트하십시오."
       }
+    },
+    "wrongBuild": {
+      "en": {
+        "title": "A mod is built for another game or loader version",
+        "cause": "The file {file} describes a mod, but the loader finds none of the mod's code it can run. Usually the file is a build for another Minecraft version or another loader, for example NeoForge 1.20.4 in a 1.20.1 profile.",
+        "fix": "Replace {file} with the build for this profile's Minecraft version and loader, or switch it off."
+      },
+      "uk": {
+        "title": "Мод зібрано для іншої версії гри або завантажувача",
+        "cause": "Файл {file} описує мод, але завантажувач не знаходить у ньому коду, який може запустити. Найчастіше це збірка для іншої версії Minecraft або іншого завантажувача, наприклад для NeoForge 1.20.4 у профілі на 1.20.1.",
+        "fix": "Замініть {file} збіркою для версії Minecraft і завантажувача цього профілю або вимкніть його."
+      },
+      "ru": {
+        "title": "Мод собран для другой версии игры или загрузчика",
+        "cause": "Файл {file} описывает мод, но загрузчик не находит в нём кода, который может запустить. Чаще всего это сборка для другой версии Minecraft или другого загрузчика, например для NeoForge 1.20.4 в профиле на 1.20.1.",
+        "fix": "Замените {file} сборкой для версии Minecraft и загрузчика этого профиля или выключите его."
+      },
+      "de": {
+        "title": "Ein Mod ist für eine andere Spiel- oder Loader-Version gebaut",
+        "cause": "Die Datei {file} beschreibt einen Mod, aber der Loader findet darin keinen Code, den er ausführen kann. Meist ist die Datei für eine andere Minecraft-Version oder einen anderen Loader gebaut, zum Beispiel für NeoForge 1.20.4 in einem 1.20.1-Profil.",
+        "fix": "Ersetze {file} durch die Version für die Minecraft-Version und den Loader dieses Profils, oder schalte die Datei aus."
+      },
+      "es": {
+        "title": "Un mod está hecho para otra versión del juego o del cargador",
+        "cause": "El archivo {file} describe un mod, pero el cargador no encuentra en él código que pueda ejecutar. Normalmente es una versión para otra versión de Minecraft u otro cargador, por ejemplo NeoForge 1.20.4 en un perfil de 1.20.1.",
+        "fix": "Sustituye {file} por la versión para la versión de Minecraft y el cargador de este perfil, o desactívalo."
+      },
+      "fr": {
+        "title": "Un mod est prévu pour une autre version du jeu ou du chargeur",
+        "cause": "Le fichier {file} décrit un mod, mais le chargeur n'y trouve aucun code qu'il peut exécuter. En général, c'est une version pour une autre version de Minecraft ou un autre chargeur, par exemple NeoForge 1.20.4 dans un profil 1.20.1.",
+        "fix": "Remplacez {file} par la version pour la version de Minecraft et le chargeur de ce profil, ou désactivez-le."
+      },
+      "it": {
+        "title": "Una mod è fatta per un'altra versione del gioco o del loader",
+        "cause": "Il file {file} descrive una mod, ma il loader non vi trova codice che può eseguire. Di solito è una build per un'altra versione di Minecraft o un altro loader, per esempio NeoForge 1.20.4 in un profilo 1.20.1.",
+        "fix": "Sostituisci {file} con la build per la versione di Minecraft e il loader di questo profilo, oppure disattivalo."
+      },
+      "pl": {
+        "title": "Mod jest zbudowany dla innej wersji gry lub loadera",
+        "cause": "Plik {file} opisuje mod, ale loader nie znajduje w nim kodu, który mógłby uruchomić. Zwykle to wersja dla innej wersji Minecrafta lub innego loadera, na przykład NeoForge 1.20.4 w profilu 1.20.1.",
+        "fix": "Zastąp {file} wersją dla wersji Minecrafta i loadera tego profilu albo go wyłącz."
+      },
+      "pt": {
+        "title": "Um mod é feito para outra versão do jogo ou do loader",
+        "cause": "O arquivo {file} descreve um mod, mas o loader não encontra nele código que possa executar. Normalmente é uma versão para outra versão do Minecraft ou outro loader, por exemplo NeoForge 1.20.4 num perfil 1.20.1.",
+        "fix": "Substitua {file} pela versão para a versão do Minecraft e o loader deste perfil, ou desative-o."
+      },
+      "tr": {
+        "title": "Bir mod başka bir oyun ya da yükleyici sürümü için yapılmış",
+        "cause": "{file} dosyası bir modu tanımlıyor, ama yükleyici içinde çalıştırabileceği kod bulamıyor. Genellikle dosya başka bir Minecraft sürümü ya da başka bir yükleyici içindir; örneğin 1.20.1 profilinde NeoForge 1.20.4 sürümü.",
+        "fix": "{file} dosyasını bu profilin Minecraft sürümüne ve yükleyicisine uygun sürümle değiştirin ya da kapatın."
+      },
+      "id": {
+        "title": "Mod dibuat untuk versi game atau loader lain",
+        "cause": "File {file} menjelaskan sebuah mod, tetapi loader tidak menemukan kode di dalamnya yang bisa dijalankan. Biasanya file itu build untuk versi Minecraft atau loader lain, misalnya NeoForge 1.20.4 di profil 1.20.1.",
+        "fix": "Ganti {file} dengan build untuk versi Minecraft dan loader profil ini, atau matikan."
+      },
+      "vi": {
+        "title": "Mod được dựng cho phiên bản trò chơi hoặc trình tải khác",
+        "cause": "Tệp {file} mô tả một mod, nhưng trình tải không tìm thấy mã nào trong đó để chạy. Thường đây là bản dựng cho phiên bản Minecraft hoặc trình tải khác, ví dụ NeoForge 1.20.4 trong hồ sơ 1.20.1.",
+        "fix": "Thay {file} bằng bản dựng cho phiên bản Minecraft và trình tải của hồ sơ này, hoặc tắt nó."
+      },
+      "ja": {
+        "title": "Mod が別のゲームまたはローダーのバージョン向けです",
+        "cause": "ファイル {file} は Mod を宣言していますが、ローダーは実行できるコードを見つけられません。多くの場合、別の Minecraft バージョンや別のローダー向けのビルドです (例: 1.20.1 のプロファイルに NeoForge 1.20.4 用)。",
+        "fix": "{file} をこのプロファイルの Minecraft バージョンとローダー向けのビルドに置き換えるか、無効にしてください。"
+      },
+      "ko": {
+        "title": "모드가 다른 게임 또는 로더 버전용입니다",
+        "cause": "파일 {file}은(는) 모드를 선언하지만 로더가 실행할 수 있는 코드를 찾지 못합니다. 대개 다른 Minecraft 버전이나 다른 로더용 빌드입니다(예: 1.20.1 프로필의 NeoForge 1.20.4용).",
+        "fix": "{file}을(를) 이 프로필의 Minecraft 버전과 로더용 빌드로 바꾸거나 끄세요."
+      },
+      "zh": {
+        "title": "模组是为其他游戏或加载器版本构建的",
+        "cause": "文件 {file} 声明了一个模组，但加载器在其中找不到可运行的代码。通常它是为其他 Minecraft 版本或其他加载器构建的，例如在 1.20.1 配置中放入了 NeoForge 1.20.4 版本。",
+        "fix": "将 {file} 替换为适用于此配置的 Minecraft 版本和加载器的版本，或将其停用。"
+      },
+      "hi": {
+        "title": "मॉड किसी और गेम या लोडर संस्करण के लिए बना है",
+        "cause": "फ़ाइल {file} एक मॉड बताती है, लेकिन लोडर को उसमें चलाने लायक कोड नहीं मिलता। आमतौर पर यह किसी और Minecraft संस्करण या लोडर का बिल्ड होता है, जैसे 1.20.1 प्रोफ़ाइल में NeoForge 1.20.4 का।",
+        "fix": "{file} को इस प्रोफ़ाइल के Minecraft संस्करण और लोडर वाले बिल्ड से बदलें, या उसे बंद करें।"
+      }
+    },
+    "invalidModFile": {
+      "en": {
+        "title": "A file in the mods folder is not a mod for this loader",
+        "cause": "The loader cannot read {file} as a mod. It can be a server plugin (Bukkit, Spigot, Paper), a mod for another loader, an incompatible OptiFine version, or a damaged file.",
+        "fix": "Switch off {file}, or replace it with the right build of the mod."
+      },
+      "uk": {
+        "title": "У теці mods є файл, який не є модом для цього завантажувача",
+        "cause": "Завантажувач не може прочитати {file} як мод. Це може бути плагін для сервера (Bukkit, Spigot, Paper), мод для іншого завантажувача, несумісна версія OptiFine або пошкоджений файл.",
+        "fix": "Вимкніть {file} або замініть його правильною збіркою мода."
+      },
+      "ru": {
+        "title": "В папке mods есть файл, который не является модом для этого загрузчика",
+        "cause": "Загрузчик не может прочитать {file} как мод. Это может быть плагин для сервера (Bukkit, Spigot, Paper), мод для другого загрузчика, несовместимая версия OptiFine или повреждённый файл.",
+        "fix": "Выключите {file} или замените его правильной сборкой мода."
+      },
+      "de": {
+        "title": "Eine Datei im Ordner mods ist kein Mod für diesen Loader",
+        "cause": "Der Loader kann {file} nicht als Mod lesen. Es kann ein Server-Plugin (Bukkit, Spigot, Paper) sein, ein Mod für einen anderen Loader, eine inkompatible OptiFine-Version oder eine beschädigte Datei.",
+        "fix": "Schalte {file} aus oder ersetze die Datei durch die richtige Version des Mods."
+      },
+      "es": {
+        "title": "Un archivo de la carpeta mods no es un mod para este cargador",
+        "cause": "El cargador no puede leer {file} como un mod. Puede ser un plugin de servidor (Bukkit, Spigot, Paper), un mod para otro cargador, una versión incompatible de OptiFine o un archivo dañado.",
+        "fix": "Desactiva {file} o sustitúyelo por la versión correcta del mod."
+      },
+      "fr": {
+        "title": "Un fichier du dossier mods n'est pas un mod pour ce chargeur",
+        "cause": "Le chargeur ne peut pas lire {file} comme un mod. Il peut s'agir d'un plugin de serveur (Bukkit, Spigot, Paper), d'un mod pour un autre chargeur, d'une version incompatible d'OptiFine ou d'un fichier endommagé.",
+        "fix": "Désactivez {file}, ou remplacez-le par la bonne version du mod."
+      },
+      "it": {
+        "title": "Un file nella cartella mods non è una mod per questo loader",
+        "cause": "Il loader non riesce a leggere {file} come mod. Può essere un plugin per server (Bukkit, Spigot, Paper), una mod per un altro loader, una versione incompatibile di OptiFine o un file danneggiato.",
+        "fix": "Disattiva {file} oppure sostituiscilo con la build corretta della mod."
+      },
+      "pl": {
+        "title": "Plik w folderze mods nie jest modem dla tego loadera",
+        "cause": "Loader nie może odczytać {file} jako moda. To może być plugin serwera (Bukkit, Spigot, Paper), mod dla innego loadera, niezgodna wersja OptiFine albo uszkodzony plik.",
+        "fix": "Wyłącz {file} albo zastąp go właściwą wersją moda."
+      },
+      "pt": {
+        "title": "Um arquivo na pasta mods não é um mod para este loader",
+        "cause": "O loader não consegue ler {file} como mod. Pode ser um plugin de servidor (Bukkit, Spigot, Paper), um mod para outro loader, uma versão incompatível do OptiFine ou um arquivo danificado.",
+        "fix": "Desative {file} ou substitua-o pela versão certa do mod."
+      },
+      "tr": {
+        "title": "mods klasöründeki bir dosya bu yükleyici için mod değil",
+        "cause": "Yükleyici {file} dosyasını mod olarak okuyamıyor. Bu bir sunucu eklentisi (Bukkit, Spigot, Paper), başka bir yükleyici için mod, uyumsuz bir OptiFine sürümü ya da bozuk bir dosya olabilir.",
+        "fix": "{file} dosyasını kapatın ya da modun doğru sürümüyle değiştirin."
+      },
+      "id": {
+        "title": "Ada file di folder mods yang bukan mod untuk loader ini",
+        "cause": "Loader tidak bisa membaca {file} sebagai mod. Bisa jadi itu plugin server (Bukkit, Spigot, Paper), mod untuk loader lain, versi OptiFine yang tidak cocok, atau file yang rusak.",
+        "fix": "Matikan {file}, atau ganti dengan build mod yang benar."
+      },
+      "vi": {
+        "title": "Một tệp trong thư mục mods không phải là mod cho trình tải này",
+        "cause": "Trình tải không đọc được {file} như một mod. Đó có thể là plugin máy chủ (Bukkit, Spigot, Paper), mod cho trình tải khác, phiên bản OptiFine không tương thích hoặc tệp bị hỏng.",
+        "fix": "Tắt {file}, hoặc thay bằng bản dựng đúng của mod."
+      },
+      "ja": {
+        "title": "mods フォルダーに、このローダー用の Mod ではないファイルがあります",
+        "cause": "ローダーは {file} を Mod として読み込めません。サーバー用プラグイン (Bukkit、Spigot、Paper)、別のローダー用の Mod、互換性のない OptiFine、または壊れたファイルの可能性があります。",
+        "fix": "{file} を無効にするか、正しい Mod のビルドに置き換えてください。"
+      },
+      "ko": {
+        "title": "mods 폴더에 이 로더용 모드가 아닌 파일이 있습니다",
+        "cause": "로더가 {file}을(를) 모드로 읽을 수 없습니다. 서버 플러그인(Bukkit, Spigot, Paper), 다른 로더용 모드, 호환되지 않는 OptiFine 버전 또는 손상된 파일일 수 있습니다.",
+        "fix": "{file}을(를) 끄거나 올바른 모드 빌드로 바꾸세요."
+      },
+      "zh": {
+        "title": "mods 文件夹中有一个文件不是此加载器的模组",
+        "cause": "加载器无法将 {file} 作为模组读取。它可能是服务器插件（Bukkit、Spigot、Paper）、其他加载器的模组、不兼容的 OptiFine 版本或已损坏的文件。",
+        "fix": "停用 {file}，或用该模组的正确版本替换它。"
+      },
+      "hi": {
+        "title": "mods फ़ोल्डर की एक फ़ाइल इस लोडर का मॉड नहीं है",
+        "cause": "लोडर {file} को मॉड के रूप में नहीं पढ़ पाता। यह सर्वर प्लगइन (Bukkit, Spigot, Paper), किसी और लोडर का मॉड, असंगत OptiFine संस्करण या खराब फ़ाइल हो सकती है।",
+        "fix": "{file} को बंद करें, या मॉड के सही बिल्ड से बदलें।"
+      }
+    },
+    "loaderTooOld": {
+      "en": {
+        "title": "A mod needs a newer mod loader",
+        "cause": "The file {file} needs a newer version of the mod loader than this profile has.",
+        "fix": "Update the mod loader of this profile, or switch off {file}."
+      },
+      "uk": {
+        "title": "Моду потрібен новіший завантажувач",
+        "cause": "Файлу {file} потрібна новіша версія завантажувача модів, ніж стоїть у цьому профілі.",
+        "fix": "Оновіть завантажувач цього профілю або вимкніть {file}."
+      },
+      "ru": {
+        "title": "Моду нужен более новый загрузчик",
+        "cause": "Файлу {file} нужна более новая версия загрузчика модов, чем в этом профиле.",
+        "fix": "Обновите загрузчик этого профиля или выключите {file}."
+      },
+      "de": {
+        "title": "Ein Mod braucht einen neueren Mod-Loader",
+        "cause": "Die Datei {file} braucht eine neuere Version des Mod-Loaders, als dieses Profil hat.",
+        "fix": "Aktualisiere den Mod-Loader dieses Profils oder schalte {file} aus."
+      },
+      "es": {
+        "title": "Un mod necesita un cargador de mods más nuevo",
+        "cause": "El archivo {file} necesita una versión del cargador de mods más nueva que la de este perfil.",
+        "fix": "Actualiza el cargador de mods de este perfil o desactiva {file}."
+      },
+      "fr": {
+        "title": "Un mod a besoin d'un chargeur de mods plus récent",
+        "cause": "Le fichier {file} a besoin d'une version du chargeur de mods plus récente que celle de ce profil.",
+        "fix": "Mettez à jour le chargeur de mods de ce profil, ou désactivez {file}."
+      },
+      "it": {
+        "title": "Una mod richiede un loader più recente",
+        "cause": "Il file {file} richiede una versione del loader di mod più recente di quella di questo profilo.",
+        "fix": "Aggiorna il loader di mod di questo profilo oppure disattiva {file}."
+      },
+      "pl": {
+        "title": "Mod potrzebuje nowszego loadera modów",
+        "cause": "Plik {file} potrzebuje nowszej wersji loadera modów, niż ma ten profil.",
+        "fix": "Zaktualizuj loader modów tego profilu albo wyłącz {file}."
+      },
+      "pt": {
+        "title": "Um mod precisa de um loader de mods mais novo",
+        "cause": "O arquivo {file} precisa de uma versão do loader de mods mais nova do que a deste perfil.",
+        "fix": "Atualize o loader de mods deste perfil, ou desative {file}."
+      },
+      "tr": {
+        "title": "Bir modun daha yeni bir mod yükleyiciye ihtiyacı var",
+        "cause": "{file} dosyası, bu profildekinden daha yeni bir mod yükleyici sürümüne ihtiyaç duyuyor.",
+        "fix": "Bu profilin mod yükleyicisini güncelleyin ya da {file} dosyasını kapatın."
+      },
+      "id": {
+        "title": "Mod memerlukan loader mod yang lebih baru",
+        "cause": "File {file} memerlukan versi loader mod yang lebih baru dari yang ada di profil ini.",
+        "fix": "Perbarui loader mod profil ini, atau matikan {file}."
+      },
+      "vi": {
+        "title": "Mod cần trình tải mod mới hơn",
+        "cause": "Tệp {file} cần phiên bản trình tải mod mới hơn bản trong hồ sơ này.",
+        "fix": "Cập nhật trình tải mod của hồ sơ này, hoặc tắt {file}."
+      },
+      "ja": {
+        "title": "Mod に新しい Mod ローダーが必要です",
+        "cause": "ファイル {file} には、このプロファイルより新しいバージョンの Mod ローダーが必要です。",
+        "fix": "このプロファイルの Mod ローダーを更新するか、{file} を無効にしてください。"
+      },
+      "ko": {
+        "title": "모드에 더 새로운 모드 로더가 필요합니다",
+        "cause": "파일 {file}에는 이 프로필보다 새로운 버전의 모드 로더가 필요합니다.",
+        "fix": "이 프로필의 모드 로더를 업데이트하거나 {file}을(를) 끄세요."
+      },
+      "zh": {
+        "title": "模组需要更新的模组加载器",
+        "cause": "文件 {file} 需要比此配置更新的模组加载器版本。",
+        "fix": "更新此配置的模组加载器，或停用 {file}。"
+      },
+      "hi": {
+        "title": "मॉड को नया मॉड लोडर चाहिए",
+        "cause": "फ़ाइल {file} को इस प्रोफ़ाइल से नए संस्करण का मॉड लोडर चाहिए।",
+        "fix": "इस प्रोफ़ाइल का मॉड लोडर अपडेट करें, या {file} को बंद करें।"
+      }
+    },
+    "languageProvider": {
+      "en": {
+        "title": "A mod needs a language library",
+        "cause": "The file {file} is written for {provider}, and this profile does not have it.",
+        "fix": "Install {provider}, or switch off {file}."
+      },
+      "uk": {
+        "title": "Моду потрібна мовна бібліотека",
+        "cause": "Файл {file} написано для {provider}, а в цьому профілі його немає.",
+        "fix": "Встановіть {provider} або вимкніть {file}."
+      },
+      "ru": {
+        "title": "Моду нужна языковая библиотека",
+        "cause": "Файл {file} написан для {provider}, а в этом профиле его нет.",
+        "fix": "Установите {provider} или выключите {file}."
+      },
+      "de": {
+        "title": "Ein Mod braucht eine Sprachbibliothek",
+        "cause": "Die Datei {file} ist für {provider} geschrieben, und dieses Profil hat es nicht.",
+        "fix": "Installiere {provider} oder schalte {file} aus."
+      },
+      "es": {
+        "title": "Un mod necesita una biblioteca de lenguaje",
+        "cause": "El archivo {file} está escrito para {provider}, y este perfil no lo tiene.",
+        "fix": "Instala {provider} o desactiva {file}."
+      },
+      "fr": {
+        "title": "Un mod a besoin d'une bibliothèque de langage",
+        "cause": "Le fichier {file} est écrit pour {provider}, et ce profil ne l'a pas.",
+        "fix": "Installez {provider}, ou désactivez {file}."
+      },
+      "it": {
+        "title": "Una mod richiede una libreria di linguaggio",
+        "cause": "Il file {file} è scritto per {provider}, e questo profilo non ce l'ha.",
+        "fix": "Installa {provider} oppure disattiva {file}."
+      },
+      "pl": {
+        "title": "Mod potrzebuje biblioteki języka",
+        "cause": "Plik {file} jest napisany dla {provider}, a ten profil go nie ma.",
+        "fix": "Zainstaluj {provider} albo wyłącz {file}."
+      },
+      "pt": {
+        "title": "Um mod precisa de uma biblioteca de linguagem",
+        "cause": "O arquivo {file} foi escrito para {provider}, e este perfil não o tem.",
+        "fix": "Instale {provider}, ou desative {file}."
+      },
+      "tr": {
+        "title": "Bir modun bir dil kütüphanesine ihtiyacı var",
+        "cause": "{file} dosyası {provider} için yazılmış ve bu profilde o yok.",
+        "fix": "{provider} kurun ya da {file} dosyasını kapatın."
+      },
+      "id": {
+        "title": "Mod memerlukan pustaka bahasa",
+        "cause": "File {file} ditulis untuk {provider}, dan profil ini tidak memilikinya.",
+        "fix": "Pasang {provider}, atau matikan {file}."
+      },
+      "vi": {
+        "title": "Mod cần một thư viện ngôn ngữ",
+        "cause": "Tệp {file} được viết cho {provider}, và hồ sơ này không có nó.",
+        "fix": "Cài {provider}, hoặc tắt {file}."
+      },
+      "ja": {
+        "title": "Mod に言語ライブラリが必要です",
+        "cause": "ファイル {file} は {provider} 用に書かれていますが、このプロファイルにはありません。",
+        "fix": "{provider} をインストールするか、{file} を無効にしてください。"
+      },
+      "ko": {
+        "title": "모드에 언어 라이브러리가 필요합니다",
+        "cause": "파일 {file}은(는) {provider}용으로 작성되었지만 이 프로필에는 없습니다.",
+        "fix": "{provider}을(를) 설치하거나 {file}을(를) 끄세요."
+      },
+      "zh": {
+        "title": "模组需要语言库",
+        "cause": "文件 {file} 是为 {provider} 编写的，而此配置中没有它。",
+        "fix": "安装 {provider}，或停用 {file}。"
+      },
+      "hi": {
+        "title": "मॉड को एक भाषा लाइब्रेरी चाहिए",
+        "cause": "फ़ाइल {file} {provider} के लिए लिखी गई है, और यह इस प्रोफ़ाइल में नहीं है।",
+        "fix": "{provider} इंस्टॉल करें, या {file} को बंद करें।"
+      }
+    },
+    "jarConflict": {
+      "en": {
+        "title": "Mods bundle versions of a library that do not fit together",
+        "cause": "The mods {by} each bring their own copy of {lib}, and no copy fits all of them.",
+        "fix": "Update these mods to versions made for each other, or switch one of them off."
+      },
+      "uk": {
+        "title": "Моди вбудовують несумісні версії однієї бібліотеки",
+        "cause": "Моди {by} приносять власні копії {lib}, і жодна з копій не підходить їм усім.",
+        "fix": "Оновіть ці моди до узгоджених версій або вимкніть один із них."
+      },
+      "ru": {
+        "title": "Моды встраивают несовместимые версии одной библиотеки",
+        "cause": "Моды {by} приносят свои копии {lib}, и ни одна копия не подходит им всем.",
+        "fix": "Обновите эти моды до согласованных версий или выключите один из них."
+      },
+      "de": {
+        "title": "Mods bringen Versionen einer Bibliothek mit, die nicht zusammenpassen",
+        "cause": "Die Mods {by} bringen jeweils eine eigene Kopie von {lib} mit, und keine passt zu allen.",
+        "fix": "Aktualisiere diese Mods auf zueinander passende Versionen oder schalte einen davon aus."
+      },
+      "es": {
+        "title": "Varios mods incluyen versiones de una biblioteca que no encajan",
+        "cause": "Los mods {by} traen cada uno su propia copia de {lib}, y ninguna sirve para todos.",
+        "fix": "Actualiza estos mods a versiones compatibles entre sí o desactiva uno de ellos."
+      },
+      "fr": {
+        "title": "Des mods embarquent des versions d'une bibliothèque qui ne vont pas ensemble",
+        "cause": "Les mods {by} apportent chacun leur copie de {lib}, et aucune ne convient à tous.",
+        "fix": "Mettez ces mods à jour vers des versions compatibles entre elles, ou désactivez l'un d'eux."
+      },
+      "it": {
+        "title": "Alcune mod includono versioni di una libreria che non vanno d'accordo",
+        "cause": "Le mod {by} portano ciascuna la propria copia di {lib}, e nessuna va bene per tutte.",
+        "fix": "Aggiorna queste mod a versioni compatibili tra loro oppure disattivane una."
+      },
+      "pl": {
+        "title": "Mody dołączają wersje biblioteki, które do siebie nie pasują",
+        "cause": "Mody {by} przynoszą własne kopie {lib}, i żadna nie pasuje do wszystkich.",
+        "fix": "Zaktualizuj te mody do zgodnych wersji albo wyłącz jeden z nich."
+      },
+      "pt": {
+        "title": "Mods trazem versões de uma biblioteca que não combinam",
+        "cause": "Os mods {by} trazem cada um a sua cópia de {lib}, e nenhuma serve para todos.",
+        "fix": "Atualize estes mods para versões compatíveis entre si, ou desative um deles."
+      },
+      "tr": {
+        "title": "Modlar birbirine uymayan kütüphane sürümleri getiriyor",
+        "cause": "{by} modlarının her biri kendi {lib} kopyasını getiriyor ve hiçbiri hepsine uymuyor.",
+        "fix": "Bu modları birbirine uygun sürümlere güncelleyin ya da birini kapatın."
+      },
+      "id": {
+        "title": "Mod membawa versi pustaka yang tidak cocok satu sama lain",
+        "cause": "Mod {by} masing-masing membawa salinan {lib} sendiri, dan tidak ada yang cocok untuk semuanya.",
+        "fix": "Perbarui mod ini ke versi yang saling cocok, atau matikan salah satunya."
+      },
+      "vi": {
+        "title": "Các mod mang theo phiên bản thư viện không khớp nhau",
+        "cause": "Các mod {by} đều mang bản sao {lib} riêng, và không bản nào hợp với tất cả.",
+        "fix": "Cập nhật các mod này lên phiên bản hợp nhau, hoặc tắt một trong số đó."
+      },
+      "ja": {
+        "title": "Mod 同士が合わないライブラリのバージョンを同梱しています",
+        "cause": "Mod {by} はそれぞれ {lib} の独自のコピーを同梱しており、すべてに合うコピーがありません。",
+        "fix": "これらの Mod を互いに対応したバージョンに更新するか、どれかを無効にしてください。"
+      },
+      "ko": {
+        "title": "모드들이 서로 맞지 않는 라이브러리 버전을 포함합니다",
+        "cause": "모드 {by}이(가) 각각 {lib}의 사본을 가져오지만 모두에 맞는 사본이 없습니다.",
+        "fix": "이 모드들을 서로 맞는 버전으로 업데이트하거나 하나를 끄세요."
+      },
+      "zh": {
+        "title": "模组内置的库版本互不兼容",
+        "cause": "模组 {by} 各自带有 {lib} 的副本，但没有一个副本适合所有模组。",
+        "fix": "将这些模组更新到相互匹配的版本，或停用其中一个。"
+      },
+      "hi": {
+        "title": "मॉड एक लाइब्रेरी के ऐसे संस्करण लाते हैं जो आपस में मेल नहीं खाते",
+        "cause": "मॉड {by} अपनी-अपनी {lib} की प्रति लाते हैं, और कोई प्रति सब पर ठीक नहीं बैठती।",
+        "fix": "इन मॉड को आपस में मेल खाने वाले संस्करणों में अपडेट करें, या उनमें से एक को बंद करें।"
+      }
+    },
+    "featureMissing": {
+      "en": {
+        "title": "A mod needs something this computer or game does not have",
+        "cause": "The mod {mod} needs {feature} to run, and it is not available here.",
+        "fix": "Switch off {mod}, or give it what it needs (for example a newer Java or graphics driver)."
+      },
+      "uk": {
+        "title": "Моду потрібне те, чого немає в цій грі чи на комп'ютері",
+        "cause": "Мод {mod} потребує {feature}, а тут цього немає.",
+        "fix": "Вимкніть {mod} або дайте йому потрібне (наприклад, новішу Java чи драйвер відеокарти)."
+      },
+      "ru": {
+        "title": "Моду нужно то, чего нет в этой игре или на компьютере",
+        "cause": "Мод {mod} требует {feature}, а здесь этого нет.",
+        "fix": "Выключите {mod} или дайте ему нужное (например, более новую Java или драйвер видеокарты)."
+      },
+      "de": {
+        "title": "Ein Mod braucht etwas, das dieser Computer oder dieses Spiel nicht hat",
+        "cause": "Der Mod {mod} braucht {feature}, und das ist hier nicht verfügbar.",
+        "fix": "Schalte {mod} aus oder gib ihm, was er braucht (zum Beispiel eine neuere Java- oder Grafiktreiberversion)."
+      },
+      "es": {
+        "title": "Un mod necesita algo que este equipo o juego no tiene",
+        "cause": "El mod {mod} necesita {feature} y aquí no está disponible.",
+        "fix": "Desactiva {mod} o dale lo que necesita (por ejemplo, una Java o un controlador gráfico más nuevos)."
+      },
+      "fr": {
+        "title": "Un mod a besoin de quelque chose que cet ordinateur ou ce jeu n'a pas",
+        "cause": "Le mod {mod} a besoin de {feature}, et ce n'est pas disponible ici.",
+        "fix": "Désactivez {mod}, ou donnez-lui ce qu'il demande (par exemple une version plus récente de Java ou du pilote graphique)."
+      },
+      "it": {
+        "title": "Una mod richiede qualcosa che questo computer o gioco non ha",
+        "cause": "La mod {mod} richiede {feature}, che qui non è disponibile.",
+        "fix": "Disattiva {mod} oppure dalle ciò che serve (per esempio una Java o un driver grafico più recenti)."
+      },
+      "pl": {
+        "title": "Mod potrzebuje czegoś, czego nie ma ten komputer lub gra",
+        "cause": "Mod {mod} potrzebuje {feature}, a tutaj tego nie ma.",
+        "fix": "Wyłącz {mod} albo daj mu to, czego potrzebuje (na przykład nowszą Javę lub sterownik grafiki)."
+      },
+      "pt": {
+        "title": "Um mod precisa de algo que este computador ou jogo não tem",
+        "cause": "O mod {mod} precisa de {feature}, e isso não está disponível aqui.",
+        "fix": "Desative {mod}, ou dê-lhe o que precisa (por exemplo, uma Java ou um driver gráfico mais novos)."
+      },
+      "tr": {
+        "title": "Bir modun bu bilgisayarda ya da oyunda olmayan bir şeye ihtiyacı var",
+        "cause": "{mod} modunun çalışmak için {feature} ihtiyacı var ve bu burada yok.",
+        "fix": "{mod} modunu kapatın ya da ihtiyacını karşılayın (örneğin daha yeni bir Java ya da ekran kartı sürücüsü)."
+      },
+      "id": {
+        "title": "Mod memerlukan sesuatu yang tidak ada di komputer atau game ini",
+        "cause": "Mod {mod} memerlukan {feature} untuk berjalan, dan itu tidak tersedia di sini.",
+        "fix": "Matikan {mod}, atau berikan yang dibutuhkannya (misalnya Java atau driver grafis yang lebih baru)."
+      },
+      "vi": {
+        "title": "Mod cần thứ mà máy hoặc trò chơi này không có",
+        "cause": "Mod {mod} cần {feature} để chạy, và ở đây không có.",
+        "fix": "Tắt {mod}, hoặc cung cấp thứ nó cần (ví dụ Java hoặc trình điều khiển đồ họa mới hơn)."
+      },
+      "ja": {
+        "title": "Mod に、このコンピューターやゲームにないものが必要です",
+        "cause": "Mod {mod} の実行には {feature} が必要ですが、ここにはありません。",
+        "fix": "{mod} を無効にするか、必要なもの (新しい Java やグラフィックドライバーなど) を用意してください。"
+      },
+      "ko": {
+        "title": "모드에 이 컴퓨터나 게임에 없는 것이 필요합니다",
+        "cause": "모드 {mod}은(는) 실행하려면 {feature}이(가) 필요하지만 여기에는 없습니다.",
+        "fix": "{mod}을(를) 끄거나 필요한 것을 갖추세요(예: 더 새로운 Java 또는 그래픽 드라이버)."
+      },
+      "zh": {
+        "title": "模组需要此电脑或游戏所没有的东西",
+        "cause": "模组 {mod} 运行需要 {feature}，但这里没有。",
+        "fix": "停用 {mod}，或提供它需要的东西（例如更新的 Java 或显卡驱动）。"
+      },
+      "hi": {
+        "title": "मॉड को कुछ ऐसा चाहिए जो इस कंप्यूटर या गेम में नहीं है",
+        "cause": "मॉड {mod} को चलने के लिए {feature} चाहिए, और वह यहाँ उपलब्ध नहीं है।",
+        "fix": "{mod} को बंद करें, या उसे जो चाहिए वह दें (जैसे नया Java या ग्राफ़िक्स ड्राइवर)।"
+      }
     }
   },
   "rules": [
@@ -2830,7 +3322,7 @@
           "contains": [
             "- Mod "
           ],
-          "regex": "- Mod (?<mod>[a-z0-9_]+) requires minecraft\\b",
+          "regex": "- Mod (?<mod>[a-z0-9_]+) (?:requires|only supports) minecraft\\b",
           "repeat": true
         }
       ],
@@ -2893,7 +3385,7 @@
           "contains": [
             "- Mod "
           ],
-          "regex": "- Mod (?<mod>[a-z0-9_]+) requires (?<dep>(?!minecraft\\b)[a-z0-9_]+)\\b[^\\n]*\\n\\s*Currently, [a-z0-9_]+ is (?!not installed)\\S",
+          "regex": "- Mod (?<mod>[a-z0-9_]+) (?:requires|only supports) (?<dep>(?!minecraft\\b)[a-z0-9_]+)\\b[^\\n]*\\n\\s*Currently, [a-z0-9_]+ is (?!not installed)\\S",
           "lines": 2,
           "repeat": true
         }
@@ -3068,9 +3560,11 @@
           "contains": [
             ") has failed to load correctly",
             ") has class loading errors",
-            ") encountered an error while dispatching"
+            ") encountered an error while dispatching",
+            ") encountered an error during the",
+            ") encountered an error processing deferred work"
           ],
-          "regex": "\\((?<mod>[a-z0-9_]+)\\) (?:has failed to load correctly|has class loading errors|encountered an error while dispatching)"
+          "regex": "\\((?<mod>[a-z0-9_]+)\\) (?:has failed to load correctly|has class loading errors|encountered an error while dispatching|encountered an error during the|encountered an error processing deferred work)"
         }
       ],
       "fixes": [
@@ -3110,9 +3604,12 @@
             "is a Fabric mod and cannot be loaded",
             "is a Quilt mod and cannot be loaded",
             "is for Minecraft Forge or an older version of NeoForge",
-            "is for an old version of Minecraft Forge"
+            "is for an old version of Minecraft Forge",
+            "is for an older version of Forge",
+            "is for an older version of NeoForge",
+            "is a LiteLoader mod"
           ],
-          "regex": "File (?<path>.+?\\.jar) is (?:a Fabric mod|a Quilt mod|for Minecraft Forge|for an old version of Minecraft Forge)",
+          "regex": "File (?<path>.+?\\.jar) is (?:a Fabric mod|a Quilt mod|for Minecraft Forge|for an old version of Minecraft Forge|for an older version of (?:Neo)?Forge|a LiteLoader mod)",
           "repeat": true
         }
       ],
@@ -3246,6 +3743,330 @@
             "ProgramLinkException"
           ],
           "regex": "(?:net\\.coderbot|net\\.irisshaders)\\.iris\\.gl\\.shader\\.(?:ShaderCompileException|ProgramLinkException)"
+        }
+      ]
+    },
+    {
+      "id": "forge-mod-classes-missing",
+      "stopsLoading": true,
+      "priority": 86,
+      "text": "wrongBuild",
+      "match": [
+        {
+          "contains": [
+            "has mods that were not found"
+          ],
+          "regex": "The Mod File (?<path>.+?\\.jar) has mods that were not found",
+          "repeat": true
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-dangling-entrypoint",
+      "stopsLoading": true,
+      "priority": 85,
+      "text": "wrongBuild",
+      "match": [
+        {
+          "contains": [
+            "contains mod entrypoint class"
+          ],
+          "regex": "File (?<path>.+?\\.jar) contains mod entrypoint class",
+          "repeat": true
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-mixin-config-missing",
+      "stopsLoading": true,
+      "priority": 85,
+      "text": "wrongBuild",
+      "match": [
+        {
+          "contains": [
+            "was declared in"
+          ],
+          "regex": "A mixin config named \\S+ was declared in (?<path>.+?\\.jar), but doesn't exist",
+          "repeat": true
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    },
+    {
+      "id": "fml-loader-too-old",
+      "stopsLoading": true,
+      "priority": 87,
+      "text": "loaderTooOld",
+      "match": [
+        {
+          "contains": [
+            "needs language provider"
+          ],
+          "regex": "Mod File (?<path>.+?\\.jar) needs language provider (?:javafml|lowcodefml|minecraft)\\b",
+          "repeat": true
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "updateLoader"
+        },
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-mixin-behaviour-too-new",
+      "stopsLoading": true,
+      "priority": 70,
+      "text": "loaderTooOld",
+      "match": [
+        {
+          "contains": [
+            "requests Mixin behavior version"
+          ],
+          "regex": "Mixin config \\S+ from (?<path>.+?\\.jar) requests Mixin behavior version \\S+, which is newer than",
+          "repeat": true
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "updateLoader"
+        },
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    },
+    {
+      "id": "fml-language-provider",
+      "stopsLoading": true,
+      "priority": 87,
+      "text": "languageProvider",
+      "match": [
+        {
+          "contains": [
+            "needs language provider"
+          ],
+          "regex": "Mod File (?<path>.+?\\.jar) needs language provider (?!(?:javafml|lowcodefml|minecraft)\\b)(?<provider>[a-z0-9_]+)",
+          "repeat": true
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "installMod",
+          "mod": "{provider}"
+        },
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    },
+    {
+      "id": "fml-invalid-mod-file",
+      "stopsLoading": true,
+      "priority": 41,
+      "text": "invalidModFile",
+      "match": [
+        {
+          "contains": [
+            "is not a valid mod file",
+            "is a Bukkit or Bukkit-implementor",
+            "is an incompatible version of OptiFine",
+            "has an unrecognized FML mod-type"
+          ],
+          "regex": "File (?<path>.+?\\.jar) (?:is not a valid mod file|is a Bukkit or Bukkit-implementor|is an incompatible version of OptiFine|has an unrecognized FML mod-type)",
+          "repeat": true
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    },
+    {
+      "id": "forge-missing-license",
+      "stopsLoading": true,
+      "priority": 41,
+      "text": "invalidModFile",
+      "match": [
+        {
+          "contains": [
+            "Missing License Information in file"
+          ],
+          "regex": "Missing License Information in file (?<path>.+?\\.jar)",
+          "repeat": true
+        }
+      ],
+      "values": {
+        "file": "file(path)"
+      },
+      "fixes": [
+        {
+          "type": "disableFile",
+          "file": "{file}"
+        }
+      ]
+    },
+    {
+      "id": "forge-report-missing-dependency",
+      "stopsLoading": true,
+      "priority": 84,
+      "text": "missingDep",
+      "match": [
+        {
+          "contains": [
+            "Failure message: Mod "
+          ],
+          "regex": "Failure message: Mod (?<mod>[a-z0-9_]+) requires (?<dep>[a-z0-9_]+)\\b[^\\n]*\\n\\s*Currently, [a-z0-9_]+ is not installed",
+          "lines": 2,
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "forge-report-minecraft-version",
+      "stopsLoading": true,
+      "priority": 82,
+      "text": "wrongMinecraft",
+      "match": [
+        {
+          "contains": [
+            "Failure message: Mod "
+          ],
+          "regex": "Failure message: Mod (?<mod>[a-z0-9_]+) (?:requires|only supports) minecraft\\b",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "forge-report-dependency-version",
+      "stopsLoading": true,
+      "priority": 78,
+      "text": "depVersion",
+      "match": [
+        {
+          "contains": [
+            "Failure message: Mod "
+          ],
+          "regex": "Failure message: Mod (?<mod>[a-z0-9_]+) (?:requires|only supports) (?<dep>(?!minecraft\\b)[a-z0-9_]+)\\b[^\\n]*\\n\\s*Currently, [a-z0-9_]+ is (?!not installed)\\S",
+          "lines": 2,
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "neoforge-mixin-application",
+      "priority": 69,
+      "text": "mixin",
+      "match": [
+        {
+          "contains": [
+            "Mixin application of "
+          ],
+          "regex": "Mixin application of \\S+ from .+? \\((?<mod>[a-z0-9_]+)\\) has failed"
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "fml-feature-missing",
+      "priority": 62,
+      "text": "featureMissing",
+      "match": [
+        {
+          "contains": [
+            ") is missing a feature it requires to run"
+          ],
+          "regex": "\\((?<mod>[a-z0-9_]+)\\) is missing a feature it requires to run[^\\n]*\\n\\s*It requires (?<feature>.+?) but ",
+          "lines": 2
+        }
+      ],
+      "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "fml-jarjar-conflict",
+      "stopsLoading": true,
+      "priority": 80,
+      "text": "jarConflict",
+      "match": [
+        {
+          "contains": [
+            "requested conflicting versions of:",
+            "but no jar was provided which matched the range"
+          ],
+          "regex": "(?:conflicting versions of|acceptable version range for ?): (?<lib>[^\\s,]+?)[.,] .*?Requested by: (?<by>[^\\n]+?)\\.?\\s*$"
         }
       ]
     }

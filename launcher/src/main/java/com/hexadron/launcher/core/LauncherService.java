@@ -558,6 +558,20 @@ public final class LauncherService {
                 com.hexadron.launcher.crash.CrashFixes.Prepared offline = ready.get();
                 ready = withinLookupTime(() -> resolveLoaderUpdate(profile, offline));
             } else if (ready.isPresent()
+                    && ready.get().fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.REPLACE_BUILD) {
+                com.hexadron.launcher.crash.CrashFixes.Prepared offline = ready.get();
+                ready = withinLookupTime(() -> {
+                    try {
+                        return replacementFor(profile, offline.targets().get(0)).map(update -> offline.resolved(
+                                update.title() + " " + update.next().displayName(), update.next().versionId()));
+                    } catch (IOException e) {
+                        return java.util.Optional.empty();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return java.util.Optional.empty();
+                    }
+                });
+            } else if (ready.isPresent()
                     && ready.get().fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_MOD) {
                 com.hexadron.launcher.crash.CrashFixes.Prepared offline = ready.get();
                 ready = withinLookupTime(() -> {
@@ -818,6 +832,13 @@ public final class LauncherService {
                 com.hexadron.launcher.mods.ModUpdates.Update update = updateFor(profile, fix.value())
                         .orElseThrow(() -> new IOException("no newer build of " + prepared.subject() + " was found"));
                 done = "Crash fix: " + applyModUpdates(profile, java.util.List.of(update), progress);
+            }
+            case REPLACE_BUILD -> {
+                com.hexadron.launcher.mods.ModUpdates.Update update = replacementFor(profile, prepared.targets().get(0))
+                        .orElseThrow(() -> new IOException("no build of " + prepared.subject()
+                                + " for this Minecraft version and loader was found"));
+                done = "Crash fix: replaced " + prepared.targets().get(0).fileName() + ": "
+                        + applyModUpdates(profile, java.util.List.of(update), progress);
             }
             case DISABLE_SHADERS -> {
                 java.util.List<String> changed = com.hexadron.launcher.crash.CrashFixes.applyDisableShaders(prepared);
@@ -1351,6 +1372,65 @@ public final class LauncherService {
      * The newer build of the one mod that provides this id, for a crash fix:
      * a mod that needs another version of another mod.
      */
+    /**
+     * The build of this jar's project for the profile's Minecraft version and
+     * loader, when the platform that knows the file has one that is not this
+     * file. It is asked by the file itself (its hash on Modrinth, its
+     * fingerprint on CurseForge), so a jar for 1.20.4 finds its 1.20.1 build,
+     * and a Fabric jar in a Forge profile finds the Forge one.
+     */
+    java.util.Optional<com.hexadron.launcher.mods.ModUpdates.Update> replacementFor(Profile profile,
+            com.hexadron.launcher.mods.ModEntry jar) throws IOException, InterruptedException {
+        if (jar == null || !jar.enabled() || !java.nio.file.Files.isRegularFile(jar.path())) {
+            return java.util.Optional.empty();
+        }
+        String sha1 = com.hexadron.launcher.util.Hashes.sha1(jar.path()).toLowerCase(java.util.Locale.ROOT);
+        String projectId = modrinth.projectsByHash(java.util.List.of(sha1)).get(sha1);
+        if (projectId != null) {
+            // One loader tag at a time, in the order this loader prefers them,
+            // and never the file that just failed. Asking for all tags at once
+            // returns the newest file under any of them, and platforms list
+            // builds under versions they do not run on: ImmediatelyFast's
+            // NeoForge 1.20.4 build is filed under 1.20.1 too, and on NeoForge
+            // 1.20.1 - the Forge of 1.20.1 renamed - it is exactly the file
+            // that does not load. There the Forge build is asked for first.
+            java.util.List<String> tags = new java.util.ArrayList<>(
+                    profile.loader().platformIds(profile.minecraftVersion()));
+            if (profile.loader() == LoaderType.NEOFORGE && tags.contains("forge")) {
+                tags.remove("forge");
+                tags.add(0, "forge");
+            }
+            for (String tag : tags) {
+                java.util.Optional<com.hexadron.launcher.mods.ModFile> next = modrinth.resolveFile(
+                        com.hexadron.launcher.mods.ContentKind.MOD, projectId, profile.minecraftVersion(),
+                        profile.loader(), java.util.List.of(tag));
+                if (next.isPresent() && next.get().isDownloadable()
+                        && !sha1.equalsIgnoreCase(String.valueOf(next.get().sha1()))) {
+                    java.util.Set<String> present = new java.util.HashSet<>();
+                    java.util.List<String> hashes = new java.util.ArrayList<>();
+                    for (com.hexadron.launcher.mods.ModEntry mod : modsOf(profile)) {
+                        if (mod.enabled()) {
+                            try {
+                                hashes.add(com.hexadron.launcher.util.Hashes.sha1(mod.path()).toLowerCase(java.util.Locale.ROOT));
+                            } catch (IOException e) {
+                                // An unreadable jar provides nothing to count.
+                            }
+                        }
+                    }
+                    present.addAll(modrinth.projectsByHash(hashes).values());
+                    java.util.List<String> missing = next.get().dependencies().stream()
+                            .filter(id -> !present.contains(id)).toList();
+                    return java.util.Optional.of(new com.hexadron.launcher.mods.ModUpdates.Update(
+                            com.hexadron.launcher.mods.ContentKind.MOD, jar, titleOf(jar), next.get(), missing));
+                }
+            }
+            return java.util.Optional.empty();
+        }
+        // Not on Modrinth: CurseForge knows it by its fingerprint, when a key is set.
+        return checkUpdates(profile, com.hexadron.launcher.mods.ContentKind.MOD, java.util.List.of(jar),
+                new java.util.ArrayList<>()).updates().stream().findFirst();
+    }
+
     java.util.Optional<com.hexadron.launcher.mods.ModUpdates.Update> updateFor(Profile profile, String modId)
             throws IOException, InterruptedException {
         java.util.List<com.hexadron.launcher.mods.ModEntry> candidates = new java.util.ArrayList<>();

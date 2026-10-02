@@ -42,13 +42,19 @@ The built-in rule file is `launcher/src/main/resources/crash/rules.json`. It kno
 | Java could not reserve the heap (32-bit Java, too large a limit) | all | **Let the launcher choose Java**, **Lower memory** |
 | Required mod missing | Fabric, Forge (1.12 and 1.13+), NeoForge | Shown together in the **Required mods are missing** block (see below): **Install all required mods**, **Switch off the mods that need them**, a web search for each mod not found |
 | Mod needs another version of a mod | Fabric, Forge, NeoForge | **Switch off** the mod. When the other "mod" is the loader itself (`forge`, `neoforge`, `fabricloader`): **Update to** *loader version* first |
-| Mod for another Minecraft version | Fabric, Forge, NeoForge | **Switch off** the mod |
+| Mod for another Minecraft version | Fabric, Forge, NeoForge | **Replace with** the build of the same project for this version and loader (see below), **Switch off** the mod |
+| Mod built for another game or loader version: the mods.toml names a mod, but no class has this loader's `@Mod` (`The Mod File X has mods that were not found`, for example a NeoForge 1.20.4 jar in a NeoForge 1.20.1 profile); a NeoForge entrypoint class that is not in the file; a mixin config the jar declares but does not have | Forge 1.17+, NeoForge | **Replace with** the right build, **Switch off** the file |
+| Mod needs a newer loader (`needs language provider javafml:47`, `lowcodefml`, `minecraft`; a mixin config that asks for a newer Mixin behaviour) | Forge 1.17+, NeoForge | **Update to** *loader version*, **Switch off** the file |
+| Mod needs a language library (`needs language provider kotlinforforge:4`) | Forge 1.17+, NeoForge | **Install** the library (Kotlin for Forge and the others in the library list), **Switch off** the file |
+| A file in `mods` is not a mod for this loader: a Bukkit, Spigot or Paper plugin, an incompatible OptiFine, `is not a valid mod file`, an unknown FML mod type, `Missing License Information` | Forge 1.17+, NeoForge | **Switch off** the file |
+| Mods bundle versions of one library that do not fit together (`requested conflicting versions of`, `no jar was provided which matched the range`) | Forge 1.17+, NeoForge | none: update the mods named, or switch one off |
+| A mod needs a feature this game or computer does not have (`is missing a feature it requires to run`) | Forge 1.20+, NeoForge | **Switch off** the mod |
 | Same mod installed twice | Forge (1.12 and 1.13+), NeoForge | **Keep the newest**: switches off the copies with a lower version in their jar; the file date decides only when the versions are equal or cannot be read |
 | Two mods marked incompatible | Fabric, NeoForge | **Switch off** either mod |
 | Mixin error | all | **Switch off** the mod (found by mod id, or by the mixin config file inside its jar) |
 | Mod crashed during loading | Fabric, Forge, NeoForge | **Switch off** the mod |
 | Damaged mod jar | Fabric, NeoForge | **Switch off** the file |
-| Mod for another loader | NeoForge; Forge 1.12 for a Cleanroom build (its `@Mod` annotation requires `cleanroom`) that throws on plain Forge | **Switch off** the file |
+| Mod for another loader (also `is for an older version of Forge`/`NeoForge`, `is a LiteLoader mod`) | Forge 1.17+, NeoForge; Forge 1.12 for a Cleanroom build (its `@Mod` annotation requires `cleanroom`) that throws on plain Forge | **Replace with** the build for this loader, **Switch off** the file |
 | Graphics driver without the OpenGL the game needs | all | none: update the driver |
 | Crash inside the graphics driver (`hs_err` file) | all | none: update the driver |
 | Crash inside an overlay program (`hs_err` file: RivaTuner/Afterburner, Discord, Steam, OBS, ShadowPlay, Overwolf, Nahimic, Bandicam, Fraps, Mumble, XSplit) | all | none: close the program or switch off its overlay |
@@ -104,6 +110,10 @@ NeoForge for Minecraft 1.20.1 is the Forge of 1.20.1 under a new name and loads 
 **Install** and **Update to** are looked up while the crash is analysed, at most 8 seconds each, and are offered only when they can work: a Modrinth project with a file for this Minecraft version and loader, or a loader build newer than the profile's. With no connection there is no button, not a button that fails.
 
 **Install** looks the mod id up in the rule file's `libraries` list first (`fabric` is Fabric API, `cloth-config2` is Cloth Config), then as a Modrinth slug. When Modrinth has no file for this version and loader and a CurseForge API key is set, CurseForge is asked next, by the library's own CurseForge slug (`redstoneflux` is `redstone-flux`) and then by the same slugs; most Forge 1.12 libraries are only there. A file whose author allows it only from the CurseForge website is not downloaded, and the fix says so. It installs with the mod's own required dependencies, and keeps the download only when a jar in it carries the mod id that was asked for; otherwise the jars are switched off again and the fix says it did not work. **Update to** takes Forge's newest build (Forge marks only its recommended build as stable, and that is often older than a mod asks for) and the newest stable build of the other loaders.
+
+**Replace with** asks Modrinth which project the jar belongs to (by its SHA-1), then asks for that project's newest file for this Minecraft version, one loader tag at a time, and never the same file again. On NeoForge 1.20.1 it asks for `forge` first: Modrinth lists some NeoForge builds for later versions under 1.20.1 too, and those are exactly the files that fail there. A jar that Modrinth does not know is looked up on CurseForge by its fingerprint when a key is set. The new file goes in the way mod updates are installed: the old jar is set aside in `mods/.removed/` and the update can be rolled back; the dependencies the new build needs come with it.
+
+The Forge and NeoForge mod-loading errors are matched in the game log, in the game output and in the crash report (`Failure message: Mod x requires y ...`), so a crash is explained even when only the report is left. A file named in a long path is named whole: the file name is taken from the full path before the value is shortened for the window.
 
 These fixes are added by the launcher to the causes (`CrashFixes.withDerived`), not written in the rule file. A launcher refuses a whole rule file that names a fix kind it does not know, so a rule that used the new kinds would stop every older launcher from taking any rule update.
 

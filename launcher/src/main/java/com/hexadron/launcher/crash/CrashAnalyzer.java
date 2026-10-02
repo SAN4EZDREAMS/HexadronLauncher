@@ -44,6 +44,9 @@ public final class CrashAnalyzer {
     /** Longest value put into a sentence. Mod ids and file names are far shorter. */
     static final int MAX_VALUE = 100;
 
+    /** Longest value a derived one is read from: a full path, before file(path) takes its name. */
+    static final int MAX_SOURCE_VALUE = 1024;
+
     /**
      * One explained cause.
      *
@@ -156,14 +159,20 @@ public final class CrashAnalyzer {
         List<Diagnosis> result = new ArrayList<>();
         for (Map<String, String> raw : matches) {
             Map<String, String> values = new LinkedHashMap<>();
+            // Derived from the whole value, then shortened: a jar's full path
+            // in a Windows data folder is past the length a sentence takes, and
+            // cut first, file(path) named "ImmediatelyFast-NeoFo…" - a file no
+            // fix could find.
+            Map<String, String> whole = new LinkedHashMap<>();
             raw.forEach((name, value) -> {
                 String clean = clean(value);
                 if (!clean.isEmpty()) {
                     values.put(name, clean);
+                    whole.put(name, clean(value, MAX_SOURCE_VALUE));
                 }
             });
             rule.derived().forEach((name, expression) -> {
-                String value = CrashRules.derive(expression, values);
+                String value = CrashRules.derive(expression, whole);
                 if (value != null) {
                     values.put(name, clean(value));
                 }

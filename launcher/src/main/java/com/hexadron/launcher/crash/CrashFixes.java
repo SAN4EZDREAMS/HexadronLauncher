@@ -95,7 +95,7 @@ public final class CrashFixes {
             CrashFix.Kind.UPDATE_LOADER, CrashFix.Kind.RESET_CONFIG, CrashFix.Kind.REMOVE_JVM_ARGUMENT,
             CrashFix.Kind.JAVA, CrashFix.Kind.AUTOMATIC_JAVA, CrashFix.Kind.DISABLE_DUPLICATES,
             CrashFix.Kind.REINSTALL, CrashFix.Kind.RAISE_MEMORY, CrashFix.Kind.LOWER_MEMORY,
-            CrashFix.Kind.DISABLE_SHADERS, CrashFix.Kind.UPDATE_MOD);
+            CrashFix.Kind.DISABLE_SHADERS, CrashFix.Kind.UPDATE_MOD, CrashFix.Kind.REPLACE_BUILD);
 
     /**
      * The fix to apply without asking the player to choose: the only one
@@ -173,6 +173,19 @@ public final class CrashFixes {
                 }
             }
             case "shaderError" -> extra.add(new CrashFix(CrashFix.Kind.DISABLE_SHADERS, ""));
+            // A jar for another Minecraft version or loader: the project that
+            // made it usually has the right build too, and swapping is the
+            // repair - switching off is what is left when it has none.
+            case "wrongBuild", "wrongLoader" -> {
+                if (values.get("file") != null) {
+                    extra.add(new CrashFix(CrashFix.Kind.REPLACE_BUILD, values.get("file")));
+                }
+            }
+            case "wrongMinecraft" -> {
+                if (values.get("mod") != null) {
+                    extra.add(new CrashFix(CrashFix.Kind.REPLACE_BUILD, values.get("mod")));
+                }
+            }
             case "jvmOptions" -> {
                 if (values.get("option") != null) {
                     extra.add(new CrashFix(CrashFix.Kind.REMOVE_JVM_ARGUMENT, values.get("option")));
@@ -250,6 +263,16 @@ public final class CrashFixes {
             case DISABLE_SHADERS -> shaderSettings(fix, gameDir);
             // Looked up by the service, which can ask the platforms.
             case UPDATE_MOD -> Optional.of(new Prepared(fix, fix.value(), List.of(), List.of(), 0));
+            // The jar is found here; the build to put in its place is looked up by the service.
+            case REPLACE_BUILD -> {
+                List<ModEntry> found = byFileName(mods, fix.value());
+                if (found.isEmpty()) {
+                    found = byModId(mods, fix.value());
+                }
+                List<ModEntry> on = found.stream().filter(ModEntry::enabled).toList();
+                yield on.size() != 1 ? Optional.empty()
+                        : Optional.of(new Prepared(fix, nameOf(on.get(0)), on, List.of(), 0));
+            }
         };
     }
 

@@ -321,6 +321,7 @@ final class CrashDialog {
             case REMOVE_JVM_ARGUMENT -> I18n.t("crash.fix.removeJvmArgument", fix.subject());
             case DISABLE_SHADERS -> I18n.t("crash.fix.disableShaders", fix.subject());
             case UPDATE_MOD -> I18n.t("crash.fix.updateMod", fix.subject());
+            case REPLACE_BUILD -> I18n.t("crash.fix.replaceBuild", fix.subject());
         };
     }
 
