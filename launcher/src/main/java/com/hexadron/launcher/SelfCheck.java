@@ -9541,6 +9541,16 @@ public final class SelfCheck {
             {"forge-minecraft-version", "\tMod ID: 'minecraft', Requested by: 'jei', Expected range: '[1.19.2,1.19.3)', Actual version: '1.20.1'"},
             {"neoforge-minecraft-version", "\t- Mod create requires minecraft 1.21.1"},
             {"fabric-dependency-version", "\t - Mod 'Iris' (iris) 1.7 requires version 0.6 or later of 'Sodium' (sodium), but only the wrong version is present: 0.5.8!"},
+            // Fabric Loader 0.16 and later put the kind of thing before its name:
+            // "of mod 'Sodium'". The rules had only the older form, and the
+            // newer one went unrecognised.
+            {"fabric-dependency-version", "\t - Mod 'Iris' (iris) 1.7 requires version 0.6 or later of mod 'Sodium' (sodium), but only the wrong version is present: 0.5.8!"},
+            {"fabric-loader-version", "\t - Mod 'Fabric Language Kotlin' (fabric-language-kotlin) 1.14.1+kotlin.2.4.20 requires version 0.19.5 or later of mod 'Fabric Loader' (fabricloader), but only the wrong version is present: 0.19.3!"},
+            {"fabric-loader-version", "\t - Mod 'Sodium' (sodium) 0.6.0 requires version 0.16.0 or later of 'Fabric Loader' (fabricloader), but only the wrong version is present: 0.15.11!"},
+            {"fabric-minecraft-version", "\t - Mod 'Sodium' (sodium) 0.5.3 requires version 1.20.1 of mod 'Minecraft' (minecraft), but only the wrong version is present: 1.20.4!"},
+            {"fabric-java-version", "\t - Mod 'Minecraft' (minecraft) 1.20.5 requires version 21 or later of mod 'OpenJDK 64-Bit Server VM' (java), but only the wrong version is present: 17!"},
+            {"fabric-missing-dependency", "\t - Mod 'Mod Menu' (modmenu) 9.0.0 requires any version of mod 'Fabric API' (fabric-api), which is missing!"},
+            {"fabric-missing-dependency", "\t - Mod 'Mod Menu' (modmenu) 9.0.0 requires any version of mod fabric-api, which is missing!"},
             {"forge-dependency-version", "\tMod ID: 'geckolib', Requested by: 'mowziesmobs', Expected range: '[4.4,)', Actual version: '4.2.1'"},
             {"forge-duplicate", "\tMod ID: 'jei' from mod files: jei-1.20.1-15.2.jar, jei-1.20.1-15.3.jar"},
             {"neoforge-duplicate", "\t- Mod jei is present in multiple files: jei-1.jar, jei-2.jar"},
@@ -9579,6 +9589,42 @@ public final class SelfCheck {
         for (String[] c : cases) {
             check("crash rule " + c[0] + " explains its output", c[0].equals(firstRule(rules, OUT, c[1])));
         }
+        var loaderTooOld = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                        "net.fabricmc.loader.impl.FormattedException: Some of your mods are incompatible with the game or each other!",
+                        "A potential solution has been determined, this may resolve your problem:",
+                        "\t - Replace mod 'Fabric Loader' (fabricloader) 0.19.3 with version 0.19.5 or later.",
+                        "More details:",
+                        "\t - Mod 'Fabric Language Kotlin' (fabric-language-kotlin) 1.14.1+kotlin.2.4.20 requires version 0.19.5 or later of mod 'Fabric Loader' (fabricloader), but only the wrong version is present: 0.19.3!"))),
+                rules, "en");
+        var loaderFix = loaderTooOld.isEmpty() ? null
+                : com.hexadron.launcher.crash.CrashFixes.withDerived(loaderTooOld.get(0), LoaderType.FABRIC);
+        check("a mod that needs a newer Fabric Loader is recognised",
+                loaderFix != null && "fabric-loader-version".equals(loaderFix.ruleId()));
+        check("and the versions are read from the line", loaderFix != null
+                && "0.19.3".equals(loaderFix.values().get("have"))
+                && "fabric-language-kotlin".equals(loaderFix.values().get("mod"))
+                && "0.19.5".equals(com.hexadron.launcher.crash.CrashFixes.minimumVersion(loaderFix.values().get("need"))));
+        check("updating the loader is offered first, switching the mod off second", loaderFix != null
+                && loaderFix.fixes().size() == 2
+                && loaderFix.fixes().get(0).kind() == com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_LOADER
+                && loaderFix.fixes().get(1).kind() == com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_MOD);
+        check("and it is not also reported as a mod of the wrong version",
+                loaderTooOld.stream().noneMatch(d -> "fabric-dependency-version".equals(d.ruleId())));
+        check("the lowest version a requirement accepts is read in each loader's words",
+                "0.19.5".equals(com.hexadron.launcher.crash.CrashFixes.minimumVersion("version 0.19.5 or later"))
+                        && "0.16".equals(com.hexadron.launcher.crash.CrashFixes.minimumVersion(
+                                "any version between 0.16 (inclusive) and 0.17 (exclusive)"))
+                        && "0.15.0".equals(com.hexadron.launcher.crash.CrashFixes.minimumVersion(">=0.15.0"))
+                        && "47.1".equals(com.hexadron.launcher.crash.CrashFixes.minimumVersion("[47.1,)"))
+                        && com.hexadron.launcher.crash.CrashFixes.minimumVersion("any version") == null);
+        var newMissing = com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                        "\t - Mod 'Mod Menu' (modmenu) 9.0.0 requires any version of mod 'Fabric API' (fabric-api), which is missing!"))),
+                rules, "en");
+        check("a missing mod named in the newer words is still found by its id",
+                !newMissing.isEmpty() && "fabric-api".equals(newMissing.get(0).values().get("dep")));
+
         // A jar for another version or loader is swapped for the right build
         // first; switching it off is what is left when there is none.
         var wrongBuild = com.hexadron.launcher.crash.CrashAnalyzer.analyze(

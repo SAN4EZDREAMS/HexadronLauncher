@@ -559,7 +559,7 @@ public final class LauncherService {
             } else if (ready.isPresent()
                     && ready.get().fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.UPDATE_LOADER) {
                 com.hexadron.launcher.crash.CrashFixes.Prepared offline = ready.get();
-                ready = withinLookupTime(() -> resolveLoaderUpdate(profile, offline));
+                ready = withinLookupTime(() -> resolveLoaderUpdate(profile, offline, diagnosis.values()));
             } else if (ready.isPresent()
                     && ready.get().fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.REPLACE_BUILD) {
                 com.hexadron.launcher.crash.CrashFixes.Prepared offline = ready.get();
@@ -746,20 +746,47 @@ public final class LauncherService {
         return java.util.Optional.empty();
     }
 
-    /** The newest build of this profile's loader, when it is newer than the one it has. */
+    /**
+     * The build of this profile's loader to move to: the newest stable one,
+     * when it is newer than the one the game ran on.
+     *
+     * <p>Two values of the crash are used when it has them. {@code have} is the
+     * version the loader reported it was - the one that ran, which a profile on
+     * "recommended build" does not record, and without it the fix could offer
+     * the very build that just failed. {@code need} is what the mod asked for:
+     * when no stable build is new enough, the newest one that is (a beta, say)
+     * is offered instead, and when none is, nothing is - a loader update that
+     * cannot satisfy the mod would only crash the same way again.
+     */
     private java.util.Optional<com.hexadron.launcher.crash.CrashFixes.Prepared> resolveLoaderUpdate(
-            Profile profile, com.hexadron.launcher.crash.CrashFixes.Prepared offline) {
+            Profile profile, com.hexadron.launcher.crash.CrashFixes.Prepared offline,
+            java.util.Map<String, String> values) {
         try {
             java.util.List<LoaderVersion> versions = loaderVersions(profile.loader(), profile.minecraftVersion());
             if (versions.isEmpty()) {
                 return java.util.Optional.empty();
             }
+            String minimum = com.hexadron.launcher.crash.CrashFixes.minimumVersion(values.get("need"));
             // Forge marks only its recommended build stable, which is often
             // older than a mod asks for; the newest build is the answer there.
             LoaderVersion target = profile.loader() == LoaderType.FORGE ? versions.get(0)
                     : versions.stream().filter(LoaderVersion::stable).findFirst().orElse(versions.get(0));
+            if (minimum != null && com.hexadron.launcher.mods.VersionRanges.compare(target.version(), minimum) < 0) {
+                java.util.Optional<LoaderVersion> enough = versions.stream()
+                        .filter(version -> com.hexadron.launcher.mods.VersionRanges.compare(version.version(), minimum) >= 0)
+                        .findFirst();
+                if (enough.isEmpty()) {
+                    LauncherLog.info("Crash fix: no " + profile.loader().displayName() + " build for "
+                            + profile.minecraftVersion() + " is " + minimum + " or later yet");
+                    return java.util.Optional.empty();
+                }
+                target = enough.get();
+            }
             String current = profile.loaderVersion();
-            if (current != null && (target.version().equals(current)
+            if (current == null || current.isBlank()) {
+                current = values.get("have");
+            }
+            if (current != null && !current.isBlank() && (target.version().equals(current)
                     || com.hexadron.launcher.mods.VersionRanges.compare(target.version(), current) < 0)) {
                 return java.util.Optional.empty();
             }

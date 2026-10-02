@@ -117,6 +117,33 @@ public final class CrashFixes {
         return loaderOf(id) != null;
     }
 
+    private static final java.util.regex.Pattern AT_LEAST = java.util.regex.Pattern.compile(
+            "(?:version\\s+)?([0-9][0-9A-Za-z.+\\-]*)\\s+or\\s+later"
+                    + "|between\\s+([0-9][0-9A-Za-z.+\\-]*)\\s+\\(inclusive\\)"
+                    + "|>=\\s*([0-9][0-9A-Za-z.+\\-]*)"
+                    + "|^\\s*\\[([0-9][0-9A-Za-z.+\\-]*)\\s*,");
+
+    /**
+     * The lowest version a loader's sentence about a requirement accepts -
+     * "version 0.19.5 or later", "any version between 0.16 (inclusive) and
+     * 0.17 (exclusive)", "&gt;=0.15", "[47.1,)" - or null when it names none.
+     */
+    public static String minimumVersion(String requirement) {
+        if (requirement == null || requirement.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = AT_LEAST.matcher(requirement.trim());
+        if (!matcher.find()) {
+            return null;
+        }
+        for (int group = 1; group <= matcher.groupCount(); group++) {
+            if (matcher.group(group) != null) {
+                return matcher.group(group);
+            }
+        }
+        return null;
+    }
+
     /** The loader a dependency id names, or null: {@code forge}, {@code neoforge}, {@code fabricloader}. */
     public static LoaderType loaderOf(String id) {
         if (id == null) {

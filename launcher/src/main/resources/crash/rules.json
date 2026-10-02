@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 6,
+  "version": 7,
   "about": "Crash rules for HexadronLauncher. Format: crash/CrashRules.java. A newer signed copy is published with each release as hexadron-crash-rules.json.",
   "texts": {
     "javaOld": {
@@ -2872,6 +2872,88 @@
         "cause": "मॉड {mod} को चलने के लिए {feature} चाहिए, और वह यहाँ उपलब्ध नहीं है।",
         "fix": "{mod} को बंद करें, या उसे जो चाहिए वह दें (जैसे नया Java या ग्राफ़िक्स ड्राइवर)।"
       }
+    },
+    "loaderVersion": {
+      "en": {
+        "title": "A mod needs a newer mod loader",
+        "cause": "The mod {mod} needs {loader} {need}, but this profile runs {have}.",
+        "fix": "Update {loader} in this profile, or switch off {mod}."
+      },
+      "uk": {
+        "title": "Моду потрібен новіший завантажувач",
+        "cause": "Мод {mod} потребує {loader} (вимога: {need}), а цей профіль запускає {have}.",
+        "fix": "Оновіть {loader} у цьому профілі або вимкніть {mod}."
+      },
+      "ru": {
+        "title": "Моду нужен более новый загрузчик",
+        "cause": "Мод {mod} требует {loader} (требование: {need}), а этот профиль запускает {have}.",
+        "fix": "Обновите {loader} в этом профиле или отключите {mod}."
+      },
+      "de": {
+        "title": "Ein Mod braucht einen neueren Mod-Loader",
+        "cause": "Der Mod {mod} braucht {loader} (Anforderung: {need}), aber dieses Profil startet {have}.",
+        "fix": "Aktualisieren Sie {loader} in diesem Profil oder schalten Sie {mod} aus."
+      },
+      "es": {
+        "title": "Un mod necesita un cargador más nuevo",
+        "cause": "El mod {mod} necesita {loader} (requisito: {need}), pero este perfil usa {have}.",
+        "fix": "Actualiza {loader} en este perfil o desactiva {mod}."
+      },
+      "fr": {
+        "title": "Un mod a besoin d'un chargeur plus récent",
+        "cause": "Le mod {mod} a besoin de {loader} (exigence : {need}), mais ce profil lance {have}.",
+        "fix": "Mettez à jour {loader} dans ce profil, ou désactivez {mod}."
+      },
+      "it": {
+        "title": "Una mod richiede un loader più recente",
+        "cause": "La mod {mod} richiede {loader} (requisito: {need}), ma questo profilo usa {have}.",
+        "fix": "Aggiorna {loader} in questo profilo, oppure disattiva {mod}."
+      },
+      "pl": {
+        "title": "Mod potrzebuje nowszego loadera",
+        "cause": "Mod {mod} potrzebuje {loader} (wymaganie: {need}), a ten profil uruchamia {have}.",
+        "fix": "Zaktualizuj {loader} w tym profilu albo wyłącz {mod}."
+      },
+      "pt": {
+        "title": "Um mod precisa de um carregador mais recente",
+        "cause": "O mod {mod} precisa do {loader} (requisito: {need}), mas este perfil usa {have}.",
+        "fix": "Atualize o {loader} neste perfil, ou desative {mod}."
+      },
+      "tr": {
+        "title": "Bir mod daha yeni bir yükleyici istiyor",
+        "cause": "{mod} modu {loader} istiyor (gereksinim: {need}), ama bu profil {have} çalıştırıyor.",
+        "fix": "Bu profilde {loader} yükleyicisini güncelleyin ya da {mod} modunu kapatın."
+      },
+      "id": {
+        "title": "Sebuah mod butuh loader yang lebih baru",
+        "cause": "Mod {mod} butuh {loader} (syarat: {need}), tetapi profil ini menjalankan {have}.",
+        "fix": "Perbarui {loader} di profil ini, atau matikan {mod}."
+      },
+      "vi": {
+        "title": "Một mod cần trình tải mới hơn",
+        "cause": "Mod {mod} cần {loader} (yêu cầu: {need}), nhưng hồ sơ này đang chạy {have}.",
+        "fix": "Cập nhật {loader} trong hồ sơ này, hoặc tắt {mod}."
+      },
+      "hi": {
+        "title": "एक मॉड को नया लोडर चाहिए",
+        "cause": "मॉड {mod} को {loader} चाहिए (शर्त: {need}), पर यह प्रोफ़ाइल {have} चलाती है।",
+        "fix": "इस प्रोफ़ाइल में {loader} अपडेट करें, या {mod} बंद करें।"
+      },
+      "ja": {
+        "title": "MOD がより新しいローダーを必要としています",
+        "cause": "MOD {mod} には {loader} が必要です (条件: {need})。このプロファイルは {have} で起動しています。",
+        "fix": "このプロファイルの {loader} を更新するか、{mod} を無効にしてください。"
+      },
+      "ko": {
+        "title": "모드에 더 새로운 로더가 필요합니다",
+        "cause": "모드 {mod}에 {loader}이(가) 필요합니다 (조건: {need}). 이 프로필은 {have}을(를) 실행합니다.",
+        "fix": "이 프로필의 {loader}을(를) 업데이트하거나 {mod}을(를) 끄세요."
+      },
+      "zh": {
+        "title": "模组需要更新的加载器",
+        "cause": "模组 {mod} 需要 {loader}（要求：{need}），但此配置运行的是 {have}。",
+        "fix": "在此配置中更新 {loader}，或禁用 {mod}。"
+      }
     }
   },
   "rules": [
@@ -2931,7 +3013,7 @@
           "contains": [
             "(java), but only the wrong version"
           ],
-          "regex": "requires (?:version |any )?(?<java>\\d+)(?:\\.x version| or later)? of '[^']*' \\(java\\), but only the wrong version is present: (?<have>\\d+)"
+          "regex": "requires (?:version |any )?(?<java>\\d+)(?:\\.x version| or later)? of (?:\\w+ )?'[^']*' \\(java\\), but only the wrong version is present: (?<have>\\d+)"
         }
       ],
       "fixes": [
@@ -3174,7 +3256,7 @@
           "contains": [
             "which is missing!"
           ],
-          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?<dep>[a-z0-9_.\\-]+), which is missing!",
+          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?:\\w+ )?(?:'[^']*' \\()?(?<dep>[a-z0-9_.\\-]+)\\)?, which is missing!",
           "repeat": true
         }
       ],
@@ -3280,11 +3362,36 @@
           "contains": [
             "(minecraft), but only the wrong version"
           ],
-          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of '[^']*' \\(minecraft\\), but only the wrong version",
+          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?:\\w+ )?'[^']*' \\(minecraft\\), but only the wrong version",
           "repeat": true
         }
       ],
       "fixes": [
+        {
+          "type": "disableMod",
+          "mod": "{mod}"
+        }
+      ]
+    },
+    {
+      "id": "fabric-loader-version",
+      "stopsLoading": true,
+      "priority": 80,
+      "text": "loaderVersion",
+      "match": [
+        {
+          "contains": [
+            "(fabricloader), but only the wrong version",
+            "(quilt_loader), but only the wrong version"
+          ],
+          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires (?<need>.+?) of (?:\\w+ )?'(?<loader>[^']*)' \\((?:fabricloader|quilt_loader)\\), but only the wrong version is present: (?<have>[^!\\s]+)",
+          "repeat": true
+        }
+      ],
+      "fixes": [
+        {
+          "type": "updateLoader"
+        },
         {
           "type": "disableMod",
           "mod": "{mod}"
@@ -3343,7 +3450,7 @@
           "contains": [
             ", but only the wrong version"
           ],
-          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of '[^']*' \\((?<dep>(?!minecraft\\)|java\\))[a-z0-9_.\\-]+)\\), but only the wrong version",
+          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?:\\w+ )?'[^']*' \\((?<dep>(?!minecraft\\)|java\\)|fabricloader\\)|quilt_loader\\))[a-z0-9_.\\-]+)\\), but only the wrong version",
           "repeat": true
         }
       ],
