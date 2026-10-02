@@ -717,10 +717,25 @@ public final class MainWindow implements ProfileHost {
                 }
             }
             saveSettingsQuietly();
+            // The credentials move with the choice, now: read at the next start
+            // instead, the other store had none of them, and every account was
+            // signed out without a word.
+            if (result.fileCredentialStore() != service.settings().useFileCredentialStore()) {
+                boolean file = result.fileCredentialStore();
+                runInBackground(I18n.t("settings.fileStore"), () -> {
+                    try {
+                        service.useFileCredentialStore(file);
+                    } catch (IOException e) {
+                        Platform.runLater(() -> showError(I18n.t("settings.fileStore.failed"), e));
+                    }
+                });
+            }
             // Applied here rather than only at the next start: the settings
             // window is where somebody fixes a route that is not working, and
             // "restart the launcher" is not an answer to that.
             service.applyProxy();
+            // The next download uses the new number; one under way keeps its own.
+            service.applyDownloadConcurrency();
             // Same reasoning: somebody who has just made the logo cache smaller
             // wants that disk space back now, not at the next start.
             ModIcons.cacheBudget(service.settings().modIconCacheBytes());

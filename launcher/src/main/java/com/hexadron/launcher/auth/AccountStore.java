@@ -385,16 +385,44 @@ public final class AccountStore {
         return "account/" + account.id();
     }
 
-    private Json readSecret(Json metadata) {
-        String key = metadata.get("secretKey").asString(null);
-        if (key == null) {
-            // Metadata written before secretKey existed, or an offline account.
-            String uuid = metadata.get("uuid").asString(null);
-            String type = metadata.get("type").asString("OFFLINE");
-            if (uuid == null || type.equals("OFFLINE")) {
-                return Json.object();
+    /**
+     * Every credential-store key the accounts use, for moving them to another
+     * store: the key each was listed with when its credentials are still in
+     * the store unread, the current key when they are in memory.
+     */
+    public synchronized List<String> secretKeys() {
+        java.util.Set<String> keys = new java.util.LinkedHashSet<>();
+        for (Account account : accounts.values()) {
+            Json listed = pendingSecrets.containsKey(account.id())
+                    ? pendingSecrets.get(account.id())
+                    : unreadableSecrets.get(account.id());
+            String key = listed == null ? (account.isOffline() ? null : secretKey(account)) : keyOf(listed);
+            if (key != null) {
+                keys.add(key);
             }
-            key = "account/" + type.toLowerCase(java.util.Locale.ROOT) + ":" + uuid;
+        }
+        return List.copyOf(keys);
+    }
+
+    /** The store key a metadata entry's credentials are under; null for an offline account. */
+    private static String keyOf(Json metadata) {
+        String key = metadata.get("secretKey").asString(null);
+        if (key != null) {
+            return key;
+        }
+        // Metadata written before secretKey existed, or an offline account.
+        String uuid = metadata.get("uuid").asString(null);
+        String type = metadata.get("type").asString("OFFLINE");
+        if (uuid == null || type.equals("OFFLINE")) {
+            return null;
+        }
+        return "account/" + type.toLowerCase(java.util.Locale.ROOT) + ":" + uuid;
+    }
+
+    private Json readSecret(Json metadata) {
+        String key = keyOf(metadata);
+        if (key == null) {
+            return Json.object();
         }
         try {
             return secrets.load(key).map(Json::parse).orElseGet(Json::object);

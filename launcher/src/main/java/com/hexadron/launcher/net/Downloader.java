@@ -62,7 +62,11 @@ public final class Downloader {
      */
     private static final int ATTEMPTS_PER_URL = 3;
 
-    private final int concurrency;
+    /**
+     * Files fetched at the same time. Read when a batch starts, so a change
+     * reaches the next batch and leaves the one under way as it is.
+     */
+    private volatile int concurrency;
 
     /**
      * What has already been checked, so a file is not read to be told what it
@@ -94,8 +98,20 @@ public final class Downloader {
     }
 
     public Downloader(int concurrency) {
-        this.concurrency = Math.max(1, concurrency);
+        concurrency(concurrency);
     }
+
+    /** Sets how many files the next batch fetches at once; at least 1, at most {@link #MAX_CONCURRENCY}. */
+    public void concurrency(int value) {
+        this.concurrency = Math.max(1, Math.min(MAX_CONCURRENCY, value));
+    }
+
+    public int concurrency() {
+        return concurrency;
+    }
+
+    /** The most the settings window offers; more only queues at the server. */
+    public static final int MAX_CONCURRENCY = 32;
 
     /** @see #verified */
     public Downloader verified(VerifiedFiles ledger) {
@@ -195,7 +211,8 @@ public final class Downloader {
         progress.items(0, tasks.size());
         progress.bytes(0, totalBytes);
 
-        try (ExecutorService pool = Executors.newFixedThreadPool(concurrency, r -> {
+        int threads = concurrency;
+        try (ExecutorService pool = Executors.newFixedThreadPool(threads, r -> {
             Thread t = new Thread(r, "hexadron-download");
             t.setDaemon(true);
             return t;

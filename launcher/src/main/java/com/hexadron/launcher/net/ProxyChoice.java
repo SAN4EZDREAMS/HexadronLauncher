@@ -92,6 +92,33 @@ public record ProxyChoice(Mode mode, String host, int port, String user) {
         return mode == Mode.MANUAL && isUsable() && !user.isBlank();
     }
 
+    /**
+     * The Java options that point the game's own JVM at this proxy.
+     *
+     * <p>Only for a proxy typed in. The game does not use the launcher's
+     * network layer: without these, a player behind a proxy has a launcher
+     * that downloads everything and a game whose libraries and mods still try
+     * to go straight out. These are the standard {@code http(s).proxyHost}
+     * properties, which code that leaves the proxy choice to Java follows.
+     * Minecraft's own sign-in to servers, skins and Realms does not: it
+     * connects with an explicit "no proxy" unless the game is given a SOCKS
+     * proxy, which is not this setting. Local addresses stay direct, so a LAN
+     * world and local mods' servers are not sent through the proxy.
+     *
+     * <p>No user name or password: Java has no standard property for them, and
+     * a password on the command line can be read by any program on the computer.
+     */
+    public java.util.List<String> jvmArguments() {
+        if (mode != Mode.MANUAL || !isUsable()) {
+            return java.util.List.of();
+        }
+        String direct = "localhost|127.*|[::1]|10.*|192.168.*";
+        return java.util.List.of(
+                "-Dhttp.proxyHost=" + host, "-Dhttp.proxyPort=" + port,
+                "-Dhttps.proxyHost=" + host, "-Dhttps.proxyPort=" + port,
+                "-Dhttp.nonProxyHosts=" + direct);
+    }
+
     public ProxyChoice withMode(Mode value) {
         return new ProxyChoice(value, host, port, user);
     }

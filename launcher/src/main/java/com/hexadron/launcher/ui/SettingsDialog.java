@@ -193,11 +193,23 @@ public final class SettingsDialog {
         private final boolean languageChanged;
         private final boolean gridChanged;
         private final List<String> refused;
+        private final boolean fileCredentialStore;
 
-        private Result(boolean languageChanged, boolean gridChanged, List<String> refused) {
+        private Result(boolean languageChanged, boolean gridChanged, List<String> refused,
+                       boolean fileCredentialStore) {
             this.languageChanged = languageChanged;
             this.gridChanged = gridChanged;
             this.refused = List.copyOf(refused);
+            this.fileCredentialStore = fileCredentialStore;
+        }
+
+        /**
+         * Where the player wants credentials kept. Not written to the settings
+         * here: changing it moves every credential to the other store, which
+         * the caller does, off the interface thread.
+         */
+        public boolean fileCredentialStore() {
+            return fileCredentialStore;
         }
 
         /** True when the interface language is now a different one. */
@@ -588,6 +600,7 @@ public final class SettingsDialog {
         grid.addRow(row++, label("settings.proxy.user"), proxyUser);
         grid.addRow(row++, label("settings.proxy.password"), proxyPassword);
         grid.addRow(row++, new Label(), note("settings.proxy.privacy"));
+        grid.addRow(row++, new Label(), note("settings.proxy.game"));
         grid.addRow(row++, new Label(), test);
         grid.addRow(row, new Label(), proxyResult);
         return grid;
@@ -954,7 +967,6 @@ public final class SettingsDialog {
         settings.curseForgeApiKey(curseForgeKey.getText());
         settings.microsoftSignInMethod(signInMethodBox.getValue());
         settings.secureLaunchHandshake(secureHandshake.isSelected());
-        settings.useFileCredentialStore(fileCredentialStore.isSelected());
         settings.splashMinimumMillis(value(splashSpinner) * 1000);
 
         ProxyChoice choice = proxyFromFields();
@@ -1002,7 +1014,7 @@ public final class SettingsDialog {
                 refused.add(I18n.t("settings.grid.refusedRows", layout.rows()));
             }
         }
-        return new Result(languageChanged, gridChanged, refused);
+        return new Result(languageChanged, gridChanged, refused, fileCredentialStore.isSelected());
     }
 
     /**

@@ -72,7 +72,7 @@ public final class LauncherService {
     private final VersionInstaller versionInstaller;
     private final ProfileStore profiles;
     private final AccountStore accounts;
-    private final SecretStore secretStore;
+    private final com.hexadron.launcher.auth.secret.SwitchableSecretStore secretStore;
     private final JavaLocator javaLocator;
     private final JavaRuntimes javaRuntimes;
     private final LaunchCommandBuilder commandBuilder;
@@ -164,7 +164,8 @@ public final class LauncherService {
         // that decides what it is on first use. Probing costs two PowerShell
         // launches on Windows, and most starts never read a credential at all.
         step.accept("credentials");
-        this.secretStore = SecretStores.forHost(this.dirs, settings.useFileCredentialStore());
+        this.secretStore = new com.hexadron.launcher.auth.secret.SwitchableSecretStore(
+                SecretStores.forHost(this.dirs, settings.useFileCredentialStore()));
         step.accept("accounts");
         this.accounts = new AccountStore(this.dirs, secretStore).load();
         step.accept("skins");
@@ -195,6 +196,7 @@ public final class LauncherService {
                 });
         this.versionInstaller.javaRuntimes(javaRuntimes);
         this.commandBuilder = new LaunchCommandBuilder(dirs);
+        this.commandBuilder.networkArguments(settings.proxy().jvmArguments());
         step.accept("platforms");
         this.curseForge = CurseForgeProvider.fromEnvironment(settings.curseForgeApiKey());
         this.modInstaller = new ModInstaller(downloader, modrinth, curseForge);
@@ -1825,6 +1827,29 @@ public final class LauncherService {
     public static final String CURSEFORGE_KEY = "curseforge:apiKey";
 
     /**
+     * Moves the credentials to the launcher's encrypted file, or back to the
+     * operating system's store, and uses that store from now on - not from the
+     * next start. Every account's tokens, the CurseForge key and the proxy
+     * password go with it; nothing is left behind to read as "signed out".
+     *
+     * @return how many credentials were moved; 0 when the choice did not change
+     */
+    public synchronized int useFileCredentialStore(boolean file) throws IOException {
+        if (settings.useFileCredentialStore() == file) {
+            return 0;
+        }
+        java.util.List<String> keys = new java.util.ArrayList<>(accounts.secretKeys());
+        keys.add(CURSEFORGE_KEY);
+        keys.add(PROXY_PASSWORD_KEY);
+        int moved = secretStore.switchTo(SecretStores.forHost(dirs, file), keys);
+        settings.useFileCredentialStore(file);
+        settings.save();
+        LauncherLog.info("Credential store: switched to %s; %d credentials moved",
+                secretStore.current().displayName(), moved);
+        return moved;
+    }
+
+    /**
      * Moves a plain-text key out of launcher.json, or reads the stored one.
      *
      * <p>Off the start-up path: reading the credential store can mean two
@@ -3279,6 +3304,19 @@ public final class LauncherService {
     public static final String PROXY_PASSWORD_KEY = "proxy:password";
 
     /**
+     * Gives the downloader the number of simultaneous downloads in the
+     * settings. Called whenever the settings window is saved: the number was
+     * read once at start-up before, and a change did nothing until a restart
+     * that nothing said was needed.
+     */
+    public void applyDownloadConcurrency() {
+        if (downloader.concurrency() != settings.downloadConcurrency()) {
+            downloader.concurrency(settings.downloadConcurrency());
+            LauncherLog.info("Downloads: %d at a time", downloader.concurrency());
+        }
+    }
+
+    /**
      * Routes the network layer according to the settings.
      *
      * <p>Called at startup and again whenever the settings window is saved, so
@@ -3296,6 +3334,11 @@ public final class LauncherService {
             }
         }
         com.hexadron.launcher.net.Http.useProxy(settings.proxy(), password);
+        // And the game: it does not go through the launcher's network layer.
+        // Null during start-up, where the proxy is set before the builder exists.
+        if (commandBuilder != null) {
+            commandBuilder.networkArguments(settings.proxy().jvmArguments());
+        }
     }
 
     /** Refreshes a Microsoft account's token if it is close to expiry. */

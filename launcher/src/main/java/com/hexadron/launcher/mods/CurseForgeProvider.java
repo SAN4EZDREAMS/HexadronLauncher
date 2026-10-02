@@ -313,23 +313,39 @@ public final class CurseForgeProvider implements ModProvider {
             return new CurseForgeProvider(configuredKey);
         }
         CurseForgeProvider provider = new CurseForgeProvider(null);
+        provider.useDefaultKey();
+        return provider;
+    }
+
+    /**
+     * The key used when the player has set none: the environment's, then the
+     * one built into the launcher, then none at all.
+     */
+    private void useDefaultKey() {
         String environment = System.getenv("CURSEFORGE_API_KEY");
         if (environment != null && !environment.isBlank()) {
-            provider.apply(environment, KeySource.ENVIRONMENT);
+            apply(environment, KeySource.ENVIRONMENT);
         } else if (BuildConfig.hasCurseForgeApiKey()) {
-            provider.apply(BuildConfig.curseForgeApiKey(), KeySource.BUILD);
+            apply(BuildConfig.curseForgeApiKey(), KeySource.BUILD);
+        } else {
+            apply(null, KeySource.NONE);
         }
-        return provider;
     }
 
     /**
      * Replaces the key at runtime, for when the user pastes one in.
      *
-     * <p>An empty value returns the provider to "no key", which switches
-     * CurseForge back off rather than leaving it failing every request.
+     * <p>An empty value goes back to the key the launcher starts with when
+     * none is set - the environment's or the built-in one - and to no key only
+     * when there is neither. It used to mean "no key" until the next start and
+     * the built-in key after it: the same empty field, two answers.
      */
     public void apiKey(String value) {
-        apply(value, value == null || value.isBlank() ? KeySource.NONE : KeySource.SETTINGS);
+        if (value == null || value.isBlank()) {
+            useDefaultKey();
+            return;
+        }
+        apply(value, KeySource.SETTINGS);
     }
 
     private void apply(String value, KeySource source) {

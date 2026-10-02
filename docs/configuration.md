@@ -88,7 +88,7 @@ A key that is missing, or has a value of the wrong JSON type, gets its default.
 | `showAllVersions` | boolean | `false` | Show snapshots and old versions in the version list | Game |
 | `verifyEveryLaunch` | boolean | `false` | Read and hash every file before each launch, and unpack native libraries again. When `false`, a file is read again only if its size, time stamp or expected hash changed | Game |
 | `javaDownloadPolicy` | string | `"ask"` | `ask`, `always` or `never`. Also accepts `auto`, `true`, `yes` (as `always`) and `off`, `false`, `no` (as `never`). Other values mean `ask` | Java |
-| `downloadConcurrency` | number | `12` | Number of files downloaded at the same time. Clamped to 1-32. Used from the next start | Downloads |
+| `downloadConcurrency` | number | `12` | Number of files downloaded at the same time. Clamped to 1-32. A change in the settings window applies to the next download; one under way keeps its number | Downloads |
 | `checkForUpdates` | boolean | `true` | Look for a newer launcher at start-up | Downloads |
 | `updateChannel` | string | `"release"` | `release` or `nightly`. Other values mean `release` | Downloads |
 | `proxy` | object | `{"mode": "system", "host": "", "port": 8080, "user": ""}` | `mode`: `system`, `direct` or `manual` (other values mean `system`). `host`, `port` and `user` apply to `manual`. HTTP proxies only. The password is kept in the credential store, not in this file | Downloads |
@@ -97,7 +97,7 @@ A key that is missing, or has a value of the wrong JSON type, gets its default.
 | `curseForgeApiKey` | string | `""` | CurseForge Core API key. Empty uses the next key source (see [CurseForge](#curseforge)) | Mods |
 | `microsoftSignInMethod` | string | `"browser"` | `browser` (authorization code with PKCE) or `deviceCode`. Any value other than `deviceCode` means `browser` | Accounts |
 | `secureLaunchHandshake` | boolean | `true` | Give the session token to the game through standard input, not on the command line. Turn it off only if a mod loader does not start with it | Accounts |
-| `useFileCredentialStore` | boolean | `false` | Keep credentials in the launcher's encrypted file, not in the operating system store. This is less secure: the file's key is next to it. Used from the next start | Accounts |
+| `useFileCredentialStore` | boolean | `false` | Keep credentials in the launcher's encrypted file, not in the operating system store. This is less secure: the file's key is next to it. Applies at once from the settings window: Microsoft account tokens, the CurseForge key and the proxy password are copied to the other store first; if one cannot be copied, nothing changes | Accounts |
 | `microsoftClientId` | string | built-in ID | Azure application ID for Microsoft sign-in. An empty string turns Microsoft sign-in off | - |
 | `customGroupColors` | array of strings | `[]` | Colours mixed in the group editor, newest first. `#rrggbb` only, stored in lower case, 16 at most | - |
 
@@ -221,13 +221,16 @@ CurseForge can change either format. The result is used in three places:
 
 The first non-empty value wins:
 
-1. `curseForgeApiKey` in `launcher.json`.
+1. The key typed in the settings window (Mods tab) or in **Add a key**. It is
+   kept in the credential store, not in `launcher.json`; a key found in an older
+   `launcher.json` is moved there at start-up.
 2. The `CURSEFORGE_API_KEY` environment variable.
 3. The key built into the jar: the `hexadron.curseforge.apikey` system property
    if it is set, otherwise the `Hexadron-CurseForge-Api-Key` attribute in the jar
    manifest.
 
-With no key, `CurseForgeProvider.isAvailable()` is false. The mod browser shows
+Emptying the field goes straight back to 2 and 3, with no restart: the same
+key the next start would use. With no key, `CurseForgeProvider.isAvailable()` is false. The mod browser shows
 "CurseForge is off - this build has no API key, so only Modrinth is being
 searched." with an **Add a key** button, and searches use Modrinth only.
 

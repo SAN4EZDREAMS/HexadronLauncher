@@ -1049,8 +1049,73 @@ public final class SelfCheck {
 
     // ---------------------------------------------------------------- accounts
 
+    /** A credential store in memory, for checking what moves between two of them. */
+    private static com.hexadron.launcher.auth.secret.SecretStore memoryStore(String id, boolean broken) {
+        java.util.Map<String, String> values = new java.util.HashMap<>();
+        return new com.hexadron.launcher.auth.secret.SecretStore() {
+            public String id() { return id; }
+            public String displayName() { return id; }
+            public boolean isAvailable() { return true; }
+            public boolean isOsProtected() { return false; }
+            public void store(String key, String value) throws IOException {
+                if (broken) {
+                    throw new IOException("locked");
+                }
+                values.put(key, value);
+            }
+            public java.util.Optional<String> load(String key) { return java.util.Optional.ofNullable(values.get(key)); }
+            public void delete(String key) { values.remove(key); }
+        };
+    }
+
     private static void accounts() {
+        section("Settings that apply at once");
+        var downloads = new com.hexadron.launcher.net.Downloader(12);
+        downloads.concurrency(4);
+        check("the number of simultaneous downloads changes without a restart", downloads.concurrency() == 4);
+        downloads.concurrency(500);
+        check("and stays within 1 to 32", downloads.concurrency() == 32);
+        downloads.concurrency(0);
+        check("never below one", downloads.concurrency() == 1);
+
+        var manual = new com.hexadron.launcher.net.ProxyChoice(
+                com.hexadron.launcher.net.ProxyChoice.Mode.MANUAL, "10.0.0.5", 3128, "me");
+        List<String> gameProxy = manual.jvmArguments();
+        check("a proxy typed in reaches the game's Java too",
+                gameProxy.contains("-Dhttps.proxyHost=10.0.0.5") && gameProxy.contains("-Dhttps.proxyPort=3128")
+                        && gameProxy.contains("-Dhttp.proxyHost=10.0.0.5"));
+        check("but never its password, which any program could read on a command line",
+                gameProxy.stream().noneMatch(argument -> argument.contains("me") || argument.contains("assword")));
+        check("local addresses stay direct, so a LAN world is not sent through it",
+                gameProxy.stream().anyMatch(argument -> argument.startsWith("-Dhttp.nonProxyHosts=localhost")));
+        check("the computer's own proxy settings and no proxy add nothing to the game",
+                com.hexadron.launcher.net.ProxyChoice.system().jvmArguments().isEmpty()
+                        && manual.withMode(com.hexadron.launcher.net.ProxyChoice.Mode.DIRECT).jvmArguments().isEmpty());
+        check("nor does a proxy with no address",
+                manual.withHost("").jvmArguments().isEmpty());
         section("Accounts");
+        try {
+            var system = memoryStore("system", false);
+            system.store("account/1", "token-1");
+            system.store("curseforge:apiKey", "key");
+            var switchable = new com.hexadron.launcher.auth.secret.SwitchableSecretStore(system);
+            var file = memoryStore("file", false);
+            int moved = switchable.switchTo(file, List.of("account/1", "curseforge:apiKey", "proxy:password"));
+            check("switching the credential store takes the credentials along",
+                    moved == 2 && "token-1".equals(file.load("account/1").orElse(null))
+                            && "key".equals(switchable.load("curseforge:apiKey").orElse(null)));
+            check("and from then on everything is read from the new store", "file".equals(switchable.id()));
+            boolean refused = false;
+            try {
+                switchable.switchTo(memoryStore("locked", true), List.of("account/1"));
+            } catch (IOException e) {
+                refused = true;
+            }
+            check("a store that refuses a credential is not switched to",
+                    refused && "file".equals(switchable.id()));
+        } catch (IOException e) {
+            check("the credential store switch could be checked", false);
+        }
 
         Account steve = Account.offline("Steve");
         Account steveAgain = Account.offline("Steve");
@@ -3019,7 +3084,7 @@ public final class SelfCheck {
                 "settings.curseforge.prompt", "settings.signIn", "settings.signIn.browser",
                 "settings.signIn.deviceCode", "settings.signIn.note",
                 "settings.handshake", "settings.handshake.note", "settings.fileStore",
-                "settings.fileStore.note", "settings.dataFolder", "settings.logs", "settings.logs.note", "log.gameLog",
+                "settings.fileStore.note", "settings.fileStore.failed", "settings.proxy.game", "settings.dataFolder", "settings.logs", "settings.logs.note", "log.gameLog",
                 "dialog.close", "about.open", "about.title", "about.version",
                 "about.what", "about.repository", "about.author", "about.builtOn",
                 "about.licence",
@@ -3508,9 +3573,13 @@ public final class SelfCheck {
                 !CurseForgeProvider.isCurseForgeHost(null));
 
         provider.apiKey("");
-        check("clearing the key switches the platform off", !provider.isAvailable());
-        check("clearing the key stops the header being sent",
-                Http.hostHeadersFor(apiHost).isEmpty());
+        // Back to what a start with no key set uses: the environment's key,
+        // the built-in one, or none - the same answer now and after a restart.
+        CurseForgeProvider atStart = CurseForgeProvider.fromEnvironment("");
+        check("clearing the key goes back to the key a fresh start would use",
+                provider.keySource() == atStart.keySource() && provider.isAvailable() == atStart.isAvailable());
+        check("clearing your own key stops it being sent",
+                !"selfcheck-not-a-real-key-000000".equals(Http.hostHeadersFor(apiHost).get("x-api-key")));
 
         // The key is a credential, and every credential the launcher holds is
         // masked before anything is logged.

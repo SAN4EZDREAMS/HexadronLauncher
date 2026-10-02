@@ -152,7 +152,7 @@ The Interface tab of the settings window has the same two numbers. They are stor
 
 ## Settings window
 
-The cog button in either view opens the settings window. Save writes to `launcher.json` (grid size to `profiles.json`); Cancel writes nothing. The proxy and the mod picture cache size apply at once, without a restart.
+The cog button in either view opens the settings window. Save writes to `launcher.json` (grid size to `profiles.json`); Cancel writes nothing. The proxy, the number of simultaneous downloads, the credential store and the mod picture cache size apply at once, without a restart.
 
 | Tab | Settings |
 |---|---|
@@ -166,6 +166,7 @@ The cog button in either view opens the settings window. Save writes to `launche
 
 - Test the connection applies the route on screen and fetches the Mojang version manifest. Cancel restores the previous route.
 - A manual proxy with no address or port is not saved; the window says so after Save.
+- A manual proxy also goes to the game: each game starts with `-Dhttp.proxyHost`, `-Dhttp.proxyPort`, `-Dhttps.proxyHost`, `-Dhttps.proxyPort` and `-Dhttp.nonProxyHosts=localhost|127.*|[::1]|10.*|192.168.*`, before the profile's own Java arguments (so a profile can override them). Libraries and mods that leave the proxy to Java follow them. Minecraft's own sign-in to servers, skins and Realms does not: the game connects there with an explicit "no proxy" unless it is given a SOCKS proxy. The user name and password are not passed: Java has no standard property for them, and a command line is readable by other programs.
 - The proxy password goes to the credential store, not `launcher.json`, and is never shown again. Leave the field untouched to keep it; empty it to delete it.
 - The Azure client id (`microsoftClientId`) is only in `launcher.json`, for forks.
 

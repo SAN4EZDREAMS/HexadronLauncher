@@ -54,6 +54,14 @@ public final class LaunchCommandBuilder {
 
     private final GameDirs dirs;
 
+    /** Java options for the proxy the launcher uses; set from the settings, empty for none. */
+    private volatile List<String> networkArguments = List.of();
+
+    /** The proxy options every game from now on starts with. */
+    public void networkArguments(List<String> arguments) {
+        this.networkArguments = arguments == null ? List.of() : List.copyOf(arguments);
+    }
+
     public LaunchCommandBuilder(GameDirs dirs) {
         this.dirs = dirs;
     }
@@ -205,6 +213,9 @@ public final class LaunchCommandBuilder {
             command.add(loggingArgument);
         }
 
+        // The launcher's proxy, before the profile's own arguments so that a
+        // profile which sets its own proxy options wins by coming later.
+        command.addAll(networkArguments);
         command.addAll(profile.extraJvmArguments());
 
         String mainClass = version.mainClass();
