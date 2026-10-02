@@ -46,16 +46,17 @@ When the update check is off, `updates` does not run: the bar counts one stage f
 +----------------------------------------------------------------+
 | H HexadronLauncher [Search instances] [grid][broom][bug][?][cog] |
 +---------------------+------------------------------------------+
-| Instances | [icon] My world |
+| Instances [sort] | [icon] My world |
 | | Modded set 2.. | Minecraft 26.2 |
 | | [F] My world | Loader Fabric 0.19.3 |
 | | [F] Sky | Memory 4096 MB |
 | [V] 1.8 | Java Detected automatically |
 | | Last played 16 Aug 2026, 14:47 |
 | | Folder ...\instances\1-027f96 |
-| [New][Edit][Remove] | [Edit][Install / repair][Content...] |
-| [New group][Sort A-Z] [Open game folder][Detect] |
-| [Import][Export] | Mods (5) |
+| | [Edit][Install / repair][Content...] |
+| | [Open game folder][Detect] |
+| [ + New      | v ] | [Export build...]  [Remove] |
+| | Mods (5) |
 +---------------------+------------------------------------------+
 | Account: [ v ] [Manage accounts] [Add Microsoft account]  |
 | [Skin and cape...] [Remove] [ Play ] |
@@ -74,7 +75,7 @@ When the update check is off, `updates` does not run: the bar counts one stage f
 | About this launcher | Version, author, the projects the launcher is built on, the licence |
 | Settings | The settings window |
 
-**Sidebar.** The instance list and three rows of buttons: New / Edit / Remove, New group / Sort A-Z, Import / Export (`.hexbuild` files, see [builds-and-storage.md](builds-and-storage.md)).
+**Sidebar.** Only actions on the list itself. The sort icon next to the heading sorts A-Z. Under the list is one button, **New**: a click creates an instance; its arrow opens New instance..., Import build... (`.hexbuild` files, see [builds-and-storage.md](builds-and-storage.md)) and New group. Actions on one instance are in the detail panel and in the instance menu.
 
 **Detail panel.** A read-only summary of the selected instance and its mods, and these buttons:
 
@@ -85,6 +86,8 @@ When the update check is off, `updates` does not run: the bar counts one stage f
 | Content... | Opens the content window, see [mods.md](mods.md) |
 | Open game folder | Opens the instance folder |
 | Detect | Searches for Java runtimes and lists them in the Log panel, see [java-and-loaders.md](java-and-loaders.md) |
+| Export build... | Writes the instance to a `.hexbuild` file, see [builds-and-storage.md](builds-and-storage.md) |
+| Remove | Removes the instance, with or without its files. Red, and set apart from the other buttons |
 
 To change an instance, use Edit or the right-click menu. The instance editor has Name, Icon, Minecraft version, Mod loader, Loader version, Memory, Java, Extra JVM arguments and Wrapper command. Save writes the changes; Cancel writes nothing.
 

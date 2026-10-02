@@ -50,12 +50,16 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.ProgressBar;
+import javafx.scene.control.SeparatorMenuItem;
+import javafx.scene.control.SplitMenuButton;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
 import javafx.scene.control.TitledPane;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -199,8 +203,11 @@ public final class MainWindow implements ProfileHost {
     private final UiProgress progress;
 
     private final Button playButton = new Button();
-    private final Button newButton = new Button();
-    private final Button editButton = new Button();
+    /** A click makes a new instance; the arrow holds import and a new group. */
+    private final SplitMenuButton createButton = new SplitMenuButton();
+    private final MenuItem createProfileItem = new MenuItem();
+    private final MenuItem importBuildItem = new MenuItem();
+    private final MenuItem newGroupItem = new MenuItem();
     private final Button removeButton = new Button();
     private final Button installButton = new Button();
     private final Button modsButton = new Button();
@@ -224,10 +231,8 @@ public final class MainWindow implements ProfileHost {
     private final Button gridBugButton = new Button();
     private final Button modeButton = new Button();
     private final Button gridModeButton = new Button();
-    private final Button newGroupButton = new Button();
     private final Button sortButton = new Button();
     private final Button gridNewButton = new Button();
-    private final Button importBuildButton = new Button();
     private final Button exportBuildButton = new Button();
     private final Button gridImportBuildButton = new Button();
     private final Button gridNewGroupButton = new Button();
@@ -496,42 +501,34 @@ public final class MainWindow implements ProfileHost {
         list.setPrefWidth(300);
         list.setMinWidth(240);
 
-        newButton.setMaxWidth(Double.MAX_VALUE);
-        newButton.setOnAction(event -> createProfile());
-        editButton.setMaxWidth(Double.MAX_VALUE);
-        editButton.setOnAction(event -> editSelectedProfile());
-        removeButton.setMaxWidth(Double.MAX_VALUE);
-        removeButton.getStyleClass().add("danger");
-        removeButton.setOnAction(event -> removeSelectedProfile());
+        // Under the list sits only what acts on the list. What acts on one
+        // instance - edit, export, remove - is in that instance's panel and on
+        // its right-click menu, beside the thing it changes. Seven equal
+        // buttons in three rows mixed the two, and put Remove next to Edit.
+        //
+        // One button, because making an instance is the one thing done here
+        // often: a click makes one, and the arrow holds the other ways a new
+        // entry arrives in the list - an imported build, an empty group.
+        createButton.setGraphic(Glyphs.plus());
+        createButton.getStyleClass().add("create-button");
+        createButton.setMaxWidth(Double.MAX_VALUE);
+        createButton.setOnAction(event -> createProfile());
+        createProfileItem.setOnAction(event -> createProfile());
+        importBuildItem.setOnAction(event -> importBuild());
+        newGroupItem.setOnAction(event -> createGroup(null));
+        createButton.getItems().setAll(createProfileItem, importBuildItem,
+                new SeparatorMenuItem(), newGroupItem);
 
-        HBox buttons = new HBox(6, newButton, editButton, removeButton);
-        HBox.setHgrow(newButton, Priority.ALWAYS);
-        HBox.setHgrow(editButton, Priority.ALWAYS);
-        HBox.setHgrow(removeButton, Priority.ALWAYS);
-
-        // Grouping and sorting are arrangement, not instance settings, so they
-        // sit with the list rather than in the instance editor.
-        newGroupButton.setMaxWidth(Double.MAX_VALUE);
-        newGroupButton.setOnAction(event -> createGroup(null));
-        sortButton.setMaxWidth(Double.MAX_VALUE);
+        // Sorting rearranges what is already there, so it sits on the list's
+        // own heading: a shape, with its name in the tooltip.
         sortButton.setOnAction(event -> sortAlphabetically());
-        HBox arrange = new HBox(6, newGroupButton, sortButton);
-        HBox.setHgrow(newGroupButton, Priority.ALWAYS);
-        HBox.setHgrow(sortButton, Priority.ALWAYS);
-
-        // Moving a whole instance between machines, or handing it to a friend:
-        // with the list, because it is about the list - one comes in, one goes out.
-        importBuildButton.setMaxWidth(Double.MAX_VALUE);
-        importBuildButton.setOnAction(event -> importBuild());
-        exportBuildButton.setMaxWidth(Double.MAX_VALUE);
-        exportBuildButton.setOnAction(event -> exportBuild(selectedProfile));
-        HBox share = new HBox(6, importBuildButton, exportBuildButton);
-        HBox.setHgrow(importBuildButton, Priority.ALWAYS);
-        HBox.setHgrow(exportBuildButton, Priority.ALWAYS);
+        asIcon(sortButton, Glyphs.sort(), "profiles.sort");
 
         instancesTitle.getStyleClass().add("section-title");
+        HBox heading = new HBox(6, instancesTitle, spacer(), sortButton);
+        heading.setAlignment(Pos.CENTER_LEFT);
 
-        VBox pane = new VBox(8, instancesTitle, list, buttons, arrange, share);
+        VBox pane = new VBox(8, heading, list, createButton);
         pane.getStyleClass().add("sidebar");
         VBox.setVgrow(list, Priority.ALWAYS);
         return pane;
@@ -831,8 +828,16 @@ public final class MainWindow implements ProfileHost {
         summary.addRow(row++, styled(summaryPlayedTitle), styled(summaryPlayedValue));
         summary.addRow(row, styled(summaryFolderTitle), styled(summaryFolderValue));
 
-        HBox actions = new HBox(8, editButtonProxy(), installButton, modsButton,
-                openFolderButton, detectJavaButton);
+        // Everything done to this one instance. Export and Remove came here
+        // from under the list. Remove is last, set apart and red at rest, so it
+        // is never the button beside the one somebody meant. A flow rather
+        // than a row: seven buttons do not fit a narrow window on one line.
+        exportBuildButton.setOnAction(event -> exportBuild(selectedProfile));
+        removeButton.getStyleClass().add("danger");
+        removeButton.setOnAction(event -> removeSelectedProfile());
+        FlowPane actions = new FlowPane(8, 8, editButtonProxy(), installButton, modsButton,
+                openFolderButton, detectJavaButton, exportBuildButton, removeButton);
+        FlowPane.setMargin(removeButton, new Insets(0, 0, 0, 12));
         actions.setAlignment(Pos.CENTER_LEFT);
 
         modsTitle.getStyleClass().add("section-title");
@@ -1322,8 +1327,10 @@ public final class MainWindow implements ProfileHost {
         searchField.setPromptText(I18n.t("search.prompt"));
 
         instancesTitle.setText(I18n.t("profiles.header"));
-        newButton.setText(I18n.t("profiles.new"));
-        editButton.setText(I18n.t("action.edit"));
+        createButton.setText(I18n.t("profiles.new"));
+        createProfileItem.setText(I18n.t("profiles.new.item"));
+        importBuildItem.setText(I18n.t("action.importBuild"));
+        newGroupItem.setText(I18n.t("groups.new"));
         removeButton.setText(I18n.t("profiles.remove"));
         if (detailEdit != null) {
             detailEdit.setText(I18n.t("action.edit"));
@@ -1353,12 +1360,9 @@ public final class MainWindow implements ProfileHost {
         editAccountButton.setText(I18n.t("action.editAccount"));
         playButton.setText(I18n.t(playing ? "action.stop" : "action.play"));
 
-        newGroupButton.setText(I18n.t("groups.new"));
-        sortButton.setText(I18n.t("profiles.sort"));
         gridNewButton.setText(I18n.t("profiles.new"));
         gridImportBuildButton.setText(I18n.t("action.importBuild.short"));
-        importBuildButton.setText(I18n.t("action.importBuild.short"));
-        exportBuildButton.setText(I18n.t("action.exportBuild.short"));
+        exportBuildButton.setText(I18n.t("action.exportBuild"));
         gridNewGroupButton.setText(I18n.t("groups.new"));
         gridSortButton.setText(I18n.t("profiles.sort"));
         // No text on these: they are shapes, and the word lives in the tooltip -
@@ -1366,7 +1370,7 @@ public final class MainWindow implements ProfileHost {
         // key, so this loop does not have to know what any of them is.
         for (javafx.scene.control.Button button : new javafx.scene.control.Button[]{
                 settingsButton, gridSettingsButton, aboutButton, gridAboutButton,
-                bugButton, gridBugButton, modeButton, gridModeButton}) {
+                bugButton, gridBugButton, modeButton, gridModeButton, sortButton}) {
             Object key = button.getProperties().get("hexadron.name");
             if (key == null) {
                 continue;
@@ -2911,7 +2915,6 @@ public final class MainWindow implements ProfileHost {
         shown = profile;
         boolean present = profile != null;
 
-        editButton.setDisable(!present);
         if (detailEdit != null) {
             detailEdit.setDisable(!present);
         }

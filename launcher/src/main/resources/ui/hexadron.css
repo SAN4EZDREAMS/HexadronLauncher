@@ -219,6 +219,59 @@
     -fx-background-color: -fx-danger-0;
 }
 
+/* Remove, in the instance panel, is red at rest and not only under the
+   pointer: it is the one button there that cannot be undone. */
+.detail .button.danger {
+    -fx-text-fill: derive(-fx-danger-0, 40%);
+}
+
+.detail .button.danger:hover {
+    -fx-text-fill: white;
+}
+
+/*
+ * The one button under the instance list. A click on the word makes a new
+ * instance; the arrow, a step darker so it reads as its own target, opens the
+ * other ways an entry arrives: an imported build, a new group. Green, like
+ * Play, because it is the action that list exists for.
+ */
+.split-menu-button.create-button {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+}
+
+.split-menu-button.create-button > .label {
+    -fx-background-color: -fx-accent-0;
+    -fx-background-radius: 8 0 0 8;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-alignment: center;
+    -fx-graphic-text-gap: 8;
+    -fx-padding: 8 14 8 14;
+}
+
+.split-menu-button.create-button > .arrow-button {
+    -fx-background-color: derive(-fx-accent-0, -22%);
+    -fx-background-radius: 0 8 8 0;
+    -fx-padding: 8 12 8 12;
+}
+
+.split-menu-button.create-button > .label:hover,
+.split-menu-button.create-button > .arrow-button:hover,
+.split-menu-button.create-button:showing > .arrow-button {
+    -fx-background-color: -fx-accent-1;
+}
+
+.split-menu-button.create-button > .arrow-button > .arrow {
+    -fx-background-color: white;
+}
+
+.split-menu-button.create-button .glyph {
+    -fx-fill: white;
+}
+
 .text-field, .combo-box, .text-area {
     -fx-background-color: -fx-base-2;
     -fx-background-radius: 8;

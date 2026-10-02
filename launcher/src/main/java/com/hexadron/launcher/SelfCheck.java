@@ -2924,7 +2924,7 @@ public final class SelfCheck {
                 "mods.curseforge.key.saved", "mods.searchPartial",
                 "editor.wrapper", "editor.wrapper.prompt", "editor.wrapper.note",
                 "ui.mode.grid", "ui.mode.toGrid", "ui.mode.toList", "inventory.hint",
-                "profiles.sort", "groups.new", "groups.new.title", "groups.new.header",
+                "profiles.sort", "profiles.new.item", "groups.new", "groups.new.title", "groups.new.header",
                 "groups.new.body", "groups.new.default", "groups.remove", "groups.remove.header",
                 "groups.remove.body", "groups.collapse", "groups.expand",
                 "groups.settings", "groups.settings.title", "groups.name",

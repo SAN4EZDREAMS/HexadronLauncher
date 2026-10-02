@@ -301,6 +301,33 @@ final class Glyphs {
         return sized(sun, 16);
     }
 
+    /** A plus: makes something new. Drawn small, beside a word that says what. */
+    static Group plus() {
+        SVGPath plus = new SVGPath();
+        plus.setFillRule(FillRule.NON_ZERO);
+        plus.setContent(
+                "M 10.6 4 H 13.4 V 10.6 H 20 V 13.4 H 13.4 V 20 H 10.6 V 13.4 "
+                        + "H 4 V 10.6 H 10.6 Z");
+        return sized(plus, 12);
+    }
+
+    /**
+     * Three bars that shorten downwards, and an arrow pointing down beside them.
+     *
+     * <p>Sort, in the shape every file manager uses for it. Bars and not letters:
+     * "A-Z" is a Latin alphabet, and the list it sorts may be in any script.
+     */
+    static Group sort() {
+        SVGPath sort = new SVGPath();
+        sort.setFillRule(FillRule.NON_ZERO);
+        sort.setContent(
+                "M 3 5 H 13 V 7 H 3 Z "
+                        + "M 3 11 H 10.5 V 13 H 3 Z "
+                        + "M 3 17 H 8 V 19 H 3 Z "
+                        + "M 16.9 4 H 19.1 V 15.4 H 21.6 L 18 20.6 L 14.4 15.4 H 16.9 Z");
+        return sized(sort, 16);
+    }
+
     /** A broom: the storage window, where the launcher is swept out. */
     static Group broom() {
         SVGPath broom = new SVGPath();
