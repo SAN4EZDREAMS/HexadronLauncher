@@ -212,6 +212,9 @@ public final class Launcher extends Application {
     private void open(Stage stage, LauncherService service) {
         reportStep("language");
         I18n.use(Language.resolve(service.settings().language()));
+        // Before the first window, so it opens in the chosen look rather than
+        // in the default one and then changing.
+        com.hexadron.launcher.ui.Theme.init(service.dirs().root(), service.settings().appearance());
         // Now that settings have been read, the splash can be told how long the
         // user wants to look at it. Until this point it has been using its own
         // default, because reading that setting is one of the stages it shows.

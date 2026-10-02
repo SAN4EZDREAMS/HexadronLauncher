@@ -181,6 +181,7 @@ public final class SelfCheck {
         storageCleanup();
         flatpakSandbox();
         stylesheet();
+        themes();
         launcherLog();
         about();
         verificationLedger();
@@ -3122,6 +3123,29 @@ public final class SelfCheck {
                 "settings.modUpdates", "settings.modUpdates.note", "settings.update.rules",
                 "settings.socks", "settings.socks.prompt", "settings.socks.note",
                 "settings.socks.invalid", "settings.cleanup.note", "settings.refusedHeader",
+                "settings.tab.appearance", "appearance.theme", "appearance.theme.note",
+                "appearance.changed", "appearance.colors.reset", "appearance.preset.hexadron",
+                "appearance.preset.light", "appearance.preset.oled", "appearance.preset.midnight",
+                "appearance.preset.nether", "appearance.preset.end", "appearance.preset.birch",
+                "appearance.colors", "appearance.color.background", "appearance.color.panel",
+                "appearance.color.control", "appearance.color.border", "appearance.color.text",
+                "appearance.color.textMuted", "appearance.color.accent",
+                "appearance.color.accentHover", "appearance.color.danger",
+                "appearance.color.warning", "appearance.color.modpack",
+                "appearance.color.datapack", "appearance.color.choose", "appearance.contrast",
+                "appearance.background", "appearance.background.none",
+                "appearance.background.choose", "appearance.background.remove",
+                "appearance.background.fit", "appearance.background.fit.cover",
+                "appearance.background.fit.contain", "appearance.background.fit.stretch",
+                "appearance.background.fit.center", "appearance.background.fit.tile",
+                "appearance.background.dim", "appearance.background.blur",
+                "appearance.background.panels", "appearance.background.note",
+                "appearance.background.failed", "appearance.background.filter", "appearance.font",
+                "appearance.font.default", "appearance.font.mono", "appearance.font.scale",
+                "appearance.font.note", "appearance.export", "appearance.import",
+                "appearance.reset", "appearance.file.filter", "appearance.file.failed",
+                "appearance.file.saved", "appearance.preview.note", "appearance.value.percent",
+                "appearance.value.pixels",
                 // Self-updating: the window that offers it, the two channels,
                 // and every line the update itself can end on.
                 "splash.step.updates",
@@ -7724,6 +7748,216 @@ public final class SelfCheck {
         } catch (IOException e) {
             check("Mod Menu's mod count can be settled", false);
         }
+    }
+
+    /**
+     * Themes: the palettes, the stylesheet written from them, the background
+     * picture and the theme file. All of it is text and files, so all of it
+     * can be checked without a screen.
+     */
+    private static void themes() {
+        section("Themes");
+        String base;
+        String light;
+        try (java.io.InputStream a = SelfCheck.class.getResourceAsStream("/ui/hexadron.css");
+             java.io.InputStream b = SelfCheck.class.getResourceAsStream("/ui/hexadron-light.css")) {
+            if (a == null || b == null) {
+                check("both stylesheets are on the classpath", false);
+                return;
+            }
+            base = new String(a.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            light = new String(b.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            check("both stylesheets could be read", false);
+            return;
+        }
+        check("the light overrides are on the classpath", true);
+
+        // Each rule in the light file overrides one in the main file by
+        // repeating its selector; a selector renamed in one and not the other
+        // is a rule that silently stops applying.
+        java.util.regex.Matcher selectors = java.util.regex.Pattern
+                .compile("(?m)^([.#][^{}/*]*?)\\s*\\{").matcher(light);
+        boolean all = true;
+        int count = 0;
+        while (selectors.find()) {
+            for (String selector : selectors.group(1).split(",")) {
+                count++;
+                if (!base.contains(selector.trim() + " {") && !base.contains(selector.trim() + ",")) {
+                    check("light override matches a rule in hexadron.css: " + selector.trim(), false);
+                    all = false;
+                }
+            }
+        }
+        check("every light override (" + count + ") matches a rule in hexadron.css", all && count > 10);
+
+        var own = com.hexadron.launcher.theme.ThemePreset.HEXADRON.palette();
+        var tokens = com.hexadron.launcher.theme.ThemeCss.tokens(own);
+        boolean same = true;
+        for (String name : new String[]{"-fx-base-0", "-fx-text-1", "-fx-accent-0", "-fx-success-text",
+                "-fx-danger-text", "-fx-warning-text", "-fx-toast-mark", "-fx-on-warning"}) {
+            String declared = rootValue(base, name);
+            if (declared == null || !declared.equalsIgnoreCase(tokens.get(name))) {
+                check("the launcher's own theme keeps " + name + " (" + declared + " / " + tokens.get(name) + ")", false);
+                same = false;
+            }
+        }
+        check("the launcher's own theme draws exactly what hexadron.css always drew", same);
+        check("white text stays on the green accent", "#ffffff".equals(tokens.get("-fx-on-accent")));
+        check("and dark text on the amber warning", !"#ffffff".equals(tokens.get("-fx-on-warning")));
+
+        for (var preset : com.hexadron.launcher.theme.ThemePreset.values()) {
+            var palette = preset.palette();
+            double text = com.hexadron.launcher.theme.Palette.contrast(
+                    palette.get(com.hexadron.launcher.theme.Palette.Slot.TEXT),
+                    palette.get(com.hexadron.launcher.theme.Palette.Slot.PANEL));
+            double muted = com.hexadron.launcher.theme.Palette.contrast(
+                    palette.get(com.hexadron.launcher.theme.Palette.Slot.TEXT_MUTED),
+                    palette.get(com.hexadron.launcher.theme.Palette.Slot.PANEL));
+            check("theme " + preset.id() + ": text is readable on panels (" + Math.round(text * 10) / 10.0 + ":1)",
+                    text >= 7);
+            check("theme " + preset.id() + ": secondary text too (" + Math.round(muted * 10) / 10.0 + ":1)",
+                    muted >= 4.5);
+            var derived = com.hexadron.launcher.theme.ThemeCss.tokens(palette);
+            String panel = palette.get(com.hexadron.launcher.theme.Palette.Slot.PANEL);
+            for (String name : new String[]{"-fx-success-text", "-fx-danger-text", "-fx-warning-text"}) {
+                check("theme " + preset.id() + ": " + name + " is readable on panels",
+                        com.hexadron.launcher.theme.Palette.contrast(derived.get(name), panel) >= 4.5);
+            }
+            String button = palette.get(com.hexadron.launcher.theme.Palette.Slot.ACCENT);
+            check("theme " + preset.id() + ": the Play button's word is readable",
+                    com.hexadron.launcher.theme.Palette.contrast(derived.get("-fx-on-accent"), button) >= 3);
+        }
+        check("the light themes are light and the dark ones dark",
+                com.hexadron.launcher.theme.ThemePreset.LIGHT.palette().isLight()
+                        && com.hexadron.launcher.theme.ThemePreset.BIRCH.palette().isLight()
+                        && !com.hexadron.launcher.theme.ThemePreset.OLED.palette().isLight()
+                        && !own.isLight());
+
+        var look = com.hexadron.launcher.theme.Appearance.DEFAULT;
+        String plain = com.hexadron.launcher.theme.ThemeCss.build(base, light, look, null);
+        check("a dark theme does not include the light overrides", !plain.contains("change direction on a light palette"));
+        check("and has no picture", !plain.contains("-fx-background-image"));
+        String lit = com.hexadron.launcher.theme.ThemeCss.build(base, light,
+                look.withPreset(com.hexadron.launcher.theme.ThemePreset.LIGHT), null);
+        check("a light theme does", lit.contains("change direction on a light palette"));
+        String scaled = com.hexadron.launcher.theme.ThemeCss.scaleFonts(".a { -fx-font-size: 13px; } .b { -fx-font-size: 11px; }", 150);
+        check("text size multiplies every pixel font size",
+                scaled.contains("-fx-font-size: 19.5px") && scaled.contains("-fx-font-size: 16.5px"));
+        check("and 100 % changes nothing", com.hexadron.launcher.theme.ThemeCss.scaleFonts(base, 100).equals(base));
+        String mono = com.hexadron.launcher.theme.ThemeCss.withMonoFont(base, "Fira Code");
+        check("the fixed-width font goes in front of the launcher's own",
+                mono.contains("-fx-font-family: \"Fira Code\", \"Consolas\"") && !mono.equals(base));
+        String font = com.hexadron.launcher.theme.ThemeCss.build(base, light,
+                look.withFont("Noto Serif\"; -fx-background-color: red;"), null);
+        check("a font name cannot end its declaration", !font.contains("red;\", ")
+                && font.contains("-fx-font-family: \"Noto Serif -fx-background-color: red\""));
+        String picture = com.hexadron.launcher.theme.ThemeCss.build(base, light,
+                look.withBackground("backgrounds/0123456789abcdef.png"), "file:/tmp/bg.jpg");
+        check("a picture goes on window roots only", picture.contains(".root.hx-backdrop")
+                && picture.contains("url(\"file:/tmp/bg.jpg\")"));
+        check("and panels over it are translucent", picture.contains(".hx-backdrop .sidebar"));
+
+        var round = com.hexadron.launcher.theme.Appearance.fromJson(look
+                .withPreset(com.hexadron.launcher.theme.ThemePreset.NETHER)
+                .withColor(com.hexadron.launcher.theme.Palette.Slot.ACCENT, "#ABC")
+                .withFontScale(117).withDim(200).withPanelOpacity(5).withFont("Inter").toJson());
+        check("an appearance survives launcher.json",
+                round.preset() == com.hexadron.launcher.theme.ThemePreset.NETHER
+                        && "#aabbcc".equals(round.palette().get(com.hexadron.launcher.theme.Palette.Slot.ACCENT))
+                        && "Inter".equals(round.font()));
+        check("and every number is held to its range",
+                round.fontScale() == 115 && round.dim() == com.hexadron.launcher.theme.Appearance.DIM_MAX
+                        && round.panelOpacity() == com.hexadron.launcher.theme.Appearance.PANEL_OPACITY_MIN);
+        check("a colour changed back to the theme's is no change",
+                !look.withColor(com.hexadron.launcher.theme.Palette.Slot.TEXT,
+                        own.get(com.hexadron.launcher.theme.Palette.Slot.TEXT)).isCustomised());
+        check("another theme drops the colour changes of the last one",
+                !round.withPreset(com.hexadron.launcher.theme.ThemePreset.END).isCustomised());
+        check("a saved picture path cannot leave the backgrounds folder",
+                !look.withBackground("../../secret.png").hasBackground()
+                        && !look.withBackground("C:/Windows/x.png").hasBackground()
+                        && look.withBackground("backgrounds/0123456789abcdef.jpg").hasBackground());
+        check("a colour that is not #rrggbb is refused",
+                com.hexadron.launcher.theme.Palette.parse("red") == null
+                        && com.hexadron.launcher.theme.Palette.parse("#12345;") == null
+                        && "#112233".equals(com.hexadron.launcher.theme.Palette.parse("123")));
+
+        Path dir = null;
+        try {
+            dir = java.nio.file.Files.createTempDirectory("hexadron-theme");
+            Path source = dir.resolve("photo.png");
+            java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(
+                    64, 40, java.awt.image.BufferedImage.TYPE_INT_RGB);
+            for (int x = 0; x < 64; x++) {
+                for (int y = 0; y < 40; y++) {
+                    image.setRGB(x, y, x < 32 ? 0xffffff : 0x000000);
+                }
+            }
+            javax.imageio.ImageIO.write(image, "png", source.toFile());
+            Path data = dir.resolve("data");
+            String stored = com.hexadron.launcher.theme.BackdropImage.importPicture(source, data);
+            check("a background picture is copied into the data folder, named by content",
+                    stored.matches("backgrounds/[0-9a-f]{16}\\.png")
+                            && java.nio.file.Files.isRegularFile(data.resolve(stored)));
+            check("and the same picture twice is one file",
+                    stored.equals(com.hexadron.launcher.theme.BackdropImage.importPicture(source, data)));
+            Path cache = dir.resolve("cache");
+            Path prepared = com.hexadron.launcher.theme.BackdropImage.prepare(
+                    data.resolve(stored), cache, "#000000", 50, 6);
+            var drawn = javax.imageio.ImageIO.read(prepared.toFile());
+            int left = drawn.getRGB(2, 20) & 0xff;
+            int middle = drawn.getRGB(31, 20) & 0xff;
+            check("the prepared picture is faded towards the window colour", left > 90 && left < 160);
+            check("and blurred across the edge", middle > 20 && middle < left);
+            check("the same settings find the prepared picture again", prepared.equals(
+                    com.hexadron.launcher.theme.BackdropImage.prepare(data.resolve(stored), cache, "#000000", 50, 6)));
+            Path text = dir.resolve("notes.png");
+            java.nio.file.Files.writeString(text, "not a picture");
+            boolean refused = false;
+            try {
+                com.hexadron.launcher.theme.BackdropImage.importPicture(text, data);
+            } catch (IOException e) {
+                refused = true;
+            }
+            check("a file that is not a picture is refused", refused);
+
+            var themed = look.withPreset(com.hexadron.launcher.theme.ThemePreset.MIDNIGHT).withBackground(stored)
+                    .withBlur(12);
+            Path file = dir.resolve("mine.hxtheme");
+            com.hexadron.launcher.theme.ThemeFile.write(themed, data, file);
+            Path elsewhere = dir.resolve("other");
+            var back = com.hexadron.launcher.theme.ThemeFile.read(file, elsewhere);
+            check("a theme file carries its picture to another data folder",
+                    back.preset() == com.hexadron.launcher.theme.ThemePreset.MIDNIGHT && back.blur() == 12
+                            && back.background().equals(stored)
+                            && java.nio.file.Files.isRegularFile(elsewhere.resolve(stored)));
+            check("and does not carry the path on this computer",
+                    !java.nio.file.Files.readString(file).contains("\"background\": \"backgrounds/"));
+        } catch (IOException e) {
+            check("the background picture could be checked: " + e, false);
+        } finally {
+            if (dir != null) {
+                deleteRecursively(dir);
+            }
+        }
+    }
+
+    /** The value a looked-up colour has in the first .root block of a stylesheet. */
+    private static String rootValue(String css, String name) {
+        int root = css.indexOf(".root {");
+        int end = css.indexOf("}", root);
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?m)^\\s*" + java.util.regex.Pattern.quote(name) + ":\\s*([^;]+);")
+                .matcher(css.substring(root, end));
+        if (!m.find()) {
+            return null;
+        }
+        String value = m.group(1).trim();
+        if (value.equals("white")) {
+            return "#ffffff";
+        }
+        return value;
     }
 
     /**

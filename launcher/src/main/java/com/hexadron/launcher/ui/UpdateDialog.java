@@ -194,7 +194,7 @@ final class UpdateDialog {
         VBox.setVgrow(notesScroll, Priority.ALWAYS);
 
         Scene scene = new Scene(root, WIDTH, 520);
-        Theme.apply(scene);
+        Theme.applyWindow(scene);
 
         stage.setScene(scene);
         stage.setTitle(I18n.t("update.available.title"));

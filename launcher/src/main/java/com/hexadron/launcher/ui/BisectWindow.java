@@ -86,7 +86,7 @@ final class BisectWindow {
         root.setPrefWidth(WIDTH);
         root.getStyleClass().add("cleanup-root");
         Scene scene = new Scene(root);
-        Theme.apply(scene);
+        Theme.applyWindow(scene);
         stage.setScene(scene);
         stage.setResizable(false);
     }

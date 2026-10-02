@@ -298,6 +298,10 @@ public final class LauncherSettings {
      */
     private final List<String> customGroupColors = new ArrayList<>();
 
+    /** How the launcher looks: theme, colours, background picture, fonts. */
+    private com.hexadron.launcher.theme.Appearance appearance =
+            com.hexadron.launcher.theme.Appearance.DEFAULT;
+
     /** How many mixed colours are kept. The oldest falls off beyond this. */
     public static final int CUSTOM_COLOR_LIMIT = 16;
 
@@ -356,6 +360,7 @@ public final class LauncherSettings {
         javaDownloadPolicy = JavaRuntimes.DownloadPolicy
                 .parse(json.get("javaDownloadPolicy").asString(javaDownloadPolicy)).stored();
         language = json.get("language").asString(language);
+        appearance = com.hexadron.launcher.theme.Appearance.fromJson(json.get("appearance"));
         customGroupColors.clear();
         for (Json entry : json.get("customGroupColors").elements()) {
             addCustomGroupColor(entry.asString(null));
@@ -398,7 +403,8 @@ public final class LauncherSettings {
                 .put("splashMinimumMillis", splashMinimumMillis)
                 .put("javaDownloadPolicy", javaDownloadPolicy)
                 .put("language", language)
-                .put("customGroupColors", colorsAsJson());
+                .put("customGroupColors", colorsAsJson())
+                .put("appearance", appearance.toJson());
         // Atomic and owner-only: saved from more than one thread (the settings
         // window, the start-up warm-up), and a half-written file would lose
         // every setting on the next start.
@@ -413,6 +419,15 @@ public final class LauncherSettings {
     }
 
     /** The mixed colours, newest first. Never null, possibly empty. */
+    public com.hexadron.launcher.theme.Appearance appearance() {
+        return appearance;
+    }
+
+    public LauncherSettings appearance(com.hexadron.launcher.theme.Appearance value) {
+        this.appearance = value == null ? com.hexadron.launcher.theme.Appearance.DEFAULT : value;
+        return this;
+    }
+
     public List<String> customGroupColors() {
         return List.copyOf(customGroupColors);
     }

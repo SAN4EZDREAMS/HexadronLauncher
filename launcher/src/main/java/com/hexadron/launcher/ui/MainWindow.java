@@ -436,13 +436,18 @@ public final class MainWindow implements ProfileHost {
         root.setBottom(buildFooter());
 
         Scene scene = new Scene(root, 1180, 760);
-        Theme.apply(scene);
+        Theme.applyWindow(scene);
+        // The group bands are coloured in code, from the theme's light or dark;
+        // a new look redraws them.
+        Theme.onChange(this::refreshProfiles);
+        Theme.onChange(this::fitToTextSize);
         acceptDroppedBuilds(scene);
         // A floor rather than a preference: below this the toolbars cannot show
         // their own labels, and the grid starts scrolling sideways at nine
         // columns. Both are worse than a window that refuses to get smaller.
         stage.setMinWidth(1000);
         stage.setMinHeight(640);
+        fitToTextSize();
 
         applyTexts();
         refreshProfiles();
@@ -3522,6 +3527,31 @@ public final class MainWindow implements ProfileHost {
     }
 
     // ---------------------------------------------------------------- storage
+
+    /**
+     * Keeps the window wide enough for its text at the chosen size.
+     *
+     * <p>The footer is one row of buttons with Play at the end; at 130 % text
+     * in a window sized for 100 % they and Play were cut to ellipses. So the
+     * smallest size grows with the text, and a window narrower than that is
+     * widened - never past the screen it is on.
+     */
+    private void fitToTextSize() {
+        double scale = Math.max(1, Theme.appearance().fontScale() / 100.0);
+        javafx.geometry.Rectangle2D screen = javafx.stage.Screen.getScreensForRectangle(
+                        stage.getX(), stage.getY(), Math.max(1, stage.getWidth()), Math.max(1, stage.getHeight()))
+                .stream().findFirst().orElse(javafx.stage.Screen.getPrimary()).getVisualBounds();
+        double minWidth = Math.min(1000 * scale, screen.getWidth());
+        double minHeight = Math.min(640 * scale, screen.getHeight());
+        stage.setMinWidth(minWidth);
+        stage.setMinHeight(minHeight);
+        if (stage.isShowing() && !stage.isMaximized() && stage.getWidth() < minWidth) {
+            stage.setWidth(minWidth);
+        }
+        if (stage.isShowing() && !stage.isMaximized() && stage.getHeight() < minHeight) {
+            stage.setHeight(minHeight);
+        }
+    }
 
     /**
      * Opens the storage window, or brings the open one forward.

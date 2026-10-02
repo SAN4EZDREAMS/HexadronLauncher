@@ -1,0 +1,107 @@
+/*
+ * HexadronLauncher - a Minecraft launcher, and the Hexadron Optimise mod.
+ * Copyright (c) 2026 OLEKSII RADCHUK (SAN4EZDREAMS). All rights reserved.
+ *
+ * Licensed for noncommercial use only. You may use, study, share and improve
+ * this software; you may not sell it, and you may not remove, alter or obscure
+ * this notice or the authorship it records. Full terms: LICENSE.md in the
+ * project root. Provided without any warranty.
+ *
+ * SPDX-License-Identifier: LicenseRef-Hexadron-NC-1.0
+ */
+
+/*
+ * The rules of hexadron.css that change direction on a light palette.
+ *
+ * Most of the stylesheet names its colours by role and follows the palette
+ * by itself. These rules do not: they mix a colour towards black - a darker
+ * tint behind a green glyph, a darker track behind a switch - and on a light
+ * window that is a dark smudge where a pale wash belongs. So the theme engine
+ * (ui/theme/ThemeCss) appends this file after hexadron.css whenever the chosen
+ * window colour is light, and each rule here is the same rule mixed towards
+ * white instead. The selectors are copied exactly, so each one wins over its
+ * original by coming later.
+ */
+
+.context-menu.create-menu .create-menu-glyph {
+    -fx-background-color: derive(-fx-accent-0, 78%);
+}
+
+.context-menu.create-menu .create-menu-glyph .glyph {
+    -fx-fill: derive(-fx-accent-0, -15%);
+}
+
+.context-menu.create-menu .menu-item.danger-item .create-menu-title {
+    -fx-text-fill: derive(-fx-danger-0, -15%);
+}
+
+.context-menu.create-menu .menu-item.danger-item:focused {
+    -fx-background-color: derive(-fx-danger-0, 80%);
+}
+
+.context-menu.create-menu .menu-item.danger-item .create-menu-glyph {
+    -fx-background-color: derive(-fx-danger-0, 84%);
+}
+
+.context-menu.create-menu .menu-item.danger-item .create-menu-glyph .glyph {
+    -fx-fill: derive(-fx-danger-0, -10%);
+}
+
+.check-box > .box {
+    -fx-border-color: derive(-fx-text-1, 35%);
+}
+
+.scroll-bar > .thumb:hover {
+    -fx-background-color: derive(-fx-base-3, -18%);
+}
+
+.skin-viewer.drag-over {
+    -fx-background-color: derive(-fx-base-1, -4%);
+}
+
+.badge,
+.mod-tag,
+.mod-tag-more {
+    -fx-border-color: derive(-fx-base-3, -12%);
+}
+
+.inv-cell-tinted {
+    -fx-background-color: derive(-fx-group-tint, 30%), derive(-fx-group-tint, 72%);
+}
+
+.inv-cell-tinted:hover {
+    -fx-background-color: derive(-fx-group-tint, 10%), derive(-fx-group-tint, 60%);
+}
+
+.inv-cell-empty.inv-cell-tinted {
+    -fx-background-color: derive(-fx-group-tint, 50%), derive(-fx-group-tint, 82%);
+}
+
+.inv-cell-tinted.inv-cell-selected {
+    -fx-background-color: -fx-accent-0, derive(-fx-group-tint, 66%);
+}
+
+.on-off-track {
+    -fx-background-color: derive(-fx-danger-0, 82%);
+    -fx-border-color: derive(-fx-danger-0, 40%);
+}
+
+.on-off-switch:hover .on-off-track {
+    -fx-background-color: derive(-fx-danger-0, 72%);
+}
+
+.on-off-switch:on .on-off-track {
+    -fx-background-color: derive(-fx-accent-0, 78%);
+}
+
+.on-off-switch:on:hover .on-off-track {
+    -fx-background-color: derive(-fx-accent-0, 66%);
+}
+
+.on-off-word {
+    -fx-text-fill: derive(-fx-danger-0, -20%);
+}
+
+.on-off-switch:on .on-off-word {
+    -fx-text-fill: derive(-fx-accent-0, -25%);
+}

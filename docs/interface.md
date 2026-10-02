@@ -157,6 +157,7 @@ The cog button in either view opens the settings window. Save writes to `launche
 | Tab | Settings |
 |---|---|
 | General | Language (As the system, or one of the 16 languages); While the game runs (Hide to the notification area / Minimise the window / Keep the window as it is); Closing the launcher stops the game; Grid columns; Grid rows; Start-up window, seconds |
+| Appearance | Theme (7 themes); Colours (12 colours over the theme, Back to the theme's colours); Background picture with Placement, Fade, Blur and Panel opacity; Interface font; Fixed-width font; Text size (80-150 %); Export theme, Import theme, Reset appearance. See [Appearance](#appearance) |
 | Game | When Java is missing: Ask each time / Download it / Never download it; Memory for new instances, MB, with Automatic; Advanced: Check every file before each launch |
 | Network | Simultaneous downloads (1-32); Look for launcher updates at start-up; Update channel (Release / Nightly); Check for updates; Proxy (This computer's settings / Straight out, no proxy / A proxy I type in) with Address, Port, User, Password and Test the connection; SOCKS proxy for the game with Port |
 | Mods | Warn before breaking a mod's dependency; Look for mod updates; CurseForge API key, with a button that opens console.curseforge.com |
@@ -171,6 +172,39 @@ The cog button in either view opens the settings window. Save writes to `launche
 - The Azure client id (`microsoftClientId`) is only in `launcher.json`, for forks.
 
 Keys and defaults are in [configuration.md](configuration.md).
+
+## Appearance
+
+The Appearance tab of the settings window changes how every launcher window looks. Each change shows at once in all open windows. **Save** keeps the changes; **Cancel** (or closing the window) puts back the previous look.
+
+**Theme.** A theme is a palette of 12 colours:
+
+| Theme | `theme` | Window |
+|---|---|---|
+| Hexadron (default) | `hexadron` | Dark grey, green accent. The launcher's original look |
+| Light | `light` | Light grey and white |
+| OLED | `oled` | Black |
+| Midnight | `midnight` | Dark blue, blue accent |
+| Nether | `nether` | Dark red-brown, orange accent |
+| End | `end` | Dark violet, purple accent |
+| Birch | `birch` | Warm light |
+
+**Colours.** Click a colour to change it with the colour chooser. A changed colour is marked with `*`. A change applies on top of the chosen theme; choosing another theme removes the changes, and **Back to the theme's colours** removes them too. When text on panels has a contrast below 4.5:1, a warning shows under the colours.
+
+The launcher calculates the other colours from the 12: text on coloured buttons and badges (white or near-black, whichever reads better), status text (made readable on panels), and the colours of modena (the JavaFX default style) for parts that the launcher stylesheet does not name. When the window colour is light, the launcher also uses `hexadron-light.css`, which mixes the soft tints towards white instead of black.
+
+**Background picture.** **Choose...** copies a PNG, JPEG, GIF or BMP file (25 MB at most) to `backgrounds/` in the data folder, named by the first 16 hex characters of its SHA-1. The picture shows in every launcher window, including dialogs. Menus and tooltips stay solid.
+
+- **Placement**: Fill the window (cover), Show all of it (contain), Stretch, Centre, Tile.
+- **Fade** (0-90 %): mixes the picture with the window colour.
+- **Blur** (0-40 px).
+- **Panel opacity** (30-100 %): how solid the panels are over the picture.
+
+The launcher prepares the picture once for each fade, blur and window colour (scaled to 2560 pixels at most, saved as JPEG in `cache/theme/`). Prepared pictures that are not in use are deleted after Save and at start-up.
+
+**Fonts.** **Interface font** and **Fixed-width font** list the fonts installed on the computer. The fixed-width font is used for logs and code. **Text size** changes all text in the launcher together. The main window and the settings window get wider when the text is larger, but not wider than the screen.
+
+**Theme files.** **Export theme...** writes a `.hxtheme` file: JSON with the theme, colours, fonts and picture settings, and the picture itself (base64). The picture's path on the computer is not written. **Import theme...** reads such a file and copies its picture to the data folder. **Reset appearance** goes back to the Hexadron theme with no picture and the default fonts.
 
 ## Instance icons
 

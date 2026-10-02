@@ -279,8 +279,7 @@ public final class ProfileListView {
 
         HBox band = new HBox(0, rail, content);
         band.getStyleClass().add("profile-band");
-        String base = "-fx-background-color: derive(" + group.color() + ", -74%);"
-                + " -fx-border-color: derive(" + group.color() + ", -45%);";
+        String base = Theme.bandStyle(group.color(), -45);
         band.setStyle(base);
         band.getProperties().put("hexadron-base-style", base);
         band.getProperties().put("hexadron-group", group.id());

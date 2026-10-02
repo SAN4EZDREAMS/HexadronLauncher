@@ -389,7 +389,7 @@ public final class ContentBrowserWindow implements ContentSection.Host {
         root.setBottom(buildFooter());
 
         Scene scene = new Scene(root, 1080, 720);
-        Theme.apply(scene);
+        Theme.applyWindow(scene);
         stage.setScene(scene);
         stage.setMinWidth(860);
         stage.setMinHeight(540);

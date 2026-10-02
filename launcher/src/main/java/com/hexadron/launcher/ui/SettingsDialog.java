@@ -254,6 +254,12 @@ public final class SettingsDialog {
 
     private final com.hexadron.launcher.auth.secret.SecretStore secrets;
 
+    /** The Appearance tab, which previews as it goes and so has to be told about Cancel. */
+    private AppearanceTab appearanceTab;
+
+    /** The dialog while it is open, for the windows the Appearance tab opens over it. */
+    private Dialog<ButtonType> dialogShown;
+
     /** Opens the storage window; null hides the button. */
     private final Runnable openCleanup;
 
@@ -274,6 +280,7 @@ public final class SettingsDialog {
      */
     public Optional<Result> show(Window owner) {
         Dialog<ButtonType> dialog = new Dialog<>();
+        dialogShown = dialog;
         dialog.initOwner(owner);
         // Modal to the main window only, not to the application: the storage
         // window opened from the Data tab is another window of the launcher,
@@ -291,7 +298,8 @@ public final class SettingsDialog {
         // Sized for the longest note on the widest tab. A dialog that opens
         // exactly as wide as its shortest tab makes every wrapped note on every
         // other tab a single ellipsised line, which is how these read before.
-        dialog.getDialogPane().setPrefSize(820, 620);
+        double scale = settings.appearance().fontScale() / 100.0;
+        dialog.getDialogPane().setPrefSize(820 * Math.max(1, scale), 620);
         dialog.getDialogPane().setMinWidth(660);
         Theme.apply(dialog.getDialogPane());
 
@@ -305,13 +313,33 @@ public final class SettingsDialog {
 
         prefill();
 
+        // Larger text needs a wider window; previewed on the Appearance tab,
+        // it would otherwise cut every button on the bar to an ellipsis.
+        Runnable widen = () -> {
+            Window window = dialog.getDialogPane().getScene() == null
+                    ? null : dialog.getDialogPane().getScene().getWindow();
+            double want = 820 * Math.max(1, Theme.appearance().fontScale() / 100.0);
+            if (window != null && window.getWidth() < want) {
+                double room = screenFor(dialog).getWidth() * SCREEN_SHARE;
+                window.setWidth(Math.min(want, room));
+            }
+        };
+        Theme.onChange(widen);
+
         // The Test button applies what is on screen so it can try it. Cancel has
         // to undo that, or a route the user rejected is the one the launcher
         // keeps using until it is restarted.
         ProxyChoice before = Http.proxy();
 
-        if (dialog.showAndWait().filter(button -> button == save).isEmpty()) {
+        boolean saved;
+        try {
+            saved = dialog.showAndWait().filter(button -> button == save).isPresent();
+        } finally {
+            Theme.removeOnChange(widen);
+        }
+        if (!saved) {
             Http.useProxy(before, before.wantsAuthentication() ? storedProxyPassword() : null);
+            appearanceTab.revert();
             return Optional.empty();
         }
         return Optional.of(apply());
@@ -324,12 +352,29 @@ public final class SettingsDialog {
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         tabs.getTabs().addAll(
                 tab("settings.tab.general", generalTab()),
+                appearance(),
                 tab("settings.tab.game", gameTab()),
                 tab("settings.tab.network", networkTab()),
                 tab("settings.tab.mods", modsTab()),
                 tab("settings.tab.data", dataTab()));
         return tabs;
     }
+
+    /**
+     * The Appearance tab. Left out of the window's growing to its tallest tab:
+     * it is by far the longest, and every other tab would open with a screen's
+     * height of nothing under it. It scrolls instead.
+     */
+    private Tab appearance() {
+        appearanceTab = new AppearanceTab(settings.appearance(), dirs.root(),
+                () -> dialogShown == null || dialogShown.getDialogPane().getScene() == null
+                        ? null : dialogShown.getDialogPane().getScene().getWindow());
+        Tab tab = tab("settings.tab.appearance", appearanceTab.build());
+        tab.getContent().getProperties().put(NO_GROW, Boolean.TRUE);
+        return tab;
+    }
+
+    private static final String NO_GROW = "hexadron.settings.noGrow";
 
     /**
      * A folded block for the settings almost nobody should touch.
@@ -425,6 +470,9 @@ public final class SettingsDialog {
         double width = shown.getViewportBounds().getWidth();
         double tallest = 0;
         for (ScrollPane scroller : scrollers) {
+            if (scroller.getProperties().containsKey(NO_GROW)) {
+                continue;
+            }
             // The width of the tab that is on screen, for the tabs that are not:
             // they are all the same width, and only the visible one has been
             // through a layout pass of its own.
@@ -985,7 +1033,7 @@ public final class SettingsDialog {
         }
     }
 
-    private static GridPane form() {
+    static GridPane form() {
         GridPane grid = new GridPane();
         grid.getStyleClass().add("form");
         grid.setHgap(12);
@@ -1003,7 +1051,7 @@ public final class SettingsDialog {
         return grid;
     }
 
-    private static Label label(String key) {
+    static Label label(String key) {
         Label label = new Label(I18n.t(key));
         label.getStyleClass().add("form-label");
         // Wrapped, not cut: the column is a fixed 200 points, and in some of
@@ -1023,7 +1071,7 @@ public final class SettingsDialog {
      * and every note showed as one line ending in an ellipsis. Asking the row to
      * be at least the preferred height is what makes the wrap visible.
      */
-    private static Label note(String key) {
+    static Label note(String key) {
         Label note = new Label(I18n.t(key));
         note.getStyleClass().add("muted");
         note.setWrapText(true);
@@ -1088,6 +1136,9 @@ public final class SettingsDialog {
             I18n.use(language);
         }
 
+        appearanceTab.commit();
+        settings.appearance(appearanceTab.value());
+        Theme.tidy();
         settings.whilePlaying(whilePlayingBox.getValue());
         settings.stopGameOnClose(stopGameOnClose.isSelected());
         settings.newInstanceMemoryMegabytes(memoryAuto.isSelected() ? 0 : value(memorySpinner));

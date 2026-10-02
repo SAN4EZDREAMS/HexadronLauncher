@@ -232,8 +232,7 @@ public final class InventoryView {
             // background, and a translucent tint would pick up whatever happened
             // to be behind it - including the band above.
             row.getStyleClass().add("inv-band-group");
-            base = "-fx-background-color: derive(" + band.group().color() + ", -74%);"
-                    + " -fx-border-color: derive(" + band.group().color() + ", -40%);";
+            base = Theme.bandStyle(band.group().color(), -40);
             row.setStyle(base);
         }
         row.getProperties().put("hexadron-base-style", base);

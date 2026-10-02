@@ -197,7 +197,7 @@ final class CleanupWindow {
         root.setBottom(buildFooter());
 
         Scene scene = new Scene(root, 1200, 800);
-        Theme.apply(scene);
+        Theme.applyWindow(scene);
         stage.setScene(scene);
         stage.setMinWidth(1000);
         stage.setMinHeight(660);

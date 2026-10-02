@@ -104,6 +104,24 @@ A key that is missing, or has a value of the wrong JSON type, gets its default.
 | `showAllVersions` | boolean | `false` | Show snapshots and old versions in the version list. The instance editor remembers its own checkbox here | - |
 | `microsoftClientId` | string | built-in ID | Azure application ID for Microsoft sign-in. An empty string turns Microsoft sign-in off | - |
 | `customGroupColors` | array of strings | `[]` | Colours mixed in the group editor, newest first. `#rrggbb` only, stored in lower case, 16 at most | - |
+| `appearance` | object | see below | Theme, colours, background picture and fonts | Appearance |
+
+`appearance` keys (see [interface.md](interface.md#appearance)):
+
+| Key | Type | Default | Values and limits |
+|---|---|---|---|
+| `theme` | string | `"hexadron"` | `hexadron`, `light`, `oled`, `midnight`, `nether`, `end`, `birch`. Other values mean `hexadron` |
+| `colors` | object | `{}` | Colours changed over the theme, by name: `background`, `panel`, `control`, `border`, `text`, `textMuted`, `accent`, `accentHover`, `danger`, `warning`, `modpack`, `datapack`. Values are `#rrggbb` (`#rgb` is accepted). Other names and values are ignored; a colour equal to the theme's is dropped |
+| `background` | string | `""` | The picture, as `backgrounds/<16 hex characters>.<png, jpg, jpeg, gif or bmp>`. Any other value means no picture |
+| `backgroundFit` | string | `"cover"` | `cover`, `contain`, `stretch`, `center` or `tile` |
+| `backgroundDim` | number | `35` | Fade towards the window colour, %. Clamped to 0-90 |
+| `backgroundBlur` | number | `0` | Blur radius in pixels. Clamped to 0-40 |
+| `panelOpacity` | number | `85` | Panel opacity over the picture, %. Clamped to 30-100 |
+| `font` | string | `""` | Interface font family. Empty: the launcher's own (`Segoe UI`, `Inter`, `Noto Sans`, sans-serif) |
+| `monoFont` | string | `""` | Fixed-width font family. Empty: `Consolas`, `Menlo`, monospace |
+| `fontScale` | number | `100` | Text size, %. Rounded to 5 and clamped to 80-150 |
+
+Font names lose quotes, backslashes, `;`, `{`, `}`, `<`, `>` and control characters, and are cut to 100 characters.
 
 Older files with `keepOpenWhilePlaying` and `minimiseToTrayWhilePlaying` and no `whilePlaying` are read as: tray on → `tray`; tray off and keep open on → `stay`; both off → `minimise`. `stopGameOnClose` becomes the opposite of `keepOpenWhilePlaying`. The two old keys are not written again.
 

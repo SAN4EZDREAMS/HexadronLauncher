@@ -55,6 +55,36 @@
 
     /* Overridden per cell by the view, from the cell's group. Declared here so
        that a cell in no group still resolves it instead of raising a CSS error. */
+    /* Derived colours. Defined here with the values of the default dark theme,
+       so this file alone still draws the launcher as it always looked; the
+       theme engine appends its own .root after this file and replaces them
+       from the chosen palette (ui/theme/ThemeCss). Text on a filled colour is
+       "on-..."; "ink" is the colour of the surface family, white on a dark
+       theme and black on a light one, at the opacities the bands and
+       swatches use. */
+    -fx-on-accent: white;
+    -fx-on-danger: white;
+    -fx-on-warning: #1b1206;
+    -fx-on-modpack: white;
+    -fx-on-datapack: white;
+    -fx-ink: white;
+    -fx-ink-06: rgba(255, 255, 255, 0.06);
+    -fx-ink-09: rgba(255, 255, 255, 0.09);
+    -fx-ink-12: rgba(255, 255, 255, 0.12);
+    -fx-ink-35: rgba(255, 255, 255, 0.35);
+    -fx-ink-42: rgba(255, 255, 255, 0.42);
+    -fx-ink-45: rgba(255, 255, 255, 0.45);
+    -fx-ink-55: rgba(255, 255, 255, 0.55);
+    -fx-ink-80: rgba(255, 255, 255, 0.8);
+    -fx-scrim-72: rgba(20, 22, 26, 0.72);
+    -fx-scrim-84: rgba(20, 22, 26, 0.84);
+    -fx-success-text: #4cc07a;
+    -fx-danger-text: #ff8a80;
+    -fx-warning-text: #d8a13c;
+    -fx-warning-wash: rgba(216, 161, 60, 0.12);
+    -fx-danger-wash: rgba(179, 64, 58, 0.16);
+    -fx-toast-mark: #e0b25a;
+
     -fx-group-tint: #23272f;
 
     -fx-background-color: -fx-base-0;
@@ -93,7 +123,7 @@
     -fx-max-width: 28;
     -fx-max-height: 28;
     -fx-alignment: center;
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-accent;
     -fx-font-weight: bold;
 }
 
@@ -205,7 +235,7 @@
 
 .button.primary {
     -fx-background-color: -fx-accent-0;
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-accent;
     -fx-font-weight: bold;
     -fx-font-size: 15px;
     -fx-padding: 10 34 10 34;
@@ -237,7 +267,7 @@
  */
 .split-action > .button {
     -fx-background-color: -fx-accent-0;
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-accent;
     -fx-font-weight: bold;
     -fx-padding: 9 14 9 14;
 }
@@ -263,7 +293,7 @@
 }
 
 .split-action .glyph {
-    -fx-fill: white;
+    -fx-fill: -fx-on-accent;
 }
 
 /* Turned over while the menu is open: the chevron says which way it will go. */
@@ -531,7 +561,7 @@
 }
 
 .radio-button:selected .radio .dot {
-    -fx-background-color: white;
+    -fx-background-color: -fx-on-accent;
 }
 
 /*
@@ -572,7 +602,7 @@
 
 .check-box:selected > .box > .mark,
 .check-box:indeterminate > .box > .mark {
-    -fx-background-color: white;
+    -fx-background-color: -fx-on-accent;
 }
 
 .slider .track {
@@ -802,7 +832,7 @@
 /* Small, round and quiet: they sit over the figure, so anything with weight to
    it would compete with the thing it is there to turn. */
 .viewer-button {
-    -fx-background-color: rgba(20, 22, 26, 0.72);
+    -fx-background-color: -fx-scrim-72;
     -fx-background-radius: 14;
     -fx-text-fill: -fx-text-0;
     -fx-font-size: 13px;
@@ -1014,7 +1044,7 @@
 .badge-dependency {
     -fx-background-color: -fx-warning-0;
     -fx-border-color: derive(-fx-warning-0, -20%);
-    -fx-text-fill: #1b1206;
+    -fx-text-fill: -fx-on-warning;
     -fx-font-weight: bold;
 }
 
@@ -1026,7 +1056,7 @@
 
 .badge-pack {
     -fx-background-color: -fx-accent-0;
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-accent;
 }
 
 /*
@@ -1041,7 +1071,7 @@
 .badge-modpack {
     -fx-background-color: -fx-modpack-0;
     -fx-border-color: derive(-fx-modpack-0, -20%);
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-modpack;
 }
 
 /*
@@ -1056,7 +1086,7 @@
 .badge-datapack {
     -fx-background-color: -fx-datapack-0;
     -fx-border-color: derive(-fx-datapack-0, -20%);
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-datapack;
 }
 
 /* A mod with a newer build for this instance. Outlined in the accent colour:
@@ -1084,7 +1114,7 @@
    dealt with before the instance will start at all. */
 .badge-wrong {
     -fx-background-color: -fx-danger-0;
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-danger;
     -fx-font-weight: bold;
 }
 
@@ -1296,19 +1326,19 @@
 .scan-clean {
     -fx-background-color: -fx-accent-0;
     -fx-border-color: derive(-fx-accent-0, -20%);
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-accent;
 }
 
 .scan-warning {
     -fx-background-color: -fx-warning-0;
     -fx-border-color: derive(-fx-warning-0, -20%);
-    -fx-text-fill: #1b1206;
+    -fx-text-fill: -fx-on-warning;
 }
 
 .scan-danger {
     -fx-background-color: -fx-danger-0;
     -fx-border-color: derive(-fx-danger-0, -20%);
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-danger;
 }
 
 .scan-pending,
@@ -1521,31 +1551,31 @@
  */
 .group-row-banded {
     -fx-background-color: transparent;
-    -fx-border-color: transparent transparent rgba(255, 255, 255, 0.09) transparent;
+    -fx-border-color: transparent transparent -fx-ink-09 transparent;
     -fx-border-width: 0 0 1 0;
     -fx-padding: 5 10 6 8;
 }
 
 .group-row-banded:hover {
-    -fx-background-color: rgba(255, 255, 255, 0.06);
+    -fx-background-color: -fx-ink-06;
 }
 
 .profile-band .group-name {
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-ink;
     -fx-font-size: 12px;
 }
 
 .profile-band .group-count {
-    -fx-text-fill: rgba(255, 255, 255, 0.45);
+    -fx-text-fill: -fx-ink-45;
 }
 
 .profile-band .group-toggle {
-    -fx-text-fill: rgba(255, 255, 255, 0.8);
+    -fx-text-fill: -fx-ink-80;
 }
 
 /* The version line under a member's name, in the same white family. */
 .profile-band .profile-row-nested .instance-subtitle {
-    -fx-text-fill: rgba(255, 255, 255, 0.42);
+    -fx-text-fill: -fx-ink-42;
 }
 
 /* A member of a group. The rail already sets the block apart, so the indent is
@@ -1780,7 +1810,7 @@
 .inv-edge-button:hover {
     -fx-background-color: -fx-accent-0;
     -fx-border-color: -fx-accent-1;
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-accent;
     -fx-effect: dropshadow(gaussian, rgba(255, 255, 255, 0.35), 6, 0.4, 0, 0);
 }
 
@@ -1925,7 +1955,7 @@
 .toast {
     -fx-background-color: -fx-base-2;
     -fx-background-radius: 10;
-    -fx-border-color: #e0b25a;
+    -fx-border-color: -fx-toast-mark;
     -fx-border-radius: 10;
     -fx-border-width: 1;
     -fx-padding: 12 14 12 12;
@@ -1934,7 +1964,7 @@
 }
 
 .toast-marker {
-    -fx-background-color: #e0b25a;
+    -fx-background-color: -fx-toast-mark;
     -fx-background-radius: 2;
     -fx-min-width: 3;
     -fx-min-height: 34;
@@ -2001,20 +2031,20 @@
 .swatch {
     -fx-background-radius: 5;
     -fx-border-radius: 5;
-    -fx-border-color: rgba(255, 255, 255, 0.12);
+    -fx-border-color: -fx-ink-12;
     -fx-border-width: 1;
     -fx-cursor: hand;
 }
 
 .swatch:hover {
-    -fx-border-color: rgba(255, 255, 255, 0.55);
+    -fx-border-color: -fx-ink-55;
 }
 
 /* The mixer at the end of the row: the same square, dashed and empty, so it
    reads as "one more colour" rather than as a colour of its own. */
 .swatch-add {
     -fx-background-color: -fx-base-2;
-    -fx-border-color: rgba(255, 255, 255, 0.35);
+    -fx-border-color: -fx-ink-35;
     -fx-border-style: segments(3, 3) line-cap round;
 }
 
@@ -2087,7 +2117,7 @@
    whole window says so: a dim layer with a dashed accent edge, and one line in
    the middle saying what letting go will do. */
 .build-drop {
-    -fx-background-color: rgba(20, 22, 26, 0.84);
+    -fx-background-color: -fx-scrim-84;
     -fx-border-color: -fx-accent-1;
     -fx-border-width: 2;
     -fx-border-style: segments(12, 8);
@@ -2137,7 +2167,7 @@
 
 .cleanup-mode .toggle-button:selected {
     -fx-background-color: -fx-accent-0;
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-accent;
 }
 
 .cleanup-mode .toggle-button.cleanup-mode-advanced:selected {
@@ -2164,7 +2194,7 @@
 }
 
 .cleanup-tile-good {
-    -fx-text-fill: #4cc07a;
+    -fx-text-fill: -fx-success-text;
 }
 
 .cleanup-free-bar {
@@ -2219,7 +2249,7 @@
 }
 
 .cleanup-legend-reclaim {
-    -fx-text-fill: #4cc07a;
+    -fx-text-fill: -fx-success-text;
     -fx-font-size: 11px;
 }
 
@@ -2309,12 +2339,12 @@
 
 .cleanup-empty {
     -fx-font-size: 15px;
-    -fx-text-fill: #4cc07a;
+    -fx-text-fill: -fx-success-text;
     -fx-padding: 24 8 24 8;
 }
 
 .cleanup-notice {
-    -fx-background-color: rgba(216, 161, 60, 0.12);
+    -fx-background-color: -fx-warning-wash;
     -fx-border-color: -fx-warning-0;
     -fx-border-width: 0 0 0 3;
     -fx-padding: 8 10 8 10;
@@ -2322,7 +2352,7 @@
 }
 
 .cleanup-danger {
-    -fx-background-color: rgba(179, 64, 58, 0.16);
+    -fx-background-color: -fx-danger-wash;
     -fx-background-radius: 10;
     -fx-border-color: -fx-danger-0;
     -fx-border-radius: 10;
@@ -2333,7 +2363,7 @@
 .cleanup-danger-title {
     -fx-font-size: 15px;
     -fx-font-weight: bold;
-    -fx-text-fill: #ff8a80;
+    -fx-text-fill: -fx-danger-text;
 }
 
 .cleanup-danger-text {
@@ -2381,7 +2411,7 @@
 }
 
 .cleanup-row-unused {
-    -fx-text-fill: #d8a13c;
+    -fx-text-fill: -fx-warning-text;
 }
 
 .cleanup-locked {
@@ -2425,7 +2455,7 @@
 .button.cleanup-danger-button,
 .button.cleanup-danger-button:hover {
     -fx-background-color: -fx-danger-0;
-    -fx-text-fill: white;
+    -fx-text-fill: -fx-on-danger;
     -fx-font-weight: bold;
 }
 
@@ -2499,4 +2529,43 @@
 
 .on-off-switch:on .on-off-word {
     -fx-text-fill: derive(-fx-accent-1, 60%);
+}
+
+/* ------------------------------------------------------ appearance settings */
+
+/* A theme in the settings window: a small drawing of a window in its colours,
+   and its name. The chosen one is outlined in the accent colour, the way the
+   chosen group colour is. */
+.theme-card {
+    -fx-background-color: -fx-base-2;
+    -fx-background-radius: 10;
+    -fx-border-color: transparent;
+    -fx-border-width: 2;
+    -fx-border-radius: 10;
+    -fx-padding: 8;
+    -fx-cursor: hand;
+}
+
+.theme-card:hover {
+    -fx-background-color: -fx-base-3;
+}
+
+.theme-card:selected {
+    -fx-background-color: -fx-base-3;
+    -fx-border-color: -fx-accent-0;
+}
+
+.theme-card-picture {
+    -fx-border-color: -fx-ink-12;
+    -fx-border-radius: 6;
+}
+
+/* One colour of the palette: swatch, name and value, and the whole row is the
+   target - a 22-pixel square alone is a small thing to aim at. */
+.appearance-color {
+    -fx-background-radius: 6;
+}
+
+.appearance-color:hover {
+    -fx-background-color: -fx-base-3;
 }
