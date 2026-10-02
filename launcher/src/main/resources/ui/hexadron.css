@@ -2569,3 +2569,22 @@
 .appearance-color:hover {
     -fx-background-color: -fx-base-3;
 }
+
+/* ------------------------------------------------------------ account list */
+
+/* The kind of each account, before its name: a shield with a tick for a
+   Microsoft account, in the accent colour, and a plain figure for an offline
+   one, in the quiet text colour - the one that owns the game is the one that
+   stands out. */
+.account-glyph-licensed {
+    -fx-fill: -fx-accent-1;
+}
+
+.account-glyph-offline {
+    -fx-fill: -fx-text-1;
+}
+
+.account-kind {
+    -fx-font-size: 11px;
+    -fx-text-fill: -fx-text-1;
+}

@@ -3145,7 +3145,7 @@ public final class SelfCheck {
                 "appearance.font.note", "appearance.export", "appearance.import",
                 "appearance.reset", "appearance.file.filter", "appearance.file.failed",
                 "appearance.file.saved", "appearance.preview.note", "appearance.value.percent",
-                "appearance.value.pixels",
+                "appearance.value.pixels", "account.kind.short.microsoft", "account.kind.short.offline",
                 // Self-updating: the window that offers it, the two channels,
                 // and every line the update itself can end on.
                 "splash.step.updates",

@@ -1301,6 +1301,13 @@ public final class MainWindow implements ProfileHost {
         removeAccountButton.getStyleClass().add("danger");
         removeAccountButton.setOnAction(event -> removeSelectedAccount());
         accountBox.setPrefWidth(230);
+        // A mark before each name says which kind of account it is: the same
+        // player name can be both, and "(microsoft)" at the end of a cut-off
+        // line was the only clue.
+        accountBox.setCellFactory(list -> new AccountCell(true));
+        // The closed box has room for the mark and the name; the word for
+        // the kind would cut the name, so only the list shows it.
+        accountBox.setButtonCell(new AccountCell(false));
         accountBox.valueProperty().addListener((observable, previous, value) ->
                 removeAccountButton.setDisable(value == null));
         accountBox.valueProperty().addListener((observable, previous, value) ->
@@ -3527,6 +3534,43 @@ public final class MainWindow implements ProfileHost {
     }
 
     // ---------------------------------------------------------------- storage
+
+    /**
+     * One account in the account list: a mark for its kind, the player name,
+     * and the kind in a word, quieter. The tooltip names the kind in full.
+     */
+    private static final class AccountCell extends javafx.scene.control.ListCell<Account> {
+        private final boolean withKind;
+
+        AccountCell(boolean withKind) {
+            this.withKind = withKind;
+        }
+
+        @Override
+        protected void updateItem(Account account, boolean empty) {
+            super.updateItem(account, empty);
+            setText(null);
+            if (empty || account == null) {
+                setGraphic(null);
+                setTooltip(null);
+                return;
+            }
+            boolean offline = account.isOffline();
+            Label name = new Label(account.username());
+            name.getStyleClass().add("account-name");
+            Label kind = new Label(I18n.t(offline ? "account.kind.short.offline" : "account.kind.short.microsoft"));
+            kind.getStyleClass().addAll("account-kind", offline ? "account-kind-offline" : "account-kind-licensed");
+            HBox line = new HBox(7, offline ? Glyphs.offlineAccount() : Glyphs.licensedAccount(), name);
+            if (withKind) {
+                kind.setMinWidth(Region.USE_PREF_SIZE);
+                line.getChildren().add(kind);
+            }
+            line.setAlignment(Pos.CENTER_LEFT);
+            setGraphic(line);
+            setTooltip(new javafx.scene.control.Tooltip(
+                    I18n.t(offline ? "account.offline.title" : "account.kind.microsoft")));
+        }
+    }
 
     /**
      * Keeps the window wide enough for its text at the chosen size.

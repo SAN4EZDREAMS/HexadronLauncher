@@ -423,6 +423,34 @@ final class Glyphs {
      * 16-pixel icon and sit off-centre. A Group reports what it actually
      * occupies.
      */
+    /**
+     * A shield with a tick in it: a Microsoft account, the one that owns the
+     * game and can join servers that check. Not Microsoft's own logo - that is
+     * their trade mark - but the mark for "verified", which is what the
+     * difference between the two kinds of account comes down to.
+     */
+    static Group licensedAccount() {
+        SVGPath shield = new SVGPath();
+        shield.setFillRule(FillRule.EVEN_ODD);
+        shield.setContent("M12 2 L20 5 V11 C20 16.2 16.6 20.4 12 22 C7.4 20.4 4 16.2 4 11 V5 Z "
+                + "M10.6 16 L6.8 12.2 L8.4 10.6 L10.6 12.8 L15.6 7.8 L17.2 9.4 Z");
+        shield.getStyleClass().add("account-glyph-licensed");
+        return sized(shield, 14);
+    }
+
+    /**
+     * A plain figure: an offline account, a name and nothing else - no
+     * licence behind it and nothing a server can check.
+     */
+    static Group offlineAccount() {
+        SVGPath person = new SVGPath();
+        person.setFillRule(FillRule.NON_ZERO);
+        person.setContent("M12 3 A4.2 4.2 0 1 1 12 11.4 A4.2 4.2 0 1 1 12 3 Z "
+                + "M3.8 21 C3.8 16.4 7.4 13.4 12 13.4 C16.6 13.4 20.2 16.4 20.2 21 Z");
+        person.getStyleClass().add("account-glyph-offline");
+        return sized(person, 14);
+    }
+
     private static Group sized(SVGPath path, double pixels) {
         path.getStyleClass().add("glyph");
         double scale = pixels / GRID;
