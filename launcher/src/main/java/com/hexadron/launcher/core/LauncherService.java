@@ -2511,6 +2511,63 @@ public final class LauncherService {
     }
 
     /**
+     * What happened to each mod handed to {@link #takeAwayMods}.
+     *
+     * @param removed     deleted: the launcher installed them and can install them again
+     * @param discarded   sent to the recycle bin: the player put them there
+     * @param switchedOff renamed to {@code .disabled}: they belong to a pack or a
+     *                    data pack, which is removed as a whole or not at all
+     * @param failed      left as they were, with the reason
+     */
+    public record Takeaway(java.util.List<String> removed, java.util.List<String> discarded,
+                           java.util.List<String> switchedOff, java.util.List<String> failed) {
+
+        /** Every file that is no longer loaded. */
+        public java.util.List<String> gone() {
+            java.util.List<String> all = new java.util.ArrayList<>(removed);
+            all.addAll(discarded);
+            all.addAll(switchedOff);
+            return all;
+        }
+    }
+
+    /**
+     * Takes these mods out of a profile, each in the way its Remove button
+     * would: a mod the launcher installed is deleted, a file the player put
+     * there goes to the recycle bin, and a mod that belongs to a pack is
+     * switched off, because a pack is removed whole. One that cannot be taken
+     * away is reported and the others still go.
+     */
+    public Takeaway takeAwayMods(Profile profile, java.util.List<com.hexadron.launcher.mods.ModEntry> mods,
+                                 Progress progress) {
+        java.nio.file.Path modsDir = profiles.modsDirectory(profile);
+        java.util.List<String> removed = new java.util.ArrayList<>();
+        java.util.List<String> discarded = new java.util.ArrayList<>();
+        java.util.List<String> switchedOff = new java.util.ArrayList<>();
+        java.util.List<String> failed = new java.util.ArrayList<>();
+        for (com.hexadron.launcher.mods.ModEntry mod : mods) {
+            try {
+                if (!mod.isManaged()) {
+                    discardExternalMod(profile, mod, progress);
+                    discarded.add(mod.fileName());
+                } else if (mod.isRemovable()) {
+                    removeMod(profile, mod.key(), progress);
+                    removed.add(mod.fileName());
+                } else {
+                    com.hexadron.launcher.mods.ModScan.setEnabled(modsDir, mod, false);
+                    switchedOff.add(mod.fileName());
+                }
+            } catch (IOException | RuntimeException e) {
+                failed.add(mod.fileName() + " (" + e.getMessage() + ")");
+            }
+        }
+        LauncherLog.info("Before launch in %s: removed %s, to the recycle bin %s, switched off %s, failed %s",
+                profile.name(), removed, discarded, switchedOff, failed);
+        return new Takeaway(java.util.List.copyOf(removed), java.util.List.copyOf(discarded),
+                java.util.List.copyOf(switchedOff), java.util.List.copyOf(failed));
+    }
+
+    /**
      * How many jars in this profile's folder the launcher still has no name for.
      *
      * <p>What the "identify" button is offered on the strength of. Cheap: it

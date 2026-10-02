@@ -171,7 +171,17 @@ A mod that fails the check:
 
 - shows the red **for another version** badge; the tooltip gives the version it needs;
 - is counted after you save a version or loader change: "The mods in this instance are for the old version";
-- stops **Play** with "Some mods are for another Minecraft version", which names up to 8 mods. **Launch anyway** starts the game, because a mod's declared range can be wrong.
+- stops **Play** with "Some mods are for another Minecraft version". The dialog lists every such mod with a tick box (all ticked; **Select all** ticks or clears them together). A mod that belongs to a pack is marked: a pack is removed whole, so that mod is switched off.
+
+| Button | What it does |
+|---|---|
+| **Remove selected (N)** (the default) | Takes each ticked mod away as its own Remove button would: a mod the launcher installed is deleted (it can be installed again), a jar you added is moved to the recycle bin (or `mods/.removed/`), a pack's mod is switched off. Then the game starts |
+| **Switch off selected** | Renames the ticked mods to `.disabled`, with the mods that need them. Then the game starts |
+| **Go back to** *version* | Only when there is one, see below |
+| **Launch anyway** | Starts the game as it is, because a mod's declared range can be wrong |
+| **Cancel** | Changes nothing |
+
+Mods left unticked still stop the game, so the dialog asks again about those. If a mod cannot be removed (for example, the file is in use), the launcher names it and does not start the game. Each choice is written to `logs/launcher.log` (`Before launch: mods for another Minecraft version: ...`).
 
 Before that, **Play** also finds a mod that is switched on in two files and offers **Keep the newest and play**. See [crashes.md](crashes.md#checks-before-the-launch).
 

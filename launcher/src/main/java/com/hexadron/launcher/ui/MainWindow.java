@@ -2379,6 +2379,13 @@ public final class MainWindow implements ProfileHost {
      * own metadata, and a player who knows their pack works is not to be argued
      * with by a launcher.
      *
+     * <p>And it offers the fix in the same window. Every mod is listed with a
+     * box, all ticked, so one click takes them all away and the game starts;
+     * the boxes are for the few the player wants to keep and replace by hand.
+     * Each goes the way its own Remove button would send it - see
+     * {@link LauncherService#takeAwayMods} - and "switch off" is there for
+     * whoever wants them back later.
+     *
      * @return true when the launch should go ahead
      */
     private boolean confirmWrongVersionMods() {
@@ -2397,40 +2404,73 @@ public final class MainWindow implements ProfileHost {
             return true;
         }
 
-        StringBuilder detail = new StringBuilder();
-        int listed = Math.min(wrong.size(), WRONG_VERSION_LISTED);
-        for (int i = 0; i < listed; i++) {
-            ModEntry mod = wrong.get(i);
-            detail.append("\n  · ").append(mod.title());
-            if (mod.requires() != null) {
-                // The separator is put here rather than left to the translation.
-                // Every one of them begins with a space, and every one of them
-                // loses it: a properties file strips leading whitespace from a
-                // value, so the line came out as "EntityCulling- needs 26.2".
-                // Trimmed first, so this reads the same whether the file is
-                // fixed later or not.
-                detail.append(' ')
-                        .append(I18n.t("mods.wrongVersion.needs", mod.requires()).trim());
-            }
-        }
-        if (wrong.size() > listed) {
-            detail.append("\n  ").append(I18n.t("mods.wrongVersion.more", wrong.size() - listed));
-        }
-
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
-                I18n.t("mods.wrongVersion.body", wrong.size(),
-                        profile.minecraftVersion(), detail.toString()));
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
         alert.initOwner(stage);
         Theme.apply(alert.getDialogPane());
         alert.setTitle(I18n.t("mods.wrongVersion.header"));
         alert.setHeaderText(I18n.t("mods.wrongVersion.header"));
-        alert.getDialogPane().setPrefWidth(620);
-        // The default is to stop. The player pressed Play expecting a game, and
-        // the likely answer to "some of your mods are for another version" is
-        // "then do not start".
+        alert.getDialogPane().setPrefWidth(720);
+
+        javafx.scene.control.Label body = new javafx.scene.control.Label(
+                I18n.t("mods.wrongVersion.ask", wrong.size(), profile.minecraftVersion()));
+        body.setWrapText(true);
+        body.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
+
+        java.util.LinkedHashMap<ModEntry, javafx.scene.control.CheckBox> boxes = new java.util.LinkedHashMap<>();
+        javafx.scene.layout.VBox rows = new javafx.scene.layout.VBox(4);
+        rows.setPadding(new javafx.geometry.Insets(6, 8, 6, 8));
+        for (ModEntry mod : wrong) {
+            String name = mod.title() == null || mod.title().isBlank() ? mod.fileName() : mod.title();
+            StringBuilder text = new StringBuilder(name);
+            if (mod.requires() != null) {
+                // Trimmed: a properties file strips the leading space of the
+                // value, so the separator is put here, not in the translation.
+                text.append(' ').append(I18n.t("mods.wrongVersion.needs", mod.requires()).trim());
+            }
+            if (mod.isManaged() && !mod.isRemovable()) {
+                text.append("  ").append(I18n.t("mods.wrongVersion.packOwned"));
+            }
+            javafx.scene.control.CheckBox box = new javafx.scene.control.CheckBox(text.toString());
+            box.setSelected(true);
+            box.setMnemonicParsing(false);
+            box.setTooltip(new javafx.scene.control.Tooltip(mod.fileName()));
+            boxes.put(mod, box);
+            rows.getChildren().add(box);
+        }
+        javafx.scene.control.ScrollPane scroll = new javafx.scene.control.ScrollPane(rows);
+        scroll.setFitToWidth(true);
+        // Room for up to eight rows before it scrolls, and kept at that: the
+        // dialog would otherwise squeeze the list to make room for the note.
+        double viewport = Math.min(wrong.size(), 8) * 28 + 12;
+        scroll.setPrefViewportHeight(viewport);
+        scroll.setMinViewportHeight(viewport);
+        scroll.setMaxHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
+
+        javafx.scene.control.CheckBox all = new javafx.scene.control.CheckBox(
+                I18n.t("mods.wrongVersion.all", wrong.size()));
+        all.setSelected(true);
+        all.setAllowIndeterminate(false);
+
+        javafx.scene.control.Label note = new javafx.scene.control.Label(I18n.t("mods.wrongVersion.removeNote"));
+        note.getStyleClass().add("muted");
+        note.setWrapText(true);
+        note.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
+
+        javafx.scene.layout.VBox content = new javafx.scene.layout.VBox(10, body, all, scroll, note);
+        content.setFillWidth(true);
+        alert.getDialogPane().setContent(content);
+
+        // The default is to take them away and play: the player pressed Play
+        // expecting a game, and with these in the folder there is none.
+        javafx.scene.control.ButtonType remove =
+                new javafx.scene.control.ButtonType(I18n.t("mods.wrongVersion.remove", wrong.size()),
+                        javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+        javafx.scene.control.ButtonType off =
+                new javafx.scene.control.ButtonType(I18n.t("mods.wrongVersion.off"),
+                        javafx.scene.control.ButtonBar.ButtonData.OTHER);
         javafx.scene.control.ButtonType launch =
                 new javafx.scene.control.ButtonType(I18n.t("mods.wrongVersion.launch"),
-                        javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+                        javafx.scene.control.ButtonBar.ButtonData.OTHER);
         javafx.scene.control.ButtonType cancel =
                 new javafx.scene.control.ButtonType(I18n.t("action.cancel"),
                         javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
@@ -2439,8 +2479,7 @@ public final class MainWindow implements ProfileHost {
         // recorded previous version that every one of these mods loads on. It is
         // the answer to what actually happened in nearly every case - the
         // instance was moved to another Minecraft version and its mods were
-        // left where they were - and without it the two buttons on offer are
-        // "start something that will not start" and "give up".
+        // left where they were.
         java.util.Optional<String> goBack;
         try {
             goBack = service.versionToGoBackTo(profile);
@@ -2454,16 +2493,45 @@ public final class MainWindow implements ProfileHost {
                 .orElse(null);
 
         if (back == null) {
-            alert.getButtonTypes().setAll(cancel, launch);
+            alert.getButtonTypes().setAll(cancel, launch, off, remove);
         } else {
-            alert.getButtonTypes().setAll(cancel, back, launch);
+            alert.getButtonTypes().setAll(cancel, launch, back, off, remove);
         }
 
+        // Each button as wide as its own words. A button bar gives all of them
+        // the width of the widest by default, and with five buttons that width
+        // does not fit, so every label ended in an ellipsis.
+        for (javafx.scene.control.ButtonType type : alert.getButtonTypes()) {
+            javafx.scene.control.ButtonBar.setButtonUniformSize(alert.getDialogPane().lookupButton(type), false);
+        }
+        javafx.scene.Node removeButton = alert.getDialogPane().lookupButton(remove);
+        javafx.scene.Node offButton = alert.getDialogPane().lookupButton(off);
+        boolean[] syncing = {false};
+        Runnable recount = () -> {
+            long chosen = boxes.values().stream().filter(javafx.scene.control.CheckBox::isSelected).count();
+            if (removeButton instanceof javafx.scene.control.Labeled labeled) {
+                labeled.setText(I18n.t("mods.wrongVersion.remove", chosen));
+            }
+            removeButton.setDisable(chosen == 0);
+            offButton.setDisable(chosen == 0);
+            syncing[0] = true;
+            all.setSelected(chosen == boxes.size());
+            syncing[0] = false;
+        };
+        boxes.values().forEach(box -> box.selectedProperty().addListener((o, was, now) -> recount.run()));
+        all.selectedProperty().addListener((o, was, now) -> {
+            if (!syncing[0]) {
+                boxes.values().forEach(box -> box.setSelected(now));
+            }
+        });
+
         java.util.Optional<javafx.scene.control.ButtonType> answer = alert.showAndWait();
-        if (answer.isEmpty()) {
+        if (answer.isEmpty() || answer.get() == cancel) {
+            logChoice("mods for another Minecraft version", "cancel");
             return false;
         }
         if (back != null && answer.get() == back) {
+            logChoice("mods for another Minecraft version", "go back to " + goBack.orElseThrow());
             goBackToVersion(profile, goBack.orElseThrow());
             // Not this launch. The move downloads mods and the version it moves
             // to is not installed yet, both of which take longer than a player
@@ -2471,7 +2539,40 @@ public final class MainWindow implements ProfileHost {
             // Play again afterwards installs and starts in one go.
             return false;
         }
-        return answer.get() == launch;
+        if (answer.get() == launch) {
+            logChoice("mods for another Minecraft version", "launch anyway");
+            return true;
+        }
+
+        java.util.List<ModEntry> chosen = boxes.entrySet().stream()
+                .filter(entry -> entry.getValue().isSelected())
+                .map(java.util.Map.Entry::getKey)
+                .toList();
+        try {
+            if (answer.get() == off) {
+                logChoice("mods for another Minecraft version", "switch off " + chosen.size());
+                java.util.List<String> done = service.switchOffMods(profile, chosen);
+                progress.log(I18n.t("mods.conflict.done", String.join(", ", done)));
+            } else {
+                logChoice("mods for another Minecraft version", "remove " + chosen.size());
+                LauncherService.Takeaway done = service.takeAwayMods(profile, chosen, progress);
+                progress.log(I18n.t("mods.wrongVersion.removed", done.removed().size(),
+                        done.discarded().size(), done.switchedOff().size()));
+                if (!done.failed().isEmpty()) {
+                    showWarning(I18n.t("mods.wrongVersion.header"),
+                            I18n.t("mods.wrongVersion.failed", String.join("\n  · ", done.failed())));
+                    showProfile(shown);
+                    return false;
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            showError(I18n.t("mods.wrongVersion.header"), e);
+            return false;
+        }
+        showProfile(shown);
+        // The ones the player kept still stop the game; they are asked about
+        // again, without the ones already gone.
+        return confirmWrongVersionMods();
     }
 
     /**
