@@ -74,7 +74,7 @@ import java.util.Optional;
  *
  * <h2>The grid size is not a setting</h2>
  *
- * <p>The two spinners for the inventory grid are on the Interface tab, but the
+ * <p>The two spinners for the inventory grid are on the General tab, but the
  * numbers live in {@link ProfileLayout} with the cells they describe, because
  * narrowing the grid has to move the profiles that were in the removed column
  * and can fail. So the dialog asks the layout to change and reports a refusal
@@ -86,16 +86,33 @@ public final class SettingsDialog {
     private final ProfileLayout layout;
     private final GameDirs dirs;
 
-    // Interface
-    private final ComboBox<Language> languageBox = new ComboBox<>();
+    // General
+
+    /**
+     * The interface language, by code. The empty code is "as the system",
+     * which is what a first run starts with, so it has to be choosable again
+     * after somebody has picked a language by hand.
+     */
+    private final ComboBox<String> languageBox = new ComboBox<>();
     private final Spinner<Integer> columnsSpinner = new Spinner<>();
     private final Spinner<Integer> rowsSpinner = new Spinner<>();
     private final Spinner<Integer> splashSpinner = new Spinner<>();
 
+    /**
+     * What the window does after Play. One list rather than two checkboxes:
+     * the two checkboxes had four combinations for three outcomes, and one of
+     * them also decided whether closing the launcher stopped the game.
+     */
+    private final ComboBox<LauncherSettings.WhilePlaying> whilePlayingBox = new ComboBox<>();
+
+    /** Closing the launcher while the game runs stops the game too. */
+    private final CheckBox stopGameOnClose = new CheckBox();
+
     // Game
-    private final CheckBox keepOpen = new CheckBox();
-    private final CheckBox minimiseToTray = new CheckBox();
-    private final CheckBox showAllVersions = new CheckBox();
+
+    /** Memory for instances created from now on: automatic, or this many megabytes. */
+    private final CheckBox memoryAuto = new CheckBox();
+    private final Spinner<Integer> memorySpinner = new Spinner<>();
 
     /**
      * Read every installed file before every launch.
@@ -106,6 +123,13 @@ public final class SettingsDialog {
      * threat model, so the note under it says which trade, in those terms.
      */
     private final CheckBox verifyEveryLaunch = new CheckBox();
+
+    /** Look for newer builds of an instance's mods when it is opened. */
+    private final CheckBox checkModUpdates = new CheckBox();
+
+    /** The SOCKS proxy handed to the game itself, not used by the launcher. */
+    private final TextField socksHost = new TextField();
+    private final Spinner<Integer> socksPort = new Spinner<>();
 
     /**
      * Ask before a mod other mods need is switched off or deleted.
@@ -230,12 +254,17 @@ public final class SettingsDialog {
 
     private final com.hexadron.launcher.auth.secret.SecretStore secrets;
 
+    /** Opens the storage window; null hides the button. */
+    private final Runnable openCleanup;
+
     public SettingsDialog(LauncherSettings settings, ProfileLayout layout, GameDirs dirs,
-                          com.hexadron.launcher.auth.secret.SecretStore secrets) {
+                          com.hexadron.launcher.auth.secret.SecretStore secrets,
+                          Runnable openCleanup) {
         this.settings = settings;
         this.layout = layout;
         this.dirs = dirs;
         this.secrets = secrets;
+        this.openCleanup = openCleanup;
     }
 
     /**
@@ -246,6 +275,11 @@ public final class SettingsDialog {
     public Optional<Result> show(Window owner) {
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.initOwner(owner);
+        // Modal to the main window only, not to the application: the storage
+        // window opened from the Data tab is another window of the launcher,
+        // and an application-modal settings window would leave it on screen
+        // and deaf to every click until settings was closed.
+        dialog.initModality(javafx.stage.Modality.WINDOW_MODAL);
         dialog.setTitle(I18n.t("settings.title"));
         dialog.setHeaderText(null);
         dialog.setResizable(true);
@@ -289,14 +323,39 @@ public final class SettingsDialog {
         TabPane tabs = new TabPane();
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         tabs.getTabs().addAll(
-                tab("settings.tab.interface", interfaceTab()),
+                tab("settings.tab.general", generalTab()),
                 tab("settings.tab.game", gameTab()),
-                tab("settings.tab.java", javaTab()),
-                tab("settings.tab.downloads", downloadsTab()),
+                tab("settings.tab.network", networkTab()),
                 tab("settings.tab.mods", modsTab()),
-                tab("settings.tab.accounts", accountsTab()),
                 tab("settings.tab.data", dataTab()));
         return tabs;
+    }
+
+    /**
+     * A folded block for the settings almost nobody should touch.
+     *
+     * <p>Folded rather than removed: each of them exists for one real case (a
+     * mod loader that will not start with the handshake, a broken system
+     * credential store), and the person in that case has to be able to find
+     * it. Everybody else reads past one line instead of three warnings.
+     */
+    private static javafx.scene.control.TitledPane advanced(javafx.scene.Node... content) {
+        javafx.scene.layout.VBox box = new javafx.scene.layout.VBox(10, content);
+        box.setPadding(new Insets(10, 12, 10, 12));
+        javafx.scene.control.TitledPane pane = new javafx.scene.control.TitledPane(
+                I18n.t("settings.advanced"), box);
+        pane.setExpanded(false);
+        pane.setAnimated(false);
+        pane.setMaxWidth(Double.MAX_VALUE);
+        return pane;
+    }
+
+    /** The name a language code is shown by; the empty code is the system's. */
+    private static String languageName(String code) {
+        if (code == null || code.isEmpty()) {
+            return I18n.t("settings.language.system", Language.resolve("").displayName());
+        }
+        return Language.byCode(code).map(Language::displayName).orElse(code);
     }
 
     /**
@@ -304,7 +363,7 @@ public final class SettingsDialog {
      *
      * <p>The scroller is not decoration. A tab pane gives every tab the height
      * of the dialog and clips whatever is longer, with no way to reach it - and
-     * the Downloads tab, once the update controls joined the proxy block, is
+     * the Network tab, with the update controls and both proxies on it, is
      * longer on any screen. The last note on it was cut through the middle of a
      * line, which reads as a broken window rather than as a window that needs
      * scrolling.
@@ -439,9 +498,46 @@ public final class SettingsDialog {
         return note;
     }
 
-    private GridPane interfaceTab() {
-        languageBox.setItems(FXCollections.observableArrayList(Language.all()));
+    private GridPane generalTab() {
+        List<String> codes = new ArrayList<>();
+        codes.add("");
+        Language.all().forEach(language -> codes.add(language.code()));
+        languageBox.setItems(FXCollections.observableArrayList(codes));
         languageBox.setMaxWidth(Double.MAX_VALUE);
+        languageBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(String code) {
+                return code == null ? "" : languageName(code);
+            }
+
+            @Override
+            public String fromString(String text) {
+                return null;
+            }
+        });
+
+        whilePlayingBox.setItems(FXCollections.observableArrayList(
+                LauncherSettings.WhilePlaying.values()));
+        whilePlayingBox.setMaxWidth(Double.MAX_VALUE);
+        whilePlayingBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(LauncherSettings.WhilePlaying choice) {
+                if (choice == null) {
+                    return "";
+                }
+                return I18n.t(switch (choice) {
+                    case TRAY -> "settings.whilePlaying.tray";
+                    case MINIMISE -> "settings.whilePlaying.minimise";
+                    case STAY -> "settings.whilePlaying.stay";
+                });
+            }
+
+            @Override
+            public LauncherSettings.WhilePlaying fromString(String text) {
+                return null;
+            }
+        });
+        stopGameOnClose.setText(I18n.t("settings.stopOnClose"));
 
         spinner(columnsSpinner, ProfileLayout.MIN_COLUMNS, ProfileLayout.MAX_COLUMNS,
                 layout.columns());
@@ -450,7 +546,17 @@ public final class SettingsDialog {
 
         GridPane grid = form();
         int row = 0;
-        grid.addRow(row++, label("label.language"), languageBox);
+        // The header's label, without the colon it has there: no other label
+        // in this window has one.
+        Label languageLabel = label("label.language");
+        languageLabel.setText(languageLabel.getText().replaceFirst("\\s*[:\uFF1A]\\s*$", ""));
+        grid.addRow(row++, languageLabel, languageBox);
+        grid.addRow(row++, new Label(), new javafx.scene.control.Separator());
+        grid.addRow(row++, label("settings.whilePlaying"), whilePlayingBox);
+        grid.addRow(row++, new Label(), note("settings.whilePlaying.note"));
+        grid.addRow(row++, new Label(), stopGameOnClose);
+        grid.addRow(row++, new Label(), note("settings.stopOnClose.note"));
+        grid.addRow(row++, new Label(), new javafx.scene.control.Separator());
         grid.addRow(row++, label("settings.grid.columns"), columnsSpinner);
         grid.addRow(row++, label("settings.grid.rows"), rowsSpinner);
         grid.addRow(row++, new Label(), note("settings.grid.note"));
@@ -459,24 +565,8 @@ public final class SettingsDialog {
         return grid;
     }
 
+    /** The game: which Java, how much memory, and how carefully files are checked. */
     private GridPane gameTab() {
-        keepOpen.setText(I18n.t("settings.keepOpen"));
-        minimiseToTray.setText(I18n.t("settings.tray"));
-        showAllVersions.setText(I18n.t("editor.showAll"));
-        verifyEveryLaunch.setText(I18n.t("settings.verify"));
-
-        GridPane grid = form();
-        int row = 0;
-        grid.addRow(row++, new Label(), keepOpen);
-        grid.addRow(row++, new Label(), minimiseToTray);
-        grid.addRow(row++, new Label(), note("settings.tray.note"));
-        grid.addRow(row++, new Label(), showAllVersions);
-        grid.addRow(row++, new Label(), verifyEveryLaunch);
-        grid.addRow(row, new Label(), note("settings.verify.note"));
-        return grid;
-    }
-
-    private GridPane javaTab() {
         javaPolicyBox.setItems(FXCollections.observableArrayList(
                 JavaRuntimes.DownloadPolicy.values()));
         javaPolicyBox.setMaxWidth(Double.MAX_VALUE);
@@ -499,22 +589,38 @@ public final class SettingsDialog {
             }
         });
 
+        // The automatic figure is the one the computer gives, not the saved
+        // preference, so the box says what unticking it would start from.
+        int computer = com.hexadron.launcher.profile.Profile.computerDefaultMemoryMegabytes();
+        memorySpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(
+                LauncherSettings.NEW_INSTANCE_MEMORY_MIN, LauncherSettings.NEW_INSTANCE_MEMORY_MAX,
+                computer, LauncherSettings.NEW_INSTANCE_MEMORY_STEP));
+        memorySpinner.setEditable(true);
+        memorySpinner.setPrefWidth(120);
+        memoryAuto.setText(I18n.t("settings.memory.auto", String.valueOf(computer)));
+        memoryAuto.selectedProperty().addListener(
+                (observable, previous, auto) -> memorySpinner.setDisable(auto));
+        HBox memoryLine = new HBox(12, memorySpinner, memoryAuto);
+        memoryLine.setAlignment(Pos.CENTER_LEFT);
+
+        verifyEveryLaunch.setText(I18n.t("settings.verify"));
+
         GridPane grid = form();
-        grid.addRow(0, label("settings.java"), javaPolicyBox);
-        grid.addRow(1, new Label(), note("settings.java.note"));
+        int row = 0;
+        grid.addRow(row++, label("settings.java"), javaPolicyBox);
+        grid.addRow(row++, new Label(), note("settings.java.note"));
+        grid.addRow(row++, label("settings.memory"), memoryLine);
+        grid.addRow(row++, new Label(), note("settings.memory.note"));
+        grid.addRow(row, new Label(), advanced(verifyEveryLaunch, note("settings.verify.note")));
         return grid;
     }
 
     /**
-     * Everything about fetching things: the game's files, and the launcher's own
-     * next version.
-     *
-     * <p>Split from the mods tab, which is where it used to live under the name
-     * "Downloads and mods". Two subjects in one tab is one subject too many, and
-     * the route the launcher takes to the network belongs beside the setting for
-     * how many files it fetches at once, not beside an API key for a mod site.
+     * Everything that goes over the network: how many files at once, the
+     * launcher's own update check, and the routes - the launcher's own, and
+     * the one handed to the game.
      */
-    private GridPane downloadsTab() {
+    private GridPane networkTab() {
         spinner(concurrencySpinner, 1, 32, settings.downloadConcurrency());
 
         proxyModeBox.setItems(FXCollections.observableArrayList(ProxyChoice.Mode.values()));
@@ -555,6 +661,9 @@ public final class SettingsDialog {
 
         checkForUpdates.setText(I18n.t("settings.update"));
 
+        socksHost.setPromptText(I18n.t("settings.socks.prompt"));
+        spinner(socksPort, 1, 65535, settings.gameSocksPort());
+
         updateChannelBox.setItems(FXCollections.observableArrayList(
                 com.hexadron.launcher.update.UpdateChannel.values()));
         updateChannelBox.setMaxWidth(Double.MAX_VALUE);
@@ -585,6 +694,7 @@ public final class SettingsDialog {
         grid.addRow(row++, new Label(), new javafx.scene.control.Separator());
         grid.addRow(row++, new Label(), checkForUpdates);
         grid.addRow(row++, new Label(), note("settings.update.note"));
+        grid.addRow(row++, new Label(), note("settings.update.rules"));
         grid.addRow(row++, label("settings.update.channel"), updateChannelBox);
         grid.addRow(row++, new Label(), updateChannelNote);
         grid.addRow(row++, new Label(),
@@ -602,7 +712,11 @@ public final class SettingsDialog {
         grid.addRow(row++, new Label(), note("settings.proxy.privacy"));
         grid.addRow(row++, new Label(), note("settings.proxy.game"));
         grid.addRow(row++, new Label(), test);
-        grid.addRow(row, new Label(), proxyResult);
+        grid.addRow(row++, new Label(), proxyResult);
+        grid.addRow(row++, new Label(), new javafx.scene.control.Separator());
+        grid.addRow(row++, label("settings.socks"), socksHost);
+        grid.addRow(row++, label("settings.proxy.port"), socksPort);
+        grid.addRow(row, new Label(), note("settings.socks.note"));
         return grid;
     }
 
@@ -610,9 +724,7 @@ public final class SettingsDialog {
     private GridPane modsTab() {
         curseForgeKey.setPromptText(I18n.t("settings.curseforge.prompt"));
         warnAboutDependents.setText(I18n.t("settings.modWarnings"));
-        spinner(modIconCache, LauncherSettings.MOD_ICON_CACHE_MIN,
-                LauncherSettings.MOD_ICON_CACHE_MAX, settings.modIconCacheMegabytes());
-
+        checkModUpdates.setText(I18n.t("settings.modUpdates"));
         curseForgeWarning.getStyleClass().addAll("muted", "dialog-warning");
         curseForgeWarning.setWrapText(true);
         curseForgeWarning.setMaxWidth(Double.MAX_VALUE);
@@ -639,8 +751,8 @@ public final class SettingsDialog {
         int row = 0;
         grid.addRow(row++, new Label(), warnAboutDependents);
         grid.addRow(row++, new Label(), note("settings.modWarnings.note"));
-        grid.addRow(row++, label("settings.modIconCache"), modIconCache);
-        grid.addRow(row++, new Label(), note("settings.modIconCache.note"));
+        grid.addRow(row++, new Label(), checkModUpdates);
+        grid.addRow(row++, new Label(), note("settings.modUpdates.note"));
         grid.addRow(row++, label("settings.curseforge"), curseForgeKey);
         grid.addRow(row++, new Label(), curseForgeWarning);
         grid.addRow(row++, new Label(), note("mods.curseforge.key.body"));
@@ -780,7 +892,31 @@ public final class SettingsDialog {
         }
     }
 
-    private GridPane accountsTab() {
+    private GridPane dataTab() {
+        TextField path = new TextField(dirs.root().toString());
+        path.setEditable(false);
+        HBox.setHgrow(path, Priority.ALWAYS);
+
+        javafx.scene.control.Button open = new javafx.scene.control.Button(
+                I18n.t("instance.summary.openFolder"));
+        open.setOnAction(event -> openDataFolder());
+
+        HBox line = new HBox(8, path, open);
+        line.setAlignment(Pos.CENTER_LEFT);
+
+        TextField logPath = new TextField(dirs.logs().toString());
+        logPath.setEditable(false);
+        HBox.setHgrow(logPath, Priority.ALWAYS);
+
+        Button openLogs = new Button(I18n.t("instance.summary.openFolder"));
+        openLogs.setOnAction(event -> openFolder(dirs.logs(), logPath));
+
+        HBox logLine = new HBox(8, logPath, openLogs);
+        logLine.setAlignment(Pos.CENTER_LEFT);
+
+        spinner(modIconCache, LauncherSettings.MOD_ICON_CACHE_MIN,
+                LauncherSettings.MOD_ICON_CACHE_MAX, settings.modIconCacheMegabytes());
+
         signInMethodBox.setItems(FXCollections.observableArrayList("browser", "deviceCode"));
         signInMethodBox.setMaxWidth(Double.MAX_VALUE);
         signInMethodBox.setConverter(new StringConverter<>() {
@@ -801,42 +937,24 @@ public final class SettingsDialog {
 
         GridPane grid = form();
         int row = 0;
+        grid.addRow(row++, label("settings.dataFolder"), line);
+        grid.addRow(row++, new Label(), note("settings.dataFolder.note"));
+        grid.addRow(row++, label("settings.logs"), logLine);
+        grid.addRow(row++, new Label(), note("settings.logs.note"));
+        grid.addRow(row++, label("settings.modIconCache"), modIconCache);
+        grid.addRow(row++, new Label(), note("settings.modIconCache.note"));
+        if (openCleanup != null) {
+            Button cleanup = new Button(I18n.t("cleanup.open"));
+            cleanup.setOnAction(event -> openCleanup.run());
+            grid.addRow(row++, new Label(), cleanup);
+            grid.addRow(row++, new Label(), note("settings.cleanup.note"));
+        }
+        grid.addRow(row++, new Label(), new javafx.scene.control.Separator());
         grid.addRow(row++, label("settings.signIn"), signInMethodBox);
         grid.addRow(row++, new Label(), note("settings.signIn.note"));
-        grid.addRow(row++, new Label(), secureHandshake);
-        grid.addRow(row++, new Label(), note("settings.handshake.note"));
-        grid.addRow(row++, new Label(), fileCredentialStore);
-        grid.addRow(row, new Label(), note("settings.fileStore.note"));
-        return grid;
-    }
-
-    private GridPane dataTab() {
-        TextField path = new TextField(dirs.root().toString());
-        path.setEditable(false);
-        HBox.setHgrow(path, Priority.ALWAYS);
-
-        javafx.scene.control.Button open = new javafx.scene.control.Button(
-                I18n.t("action.openFolder"));
-        open.setOnAction(event -> openDataFolder());
-
-        HBox line = new HBox(8, path, open);
-        line.setAlignment(Pos.CENTER_LEFT);
-
-        TextField logPath = new TextField(dirs.logs().toString());
-        logPath.setEditable(false);
-        HBox.setHgrow(logPath, Priority.ALWAYS);
-
-        Button openLogs = new Button(I18n.t("action.openFolder"));
-        openLogs.setOnAction(event -> openFolder(dirs.logs(), logPath));
-
-        HBox logLine = new HBox(8, logPath, openLogs);
-        logLine.setAlignment(Pos.CENTER_LEFT);
-
-        GridPane grid = form();
-        grid.addRow(0, label("settings.dataFolder"), line);
-        grid.addRow(1, new Label(), note("settings.dataFolder.note"));
-        grid.addRow(2, label("settings.logs"), logLine);
-        grid.addRow(3, new Label(), note("settings.logs.note"));
+        grid.addRow(row, new Label(), advanced(
+                secureHandshake, note("settings.handshake.note"),
+                fileCredentialStore, note("settings.fileStore.note")));
         return grid;
     }
 
@@ -888,6 +1006,10 @@ public final class SettingsDialog {
     private static Label label(String key) {
         Label label = new Label(I18n.t(key));
         label.getStyleClass().add("form-label");
+        // Wrapped, not cut: the column is a fixed 200 points, and in some of
+        // the sixteen languages a label is longer than that.
+        label.setWrapText(true);
+        label.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
         return label;
     }
 
@@ -920,10 +1042,18 @@ public final class SettingsDialog {
     // ---------------------------------------------------------------- values
 
     private void prefill() {
-        languageBox.setValue(I18n.current());
-        keepOpen.setSelected(settings.keepOpenWhilePlaying());
-        minimiseToTray.setSelected(settings.minimiseToTrayWhilePlaying());
-        showAllVersions.setSelected(settings.showAllVersions());
+        languageBox.setValue(Language.byCode(settings.language()).map(Language::code).orElse(""));
+        whilePlayingBox.setValue(settings.whilePlaying());
+        stopGameOnClose.setSelected(settings.stopGameOnClose());
+        int memory = settings.newInstanceMemoryMegabytes();
+        memoryAuto.setSelected(memory <= 0);
+        memorySpinner.setDisable(memory <= 0);
+        if (memory > 0) {
+            memorySpinner.getValueFactory().setValue(memory);
+        }
+        checkModUpdates.setSelected(settings.checkModUpdates());
+        socksHost.setText(settings.gameSocksHost());
+        socksPort.getValueFactory().setValue(settings.gameSocksPort());
         verifyEveryLaunch.setSelected(settings.verifyEveryLaunch());
         warnAboutDependents.setSelected(settings.warnAboutDependents());
         checkForUpdates.setSelected(settings.checkForUpdates());
@@ -947,16 +1077,29 @@ public final class SettingsDialog {
     private Result apply() {
         List<String> refused = new ArrayList<>();
 
-        Language language = languageBox.getValue();
-        boolean languageChanged = language != null && language != I18n.current();
+        // The code is saved even when the language on screen stays the same:
+        // "as the system" and the language the system happens to have are
+        // different choices the day the system changes.
+        String code = languageBox.getValue() == null ? settings.language() : languageBox.getValue();
+        Language language = Language.resolve(code);
+        boolean languageChanged = language != I18n.current();
+        settings.language(code);
         if (languageChanged) {
             I18n.use(language);
-            settings.language(language.code());
         }
 
-        settings.keepOpenWhilePlaying(keepOpen.isSelected());
-        settings.minimiseToTrayWhilePlaying(minimiseToTray.isSelected());
-        settings.showAllVersions(showAllVersions.isSelected());
+        settings.whilePlaying(whilePlayingBox.getValue());
+        settings.stopGameOnClose(stopGameOnClose.isSelected());
+        settings.newInstanceMemoryMegabytes(memoryAuto.isSelected() ? 0 : value(memorySpinner));
+        settings.checkModUpdates(checkModUpdates.isSelected());
+        // Refused rather than saved and then quietly left off the command line.
+        String socks = socksHost.getText() == null ? "" : socksHost.getText().trim();
+        if (socks.isEmpty() || LauncherSettings.validSocksHost(socks)) {
+            settings.gameSocksHost(socks);
+            settings.gameSocksPort(value(socksPort));
+        } else {
+            refused.add(I18n.t("settings.socks.invalid", socks));
+        }
         settings.verifyEveryLaunch(verifyEveryLaunch.isSelected());
         settings.warnAboutDependents(warnAboutDependents.isSelected());
         settings.checkForUpdates(checkForUpdates.isSelected());

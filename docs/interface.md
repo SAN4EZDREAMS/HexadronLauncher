@@ -33,7 +33,7 @@ When the update check is off, `updates` does not run: the bar counts one stage f
 
 **Closing the splash:**
 
-- The splash stays up for at least `splashMinimumMillis` (default 3000). Change it on the Interface tab of the settings window (0-15 seconds) or in `launcher.json`. Zero removes the minimum.
+- The splash stays up for at least `splashMinimumMillis` (default 1000). Change it on the General tab of the settings window (0-15 seconds) or in `launcher.json`. Zero removes the minimum.
 - After 1.1 seconds the splash shows "Click or press a key to continue". A click or key press cancels the minimum wait. It does not stop start-up: if stages are still running, the splash closes when they end.
 - The main window is built while the splash is up and shown only after the splash has faded out (260 ms) and closed. The splash keeps keyboard focus until then.
 - Implicit exit is off until the main window is shown, so JavaFX does not exit in the moment when no window is open.
@@ -148,24 +148,24 @@ The grid starts at 9 columns by 3 rows. Limits are 2-24 columns and 1-60 rows. I
 
 The strips are faint until the pointer is over the grid. A refusal shows as a message over the bottom of the view for nine seconds (click to close) and is written to the log.
 
-The Interface tab of the settings window has the same two numbers. They are stored in `profiles.json`, not `launcher.json`. Lowering the rows there removes rows from the bottom and moves their instances within their group. When a column or row cannot be removed, the size stops at the last value reached and a warning says why.
+The General tab of the settings window has the same two numbers. They are stored in `profiles.json`, not `launcher.json`. Lowering the rows there removes rows from the bottom and moves their instances within their group. When a column or row cannot be removed, the size stops at the last value reached and a warning says why.
 
 ## Settings window
 
-The cog button in either view opens the settings window. Save writes to `launcher.json` (grid size to `profiles.json`); Cancel writes nothing. The proxy, the number of simultaneous downloads, the credential store and the mod picture cache size apply at once, without a restart.
+The cog button in either view opens the settings window. Save writes to `launcher.json` (grid size to `profiles.json`); Cancel writes nothing. The proxy, the game's SOCKS proxy, the memory for new instances, the number of simultaneous downloads, the credential store and the mod picture cache size apply at once, without a restart. Settings that few people need are in a folded **Advanced** block at the end of their tab.
 
 | Tab | Settings |
 |---|---|
-| Interface | Language; Grid columns; Grid rows; Start-up window, seconds |
-| Game | Keep the launcher open while the game runs; Hide to the notification area while the game runs; Show snapshots and old versions; Check every file before each launch |
-| Java | When Java is missing: Ask each time / Download it / Never download it |
-| Downloads | Simultaneous downloads (1-32); Look for launcher updates at start-up; Update channel (Release / Nightly); Check for updates; Route (This computer's settings / Straight out, no proxy / A proxy I type in) with Address, Port, User, Password and Test the connection |
-| Mods | Warn before breaking a mod's dependency; Mod picture cache, MB; CurseForge API key, with a button that opens console.curseforge.com |
-| Accounts | Microsoft sign-in (In your own browser / With a code); Hand the session token over standard input; Keep credentials in the launcher own encrypted file |
-| Data folder | Paths of the data folder and the launcher log folder, each with a button that opens it |
+| General | Language (As the system, or one of the 16 languages); While the game runs (Hide to the notification area / Minimise the window / Keep the window as it is); Closing the launcher stops the game; Grid columns; Grid rows; Start-up window, seconds |
+| Game | When Java is missing: Ask each time / Download it / Never download it; Memory for new instances, MB, with Automatic; Advanced: Check every file before each launch |
+| Network | Simultaneous downloads (1-32); Look for launcher updates at start-up; Update channel (Release / Nightly); Check for updates; Proxy (This computer's settings / Straight out, no proxy / A proxy I type in) with Address, Port, User, Password and Test the connection; SOCKS proxy for the game with Port |
+| Mods | Warn before breaking a mod's dependency; Look for mod updates; CurseForge API key, with a button that opens console.curseforge.com |
+| Data and security | Paths of the data folder and the launcher log folder, each with a button that opens it; Mod picture cache, MB; Storage and cleanup (opens the storage window); Microsoft sign-in (In your own browser / With a code); Advanced: Hand the session token over standard input, Keep credentials in the launcher own encrypted file |
 
 - Test the connection applies the route on screen and fetches the Mojang version manifest. Cancel restores the previous route.
-- A manual proxy with no address or port is not saved; the window says so after Save.
+- A manual proxy with no address or port is not saved; the window says so after Save. The same applies to a SOCKS host that is not a host name or an address.
+- The SOCKS proxy for the game is given as Minecraft's own `--proxyHost` and `--proxyPort`, before the instance's own game arguments. Minecraft uses it for sign-in to servers, skins and Realms. The launcher does not use it (Java's HTTP client has no SOCKS support), and connections to game servers do not go through it.
+- "Show snapshots and old versions" is only in the instance editor; the editor remembers it.
 - A manual proxy also goes to the game: each game starts with `-Dhttp.proxyHost`, `-Dhttp.proxyPort`, `-Dhttps.proxyHost`, `-Dhttps.proxyPort` and `-Dhttp.nonProxyHosts=localhost|127.*|[::1]|10.*|192.168.*`, before the profile's own Java arguments (so a profile can override them). Libraries and mods that leave the proxy to Java follow them. Minecraft's own sign-in to servers, skins and Realms does not: the game connects there with an explicit "no proxy" unless it is given a SOCKS proxy. The user name and password are not passed: Java has no standard property for them, and a command line is readable by other programs.
 - The proxy password goes to the credential store, not `launcher.json`, and is never shown again. Leave the field untouched to keep it; empty it to delete it.
 - The Azure client id (`microsoftClientId`) is only in `launcher.json`, for forks.
@@ -192,14 +192,14 @@ It also names the newest launcher log: the `launcher*.log` file in the log folde
 
 ## While the game runs
 
-After Play, two Game tab settings decide what the window does:
+After Play, **While the game runs** on the General tab (`whilePlaying`) decides what the window does:
 
-| `minimiseToTrayWhilePlaying` | `keepOpenWhilePlaying` | Window |
+| Choice | `whilePlaying` | Window |
 |---|---|---|
-| `true` (default) | any | Hidden to the notification area; minimised where there is none |
-| `false` | `true` (default) | Stays on screen |
-| `false` | `false` | Minimised |
+| Hide to the notification area (default) | `tray` | Hidden to the notification area; minimised where there is none |
+| Minimise the window | `minimise` | Minimised |
+| Keep the window as it is | `stay` | Stays on screen |
 
 The tray icon menu has Show launcher and Stop Minecraft; activating the icon also shows the launcher. When the game exits, the tray icon goes away and the window comes back to the front.
 
-Closing the launcher window while the game runs stops the game when `keepOpenWhilePlaying` is `false`. When it is `true`, the game continues.
+Closing the launcher window while the game runs stops the game when **Closing the launcher stops the game** (`stopGameOnClose`) is on. When it is off (default), the game continues.

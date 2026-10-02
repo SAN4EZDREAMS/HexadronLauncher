@@ -1093,6 +1093,69 @@ public final class SelfCheck {
                         && manual.withMode(com.hexadron.launcher.net.ProxyChoice.Mode.DIRECT).jvmArguments().isEmpty());
         check("nor does a proxy with no address",
                 manual.withHost("").jvmArguments().isEmpty());
+
+        section("The settings window, regrouped");
+        Path oldSettings = null;
+        try {
+            oldSettings = java.nio.file.Files.createTempDirectory("hexadron-settings-migration");
+            GameDirs oldDirs = new GameDirs(oldSettings);
+            java.nio.file.Files.createDirectories(oldDirs.settingsFile().getParent());
+            java.nio.file.Files.writeString(oldDirs.settingsFile(),
+                    "{\"minimiseToTrayWhilePlaying\": false, \"keepOpenWhilePlaying\": false,"
+                            + " \"checkForUpdates\": false}");
+            var migrated = new com.hexadron.launcher.core.LauncherSettings(oldDirs).load();
+            check("the old \"keep open\" off becomes \"minimise\"",
+                    migrated.whilePlaying() == com.hexadron.launcher.core.LauncherSettings.WhilePlaying.MINIMISE);
+            check("and still stops the game when the launcher is closed", migrated.stopGameOnClose());
+            check("the mod update check follows the old launcher update switch", !migrated.checkModUpdates());
+            java.nio.file.Files.writeString(oldDirs.settingsFile(),
+                    "{\"minimiseToTrayWhilePlaying\": false, \"keepOpenWhilePlaying\": true}");
+            migrated = new com.hexadron.launcher.core.LauncherSettings(oldDirs).load();
+            check("\"keep open\" on with no tray becomes \"stay\", and closing leaves the game running",
+                    migrated.whilePlaying() == com.hexadron.launcher.core.LauncherSettings.WhilePlaying.STAY
+                            && !migrated.stopGameOnClose());
+            var fresh = new com.hexadron.launcher.core.LauncherSettings(new GameDirs(
+                    java.nio.file.Files.createTempDirectory("hexadron-settings-fresh")));
+            check("a first run hides to the tray and leaves the game alone on close",
+                    fresh.whilePlaying() == com.hexadron.launcher.core.LauncherSettings.WhilePlaying.TRAY
+                            && !fresh.stopGameOnClose());
+            check("and shows the splash for one second", fresh.splashMinimumMillis() == 1000);
+            migrated.whilePlaying(com.hexadron.launcher.core.LauncherSettings.WhilePlaying.MINIMISE)
+                    .stopGameOnClose(true).checkModUpdates(false)
+                    .newInstanceMemoryMegabytes(3000).gameSocksHost("127.0.0.1").gameSocksPort(9050);
+            migrated.save();
+            var reread = new com.hexadron.launcher.core.LauncherSettings(oldDirs).load();
+            check("the new settings survive a restart",
+                    reread.whilePlaying() == com.hexadron.launcher.core.LauncherSettings.WhilePlaying.MINIMISE
+                            && reread.stopGameOnClose() && !reread.checkModUpdates()
+                            && reread.newInstanceMemoryMegabytes() == 3072
+                            && "127.0.0.1".equals(reread.gameSocksHost()) && reread.gameSocksPort() == 9050);
+            check("the memory for new instances is rounded to 512 MB", reread.newInstanceMemoryMegabytes() % 512 == 0);
+            check("the game gets the SOCKS proxy as Minecraft's own options",
+                    reread.gameProxyArguments().equals(List.of("--proxyHost", "127.0.0.1", "--proxyPort", "9050")));
+            check("no host, no options",
+                    fresh.gameProxyArguments().isEmpty());
+            check("a host that is not one reaches nothing",
+                    reread.gameSocksHost("a b").gameProxyArguments().isEmpty()
+                            && reread.gameSocksHost("--demo").gameProxyArguments().isEmpty()
+                            && !com.hexadron.launcher.core.LauncherSettings.validSocksHost("--demo"));
+            check("an IPv6 address is a host",
+                    com.hexadron.launcher.core.LauncherSettings.validSocksHost("[::1]"));
+        } catch (IOException e) {
+            check("the settings migration could be checked: " + e, false);
+        } finally {
+            if (oldSettings != null) {
+                deleteRecursively(oldSettings);
+            }
+        }
+        int computer = com.hexadron.launcher.profile.Profile.computerDefaultMemoryMegabytes();
+        com.hexadron.launcher.profile.Profile.preferredMemoryMegabytes(6144);
+        check("a new instance starts with the memory chosen in settings",
+                com.hexadron.launcher.profile.Profile.defaultMemoryMegabytes() == 6144);
+        com.hexadron.launcher.profile.Profile.preferredMemoryMegabytes(0);
+        check("and with the computer's own figure when that is automatic",
+                com.hexadron.launcher.profile.Profile.defaultMemoryMegabytes() == computer);
+
         section("Accounts");
         try {
             var system = memoryStore("system", false);
@@ -3049,9 +3112,16 @@ public final class SelfCheck {
                 "icon.clear", "icon.filter", "icon.failed", "icon.set",
                 "grid.addColumn", "grid.removeColumn", "grid.addRow", "grid.removeRow",
                 "grid.noRoom", "grid.atMaximum", "settings.open", "settings.title",
-                "settings.tab.interface", "settings.tab.game", "settings.tab.java",
-                "settings.tab.downloads", "settings.tab.mods",
-                "settings.tab.accounts", "settings.tab.data",
+                "settings.tab.general", "settings.tab.game", "settings.tab.network",
+                "settings.tab.mods", "settings.tab.data", "settings.advanced",
+                "settings.language.system", "settings.whilePlaying",
+                "settings.whilePlaying.tray", "settings.whilePlaying.minimise",
+                "settings.whilePlaying.stay", "settings.whilePlaying.note",
+                "settings.stopOnClose", "settings.stopOnClose.note",
+                "settings.memory", "settings.memory.auto", "settings.memory.note",
+                "settings.modUpdates", "settings.modUpdates.note", "settings.update.rules",
+                "settings.socks", "settings.socks.prompt", "settings.socks.note",
+                "settings.socks.invalid", "settings.cleanup.note", "settings.refusedHeader",
                 // Self-updating: the window that offers it, the two channels,
                 // and every line the update itself can end on.
                 "splash.step.updates",
@@ -3068,9 +3138,8 @@ public final class SelfCheck {
                 "settings.update.channel.nightly", "settings.update.channel.nightly.note",
                 "settings.update.current",
                 "settings.grid.columns", "settings.grid.rows", "settings.grid.note",
-                "settings.grid.refusedHeader", "settings.grid.refusedColumns",
+                "settings.grid.refusedColumns",
                 "settings.grid.refusedRows", "settings.splash", "settings.splash.note",
-                "settings.keepOpen", "settings.tray", "settings.tray.note",
                 "settings.verify", "settings.verify.note",
                 "settings.java", "settings.java.ask", "settings.java.always",
                 "settings.java.never", "settings.java.note", "settings.concurrency",

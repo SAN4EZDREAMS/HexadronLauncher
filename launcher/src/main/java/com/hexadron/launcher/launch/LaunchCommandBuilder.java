@@ -57,6 +57,13 @@ public final class LaunchCommandBuilder {
     /** Java options for the proxy the launcher uses; set from the settings, empty for none. */
     private volatile List<String> networkArguments = List.of();
 
+    /** Minecraft's own proxy options (a SOCKS proxy), after the game arguments. */
+    private volatile List<String> gameProxyArguments = List.of();
+
+    public void gameProxyArguments(List<String> arguments) {
+        this.gameProxyArguments = arguments == null ? List.of() : List.copyOf(arguments);
+    }
+
     /** The proxy options every game from now on starts with. */
     public void networkArguments(List<String> arguments) {
         this.networkArguments = arguments == null ? List.of() : List.copyOf(arguments);
@@ -237,6 +244,8 @@ public final class LaunchCommandBuilder {
         }
         gameArguments.forEach(argument -> command.add(substitute(argument, placeholders)));
 
+        // Before the profile's own, so a profile that names its own proxy wins.
+        command.addAll(gameProxyArguments);
         command.addAll(profile.extraGameArguments());
 
         Map<String, String> secrets = secure

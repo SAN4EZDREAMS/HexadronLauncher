@@ -81,25 +81,31 @@ A key that is missing, or has a value of the wrong JSON type, gets its default.
 
 | Key | Type | Default | Values and limits | Settings window |
 |---|---|---|---|---|
-| `language` | string | `""` | A language code (see [Languages](#languages)). Empty follows the operating system | Interface |
-| `splashMinimumMillis` | number | `3000` | Minimum time the start-up window stays open, in ms. Clamped to 0-15000. `0` removes the minimum. A click or a key closes the window sooner | Interface (in whole seconds, 0-15) |
-| `keepOpenWhilePlaying` | boolean | `true` | Keep the launcher window open while the game runs | Game |
-| `minimiseToTrayWhilePlaying` | boolean | `true` | Hide the window to the notification area while the game runs | Game |
-| `showAllVersions` | boolean | `false` | Show snapshots and old versions in the version list | Game |
-| `verifyEveryLaunch` | boolean | `false` | Read and hash every file before each launch, and unpack native libraries again. When `false`, a file is read again only if its size, time stamp or expected hash changed | Game |
-| `javaDownloadPolicy` | string | `"ask"` | `ask`, `always` or `never`. Also accepts `auto`, `true`, `yes` (as `always`) and `off`, `false`, `no` (as `never`). Other values mean `ask` | Java |
-| `downloadConcurrency` | number | `12` | Number of files downloaded at the same time. Clamped to 1-32. A change in the settings window applies to the next download; one under way keeps its number | Downloads |
-| `checkForUpdates` | boolean | `true` | Look for a newer launcher at start-up | Downloads |
-| `updateChannel` | string | `"release"` | `release` or `nightly`. Other values mean `release` | Downloads |
-| `proxy` | object | `{"mode": "system", "host": "", "port": 8080, "user": ""}` | `mode`: `system`, `direct` or `manual` (other values mean `system`). `host`, `port` and `user` apply to `manual`. HTTP proxies only. The password is kept in the credential store, not in this file | Downloads |
+| `language` | string | `""` | A language code (see [Languages](#languages)). Empty follows the operating system ("As the system" in the settings window) | General |
+| `whilePlaying` | string | `"tray"` | What the window does while the game runs: `tray` (hide to the notification area; minimise where there is none), `minimise` or `stay`. Other values mean `tray` | General |
+| `stopGameOnClose` | boolean | `false` | Closing the launcher window while the game runs also stops the game | General |
+| `splashMinimumMillis` | number | `1000` | Minimum time the start-up window stays open, in ms. Clamped to 0-15000. `0` removes the minimum. A click or a key closes the window sooner | General (in whole seconds, 0-15) |
+| `javaDownloadPolicy` | string | `"ask"` | `ask`, `always` or `never`. Also accepts `auto`, `true`, `yes` (as `always`) and `off`, `false`, `no` (as `never`). Other values mean `ask` | Game |
+| `newInstanceMemoryMegabytes` | number | `0` | Memory for instances made from now on, in MB. `0` is automatic (the figure the launcher takes from this computer's memory). Other values are rounded to 512 and clamped to 512-65536. Instances that exist keep their own value | Game |
+| `verifyEveryLaunch` | boolean | `false` | Read and hash every file before each launch, and unpack native libraries again. When `false`, a file is read again only if its size, time stamp or expected hash changed | Game (Advanced) |
+| `downloadConcurrency` | number | `12` | Number of files downloaded at the same time. Clamped to 1-32. A change in the settings window applies to the next download; one under way keeps its number | Network |
+| `checkForUpdates` | boolean | `true` | Look for a newer launcher at start-up. The same switch controls the crash rule refresh (at most once a day) | Network |
+| `updateChannel` | string | `"release"` | `release` or `nightly`. Other values mean `release` | Network |
+| `checkModUpdates` | boolean | value of `checkForUpdates` | Look for newer versions of an instance's mods when it is opened, once a session | Mods |
+| `proxy` | object | `{"mode": "system", "host": "", "port": 8080, "user": ""}` | `mode`: `system`, `direct` or `manual` (other values mean `system`). `host`, `port` and `user` apply to `manual`. HTTP proxies only. The password is kept in the credential store, not in this file | Network (Proxy) |
+| `gameSocksHost` | string | `""` | SOCKS proxy for the game only, given as `--proxyHost`. Empty: none. A value with characters other than letters, digits, `.`, `-`, `:`, `[`, `]`, or that starts with `-`, is not passed | Network |
+| `gameSocksPort` | number | `1080` | Port for `gameSocksHost`, given as `--proxyPort`. Values outside 1-65535 mean `1080` | Network |
 | `warnAboutDependents` | boolean | `true` | Ask before you switch off or delete a mod that other installed mods need | Mods |
-| `modIconCacheMegabytes` | number | `32` | Size limit of the mod logo cache in MB. Clamped to 8-1024 | Mods |
 | `curseForgeApiKey` | string | `""` | CurseForge Core API key. Empty uses the next key source (see [CurseForge](#curseforge)) | Mods |
-| `microsoftSignInMethod` | string | `"browser"` | `browser` (authorization code with PKCE) or `deviceCode`. Any value other than `deviceCode` means `browser` | Accounts |
-| `secureLaunchHandshake` | boolean | `true` | Give the session token to the game through standard input, not on the command line. Turn it off only if a mod loader does not start with it | Accounts |
-| `useFileCredentialStore` | boolean | `false` | Keep credentials in the launcher's encrypted file, not in the operating system store. This is less secure: the file's key is next to it. Applies at once from the settings window: Microsoft account tokens, the CurseForge key and the proxy password are copied to the other store first; if one cannot be copied, nothing changes | Accounts |
+| `modIconCacheMegabytes` | number | `32` | Size limit of the mod logo cache in MB. Clamped to 8-1024 | Data and security |
+| `microsoftSignInMethod` | string | `"browser"` | `browser` (authorization code with PKCE) or `deviceCode`. Any value other than `deviceCode` means `browser` | Data and security |
+| `secureLaunchHandshake` | boolean | `true` | Give the session token to the game through standard input, not on the command line. Turn it off only if a mod loader does not start with it | Data and security (Advanced) |
+| `useFileCredentialStore` | boolean | `false` | Keep credentials in the launcher's encrypted file, not in the operating system store. This is less secure: the file's key is next to it. Applies at once from the settings window: Microsoft account tokens, the CurseForge key and the proxy password are copied to the other store first; if one cannot be copied, nothing changes | Data and security (Advanced) |
+| `showAllVersions` | boolean | `false` | Show snapshots and old versions in the version list. The instance editor remembers its own checkbox here | - |
 | `microsoftClientId` | string | built-in ID | Azure application ID for Microsoft sign-in. An empty string turns Microsoft sign-in off | - |
 | `customGroupColors` | array of strings | `[]` | Colours mixed in the group editor, newest first. `#rrggbb` only, stored in lower case, 16 at most | - |
+
+Older files with `keepOpenWhilePlaying` and `minimiseToTrayWhilePlaying` and no `whilePlaying` are read as: tray on → `tray`; tray off and keep open on → `stay`; both off → `minimise`. `stopGameOnClose` becomes the opposite of `keepOpenWhilePlaying`. The two old keys are not written again.
 
 For the effect of these settings, see:
 [java-and-loaders.md](java-and-loaders.md) (`javaDownloadPolicy`),

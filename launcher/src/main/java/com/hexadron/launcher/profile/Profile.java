@@ -119,13 +119,30 @@ public final class Profile {
      * a heavy modpack; handing the JVM 16 GB usually makes frame times worse,
      * not better.
      */
-    public static int defaultMemoryMegabytes() {
+    public static int computerDefaultMemoryMegabytes() {
         long physicalBytes = physicalMemoryBytes();
         if (physicalBytes <= 0) {
             return 4096;
         }
         long half = physicalBytes / 2 / (1024 * 1024);
         return (int) Math.max(2048, Math.min(8192, half));
+    }
+
+    /** The player's choice for new instances, in MB; 0 for the computer's default. */
+    private static volatile int preferredMemoryMegabytes;
+
+    /** Set from the settings at start-up and whenever they are saved. */
+    public static void preferredMemoryMegabytes(int value) {
+        preferredMemoryMegabytes = Math.max(0, value);
+    }
+
+    /**
+     * What a new instance starts with: the player's choice in the settings,
+     * or {@link #computerDefaultMemoryMegabytes()} when there is none.
+     */
+    public static int defaultMemoryMegabytes() {
+        int preferred = preferredMemoryMegabytes;
+        return preferred > 0 ? preferred : computerDefaultMemoryMegabytes();
     }
 
     /** Installed memory in bytes, or -1 when the platform will not say. */

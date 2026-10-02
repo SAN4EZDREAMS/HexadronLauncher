@@ -79,7 +79,7 @@ public final class SplashScreen {
      * cannot come from settings at construction, because reading settings is
      * itself one of the stages this window is showing.
      */
-    private static final long DEFAULT_MINIMUM_VISIBLE_MILLIS = 3000;
+    private static final long DEFAULT_MINIMUM_VISIBLE_MILLIS = 1000;
 
     private static final Duration FADE_IN = Duration.millis(180);
     private static final Duration FADE_OUT = Duration.millis(260);

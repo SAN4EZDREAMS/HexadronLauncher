@@ -592,6 +592,16 @@
     -fx-background-radius: 6;
 }
 
+/* The folded "Advanced" block in settings: its title has to read as a
+   heading, not as a disabled control. */
+.titled-pane {
+    -fx-text-fill: -fx-text-0;
+}
+
+.titled-pane > .title > .arrow-button > .arrow {
+    -fx-background-color: -fx-text-1;
+}
+
 .titled-pane > .title {
     -fx-background-color: -fx-base-1;
     -fx-text-fill: -fx-text-1;

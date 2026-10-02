@@ -197,6 +197,7 @@ public final class LauncherService {
         this.versionInstaller.javaRuntimes(javaRuntimes);
         this.commandBuilder = new LaunchCommandBuilder(dirs);
         this.commandBuilder.networkArguments(settings.proxy().jvmArguments());
+        this.commandBuilder.gameProxyArguments(settings.gameProxyArguments());
         step.accept("platforms");
         this.curseForge = CurseForgeProvider.fromEnvironment(settings.curseForgeApiKey());
         this.modInstaller = new ModInstaller(downloader, modrinth, curseForge);
@@ -3338,7 +3339,9 @@ public final class LauncherService {
         // Null during start-up, where the proxy is set before the builder exists.
         if (commandBuilder != null) {
             commandBuilder.networkArguments(settings.proxy().jvmArguments());
+            commandBuilder.gameProxyArguments(settings.gameProxyArguments());
         }
+        com.hexadron.launcher.profile.Profile.preferredMemoryMegabytes(settings.newInstanceMemoryMegabytes());
     }
 
     /** Refreshes a Microsoft account's token if it is close to expiry. */

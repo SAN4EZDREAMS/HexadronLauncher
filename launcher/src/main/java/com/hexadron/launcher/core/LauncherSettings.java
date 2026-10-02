@@ -94,8 +94,63 @@ public final class LauncherSettings {
      */
     private boolean useFileCredentialStore = false;
 
-    /** Keep the launcher window open while the game runs, for reading the log. */
-    private boolean keepOpenWhilePlaying = true;
+    /**
+     * What the window does while the game runs.
+     *
+     * <p>One choice instead of the two check boxes it used to be: "keep open"
+     * and "hide to the tray" made three states between them, and "keep open"
+     * off also meant that closing the launcher stopped the game, which its
+     * label never said. That second meaning is {@link #stopGameOnClose} now.
+     */
+    public enum WhilePlaying {
+        /** Hidden to the notification area; minimised where there is none. */
+        TRAY,
+        /** Minimised to the taskbar. */
+        MINIMISE,
+        /** Left where it is. */
+        STAY;
+
+        public String stored() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+
+        public static WhilePlaying parse(String value) {
+            for (WhilePlaying choice : values()) {
+                if (choice.stored().equalsIgnoreCase(value == null ? "" : value.trim())) {
+                    return choice;
+                }
+            }
+            return TRAY;
+        }
+    }
+
+    private WhilePlaying whilePlaying = WhilePlaying.TRAY;
+
+    /** Closing the launcher window while the game runs stops the game too. Off by default. */
+    private boolean stopGameOnClose = false;
+
+    /**
+     * Memory a new instance starts with, in MB; 0 lets the launcher choose from
+     * this computer's memory. Instances that exist keep their own.
+     */
+    private int newInstanceMemoryMegabytes = 0;
+
+    /**
+     * Look for newer builds of an instance's mods when it is shown, once a
+     * session. Separate from the launcher's own update check: they are two
+     * different questions, asked of different servers.
+     */
+    private boolean checkModUpdates = true;
+
+    /**
+     * A SOCKS proxy for the game itself, given as Minecraft's own
+     * {@code --proxyHost}/{@code --proxyPort}. Its sign-in to servers, skins
+     * and Realms connects with an explicit "no proxy" otherwise; this is the
+     * one setting it follows. The launcher's own proxy is HTTP and cannot be
+     * this one. Empty host: no SOCKS proxy.
+     */
+    private String gameSocksHost = "";
+    private int gameSocksPort = 1080;
 
     /**
      * Read and hash every installed file before every launch, instead of
@@ -130,14 +185,6 @@ public final class LauncherSettings {
     private com.hexadron.launcher.net.ProxyChoice proxy =
             com.hexadron.launcher.net.ProxyChoice.system();
 
-    /**
-     * Hide the window to the notification area while the game runs.
-     *
-     * <p>On by default. A launcher left on the taskbar is one more window to
-     * alt-tab past during a session, and the tray icon is also where the game
-     * can be stopped from. The window returns by itself when the game ends.
-     */
-    private boolean minimiseToTrayWhilePlaying = true;
 
     /**
      * What the launcher may do when a profile needs a Java version this machine
@@ -163,7 +210,7 @@ public final class LauncherSettings {
      * list; a click or a key closes it sooner, and zero removes the floor for
      * anyone who wants the launcher and nothing else.
      */
-    private int splashMinimumMillis = 3000;
+    private int splashMinimumMillis = 1000;
 
     /** Show snapshots and old versions in the version picker. */
     private boolean showAllVersions = false;
@@ -273,7 +320,20 @@ public final class LauncherSettings {
         microsoftSignInMethod = json.get("microsoftSignInMethod").asString(microsoftSignInMethod);
         secureLaunchHandshake = json.get("secureLaunchHandshake").asBool(secureLaunchHandshake);
         useFileCredentialStore = json.get("useFileCredentialStore").asBool(useFileCredentialStore);
-        keepOpenWhilePlaying = json.get("keepOpenWhilePlaying").asBool(keepOpenWhilePlaying);
+        if (json.has("whilePlaying")) {
+            whilePlaying = WhilePlaying.parse(json.get("whilePlaying").asString(null));
+        } else {
+            // Written by a launcher with the two check boxes: the same window
+            // behaviour, and "keep open" off still stops the game on close.
+            boolean tray = json.get("minimiseToTrayWhilePlaying").asBool(true);
+            boolean keepOpen = json.get("keepOpenWhilePlaying").asBool(true);
+            whilePlaying = tray ? WhilePlaying.TRAY : keepOpen ? WhilePlaying.STAY : WhilePlaying.MINIMISE;
+        }
+        stopGameOnClose = json.has("stopGameOnClose") ? json.get("stopGameOnClose").asBool(false)
+                : !json.get("keepOpenWhilePlaying").asBool(true);
+        newInstanceMemoryMegabytes(json.get("newInstanceMemoryMegabytes").asInt(0));
+        gameSocksHost = json.get("gameSocksHost").asString("").trim();
+        gameSocksPort(json.get("gameSocksPort").asInt(1080));
         verifyEveryLaunch = json.get("verifyEveryLaunch").asBool(verifyEveryLaunch);
         Json proxyJson = json.get("proxy");
         proxy = new com.hexadron.launcher.net.ProxyChoice(
@@ -282,12 +342,13 @@ public final class LauncherSettings {
                 proxyJson.get("host").asString(""),
                 proxyJson.get("port").asInt(8080),
                 proxyJson.get("user").asString(""));
-        minimiseToTrayWhilePlaying = json.get("minimiseToTrayWhilePlaying")
-                .asBool(minimiseToTrayWhilePlaying);
         downloadConcurrency = json.get("downloadConcurrency").asInt(downloadConcurrency);
         showAllVersions = json.get("showAllVersions").asBool(showAllVersions);
         warnAboutDependents = json.get("warnAboutDependents").asBool(warnAboutDependents);
         checkForUpdates = json.get("checkForUpdates").asBool(checkForUpdates);
+        // Once the same switch as the launcher's check: a player who turned that
+        // off had turned this off too, and keeps it off.
+        checkModUpdates = json.get("checkModUpdates").asBool(checkForUpdates);
         updateChannel = com.hexadron.launcher.update.UpdateChannel
                 .parse(json.get("updateChannel").asString(updateChannel)).stored();
         modIconCacheMegabytes(json.get("modIconCacheMegabytes").asInt(modIconCacheMegabytes));
@@ -316,14 +377,18 @@ public final class LauncherSettings {
                 .put("microsoftSignInMethod", microsoftSignInMethod)
                 .put("secureLaunchHandshake", secureLaunchHandshake)
                 .put("useFileCredentialStore", useFileCredentialStore)
-                .put("keepOpenWhilePlaying", keepOpenWhilePlaying)
+                .put("whilePlaying", whilePlaying.stored())
+                .put("stopGameOnClose", stopGameOnClose)
+                .put("newInstanceMemoryMegabytes", newInstanceMemoryMegabytes)
+                .put("checkModUpdates", checkModUpdates)
+                .put("gameSocksHost", gameSocksHost)
+                .put("gameSocksPort", gameSocksPort)
                 .put("verifyEveryLaunch", verifyEveryLaunch)
                 .put("proxy", Json.object()
                         .put("mode", proxy.mode().stored())
                         .put("host", proxy.host())
                         .put("port", proxy.port())
                         .put("user", proxy.user()))
-                .put("minimiseToTrayWhilePlaying", minimiseToTrayWhilePlaying)
                 .put("downloadConcurrency", downloadConcurrency)
                 .put("showAllVersions", showAllVersions)
                 .put("warnAboutDependents", warnAboutDependents)
@@ -458,8 +523,90 @@ public final class LauncherSettings {
         return this;
     }
 
-    public boolean keepOpenWhilePlaying() {
-        return keepOpenWhilePlaying;
+    /** @see WhilePlaying */
+    public WhilePlaying whilePlaying() {
+        return whilePlaying;
+    }
+
+    public LauncherSettings whilePlaying(WhilePlaying value) {
+        this.whilePlaying = value == null ? WhilePlaying.TRAY : value;
+        return this;
+    }
+
+    public boolean stopGameOnClose() {
+        return stopGameOnClose;
+    }
+
+    public LauncherSettings stopGameOnClose(boolean value) {
+        this.stopGameOnClose = value;
+        return this;
+    }
+
+    /** 0 when the launcher chooses. */
+    public int newInstanceMemoryMegabytes() {
+        return newInstanceMemoryMegabytes;
+    }
+
+    /** The range and step of {@link #newInstanceMemoryMegabytes(int)}, for the spinner too. */
+    public static final int NEW_INSTANCE_MEMORY_MIN = 512;
+    public static final int NEW_INSTANCE_MEMORY_MAX = 65536;
+    public static final int NEW_INSTANCE_MEMORY_STEP = 512;
+
+    /** 0 lets the launcher choose; anything else is held to 512 MB - 64 GB in steps of 512. */
+    public LauncherSettings newInstanceMemoryMegabytes(int value) {
+        this.newInstanceMemoryMegabytes = value <= 0 ? 0
+                : Math.max(NEW_INSTANCE_MEMORY_MIN, Math.min(NEW_INSTANCE_MEMORY_MAX,
+                        Math.round(value / (float) NEW_INSTANCE_MEMORY_STEP) * NEW_INSTANCE_MEMORY_STEP));
+        return this;
+    }
+
+    public boolean checkModUpdates() {
+        return checkModUpdates;
+    }
+
+    public LauncherSettings checkModUpdates(boolean value) {
+        this.checkModUpdates = value;
+        return this;
+    }
+
+    public String gameSocksHost() {
+        return gameSocksHost;
+    }
+
+    public LauncherSettings gameSocksHost(String value) {
+        this.gameSocksHost = value == null ? "" : value.trim();
+        return this;
+    }
+
+    public int gameSocksPort() {
+        return gameSocksPort;
+    }
+
+    public LauncherSettings gameSocksPort(int value) {
+        this.gameSocksPort = value < 1 || value > 65535 ? 1080 : value;
+        return this;
+    }
+
+    /**
+     * Minecraft's own proxy options, for the game's command line: a SOCKS
+     * proxy is the only kind its sign-in, skins and Realms follow. Empty with
+     * no host set. Host names are kept to what a host name can be, so nothing
+     * else reaches the command line through this field.
+     */
+    public java.util.List<String> gameProxyArguments() {
+        if (!validSocksHost(gameSocksHost)) {
+            return java.util.List.of();
+        }
+        return java.util.List.of("--proxyHost", gameSocksHost, "--proxyPort", String.valueOf(gameSocksPort));
+    }
+
+    /**
+     * True for something that can be a host name or an address: letters,
+     * digits, dots, dashes, colons and brackets, not starting with a dash -
+     * a value starting with one would be read by the game as another option.
+     */
+    public static boolean validSocksHost(String host) {
+        return host != null && host.matches("[A-Za-z0-9\\[][A-Za-z0-9.\\-:\\[\\]]{0,252}");
     }
 
     /** How the launcher reaches the network. Never carries the password. */
@@ -483,19 +630,6 @@ public final class LauncherSettings {
         return this;
     }
 
-    public LauncherSettings keepOpenWhilePlaying(boolean value) {
-        this.keepOpenWhilePlaying = value;
-        return this;
-    }
-
-    public boolean minimiseToTrayWhilePlaying() {
-        return minimiseToTrayWhilePlaying;
-    }
-
-    public LauncherSettings minimiseToTrayWhilePlaying(boolean value) {
-        this.minimiseToTrayWhilePlaying = value;
-        return this;
-    }
 
     public int downloadConcurrency() {
         return Math.max(1, Math.min(downloadConcurrency, 32));

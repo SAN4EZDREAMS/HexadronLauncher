@@ -702,7 +702,7 @@ public final class MainWindow implements ProfileHost {
      */
     private void openSettingsWindow() {
         SettingsDialog dialog = new SettingsDialog(service.settings(), layout(), service.dirs(),
-                service.secretStore());
+                service.secretStore(), this::openCleanup);
         String keyBefore = service.settings().curseForgeApiKey();
         dialog.show(stage).ifPresent(result -> {
             // The key goes to the credential store, not launcher.json, and is
@@ -748,7 +748,7 @@ public final class MainWindow implements ProfileHost {
             rebuildViews();
             showProfile(shown);
             if (!result.refused().isEmpty()) {
-                showWarning(I18n.t("settings.grid.refusedHeader"),
+                showWarning(I18n.t("settings.refusedHeader"),
                         String.join("\n\n", result.refused()));
             }
         });
@@ -1160,7 +1160,7 @@ public final class MainWindow implements ProfileHost {
             modUpdates.remove(profile.id());
         }
         showUpdatesButton(profile);
-        if (service.settings().checkForUpdates() && updatesChecked.add(profile.id())) {
+        if (service.settings().checkModUpdates() && updatesChecked.add(profile.id())) {
             checkModUpdatesQuietly(profile);
         }
     }
@@ -2151,11 +2151,17 @@ public final class MainWindow implements ProfileHost {
 
     /** Hides to the notification area, or minimises where there is no tray. */
     private void goToTray() {
-        if (!service.settings().minimiseToTrayWhilePlaying()) {
-            if (!service.settings().keepOpenWhilePlaying()) {
-                stage.setIconified(true);
+        switch (service.settings().whilePlaying()) {
+            case STAY -> {
+                return;
             }
-            return;
+            case MINIMISE -> {
+                stage.setIconified(true);
+                return;
+            }
+            case TRAY -> {
+                // Below.
+            }
         }
         boolean hidden = tray.hide(
                 I18n.t("tray.tooltip"),
@@ -3883,7 +3889,7 @@ public final class MainWindow implements ProfileHost {
         // first account because the saved one was removed elsewhere.
         rememberAccount(accountBox.getValue());
         tray.dispose();
-        if (session != null && session.isRunning() && !service.settings().keepOpenWhilePlaying()) {
+        if (session != null && session.isRunning() && service.settings().stopGameOnClose()) {
             stopRequested = true;
             session.terminate();
         }

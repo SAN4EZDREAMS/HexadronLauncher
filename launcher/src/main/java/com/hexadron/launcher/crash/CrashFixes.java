@@ -248,7 +248,9 @@ public final class CrashFixes {
                         : Optional.of(new Prepared(fix, gigabytes(target), List.of(), List.of(), target));
             }
             case LOWER_MEMORY -> {
-                int target = Profile.defaultMemoryMegabytes();
+                // The computer's default, not the player's choice for new
+                // instances: this fix answers "too much for this machine".
+                int target = Profile.computerDefaultMemoryMegabytes();
                 yield target >= profile.memoryMegabytes() ? Optional.empty()
                         : Optional.of(new Prepared(fix, gigabytes(target), List.of(), List.of(), target));
             }
