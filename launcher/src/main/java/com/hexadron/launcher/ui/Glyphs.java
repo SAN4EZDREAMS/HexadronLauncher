@@ -311,6 +311,34 @@ final class Glyphs {
         return sized(plus, 12);
     }
 
+    /** A chevron pointing down: there is more behind this. Turned over while it is open. */
+    static Group chevronDown() {
+        SVGPath chevron = new SVGPath();
+        chevron.setFillRule(FillRule.NON_ZERO);
+        chevron.setContent("M 5.3 8.3 L 12 15 L 18.7 8.3 L 20.4 10 L 12 18.4 L 3.6 10 Z");
+        return sized(chevron, 12);
+    }
+
+    /** An arrow into a tray: something brought in from a file. */
+    static Group importArrow() {
+        SVGPath arrow = new SVGPath();
+        arrow.setFillRule(FillRule.NON_ZERO);
+        arrow.setContent(
+                "M 10.9 3 H 13.1 V 12.2 L 16.2 9.1 L 17.8 10.7 L 12 16.5 L 6.2 10.7 L 7.8 9.1 L 10.9 12.2 Z "
+                        + "M 3 14 H 5.2 V 18.8 H 18.8 V 14 H 21 V 21 H 3 Z");
+        return sized(arrow, 16);
+    }
+
+    /** A folder: a group, which holds instances the way a folder holds files. */
+    static Group folder() {
+        SVGPath folder = new SVGPath();
+        folder.setFillRule(FillRule.NON_ZERO);
+        folder.setContent(
+                "M 3 6 A 1.5 1.5 0 0 1 4.5 4.5 H 9.5 L 11.5 6.5 H 19.5 A 1.5 1.5 0 0 1 21 8 V 18 "
+                        + "A 1.5 1.5 0 0 1 19.5 19.5 H 4.5 A 1.5 1.5 0 0 1 3 18 Z");
+        return sized(folder, 16);
+    }
+
     /**
      * Three bars that shorten downwards, and an arrow pointing down beside them.
      *

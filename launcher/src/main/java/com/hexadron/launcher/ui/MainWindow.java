@@ -50,10 +50,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
-import javafx.scene.control.MenuItem;
 import javafx.scene.control.ProgressBar;
-import javafx.scene.control.SeparatorMenuItem;
-import javafx.scene.control.SplitMenuButton;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
@@ -204,15 +201,17 @@ public final class MainWindow implements ProfileHost {
 
     private final Button playButton = new Button();
     /** A click makes a new instance; the arrow holds import and a new group. */
-    private final SplitMenuButton createButton = new SplitMenuButton();
-    private final MenuItem createProfileItem = new MenuItem();
-    private final MenuItem importBuildItem = new MenuItem();
-    private final MenuItem newGroupItem = new MenuItem();
+    private final SplitButton createButton = new SplitButton(Glyphs.plus());
+    private final SplitButton.Item createProfileItem = createButton.add(Glyphs.plus(), this::createProfile);
+    private final SplitButton.Item importBuildItem = createButton.add(Glyphs.importArrow(), this::importBuild);
+    private final SplitButton.Item newGroupItem = createButton.addSeparated(Glyphs.folder(),
+            () -> createGroup(null));
     private final Button removeButton = new Button();
     private final Button installButton = new Button();
     private final Button modsButton = new Button();
     private final Button openFolderButton = new Button();
-    private final Button detectJavaButton = new Button();
+    /** A link on the Java line of the summary, where the question it answers is asked. */
+    private final javafx.scene.control.Hyperlink detectJavaButton = new javafx.scene.control.Hyperlink();
     private final Button addAccountButton = new Button();
     private final Button signInButton = new Button();
     private final Button removeAccountButton = new Button();
@@ -509,15 +508,10 @@ public final class MainWindow implements ProfileHost {
         // One button, because making an instance is the one thing done here
         // often: a click makes one, and the arrow holds the other ways a new
         // entry arrives in the list - an imported build, an empty group.
-        createButton.setGraphic(Glyphs.plus());
-        createButton.getStyleClass().add("create-button");
+        // The menu entries were added with the fields; the group comes after a
+        // rule because it is not an instance, and the menu says so by its shape.
+        createButton.setOnAction(this::createProfile);
         createButton.setMaxWidth(Double.MAX_VALUE);
-        createButton.setOnAction(event -> createProfile());
-        createProfileItem.setOnAction(event -> createProfile());
-        importBuildItem.setOnAction(event -> importBuild());
-        newGroupItem.setOnAction(event -> createGroup(null));
-        createButton.getItems().setAll(createProfileItem, importBuildItem,
-                new SeparatorMenuItem(), newGroupItem);
 
         // Sorting rearranges what is already there, so it sits on the list's
         // own heading: a shape, with its name in the tooltip.
@@ -824,21 +818,40 @@ public final class MainWindow implements ProfileHost {
         summary.addRow(row++, styled(summaryVersionTitle), styled(summaryVersionValue));
         summary.addRow(row++, styled(summaryLoaderTitle), styled(summaryLoaderValue));
         summary.addRow(row++, styled(summaryMemoryTitle), styled(summaryMemoryValue));
-        summary.addRow(row++, styled(summaryJavaTitle), styled(summaryJavaValue));
+        // Looking for Java was a button among the instance's actions, called
+        // "Detect" with no object. It answers a question about this line, so it
+        // is on this line.
+        detectJavaButton.getStyleClass().add("about-link");
+        HBox javaLine = new HBox(14, styled(summaryJavaValue), detectJavaButton);
+        javaLine.setAlignment(Pos.BASELINE_LEFT);
+        summary.addRow(row++, styled(summaryJavaTitle), javaLine);
         summary.addRow(row++, styled(summaryPlayedTitle), styled(summaryPlayedValue));
         summary.addRow(row, styled(summaryFolderTitle), styled(summaryFolderValue));
 
-        // Everything done to this one instance. Export and Remove came here
-        // from under the list. Remove is last, set apart and red at rest, so it
-        // is never the button beside the one somebody meant. A flow rather
-        // than a row: seven buttons do not fit a narrow window on one line.
+        // Everything done to this one instance, in three groups, each a pair:
+        //   what is in it      - Edit, Mods and packs
+        //   its game files     - Install / repair, Open game folder
+        //   it as a whole      - Export, Remove
+        // Closer inside a group than between groups, so the pairs read as
+        // pairs without a box drawn round them. The last pair keeps the right
+        // edge: Remove is the one button here that cannot be taken back, and
+        // it stays at the far end next to Export rather than wrapping onto a
+        // line of its own. When the window narrows, the first two groups wrap
+        // under each other, a whole group at a time.
         exportBuildButton.setOnAction(event -> exportBuild(selectedProfile));
         removeButton.getStyleClass().add("danger");
         removeButton.setOnAction(event -> removeSelectedProfile());
-        FlowPane actions = new FlowPane(8, 8, editButtonProxy(), installButton, modsButton,
-                openFolderButton, detectJavaButton, exportBuildButton, removeButton);
-        FlowPane.setMargin(removeButton, new Insets(0, 0, 0, 12));
-        actions.setAlignment(Pos.CENTER_LEFT);
+        FlowPane groups = new FlowPane(ACTION_GROUP_GAP, 8,
+                actionGroup(editButtonProxy(), modsButton), actionGroup(installButton, openFolderButton));
+        groups.setAlignment(Pos.TOP_LEFT);
+        // Asked for its size, a flow answers for 400 pixels unless told
+        // otherwise, and would claim two lines in a window wide enough for one.
+        groups.setPrefWrapLength(Double.MAX_VALUE);
+        groups.setMinWidth(0);
+        HBox.setHgrow(groups, Priority.ALWAYS);
+        HBox whole = actionGroup(exportBuildButton, removeButton);
+        HBox actions = new HBox(ACTION_GROUP_GAP, groups, whole);
+        actions.setAlignment(Pos.TOP_LEFT);
 
         modsTitle.getStyleClass().add("section-title");
         modsList.setCellFactory(view -> new ModCell(() -> modpackIds, this::shownUpdates));
@@ -866,6 +879,19 @@ public final class MainWindow implements ProfileHost {
         pane.getStyleClass().add("detail");
         VBox.setVgrow(modsBox, Priority.ALWAYS);
         return pane;
+    }
+
+    /** Between two groups of instance actions; the buttons inside a group are closer. */
+    private static final double ACTION_GROUP_GAP = 20;
+
+    private static HBox actionGroup(Button... buttons) {
+        HBox group = new HBox(6, buttons);
+        group.setAlignment(Pos.CENTER_LEFT);
+        group.setMinWidth(Region.USE_PREF_SIZE);
+        for (Button button : buttons) {
+            button.setMinWidth(Region.USE_PREF_SIZE);
+        }
+        return group;
     }
 
     /**
@@ -1328,9 +1354,10 @@ public final class MainWindow implements ProfileHost {
 
         instancesTitle.setText(I18n.t("profiles.header"));
         createButton.setText(I18n.t("profiles.new"));
-        createProfileItem.setText(I18n.t("profiles.new.item"));
-        importBuildItem.setText(I18n.t("action.importBuild"));
-        newGroupItem.setText(I18n.t("groups.new"));
+        createButton.setArrowName(I18n.t("profiles.new.more"));
+        createProfileItem.setText(I18n.t("profiles.new.item"), I18n.t("profiles.new.itemHint"));
+        importBuildItem.setText(I18n.t("action.importBuild"), I18n.t("action.importBuild.hint"));
+        newGroupItem.setText(I18n.t("groups.new"), I18n.t("groups.new.hint"));
         removeButton.setText(I18n.t("profiles.remove"));
         if (detailEdit != null) {
             detailEdit.setText(I18n.t("action.edit"));
@@ -1353,7 +1380,7 @@ public final class MainWindow implements ProfileHost {
         modsButton.setText(I18n.t("action.mods"));
         modsEmpty.setText(I18n.t("instance.mods.empty"));
         openFolderButton.setText(I18n.t("action.openFolder"));
-        detectJavaButton.setText(I18n.t("editor.java.detect"));
+        detectJavaButton.setText(I18n.t("instance.summary.detectJava"));
         addAccountButton.setText(I18n.t("action.addOffline"));
         signInButton.setText(I18n.t(signingIn ? "action.signIn.cancel" : "action.signIn"));
         removeAccountButton.setText(I18n.t("action.removeAccount"));

@@ -230,46 +230,92 @@
 }
 
 /*
- * The one button under the instance list. A click on the word makes a new
- * instance; the arrow, a step darker so it reads as its own target, opens the
- * other ways an entry arrives: an imported build, a new group. Green, like
- * Play, because it is the action that list exists for.
+ * The one button under the instance list (SplitButton): a click on the word
+ * makes a new instance; the arrow, behind a thin darker rule so it reads as a
+ * target of its own, opens the other ways an entry arrives. Green, like Play,
+ * because it is the action that list exists for.
  */
-.split-menu-button.create-button {
-    -fx-background-color: transparent;
-    -fx-background-insets: 0;
-    -fx-padding: 0;
-    -fx-cursor: hand;
-}
-
-.split-menu-button.create-button > .label {
+.split-action > .button {
     -fx-background-color: -fx-accent-0;
-    -fx-background-radius: 8 0 0 8;
     -fx-text-fill: white;
     -fx-font-weight: bold;
-    -fx-alignment: center;
+    -fx-padding: 9 14 9 14;
+}
+
+.split-action > .split-main {
+    -fx-background-radius: 8 0 0 8;
     -fx-graphic-text-gap: 8;
-    -fx-padding: 8 14 8 14;
 }
 
-.split-menu-button.create-button > .arrow-button {
-    -fx-background-color: derive(-fx-accent-0, -22%);
+.split-action > .split-arrow {
     -fx-background-radius: 0 8 8 0;
-    -fx-padding: 8 12 8 12;
+    -fx-padding: 9 13 9 13;
+    -fx-border-color: transparent transparent transparent derive(-fx-accent-0, -32%);
+    -fx-border-width: 0 0 0 1;
 }
 
-.split-menu-button.create-button > .label:hover,
-.split-menu-button.create-button > .arrow-button:hover,
-.split-menu-button.create-button:showing > .arrow-button {
+.split-action > .button:hover {
     -fx-background-color: -fx-accent-1;
 }
 
-.split-menu-button.create-button > .arrow-button > .arrow {
-    -fx-background-color: white;
+.split-action > .split-arrow:showing {
+    -fx-background-color: derive(-fx-accent-0, -14%);
 }
 
-.split-menu-button.create-button .glyph {
+.split-action .glyph {
     -fx-fill: white;
+}
+
+/* Turned over while the menu is open: the chevron says which way it will go. */
+.split-action > .split-arrow:showing .glyph {
+    -fx-rotate: 180;
+}
+
+/*
+ * Its menu: as wide as the button, a few pixels under it, the panel colour of
+ * every other menu here, and green pictures that tie each entry to the button
+ * it came out of. Each entry is a name and one muted line on what it is for.
+ */
+.context-menu.create-menu {
+    -fx-padding: 5;
+    -fx-background-radius: 10;
+    -fx-border-radius: 10;
+}
+
+.context-menu.create-menu .menu-item {
+    -fx-padding: 7 10 7 10;
+    -fx-background-radius: 7;
+}
+
+.context-menu.create-menu .menu-item:focused {
+    -fx-background-color: -fx-base-3;
+}
+
+.context-menu.create-menu .menu-item .create-menu-title {
+    -fx-text-fill: -fx-text-0;
+    -fx-font-size: 13px;
+}
+
+.context-menu.create-menu .menu-item .create-menu-hint {
+    -fx-text-fill: -fx-text-1;
+    -fx-font-size: 11px;
+}
+
+.context-menu.create-menu .create-menu-glyph {
+    -fx-background-color: derive(-fx-accent-0, -62%);
+    -fx-background-radius: 7;
+    -fx-min-width: 30;
+    -fx-min-height: 30;
+    -fx-pref-width: 30;
+    -fx-pref-height: 30;
+}
+
+.context-menu.create-menu .create-menu-glyph .glyph {
+    -fx-fill: -fx-accent-1;
+}
+
+.context-menu.create-menu .separator-menu-item {
+    -fx-padding: 3 6 3 6;
 }
 
 .text-field, .combo-box, .text-area {
