@@ -53,8 +53,7 @@ When the update check is off, `updates` does not run: the bar counts one stage f
 | [V] 1.8 | Java Detected automatically |
 | | Last played 16 Aug 2026, 14:47 |
 | | Folder ...\instances\1-027f96 |
-| | [Edit][Content...]   [Export build...][Remove] |
-| | [Install / repair][Open game folder] |
+| | [Edit][Content...][Install / repair][...] |
 | [ + New      | v ] | Mods (5) |
 +---------------------+------------------------------------------+
 | Account: [ v ] [Manage accounts] [Add Microsoft account]  |
@@ -76,16 +75,16 @@ When the update check is off, `updates` does not run: the bar counts one stage f
 
 **Sidebar.** Only actions on the list itself. The sort icon next to the heading sorts A-Z. Under the list is one button, **New**: a click creates an instance. Its arrow opens a menu as wide as the button, with a picture and a one-line description for each entry: New instance..., Import build... (`.hexbuild` files, see [builds-and-storage.md](builds-and-storage.md)) and, under a rule, New group. Actions on one instance are in the detail panel and in the instance menu.
 
-**Detail panel.** A read-only summary of the selected instance and its mods. The Java line has the link **Find Java on this computer**: it searches for Java runtimes and lists them in the Log panel, see [java-and-loaders.md](java-and-loaders.md). The buttons are in three pairs: what is in the instance (Edit, Content...), its game files (Install / repair, Open game folder), and the instance as a whole (Export build..., Remove). The last pair stays at the right edge; in a narrow window the first two pairs wrap under each other, a pair at a time.
+**Detail panel.** A read-only summary of the selected instance and its mods. The Java line has the link **Find Java on this computer**: it searches for Java runtimes and lists them in the Log panel, see [java-and-loaders.md](java-and-loaders.md). The Folder line has the link **Open**. Under the summary is one row of buttons, each with a picture: Edit, Content..., Install / repair, and **More** (three dots). More opens a menu with Export build..., Open game folder and, under a rule and in red, Remove instance....
 
 | Button | Action |
 |---|---|
 | Edit | Opens the instance editor |
 | Install / repair | Downloads and checks the game files, loader and libraries |
 | Content... | Opens the content window, see [mods.md](mods.md) |
-| Open game folder | Opens the instance folder |
-| Export build... | Writes the instance to a `.hexbuild` file, see [builds-and-storage.md](builds-and-storage.md) |
-| Remove | Removes the instance, with or without its files. Red, and set apart from the other buttons |
+| More > Export build... | Writes the instance to a `.hexbuild` file, see [builds-and-storage.md](builds-and-storage.md) |
+| More > Open game folder | Opens the instance folder (also the **Open** link on the Folder line) |
+| More > Remove instance... | Removes the instance, with or without its files |
 
 To change an instance, use Edit or the right-click menu. The instance editor has Name, Icon, Minecraft version, Mod loader, Loader version, Memory, Java, Extra JVM arguments and Wrapper command. Save writes the changes; Cancel writes nothing.
 

@@ -311,6 +311,53 @@ final class Glyphs {
         return sized(plus, 12);
     }
 
+    /** A pencil: change this. */
+    static Group pencil() {
+        SVGPath pencil = new SVGPath();
+        pencil.setFillRule(FillRule.NON_ZERO);
+        pencil.setContent("M 14.6 4.6 L 19.4 9.4 L 9 19.8 L 3.8 20.2 L 4.2 15 Z "
+                + "M 16 3.2 L 17.4 1.8 A 1.4 1.4 0 0 1 19.4 1.8 L 22.2 4.6 A 1.4 1.4 0 0 1 22.2 6.6 L 20.8 8 Z");
+        return sized(pencil, 14);
+    }
+
+    /** An arrow going round: check everything again and put back what is broken. */
+    static Group repair() {
+        SVGPath arrows = new SVGPath();
+        arrows.setFillRule(FillRule.NON_ZERO);
+        arrows.setContent("M 12 4 A 8 8 0 1 0 20 12 H 17.6 A 5.6 5.6 0 1 1 12 6.4 Z "
+                + "M 12 1.2 L 16.6 5.2 L 12 9.2 Z");
+        return sized(arrows, 14);
+    }
+
+    /** Three dots in a row: more of the same kind, behind this. */
+    static Group dots() {
+        SVGPath dots = new SVGPath();
+        dots.setFillRule(FillRule.NON_ZERO);
+        dots.setContent("M 5 10 A 2 2 0 1 1 5 14 A 2 2 0 1 1 5 10 Z "
+                + "M 12 10 A 2 2 0 1 1 12 14 A 2 2 0 1 1 12 10 Z "
+                + "M 19 10 A 2 2 0 1 1 19 14 A 2 2 0 1 1 19 10 Z");
+        return sized(dots, 16);
+    }
+
+    /** An arrow out of a tray: something written out to a file. */
+    static Group exportArrow() {
+        SVGPath arrow = new SVGPath();
+        arrow.setFillRule(FillRule.NON_ZERO);
+        arrow.setContent(
+                "M 10.9 16.5 H 13.1 V 7.3 L 16.2 10.4 L 17.8 8.8 L 12 3 L 6.2 8.8 L 7.8 10.4 L 10.9 7.3 Z "
+                        + "M 3 14 H 5.2 V 18.8 H 18.8 V 14 H 21 V 21 H 3 Z");
+        return sized(arrow, 16);
+    }
+
+    /** A bin: gone from the list. */
+    static Group trash() {
+        SVGPath bin = new SVGPath();
+        bin.setFillRule(FillRule.NON_ZERO);
+        bin.setContent("M 9 3 H 15 V 4.5 H 20 V 6.7 H 4 V 4.5 H 9 Z "
+                + "M 5.5 8 H 18.5 L 17.4 20 A 1.5 1.5 0 0 1 15.9 21.4 H 8.1 A 1.5 1.5 0 0 1 6.6 20 Z");
+        return sized(bin, 16);
+    }
+
     /** A chevron pointing down: there is more behind this. Turned over while it is open. */
     static Group chevronDown() {
         SVGPath chevron = new SVGPath();

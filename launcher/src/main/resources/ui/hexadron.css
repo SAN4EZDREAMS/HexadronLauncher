@@ -219,14 +219,14 @@
     -fx-background-color: -fx-danger-0;
 }
 
-/* Remove, in the instance panel, is red at rest and not only under the
-   pointer: it is the one button there that cannot be undone. */
-.detail .button.danger {
-    -fx-text-fill: derive(-fx-danger-0, 40%);
+/* The instance's everyday actions: a picture beside each word. */
+.detail-actions .button {
+    -fx-graphic-text-gap: 7;
 }
 
-.detail .button.danger:hover {
-    -fx-text-fill: white;
+/* "More", while its menu is open. */
+.button.more-button:showing {
+    -fx-background-color: -fx-base-3;
 }
 
 /*
@@ -312,6 +312,23 @@
 
 .context-menu.create-menu .create-menu-glyph .glyph {
     -fx-fill: -fx-accent-1;
+}
+
+/* An entry that cannot be taken back: Remove. */
+.context-menu.create-menu .menu-item.danger-item .create-menu-title {
+    -fx-text-fill: derive(-fx-danger-0, 45%);
+}
+
+.context-menu.create-menu .menu-item.danger-item:focused {
+    -fx-background-color: derive(-fx-danger-0, -58%);
+}
+
+.context-menu.create-menu .menu-item.danger-item .create-menu-glyph {
+    -fx-background-color: derive(-fx-danger-0, -66%);
+}
+
+.context-menu.create-menu .menu-item.danger-item .create-menu-glyph .glyph {
+    -fx-fill: derive(-fx-danger-0, 35%);
 }
 
 .context-menu.create-menu .separator-menu-item {

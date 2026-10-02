@@ -56,7 +56,6 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
 import javafx.scene.control.TitledPane;
 import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -202,14 +201,21 @@ public final class MainWindow implements ProfileHost {
     private final Button playButton = new Button();
     /** A click makes a new instance; the arrow holds import and a new group. */
     private final SplitButton createButton = new SplitButton(Glyphs.plus());
-    private final SplitButton.Item createProfileItem = createButton.add(Glyphs.plus(), this::createProfile);
-    private final SplitButton.Item importBuildItem = createButton.add(Glyphs.importArrow(), this::importBuild);
-    private final SplitButton.Item newGroupItem = createButton.addSeparated(Glyphs.folder(),
+    private final ActionMenu.Item createProfileItem = createButton.add(Glyphs.plus(), this::createProfile);
+    private final ActionMenu.Item importBuildItem = createButton.add(Glyphs.importArrow(), this::importBuild);
+    private final ActionMenu.Item newGroupItem = createButton.addSeparated(Glyphs.folder(),
             () -> createGroup(null));
-    private final Button removeButton = new Button();
     private final Button installButton = new Button();
     private final Button modsButton = new Button();
-    private final Button openFolderButton = new Button();
+    /** "More": what is done to an instance seldom, and what cannot be taken back. */
+    private final Button moreButton = new Button();
+    private final ActionMenu moreMenu = new ActionMenu();
+    private final ActionMenu.Item exportItem = moreMenu.add(Glyphs.exportArrow(),
+            () -> exportBuild(selectedProfile));
+    private final ActionMenu.Item folderItem = moreMenu.add(Glyphs.folder(), this::openGameFolder);
+    private final ActionMenu.Item removeItem = moreMenu.addDanger(Glyphs.trash(), this::removeSelectedProfile);
+    /** A link on the Folder line of the summary. */
+    private final javafx.scene.control.Hyperlink openFolderLink = new javafx.scene.control.Hyperlink();
     /** A link on the Java line of the summary, where the question it answers is asked. */
     private final javafx.scene.control.Hyperlink detectJavaButton = new javafx.scene.control.Hyperlink();
     private final Button addAccountButton = new Button();
@@ -232,7 +238,6 @@ public final class MainWindow implements ProfileHost {
     private final Button gridModeButton = new Button();
     private final Button sortButton = new Button();
     private final Button gridNewButton = new Button();
-    private final Button exportBuildButton = new Button();
     private final Button gridImportBuildButton = new Button();
     private final Button gridNewGroupButton = new Button();
     private final Button gridSortButton = new Button();
@@ -807,7 +812,7 @@ public final class MainWindow implements ProfileHost {
         // instance summary, and all of which is a task of its own.
         modsButton.setOnAction(event -> openModBrowser());
 
-        openFolderButton.setOnAction(event -> openGameFolder());
+        openFolderLink.setOnAction(event -> openGameFolder());
         detectJavaButton.setOnAction(event -> showDetectedJava());
 
         GridPane summary = new GridPane();
@@ -826,32 +831,40 @@ public final class MainWindow implements ProfileHost {
         javaLine.setAlignment(Pos.BASELINE_LEFT);
         summary.addRow(row++, styled(summaryJavaTitle), javaLine);
         summary.addRow(row++, styled(summaryPlayedTitle), styled(summaryPlayedValue));
-        summary.addRow(row, styled(summaryFolderTitle), styled(summaryFolderValue));
+        // The folder, like Java, is opened from its own line.
+        openFolderLink.getStyleClass().add("about-link");
+        openFolderLink.setMinWidth(Region.USE_PREF_SIZE);
+        summaryFolderValue.setMinWidth(0);
+        HBox folderLine = new HBox(14, styled(summaryFolderValue), openFolderLink);
+        folderLine.setAlignment(Pos.BASELINE_LEFT);
+        summary.addRow(row, styled(summaryFolderTitle), folderLine);
+        // The names on the left keep their width; the long folder path is
+        // what gives way when the window is narrow ("Mine..." said nothing).
+        for (Label title : List.of(summaryVersionTitle, summaryLoaderTitle, summaryMemoryTitle,
+                summaryJavaTitle, summaryPlayedTitle, summaryFolderTitle)) {
+            title.setMinWidth(Region.USE_PREF_SIZE);
+        }
 
-        // Everything done to this one instance, in three groups, each a pair:
-        //   what is in it      - Edit, Mods and packs
-        //   its game files     - Install / repair, Open game folder
-        //   it as a whole      - Export, Remove
-        // Closer inside a group than between groups, so the pairs read as
-        // pairs without a box drawn round them. The last pair keeps the right
-        // edge: Remove is the one button here that cannot be taken back, and
-        // it stays at the far end next to Export rather than wrapping onto a
-        // line of its own. When the window narrows, the first two groups wrap
-        // under each other, a whole group at a time.
-        exportBuildButton.setOnAction(event -> exportBuild(selectedProfile));
-        removeButton.getStyleClass().add("danger");
-        removeButton.setOnAction(event -> removeSelectedProfile());
-        FlowPane groups = new FlowPane(ACTION_GROUP_GAP, 8,
-                actionGroup(editButtonProxy(), modsButton), actionGroup(installButton, openFolderButton));
-        groups.setAlignment(Pos.TOP_LEFT);
-        // Asked for its size, a flow answers for 400 pixels unless told
-        // otherwise, and would claim two lines in a window wide enough for one.
-        groups.setPrefWrapLength(Double.MAX_VALUE);
-        groups.setMinWidth(0);
-        HBox.setHgrow(groups, Priority.ALWAYS);
-        HBox whole = actionGroup(exportBuildButton, removeButton);
-        HBox actions = new HBox(ACTION_GROUP_GAP, groups, whole);
-        actions.setAlignment(Pos.TOP_LEFT);
+        // One row, never wrapped. Three buttons for what is done to an
+        // instance often - change its settings, change what is in it, put its
+        // game files right - each with a picture, so the row is read at a
+        // glance. Everything else is behind "More", right after them: export,
+        // the folder, and Remove, the one action here that cannot be taken
+        // back, which has no business sitting in a row of everyday buttons.
+        // Seven buttons in a flow wrapped into each other and read as a heap.
+        Button edit = editButtonProxy();
+        edit.setGraphic(Glyphs.pencil());
+        modsButton.setGraphic(Glyphs.module());
+        installButton.setGraphic(Glyphs.repair());
+        moreButton.setGraphic(Glyphs.dots());
+        moreButton.getStyleClass().addAll("icon-button", "more-button");
+        moreButton.setOnAction(event -> moreMenu.toggle(moreButton, false, false));
+        moreMenu.setOnShowing(showing -> moreButton.pseudoClassStateChanged(
+                javafx.css.PseudoClass.getPseudoClass("showing"), showing));
+        HBox actions = new HBox(8, edit, modsButton, installButton, moreButton);
+        actions.getStyleClass().add("detail-actions");
+        actions.setAlignment(Pos.CENTER_LEFT);
+        keepLabels(actions);
 
         modsTitle.getStyleClass().add("section-title");
         modsList.setCellFactory(view -> new ModCell(() -> modpackIds, this::shownUpdates));
@@ -879,19 +892,6 @@ public final class MainWindow implements ProfileHost {
         pane.getStyleClass().add("detail");
         VBox.setVgrow(modsBox, Priority.ALWAYS);
         return pane;
-    }
-
-    /** Between two groups of instance actions; the buttons inside a group are closer. */
-    private static final double ACTION_GROUP_GAP = 20;
-
-    private static HBox actionGroup(Button... buttons) {
-        HBox group = new HBox(6, buttons);
-        group.setAlignment(Pos.CENTER_LEFT);
-        group.setMinWidth(Region.USE_PREF_SIZE);
-        for (Button button : buttons) {
-            button.setMinWidth(Region.USE_PREF_SIZE);
-        }
-        return group;
     }
 
     /**
@@ -1358,7 +1358,6 @@ public final class MainWindow implements ProfileHost {
         createProfileItem.setText(I18n.t("profiles.new.item"), I18n.t("profiles.new.itemHint"));
         importBuildItem.setText(I18n.t("action.importBuild"), I18n.t("action.importBuild.hint"));
         newGroupItem.setText(I18n.t("groups.new"), I18n.t("groups.new.hint"));
-        removeButton.setText(I18n.t("profiles.remove"));
         if (detailEdit != null) {
             detailEdit.setText(I18n.t("action.edit"));
         }
@@ -1379,7 +1378,12 @@ public final class MainWindow implements ProfileHost {
         installButton.setText(I18n.t("action.install"));
         modsButton.setText(I18n.t("action.mods"));
         modsEmpty.setText(I18n.t("instance.mods.empty"));
-        openFolderButton.setText(I18n.t("action.openFolder"));
+        openFolderLink.setText(I18n.t("instance.summary.openFolder"));
+        moreButton.setTooltip(new javafx.scene.control.Tooltip(I18n.t("instance.more")));
+        moreButton.setAccessibleText(I18n.t("instance.more"));
+        exportItem.setText(I18n.t("action.exportBuild"), I18n.t("instance.more.exportHint"));
+        folderItem.setText(I18n.t("action.openFolder"), I18n.t("instance.more.folderHint"));
+        removeItem.setText(I18n.t("instance.more.remove"), I18n.t("instance.more.removeHint"));
         detectJavaButton.setText(I18n.t("instance.summary.detectJava"));
         addAccountButton.setText(I18n.t("action.addOffline"));
         signInButton.setText(I18n.t(signingIn ? "action.signIn.cancel" : "action.signIn"));
@@ -1389,7 +1393,6 @@ public final class MainWindow implements ProfileHost {
 
         gridNewButton.setText(I18n.t("profiles.new"));
         gridImportBuildButton.setText(I18n.t("action.importBuild.short"));
-        exportBuildButton.setText(I18n.t("action.exportBuild"));
         gridNewGroupButton.setText(I18n.t("groups.new"));
         gridSortButton.setText(I18n.t("profiles.sort"));
         // No text on these: they are shapes, and the word lives in the tooltip -
@@ -2981,8 +2984,8 @@ public final class MainWindow implements ProfileHost {
         if (detailEdit != null) {
             detailEdit.setDisable(!present);
         }
-        removeButton.setDisable(!present);
-        exportBuildButton.setDisable(!present);
+        moreButton.setDisable(!present);
+        openFolderLink.setDisable(!present);
         installButton.setDisable(!present || busy);
         modsButton.setDisable(!present);
         playButton.setDisable(!present || busy);
