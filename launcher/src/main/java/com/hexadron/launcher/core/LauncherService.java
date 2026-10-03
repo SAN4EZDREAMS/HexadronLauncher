@@ -305,7 +305,7 @@ public final class LauncherService {
     }
 
     /** Silence before the end, past which a game with no other explanation is called frozen. */
-    public static final long FROZEN_AFTER_MILLIS = 45_000;
+    public static final long FROZEN_AFTER_MILLIS = 20_000;
 
     /**
      * Explains why a game stopped: the rules first, then the mod a stack trace

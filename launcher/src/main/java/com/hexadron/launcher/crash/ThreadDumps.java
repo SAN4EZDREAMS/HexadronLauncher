@@ -31,7 +31,7 @@ public final class ThreadDumps {
     public static final String DUMP = "hexadron-threads.txt";
 
     /** Silence after which the launcher asks for the game's threads. */
-    public static final long ASK_AFTER_MILLIS = 30_000;
+    public static final long ASK_AFTER_MILLIS = 15_000;
 
     private ThreadDumps() {
     }

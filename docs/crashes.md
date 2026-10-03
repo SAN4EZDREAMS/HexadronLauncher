@@ -8,7 +8,7 @@ After the game process ends, the launcher opens the crash window when all of the
 
 | Condition | Why |
 |---|---|
-| You did not stop the game with **Stop** or from the tray icon, unless it had been silent for 45 seconds first | On Windows a stopped game also ends with a non-zero exit code. That is not a crash. A silent game that you stopped is probably frozen, and the window explains that |
+| You did not stop the game with **Stop** or from the tray icon, unless it had been silent for 15 seconds first | On Windows a stopped game also ends with a non-zero exit code. That is not a crash. A silent game that you stopped is probably frozen, and the window explains that |
 | The exit code is not 0, the game wrote a crash report during this run, or it logged a `FATAL` line (not Forge 1.12's "Suppressed additional N model loading errors", which stops nothing) | Minecraft can write a crash report and still exit with code 0. Forge for 1.12 shows its own error screen (duplicate or missing mods) and exits with code 0 when you close it |
 | The exit code is not 92 | Exit 92 is the launcher's own launch handshake. The log line above it explains that case |
 
@@ -73,7 +73,7 @@ Some causes come from the launcher's own code, not from a rule. Their texts are 
 | The game froze in a mod | As below, and the thread dump names a mod: its deadlocked threads, render thread or main thread were running a class from that mod's jar | **Switch off** that jar |
 | A class is missing (`NoClassDefFoundError`, `ClassNotFoundException` in the crash's own exception) | `crash/Linkage.java` looks the class up in every jar. Only a switched-off jar has it: that mod is off. No jar has it: the `libraries` list of the rule file names the library by the package. A game class (`net.minecraft.`): the mod that asked is for another Minecraft version. A loader class: the mod is for another loader. Otherwise: the mod that asked needs something nobody has. The log is not searched: mods catch these exceptions on purpose while they look for optional companions | **Switch on** *library*; **Install** *library*; **Switch off** the mod that asked |
 | A method is missing (`NoSuchMethodError`) | The class the method was looked for in names the other side: the game (another Minecraft version), the loader (too old), or another mod (the two do not match) | **Update to** *loader version*; **Switch off** the mod that asked |
-| The game stopped responding | The game ended with an error, wrote no crash report, no other cause was found, and it printed nothing for 45 seconds or more before it ended - typically a frozen start that was stopped | none: switch off the mods added last |
+| The game stopped responding | The game ended with an error, wrote no crash report, no other cause was found, and it printed nothing for 20 seconds or more before it ended - typically a frozen start that was stopped. A game you stopped after it had been silent for 15 seconds always counts | none: switch off the mods added last |
 
 The window shows at most four causes, most specific first. Mods are named by the name in their jar, not by their id.
 
@@ -203,7 +203,7 @@ The **Stop** button and **Stop** in the tray menu end the game and any process i
 
 The launch wrapper jar is also a Java agent (`com.hexadron.wrapper.ThreadDumpAgent`). Every game starts with `-javaagent:<wrapper jar>=<game folder>`. The agent changes no class and sends nothing: once a second it looks for `hexadron-threads.request` in the game folder.
 
-When the game has printed nothing for 30 seconds, the launcher creates that file and writes a line in its log. Within a second the agent writes `hexadron-threads.txt`: deadlocked threads first, then the render and main threads, then all the others, each with its full stack and locks. When the game is then stopped or ends, the crash analysis reads the first three threads and names the mod whose class they were running.
+When the game has printed nothing for 15 seconds, the launcher creates that file, writes a line in its log, and comes forward by itself (out of the tray or the taskbar) with **The game is not responding**: **Wait** keeps watching, and the window closes by itself when the game prints again; **Stop the game** stops it, and the crash window then explains the freeze from the thread dump. Stopping from here rather than with Windows' "Close the program" matters: Windows kills the game without telling the launcher, often before the dump is taken. The problem-mod search counts such a stop as a failed step. Within a second the agent writes `hexadron-threads.txt`: deadlocked threads first, then the render and main threads, then all the others, each with its full stack and locks. When the game is then stopped or ends, the crash analysis reads the first three threads and names the mod whose class they were running.
 
 Send `hexadron-threads.txt` with a bug report about a frozen game.
 

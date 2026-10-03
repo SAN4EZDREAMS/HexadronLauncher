@@ -271,6 +271,17 @@ public final class MainWindow implements ProfileHost {
      * ends with a non-zero exit code on Windows, and it is not a crash.
      */
     private volatile boolean stopRequested;
+    /**
+     * Set when the game was stopped - from here, from the tray, or from the
+     * question below - after it had gone silent. Then the stop is the
+     * player's answer to a frozen game, not a change of mind, and the crash
+     * window explains it with the thread dump taken during the silence.
+     */
+    private volatile boolean stoppedWhileSilent;
+    /** When the running game last printed a line; null when no game runs. */
+    private volatile java.util.concurrent.atomic.AtomicLong gameOutputClock;
+    /** "The game has stopped answering", while it is open. Interface thread. */
+    private Alert silencePrompt;
     /** The problem-mod search window, while one is open. */
     private BisectWindow bisectWindow;
     private String bisectProfileId;
@@ -1711,8 +1722,7 @@ public final class MainWindow implements ProfileHost {
 
     private void play() {
         if (session != null && session.isRunning()) {
-            stopRequested = true;
-            session.terminate();
+            stopGame();
             return;
         }
         Account account = accountBox.getValue();
@@ -1770,12 +1780,14 @@ public final class MainWindow implements ProfileHost {
             progress.log(I18n.t("log.gameLog",
                     service.profiles().gameDirectory(profile).resolve("logs")));
             stopRequested = false;
+            stoppedWhileSilent = false;
             long startedAt = System.currentTimeMillis();
             // The last lines the game printed, for the crash analysis. The log
             // file holds them too, but a game that dies before its logger starts
             // leaves nothing there.
             java.util.ArrayDeque<String> outputTail = new java.util.ArrayDeque<>();
             java.util.concurrent.atomic.AtomicLong lastOutput = new java.util.concurrent.atomic.AtomicLong(startedAt);
+            gameOutputClock = lastOutput;
             session = service.launch(profile, account, progress,
                     line -> {
                         lastOutput.set(System.currentTimeMillis());
@@ -1850,7 +1862,7 @@ public final class MainWindow implements ProfileHost {
             long askedFor = -1;
             while (game.isRunning()) {
                 try {
-                    Thread.sleep(5000);
+                    Thread.sleep(2000);
                 } catch (InterruptedException e) {
                     return;
                 }
@@ -1865,11 +1877,89 @@ public final class MainWindow implements ProfileHost {
                     } catch (IOException e) {
                         com.hexadron.launcher.core.LauncherLog.info("Could not ask the game for its threads: " + e);
                     }
+                    long seconds = quiet / 1000;
+                    Platform.runLater(() -> askAboutSilence(game, seconds));
+                } else if (askedFor != -1 && last != askedFor) {
+                    // It spoke again: it was only busy.
+                    askedFor = -1;
+                    Platform.runLater(this::closeSilencePrompt);
                 }
             }
+            Platform.runLater(this::closeSilencePrompt);
         }, "minecraft-silence");
         watcher.setDaemon(true);
         watcher.start();
+    }
+
+    /**
+     * Stops the running game. When it had gone silent first, the stop is
+     * remembered as the answer to a frozen game.
+     */
+    private void stopGame() {
+        GameLauncher.GameSession running = session;
+        if (running == null || !running.isRunning()) {
+            return;
+        }
+        java.util.concurrent.atomic.AtomicLong clock = gameOutputClock;
+        if (clock != null && System.currentTimeMillis() - clock.get()
+                >= com.hexadron.launcher.crash.ThreadDumps.ASK_AFTER_MILLIS) {
+            stoppedWhileSilent = true;
+        }
+        stopRequested = true;
+        com.hexadron.launcher.core.LauncherLog.info("Game stopped by the player"
+                + (stoppedWhileSilent ? " after it had gone silent" : ""));
+        running.terminate();
+    }
+
+    /**
+     * Brings the launcher forward and asks what to do about a game that has
+     * stopped answering.
+     *
+     * <p>Windows calls a window "not responding" after five seconds and offers
+     * to close it; that kills the game without a word to the launcher, which
+     * until then was behind it, or in the tray, waiting thirty seconds before
+     * it noticed anything. So the launcher comes forward by itself, says what
+     * it knows, and its Stop keeps the thread dump that names the cause.
+     */
+    private void askAboutSilence(GameLauncher.GameSession game, long seconds) {
+        if (!game.isRunning() || silencePrompt != null) {
+            return;
+        }
+        tray.restore();
+        if (stage.isIconified()) {
+            stage.setIconified(false);
+        }
+        stage.toFront();
+        Alert alert = new Alert(Alert.AlertType.WARNING);
+        alert.initOwner(stage);
+        alert.initModality(javafx.stage.Modality.NONE);
+        Theme.apply(alert.getDialogPane());
+        alert.setTitle(I18n.t("game.silent.header"));
+        alert.setHeaderText(I18n.t("game.silent.header"));
+        alert.setContentText(I18n.t("game.silent.body", String.valueOf(seconds)));
+        alert.getDialogPane().setPrefWidth(560);
+        javafx.scene.control.ButtonType stop = new javafx.scene.control.ButtonType(I18n.t("game.silent.stop"),
+                javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+        javafx.scene.control.ButtonType wait = new javafx.scene.control.ButtonType(I18n.t("game.silent.wait"),
+                javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(wait, stop);
+        silencePrompt = alert;
+        alert.setOnHidden(event -> {
+            silencePrompt = null;
+            if (stop.equals(alert.getResult()) && game.isRunning()) {
+                stopGame();
+            }
+        });
+        alert.show();
+    }
+
+    private void closeSilencePrompt() {
+        Alert open = silencePrompt;
+        if (open != null) {
+            silencePrompt = null;
+            open.setResult(javafx.scene.control.ButtonType.CANCEL);
+            open.close();
+        }
     }
 
     /** How many lines of game output are kept for the crash analysis. */
@@ -1900,7 +1990,9 @@ public final class MainWindow implements ProfileHost {
             // to answer - so every crash of an ordinary game in that profile
             // went to a hidden window and vanished without a trace.
             Path gameDir = service.profiles().gameDirectory(profile);
-            boolean ended = !stopRequested && exitCode != 92
+            // A freeze is a failure for the search too: the player stopped a
+            // game that had stopped answering.
+            boolean ended = (!stopRequested || stoppedWhileSilent) && exitCode != 92
                     && (exitCode != 0 || CrashEvidence.hasCrashReportSince(gameDir, startedAt)
                             || CrashEvidence.hasFatalLine(lines));
             com.hexadron.launcher.core.LauncherService.BisectOutcome outcome = null;
@@ -1939,7 +2031,13 @@ public final class MainWindow implements ProfileHost {
         // A game the player stopped is not a crash - unless it had gone silent
         // first, which is the one case where Stop is the player's answer to a
         // frozen game, and that deserves an explanation.
-        if (stopRequested && quietMillis < com.hexadron.launcher.core.LauncherService.FROZEN_AFTER_MILLIS) {
+        if (stoppedWhileSilent) {
+            // However long the silence was when the player gave up, it was a
+            // freeze: the analysis is told so, and reads the thread dump.
+            quietMillis = Math.max(quietMillis, com.hexadron.launcher.core.LauncherService.FROZEN_AFTER_MILLIS);
+        }
+        if (stopRequested && !stoppedWhileSilent
+                && quietMillis < com.hexadron.launcher.core.LauncherService.FROZEN_AFTER_MILLIS) {
             com.hexadron.launcher.core.LauncherLog.info("Crash window not shown: the game was stopped (exit "
                     + exitCode + ")");
             return;
@@ -2181,8 +2279,7 @@ public final class MainWindow implements ProfileHost {
                 I18n.t("tray.stop"),
                 () -> {
                     if (session != null && session.isRunning()) {
-                        stopRequested = true;
-                        session.terminate();
+                        stopGame();
                     }
                 });
         if (hidden) {
@@ -4086,8 +4183,7 @@ public final class MainWindow implements ProfileHost {
         rememberAccount(accountBox.getValue());
         tray.dispose();
         if (session != null && session.isRunning() && service.settings().stopGameOnClose()) {
-            stopRequested = true;
-            session.terminate();
+            stopGame();
         }
     }
 }
