@@ -9529,26 +9529,50 @@ public final class SelfCheck {
                 zip.write(module.toByteArray());
                 zip.closeEntry();
             }
+            // As published: a line break typed inside the description, which
+            // strict JSON refuses and Fabric reads. Refusing it left the jar
+            // with no id and no versions - no warning before the launch, no
+            // name and no fix after the crash.
             writeJar(dir.resolve("bettergrassify-1.8.7+fabric.26.1.2.jar"), Map.of("fabric.mod.json",
                     "{\"schemaVersion\":1,\"id\":\"bettergrass\",\"version\":\"1.8.7\","
-                            + "\"depends\":{\"minecraft\":\">=26.1 <=26.1.2\",\"fabric-api\":\"*\"}}"));
+                            + "\"description\":\"Gamers can finally touch grass!?\nOptiFine's better grass\","
+                            + "\"depends\":{\"minecraft\":\">=26.1 <=26.1.2\",\"fabric-api\":\"*\"},"
+                            + "\"breaks\":{\"sodium\":\"<0.8.9-\"}}"));
             writeJar(dir.resolve("sodium-0.8+26.1.2.jar"), Map.of("fabric.mod.json",
                     "{\"schemaVersion\":1,\"id\":\"sodium\",\"name\":\"Sodium\",\"version\":\"0.8\","
                             + "\"depends\":{\"minecraft\":\"~26.1.2\"}}"));
             var mods = ModScan.scan(dir, "1.18.1");
+            check("a descriptor with a line break inside a string is read, as Fabric reads it",
+                    mods.stream().anyMatch(m -> "bettergrass".equals(ModScan.descriptorOf(m.path()).modId())
+                            && m.verdict() == com.hexadron.launcher.mods.VersionRanges.Verdict.DOES_NOT_MATCH));
+            check("so the warning before the launch names it",
+                    ModScan.wrongVersion(mods).stream().anyMatch(m -> m.fileName().startsWith("bettergrassify")));
+            check("lenient reading takes comments, trailing commas and a byte-order mark",
+                    "x".equals(com.hexadron.launcher.json.Json.parseLenient(
+                            "\uFEFF{ // id\n \"id\": \"x\", /* more */ \"a\": [1, 2,], }").get("id").asString(null))
+                            && "a\nb".equals(com.hexadron.launcher.json.Json.parseLenient("{\"d\":\"a\nb\"}")
+                            .get("d").asString(null))
+                            && "http://x/#y".equals(com.hexadron.launcher.json.Json.parseLenient(
+                            "{\"u\":\"http://x/#y\", }").get("u").asString(null)));
             var evidence = com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
                     "\t - Mod 'Fabric API' (fabric-api) 0.155.2+26.1.2 requires version 25 or later of 'OpenJDK 64-Bit Server VM' (java), but only the wrong version is present: 21!",
                     "\t - Mod 'BetterGrassify' (bettergrass) 1.8.7+fabric.26.1.2 requires any version between 26.1 (inclusive) and 26.1.2 (inclusive) of 'Minecraft' (minecraft), but only the wrong version is present: 1.18.1!",
                     "\t - Mod 'Fabric API' (fabric-api) 0.155.2+26.1.2 requires version 26.1.2 or later of 'Minecraft' (minecraft), but only the wrong version is present: 1.18.1!",
                     "\t - Mod 'Fabric Command API (v2)' (fabric-command-api-v2) 2.2 requires version 26.1- or later of 'Minecraft' (minecraft), but only the wrong version is present: 1.18.1!",
                     "\t - Mod 'Sodium' (sodium) 0.8 requires version 26.1.2 of 'Minecraft' (minecraft), but only the wrong version is present: 1.18.1!",
-                    "\t - Mod 'BetterGrassify' (bettergrass) 1.8.7+fabric.26.1.2 requires any version of fabric-api, which is missing!")));
+                    "\t - Mod 'BetterGrassify' (bettergrass) 1.8.7+fabric.26.1.2 requires any version of fabric-api, which is missing!",
+                    "\t - Mod 'BetterGrassify' (bettergrass) 1.8.7+fabric.26.1.2 is incompatible with any version before 0.8.9- of mod 'Sodium' (sodium), yet a conflicting version is present: 0.4.0-alpha6+build.14!")));
+            check("\"is incompatible with ... of mod 'Sodium'\" is read in the newer words too",
+                    "fabric-incompatible".equals(firstRule(rules, OUT,
+                            "\t - Mod 'BetterGrassify' (bettergrass) 1.8.7+fabric.26.1.2 is incompatible with any version before 0.8.9- of mod 'Sodium' (sodium), yet a conflicting version is present: 0.4.0-alpha6+build.14!")));
             var found = com.hexadron.launcher.core.LauncherService.analyzeCrash(mods, rules, LoaderType.FABRIC,
                     evidence, "en", 0);
             check("Java 25 is not offered for a mod that is itself for another Minecraft version",
                     found.stream().noneMatch(d -> "javaOld".equals(d.textId())));
             check("nor is what such a mod needs",
                     found.stream().noneMatch(d -> "missingDep".equals(d.textId())));
+            check("nor switching off the Sodium it does not get on with, which is the build right for this version",
+                    found.stream().noneMatch(d -> "incompatible".equals(d.textId())));
             var wrong = found.stream().filter(d -> "wrongMinecraft".equals(d.textId())).toList();
             var fabricApi = mods.stream().filter(m -> m.fileName().startsWith("fabric-api")).findFirst().orElseThrow();
             check("a module of Fabric API is put on Fabric API, and Fabric API is named once; the causes left"

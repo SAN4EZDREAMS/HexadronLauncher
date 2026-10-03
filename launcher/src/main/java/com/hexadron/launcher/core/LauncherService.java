@@ -580,7 +580,11 @@ public final class LauncherService {
             boolean consequence = asker != null && !"minecraft".equalsIgnoreCase(asker)
                     && wrong.contains(asker.toLowerCase(java.util.Locale.ROOT))
                     && ("javaOld".equals(diagnosis.textId()) || "missingDep".equals(diagnosis.textId())
-                        || "depVersion".equals(diagnosis.textId()) || "loaderVersion".equals(diagnosis.textId()));
+                        || "depVersion".equals(diagnosis.textId()) || "loaderVersion".equals(diagnosis.textId())
+                        // "BetterGrassify for 26.1 is incompatible with Sodium
+                        // before 0.8.9": its fixes switch off Sodium - the
+                        // build that is right for this version.
+                        || "incompatible".equals(diagnosis.textId()));
             if (consequence) {
                 LauncherLog.info("Crash analysis: " + diagnosis.ruleId() + " for " + asker
                         + " left out: that mod is for another Minecraft version");

@@ -86,6 +86,89 @@ public final class Json {
         return new Parser(text).parseDocument();
     }
 
+    /**
+     * Parses a file written by hand and read by a lenient parser elsewhere:
+     * a mod's {@code fabric.mod.json}, {@code quilt.mod.json} or
+     * {@code mcmod.info}.
+     *
+     * <p>Strict JSON first. When that fails, the text is tidied the way the
+     * loaders' own readers tolerate - and so the way published mods are
+     * written - and read again: a line break typed inside a string
+     * (BetterGrassify's description has one), comments, a comma before a
+     * closing bracket, a byte-order mark. A launcher that refused these read
+     * nothing at all from the jar - no id, no versions - while the loader
+     * loaded it, and every check that needed the id silently said nothing.
+     *
+     * @throws IllegalArgumentException when it does not read even then
+     */
+    public static Json parseLenient(String text) {
+        try {
+            return parse(text);
+        } catch (RuntimeException strict) {
+            return parse(tidy(text));
+        }
+    }
+
+    /** The text with what lenient readers accept turned into strict JSON. */
+    static String tidy(String text) {
+        StringBuilder out = new StringBuilder(text.length() + 16);
+        int start = !text.isEmpty() && text.charAt(0) == '\uFEFF' ? 1 : 0;
+        boolean inString = false;
+        for (int i = start; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (inString) {
+                if (c == '\\' && i + 1 < text.length()) {
+                    out.append(c).append(text.charAt(++i));
+                } else if (c == '"') {
+                    inString = false;
+                    out.append(c);
+                } else if (c == '\n') {
+                    out.append("\\n");
+                } else if (c == '\r') {
+                    out.append("\\r");
+                } else if (c == '\t') {
+                    out.append("\\t");
+                } else if (c < 0x20) {
+                    out.append(String.format(java.util.Locale.ROOT, "\\u%04x", (int) c));
+                } else {
+                    out.append(c);
+                }
+                continue;
+            }
+            if (c == '"') {
+                inString = true;
+                out.append(c);
+            } else if (c == '/' && i + 1 < text.length() && text.charAt(i + 1) == '/') {
+                while (i < text.length() && text.charAt(i) != '\n') {
+                    i++;
+                }
+                out.append('\n');
+            } else if (c == '/' && i + 1 < text.length() && text.charAt(i + 1) == '*') {
+                int end = text.indexOf("*/", i + 2);
+                i = end < 0 ? text.length() : end + 1;
+                out.append(' ');
+            } else if (c == '#') {
+                // Lenient readers take a hash as the start of a comment too.
+                while (i < text.length() && text.charAt(i) != '\n') {
+                    i++;
+                }
+                out.append('\n');
+            } else if (c == ']' || c == '}') {
+                int last = out.length() - 1;
+                while (last >= 0 && Character.isWhitespace(out.charAt(last))) {
+                    last--;
+                }
+                if (last >= 0 && out.charAt(last) == ',') {
+                    out.setCharAt(last, ' ');
+                }
+                out.append(c);
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
+    }
+
     public static Json parse(Reader reader) throws IOException {
         StringBuilder sb = new StringBuilder();
         char[] buf = new char[8192];

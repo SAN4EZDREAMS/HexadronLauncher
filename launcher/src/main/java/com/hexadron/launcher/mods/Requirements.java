@@ -194,7 +194,7 @@ public final class Requirements {
     private static void describe(String fabric, String quilt, String toml, String neoToml, Set<String> ids) {
         if (fabric != null) {
             try {
-                Json root = Json.parse(fabric);
+                Json root = Json.parseLenient(fabric);
                 add(ids, root.get("id").asString(null));
                 for (Json alias : root.get("provides").elements()) {
                     add(ids, alias.asString(null));
@@ -205,7 +205,7 @@ public final class Requirements {
         }
         if (quilt != null) {
             try {
-                Json loader = Json.parse(quilt).get("quilt_loader");
+                Json loader = Json.parseLenient(quilt).get("quilt_loader");
                 add(ids, loader.get("id").asString(null));
                 for (Json alias : loader.get("provides").elements()) {
                     add(ids, alias.isString() ? alias.asString(null) : alias.get("id").asString(null));

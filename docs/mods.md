@@ -70,7 +70,7 @@ The **Installed** tab lists every `.jar` and `.jar.disabled` file in the instanc
 Each row shows:
 
 - **Picture**: the Modrinth or CurseForge logo, else the icon inside the jar, else a coloured tile with the first letter.
-- **Name, version, authors, description**: from the jar's descriptor (`fabric.mod.json`, `quilt.mod.json`, `META-INF/neoforge.mods.toml`, `META-INF/mods.toml`, `mcmod.info`, then `META-INF/MANIFEST.MF`). This works offline.
+- **Name, version, authors, description**: from the jar's descriptor (`fabric.mod.json`, `quilt.mod.json`, `META-INF/neoforge.mods.toml`, `META-INF/mods.toml`, `mcmod.info`, then `META-INF/MANIFEST.MF`). This works offline. The JSON descriptors are read as leniently as the loaders read them: a line break typed inside a string, comments (`//`, `/* */`, `#`), a comma before `}` or `]`, and a byte-order mark are accepted. About 3 % of published Fabric mods have one of these (BetterGrassify, Entity Model Features, Entity Texture Features, Controlling for 1.18); refused, such a jar had no id and no Minecraft range, so it got no warning before the launch and no fix after a crash.
 - **File name**, **categories**, a **badge**, the **on/off switch** and **Remove**.
 - **More about this mod**: the recorded project page, else the homepage in the jar. Only `http` and `https` links are shown.
 

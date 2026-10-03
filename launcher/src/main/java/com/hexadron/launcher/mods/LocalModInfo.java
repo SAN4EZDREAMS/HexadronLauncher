@@ -453,10 +453,12 @@ public record LocalModInfo(String modId, String name, String version, String des
     private static Optional<Json> readJson(ZipFile zip, String path) {
         return readText(zip, path).flatMap(text -> {
             try {
-                return Optional.of(Json.parse(text));
+                // Leniently: published descriptors carry comments, trailing
+                // commas and line breaks inside strings, and the loader reads
+                // them. One that is refused here leaves the jar with no id
+                // and no versions, so nothing can be said or done about it.
+                return Optional.of(Json.parseLenient(text));
             } catch (RuntimeException e) {
-                // Some published descriptors contain comments or trailing commas.
-                // They are the mod's problem, not a reason to show nothing.
                 return Optional.empty();
             }
         });

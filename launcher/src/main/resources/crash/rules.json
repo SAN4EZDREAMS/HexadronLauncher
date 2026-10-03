@@ -3596,7 +3596,7 @@
           "contains": [
             "is incompatible with"
           ],
-          "regex": "(?:Mod '(?<modname>[^']{1,100})' )?\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ is incompatible with .+? of '[^']*' \\((?<other>[a-z0-9_.\\-]+)\\), yet",
+          "regex": "(?:Mod '(?<modname>[^']{1,100})' )?\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ is incompatible with .+? of (?:\\w+ )?'[^']*' \\((?<other>[a-z0-9_.\\-]+)\\), yet",
           "repeat": true
         }
       ],
