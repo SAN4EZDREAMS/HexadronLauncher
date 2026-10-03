@@ -207,6 +207,12 @@ When the game has printed nothing for 15 seconds, the launcher creates that file
 
 Send `hexadron-threads.txt` with a bug report about a frozen game.
 
+### When the launcher itself stops
+
+The launcher reads the game's output on one thread and handles it (log file, log panel, crash tail) on another, with up to 50 000 lines queued between them. A slow or stopped handler can no longer stop the reading, so the game can no longer freeze waiting for the launcher to take its console output; if the queue fills, the launcher's copy skips lines and says how many, and the game's `logs/latest.log` keeps them all.
+
+A watchdog thread (`hexadron-watchdog`) checks every 3 seconds that the interface thread answers and that no thread has been waiting more than 10 seconds to write a log line. When either stops for 15 / 10 seconds, it writes every launcher thread's full stack and locks to `logs/launcher-threads-<date>-<time>.txt` without going through the launcher log, once per stall; the last 5 are kept. Send that file with a bug report about a launcher that stopped answering.
+
 ## A launcher that stops responding
 
 A background thread checks every 2 seconds that the launcher window still answers. When it has not answered for 8 seconds, `logs/launcher.log` gets the stack of the interface thread, and one more line when it answers again. Send that part of the log with a bug report.

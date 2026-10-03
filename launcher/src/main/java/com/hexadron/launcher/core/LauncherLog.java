@@ -248,15 +248,46 @@ public final class LauncherLog {
         }
     }
 
+    /**
+     * Threads inside {@link #write}, with when they came in. Read by the
+     * watchdog: a line that takes seconds to write is a launcher that has
+     * stopped, and every thread that logs is about to stop with it.
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<Thread, Long> WRITING =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The longest any thread has been waiting to write a line, in milliseconds; 0 when none is. */
+    public static long longestWriteMillis() {
+        long now = System.currentTimeMillis();
+        long longest = 0;
+        for (Long since : WRITING.values()) {
+            longest = Math.max(longest, now - since);
+        }
+        return longest;
+    }
+
     private static void write(String level, String message) {
+        // Made outside the lock: scrubbing a long line is the slow part, and
+        // inside the lock every other thread that logs - the game's output,
+        // the interface - waited for it.
+        String line = LocalDateTime.now().format(TIME)
+                + " [" + Thread.currentThread().getName() + "] "
+                + level + "  " + Redactor.scrub(message == null ? "null" : message)
+                + System.lineSeparator();
+        Thread self = Thread.currentThread();
+        WRITING.putIfAbsent(self, System.currentTimeMillis());
+        try {
+            writeLine(line);
+        } finally {
+            WRITING.remove(self);
+        }
+    }
+
+    private static void writeLine(String line) {
         synchronized (LOCK) {
             if (writer == null || capped) {
                 return;
             }
-            String line = LocalDateTime.now().format(TIME)
-                    + " [" + Thread.currentThread().getName() + "] "
-                    + level + "  " + Redactor.scrub(message == null ? "null" : message)
-                    + System.lineSeparator();
             try {
                 writer.write(line);
                 writer.flush();

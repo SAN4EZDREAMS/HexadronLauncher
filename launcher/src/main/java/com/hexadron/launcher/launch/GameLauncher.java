@@ -137,15 +137,58 @@ public final class GameLauncher {
 
         sendSecrets(process, command.secrets());
 
+        // Two threads, not one. The pump only reads: it takes each line off the
+        // pipe and puts it in a queue, and never waits for anything else. The
+        // handler does what a line is for - the log file, the log panel, the
+        // crash tail - and may be slow. With one thread doing both, anything
+        // that held the handler up held the reading up too; the pipe filled,
+        // the game's next write to its console blocked, and the game froze on
+        // a white window because of the launcher.
+        java.util.concurrent.BlockingQueue<String> lines =
+                new java.util.concurrent.ArrayBlockingQueue<>(OUTPUT_QUEUE_LINES);
+        java.util.concurrent.atomic.AtomicInteger dropped = new java.util.concurrent.atomic.AtomicInteger();
+        String end = new String("<end of game output>");
         Thread pump = new Thread(() -> {
-            // Said once. Each of these failures prints several lines - the JVM's
-            // own memory report runs to five - and repeating the explanation
-            // after every one of them would bury it in the thing it explains.
-            boolean explained = false;
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
+                    if (!lines.offer(line)) {
+                        // Better a gap in the launcher's copy than a game
+                        // waiting for the launcher. The game's own log file
+                        // has every line.
+                        dropped.incrementAndGet();
+                    }
+                }
+            } catch (IOException e) {
+                lines.offer("[launcher] stopped reading game output: " + e.getMessage());
+            } finally {
+                try {
+                    lines.put(end);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }, "minecraft-output");
+        pump.setDaemon(true);
+        pump.start();
+
+        Thread handler = new Thread(() -> {
+            // Said once. Each of these failures prints several lines - the JVM's
+            // own memory report runs to five - and repeating the explanation
+            // after every one of them would bury it in the thing it explains.
+            boolean explained = false;
+            try {
+                while (true) {
+                    String line = lines.take();
+                    if (line == end) {
+                        return;
+                    }
+                    int lost = dropped.getAndSet(0);
+                    if (lost > 0) {
+                        onOutput.accept("[launcher] " + lost + " lines of game output were not shown here,"
+                                + " because the launcher fell behind; logs/latest.log in the game folder has them");
+                    }
                     onOutput.accept(Redactor.scrub(line));
                     if (!explained) {
                         String explanation = explain(line);
@@ -155,19 +198,24 @@ public final class GameLauncher {
                         }
                     }
                 }
-            } catch (IOException e) {
-                onOutput.accept("[launcher] stopped reading game output: " + Redactor.scrub(e.getMessage()));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (RuntimeException e) {
+                // One bad line must not end the handling of every line after it:
+                // the queue would fill, and the pump would start dropping.
+                com.hexadron.launcher.core.LauncherLog.error("Game output handler failed", e);
             }
-        }, "minecraft-output");
-        pump.setDaemon(true);
-        pump.start();
+        }, "minecraft-output-handler");
+        handler.setDaemon(true);
+        handler.start();
 
         Thread waiter = new Thread(() -> {
             try {
                 int exitCode = process.waitFor();
-                // Let the pump drain before reporting the exit code, so the last
-                // lines of a crash are not lost to a race.
+                // Let the output drain before reporting the exit code, so the
+                // last lines of a crash are not lost to a race.
                 pump.join(3000);
+                handler.join(3000);
                 onExit.accept(exitCode);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -273,6 +321,13 @@ public final class GameLauncher {
 
         return null;
     }
+
+    /**
+     * Lines of game output held between reading and handling. A modpack
+     * prints a few thousand lines in its first seconds; this is several times
+     * that, and only a handler that has stopped altogether ever fills it.
+     */
+    static final int OUTPUT_QUEUE_LINES = 50_000;
 
     /** Human-readable interpretation of a Minecraft exit code. */
     public static String describeExit(int exitCode) {

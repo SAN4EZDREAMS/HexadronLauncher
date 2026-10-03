@@ -91,6 +91,13 @@ public final class Launcher extends Application {
             // No log, then. Not a reason to refuse to start.
         }
         com.hexadron.launcher.core.LauncherLog.catchUncaught();
+        // From the first second: a launcher that stops before its window is up
+        // is a stop worth a record too.
+        try {
+            com.hexadron.launcher.ui.Watchdog.start(com.hexadron.launcher.core.GameDirs.defaultDirs().logs());
+        } catch (RuntimeException ignored) {
+            // No watchdog, then.
+        }
 
         // While the splash is the only window on screen, an implicit exit would
         // end the application in the gap between closing it and showing the

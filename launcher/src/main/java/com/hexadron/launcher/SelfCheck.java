@@ -195,6 +195,7 @@ public final class SelfCheck {
         startupSteps();
         crashAnalysis();
         modsForAnotherVersionCrash();
+        launcherWatchdog();
         missingModsCard();
         problemModSearch();
 
@@ -9504,6 +9505,27 @@ public final class SelfCheck {
      * switching Fabric API back on (asked for by a 26.1 mod), and nothing for
      * Fabric API's modules - and showed one line as "found" for every cause.
      */
+    /**
+     * The launcher's own thread dump, written without the launcher's log: the
+     * log is one of the things that stops when the launcher does.
+     */
+    private static void launcherWatchdog() {
+        section("Launcher watchdog");
+        try {
+            Path dir = java.nio.file.Files.createTempDirectory("hx-watchdog");
+            Path file = com.hexadron.launcher.ui.Watchdog.dump(dir, 16_000, 0);
+            String text = file == null ? "" : java.nio.file.Files.readString(file);
+            check("a stalled launcher writes its threads to a file of its own",
+                    file != null && file.getFileName().toString().startsWith("launcher-threads-"));
+            check("with every thread's whole stack, this one included",
+                    text.contains("\"main\"") && text.contains("launcherWatchdog") && text.contains("Deadlocked threads:"));
+            check("no thread is waiting to write a log line now",
+                    com.hexadron.launcher.core.LauncherLog.longestWriteMillis() < 1000);
+        } catch (IOException e) {
+            check("the watchdog check could be set up: " + e, false);
+        }
+    }
+
     private static void modsForAnotherVersionCrash() {
         section("Mods for another Minecraft version, after the crash");
         var OUT = com.hexadron.launcher.crash.CrashRules.Source.OUTPUT;
