@@ -177,7 +177,7 @@ A mod that fails the check:
 |---|---|
 | **Remove selected (N)** (the default) | Takes each ticked mod away as its own Remove button would: a mod the launcher installed is deleted (it can be installed again), a jar you added is moved to the recycle bin (or `mods/.removed/`), a pack's mod is switched off. Then the game starts |
 | **Switch off selected** | Renames the ticked mods to `.disabled`, with the mods that need them. Then the game starts |
-| **Go back to** *version* | Only when there is one, see below |
+| **Go back to** *version* / **Move to Minecraft** *version* | Only when there is one, see below. Shown as a button in the window, next to the sentence "All of these mods fit Minecraft *version*" |
 | **Launch anyway** | Starts the game as it is, because a mod's declared range can be wrong |
 | **Cancel** | Changes nothing |
 
@@ -185,7 +185,7 @@ Mods left unticked still stop the game, so the dialog asks again about those. If
 
 Before that, **Play** also finds a mod that is switched on in two files and offers **Keep the newest and play**. See [crashes.md](crashes.md#checks-before-the-launch).
 
-The profile records its previous Minecraft version (`previousMinecraftVersion`). If some mods fail for the current version and none fail for the previous one, the **Play** dialog also offers **Go back to** *version*. This sets the version back, replaces each launcher-installed mod with the newest build for that version (or switches it off if there is none; leaves it if the platform cannot be reached), then switches off any mod that still fails. The game does not start; click **Play** again.
+The profile records its previous Minecraft version (`previousMinecraftVersion`). If some mods fail for the current version and none fail for the previous one, the **Play** dialog also offers **Go back to** *version*. Otherwise, it offers **Move to Minecraft** *version* for the newest release (from the version list on disk, `cache/version_manifest_v2.json`) that every failing mod accepts and no switched-on mod rules out - for example a 1.18.1 profile with a folder of 26.1.2 mods. Both buttons do the same move. This sets the version back, replaces each launcher-installed mod with the newest build for that version (or switches it off if there is none; leaves it if the platform cannot be reached), then switches off any mod that still fails. The game does not start; click **Play** again.
 
 ## Updates
 

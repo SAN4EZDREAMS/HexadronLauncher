@@ -103,10 +103,21 @@ public final class CrashAnalyzer {
      */
     public static List<Diagnosis> analyze(CrashEvidence evidence, CrashRules rules, String language,
                                           UnaryOperator<String> names) {
+        return analyze(evidence, rules, language, names, MAX_DIAGNOSES);
+    }
+
+    /**
+     * The same, finding up to {@code limit} causes: for a caller that leaves
+     * some of them out afterwards and would otherwise have lost real causes to
+     * the cap - Fabric lists what a mod for another version needs before the
+     * other mods for another version, and those needs took the places.
+     */
+    public static List<Diagnosis> analyze(CrashEvidence evidence, CrashRules rules, String language,
+                                          UnaryOperator<String> names, int limit) {
         List<Diagnosis> found = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         for (CrashRules.Rule rule : rules.rules()) {
-            if (found.size() >= MAX_DIAGNOSES) {
+            if (found.size() >= limit) {
                 break;
             }
             if (!rule.exitCodes().isEmpty() && !rule.exitCodes().contains(evidence.exitCode())) {
@@ -116,7 +127,7 @@ public final class CrashAnalyzer {
                 // The same cause read twice - once from the output, once from
                 // the log that holds the same lines - is one cause.
                 String key = diagnosis.textId() + "\n" + diagnosis.cause();
-                if (seen.add(key) && found.size() < MAX_DIAGNOSES) {
+                if (seen.add(key) && found.size() < limit) {
                     found.add(diagnosis);
                 }
             }
@@ -127,20 +138,19 @@ public final class CrashAnalyzer {
     private static List<Diagnosis> apply(CrashRules.Rule rule, CrashEvidence evidence,
                                          CrashRules rules, String language,
                                          UnaryOperator<String> names) {
-        List<Map<String, String>> matches = new ArrayList<>();
-        CrashRules.Source firstSource = null;
-        String firstLine = "";
+        // Each match keeps its own line. They used to share the first one, so
+        // three mods for another version all showed "found:" with the line
+        // about the first of them.
+        List<Match> matches = new ArrayList<>();
 
         if (rule.conditions().isEmpty()) {
-            matches.add(Map.of());
+            matches.add(new Match(Map.of(), null, ""));
         } else {
             CrashRules.Condition first = rule.conditions().get(0);
             List<Match> heads = find(first, evidence, first.repeat() ? MAX_REPEATS : 1);
             if (heads.isEmpty()) {
                 return List.of();
             }
-            firstSource = heads.get(0).source();
-            firstLine = heads.get(0).line();
             Map<String, String> rest = new LinkedHashMap<>();
             for (int i = 1; i < rule.conditions().size(); i++) {
                 List<Match> more = find(rule.conditions().get(i), evidence, 1);
@@ -152,60 +162,94 @@ public final class CrashAnalyzer {
             for (Match head : heads) {
                 Map<String, String> values = new LinkedHashMap<>(rest);
                 values.putAll(head.groups());
-                matches.add(values);
+                matches.add(new Match(values, head.source(), head.line()));
             }
         }
 
         List<Diagnosis> result = new ArrayList<>();
-        for (Map<String, String> raw : matches) {
-            Map<String, String> values = new LinkedHashMap<>();
-            // Derived from the whole value, then shortened: a jar's full path
-            // in a Windows data folder is past the length a sentence takes, and
-            // cut first, file(path) named "ImmediatelyFast-NeoFo…" - a file no
-            // fix could find.
-            Map<String, String> whole = new LinkedHashMap<>();
-            raw.forEach((name, value) -> {
-                String clean = clean(value);
-                if (!clean.isEmpty()) {
-                    values.put(name, clean);
-                    whole.put(name, clean(value, MAX_SOURCE_VALUE));
-                }
-            });
-            rule.derived().forEach((name, expression) -> {
-                String value = CrashRules.derive(expression, whole);
-                if (value != null) {
-                    values.put(name, clean(value));
-                }
-            });
-
-            Map<String, String> shown = new LinkedHashMap<>(values);
-            for (String key : NAMED) {
-                String id = shown.get(key);
-                if (id != null) {
-                    String name = names.apply(id);
-                    shown.put(key, name == null || name.isBlank() ? id : clean(name));
-                }
-            }
-            CrashRules.Text text = rules.text(rule.textId(), language);
-            String title = CrashRules.fill(text.title(), shown);
-            String cause = CrashRules.fill(text.cause(), shown);
-            String advice = CrashRules.fill(text.fix(), shown);
-            // A sentence with a hole in it explains nothing. A regex group that
-            // did not take part in the match leaves one; the match is dropped.
-            if (!CrashRules.placeholders(title + cause + advice).isEmpty()) {
-                continue;
-            }
-            List<CrashFix> fixes = new ArrayList<>();
-            for (CrashRules.FixTemplate template : rule.fixes()) {
-                CrashFix fix = CrashFix.from(template, values);
-                if (fix != null && !fixes.contains(fix)) {
-                    fixes.add(fix);
-                }
-            }
-            result.add(new Diagnosis(rule.id(), rule.textId(), rule.priority(), title, cause,
-                    advice, fixes, values, firstSource, clean(firstLine, 300)));
+        for (Match match : matches) {
+            diagnose(rule, match.groups(), rules, language, names, match.source(), match.line())
+                    .ifPresent(result::add);
         }
         return result;
+    }
+
+    /**
+     * The same cause with other values: the sentences and the fixes written
+     * again from its rule. For a value that turned out to name something else
+     * - a module of Fabric API named by its own id, which no file in the folder
+     * has, when the file to act on is Fabric API.
+     *
+     * @return empty when the rule is not in this rule file, or a value is missing
+     */
+    public static java.util.Optional<Diagnosis> withValues(Diagnosis diagnosis, Map<String, String> values,
+                                                           CrashRules rules, String language,
+                                                           UnaryOperator<String> names) {
+        for (CrashRules.Rule rule : rules.rules()) {
+            if (rule.id().equals(diagnosis.ruleId())) {
+                return diagnose(rule, values, rules, language, names, diagnosis.source(), diagnosis.line());
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    private static java.util.Optional<Diagnosis> diagnose(CrashRules.Rule rule, Map<String, String> raw,
+                                                          CrashRules rules, String language,
+                                                          UnaryOperator<String> names,
+                                                          CrashRules.Source source, String line) {
+        Map<String, String> values = new LinkedHashMap<>();
+        // Derived from the whole value, then shortened: a jar's full path
+        // in a Windows data folder is past the length a sentence takes, and
+        // cut first, file(path) named "ImmediatelyFast-NeoFo…" - a file no
+        // fix could find.
+        Map<String, String> whole = new LinkedHashMap<>();
+        raw.forEach((name, value) -> {
+            String clean = clean(value);
+            if (!clean.isEmpty()) {
+                values.put(name, clean);
+                whole.put(name, clean(value, MAX_SOURCE_VALUE));
+            }
+        });
+        rule.derived().forEach((name, expression) -> {
+            String value = CrashRules.derive(expression, whole);
+            if (value != null) {
+                values.put(name, clean(value));
+            }
+        });
+
+        Map<String, String> shown = new LinkedHashMap<>(values);
+        for (String key : NAMED) {
+            String id = shown.get(key);
+            if (id != null) {
+                String name = names.apply(id);
+                if (name == null || name.isBlank() || name.equals(id)) {
+                    // The loader's own line often names the mod as well as its
+                    // id - "Mod 'BetterGrassify' (bettergrass)" - and that name
+                    // is better than the id when no jar in the folder gives one.
+                    String said = shown.get(key + "name");
+                    name = said == null || said.isBlank() ? id : said;
+                }
+                shown.put(key, clean(name));
+            }
+        }
+        CrashRules.Text text = rules.text(rule.textId(), language);
+        String title = CrashRules.fill(text.title(), shown);
+        String cause = CrashRules.fill(text.cause(), shown);
+        String advice = CrashRules.fill(text.fix(), shown);
+        // A sentence with a hole in it explains nothing. A regex group that
+        // did not take part in the match leaves one; the match is dropped.
+        if (!CrashRules.placeholders(title + cause + advice).isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        List<CrashFix> fixes = new ArrayList<>();
+        for (CrashRules.FixTemplate template : rule.fixes()) {
+            CrashFix fix = CrashFix.from(template, values);
+            if (fix != null && !fixes.contains(fix)) {
+                fixes.add(fix);
+            }
+        }
+        return java.util.Optional.of(new Diagnosis(rule.id(), rule.textId(), rule.priority(), title, cause,
+                advice, fixes, values, source, clean(line, 300)));
     }
 
     /**

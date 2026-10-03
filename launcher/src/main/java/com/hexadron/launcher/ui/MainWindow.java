@@ -2475,28 +2475,49 @@ public final class MainWindow implements ProfileHost {
                 new javafx.scene.control.ButtonType(I18n.t("action.cancel"),
                         javafx.scene.control.ButtonBar.ButtonData.CANCEL_CLOSE);
 
-        // The way back, offered only when the launcher has one to offer: a
-        // recorded previous version that every one of these mods loads on. It is
-        // the answer to what actually happened in nearly every case - the
-        // instance was moved to another Minecraft version and its mods were
-        // left where they were.
+        // A version to move to, offered only when the launcher has one: the
+        // recorded previous version when every one of these mods loads on it -
+        // what happened in nearly every case: the instance was moved and its
+        // mods were left where they were - or else the newest release that all
+        // of these mods ask for and no other mod rules out. From the version
+        // list on disk: this is the interface thread.
         java.util.Optional<String> goBack;
         try {
-            goBack = service.versionToGoBackTo(profile);
+            goBack = service.versionToMoveTo(profile, false);
         } catch (RuntimeException e) {
             goBack = java.util.Optional.empty();
         }
+        boolean previous = goBack.isPresent() && goBack.get().equals(profile.previousMinecraftVersion());
         javafx.scene.control.ButtonType back = goBack
                 .map(version -> new javafx.scene.control.ButtonType(
-                        I18n.t("mods.wrongVersion.goBack", version),
+                        I18n.t(previous ? "mods.wrongVersion.goBack" : "mods.wrongVersion.moveTo", version),
                         javafx.scene.control.ButtonBar.ButtonData.OTHER))
                 .orElse(null);
-
-        if (back == null) {
-            alert.getButtonTypes().setAll(cancel, launch, off, remove);
-        } else {
-            alert.getButtonTypes().setAll(cancel, launch, back, off, remove);
+        if (back != null) {
+            // In the window, next to the sentence that explains it, rather than
+            // a fifth button in the bar: five did not fit, and every label was
+            // cut short.
+            javafx.scene.control.Label hint = new javafx.scene.control.Label(
+                    I18n.t("mods.wrongVersion.moveHint", goBack.get()));
+            hint.setWrapText(true);
+            hint.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
+            hint.setMaxWidth(Double.MAX_VALUE);
+            javafx.scene.control.Button move = new javafx.scene.control.Button(back.getText());
+            move.getStyleClass().add("primary");
+            move.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
+            javafx.scene.control.ButtonType chosen = back;
+            move.setOnAction(event -> {
+                alert.setResult(chosen);
+                alert.close();
+            });
+            javafx.scene.layout.HBox.setHgrow(hint, javafx.scene.layout.Priority.ALWAYS);
+            javafx.scene.layout.HBox moveLine = new javafx.scene.layout.HBox(12, hint, move);
+            moveLine.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+            moveLine.getStyleClass().add("dialog-warning");
+            content.getChildren().add(1, moveLine);
         }
+
+        alert.getButtonTypes().setAll(cancel, launch, off, remove);
 
         // Each button as wide as its own words. A button bar gives all of them
         // the width of the widest by default, and with five buttons that width
@@ -2531,7 +2552,7 @@ public final class MainWindow implements ProfileHost {
             return false;
         }
         if (back != null && answer.get() == back) {
-            logChoice("mods for another Minecraft version", "go back to " + goBack.orElseThrow());
+            logChoice("mods for another Minecraft version", "move to " + goBack.orElseThrow());
             goBackToVersion(profile, goBack.orElseThrow());
             // Not this launch. The move downloads mods and the version it moves
             // to is not installed yet, both of which take longer than a player

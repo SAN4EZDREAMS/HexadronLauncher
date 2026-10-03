@@ -194,6 +194,7 @@ public final class SelfCheck {
         translations();
         startupSteps();
         crashAnalysis();
+        modsForAnotherVersionCrash();
         missingModsCard();
         problemModSearch();
 
@@ -9494,6 +9495,98 @@ public final class SelfCheck {
                     "Minecraft 1.20.1 NeoForge playerAnimator".equals(gathered.searchQuery(gathered.needs().get(0))));
         } catch (IOException e) {
             check("the missing-mods jars could be written", false);
+        }
+    }
+
+    /**
+     * A 1.18.1 profile with a folder of 26.1 mods, as Fabric reports it. The
+     * window used to recommend Java 25 (asked for by Fabric API for 26.1),
+     * switching Fabric API back on (asked for by a 26.1 mod), and nothing for
+     * Fabric API's modules - and showed one line as "found" for every cause.
+     */
+    private static void modsForAnotherVersionCrash() {
+        section("Mods for another Minecraft version, after the crash");
+        var OUT = com.hexadron.launcher.crash.CrashRules.Source.OUTPUT;
+        var rules = com.hexadron.launcher.crash.CrashRules.bundled();
+        try {
+            Path dir = java.nio.file.Files.createTempDirectory("hx-wrongmc");
+            java.io.ByteArrayOutputStream module = new java.io.ByteArrayOutputStream();
+            try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(module)) {
+                zip.putNextEntry(new java.util.zip.ZipEntry("fabric.mod.json"));
+                zip.write(("{\"schemaVersion\":1,\"id\":\"fabric-command-api-v2\",\"version\":\"2.2\","
+                        + "\"depends\":{\"minecraft\":\">=26.1-\"}}").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+            try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(
+                    java.nio.file.Files.newOutputStream(dir.resolve("fabric-api-0.155.2+26.1.2.jar")))) {
+                zip.putNextEntry(new java.util.zip.ZipEntry("fabric.mod.json"));
+                zip.write(("{\"schemaVersion\":1,\"id\":\"fabric-api\",\"name\":\"Fabric API\",\"version\":\"0.155.2\","
+                        + "\"depends\":{\"minecraft\":\">=26.1.2\",\"java\":\">=25\"},"
+                        + "\"jars\":[{\"file\":\"META-INF/jars/fabric-command-api-v2.jar\"}]}")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                zip.closeEntry();
+                zip.putNextEntry(new java.util.zip.ZipEntry("META-INF/jars/fabric-command-api-v2.jar"));
+                zip.write(module.toByteArray());
+                zip.closeEntry();
+            }
+            writeJar(dir.resolve("bettergrassify-1.8.7+fabric.26.1.2.jar"), Map.of("fabric.mod.json",
+                    "{\"schemaVersion\":1,\"id\":\"bettergrass\",\"version\":\"1.8.7\","
+                            + "\"depends\":{\"minecraft\":\">=26.1 <=26.1.2\",\"fabric-api\":\"*\"}}"));
+            writeJar(dir.resolve("sodium-0.8+26.1.2.jar"), Map.of("fabric.mod.json",
+                    "{\"schemaVersion\":1,\"id\":\"sodium\",\"name\":\"Sodium\",\"version\":\"0.8\","
+                            + "\"depends\":{\"minecraft\":\"~26.1.2\"}}"));
+            var mods = ModScan.scan(dir, "1.18.1");
+            var evidence = com.hexadron.launcher.crash.CrashEvidence.of(1, Map.of(OUT, List.of(
+                    "\t - Mod 'Fabric API' (fabric-api) 0.155.2+26.1.2 requires version 25 or later of 'OpenJDK 64-Bit Server VM' (java), but only the wrong version is present: 21!",
+                    "\t - Mod 'BetterGrassify' (bettergrass) 1.8.7+fabric.26.1.2 requires any version between 26.1 (inclusive) and 26.1.2 (inclusive) of 'Minecraft' (minecraft), but only the wrong version is present: 1.18.1!",
+                    "\t - Mod 'Fabric API' (fabric-api) 0.155.2+26.1.2 requires version 26.1.2 or later of 'Minecraft' (minecraft), but only the wrong version is present: 1.18.1!",
+                    "\t - Mod 'Fabric Command API (v2)' (fabric-command-api-v2) 2.2 requires version 26.1- or later of 'Minecraft' (minecraft), but only the wrong version is present: 1.18.1!",
+                    "\t - Mod 'Sodium' (sodium) 0.8 requires version 26.1.2 of 'Minecraft' (minecraft), but only the wrong version is present: 1.18.1!",
+                    "\t - Mod 'BetterGrassify' (bettergrass) 1.8.7+fabric.26.1.2 requires any version of fabric-api, which is missing!")));
+            var found = com.hexadron.launcher.core.LauncherService.analyzeCrash(mods, rules, LoaderType.FABRIC,
+                    evidence, "en", 0);
+            check("Java 25 is not offered for a mod that is itself for another Minecraft version",
+                    found.stream().noneMatch(d -> "javaOld".equals(d.textId())));
+            check("nor is what such a mod needs",
+                    found.stream().noneMatch(d -> "missingDep".equals(d.textId())));
+            var wrong = found.stream().filter(d -> "wrongMinecraft".equals(d.textId())).toList();
+            var fabricApi = mods.stream().filter(m -> m.fileName().startsWith("fabric-api")).findFirst().orElseThrow();
+            check("a module of Fabric API is put on Fabric API, and Fabric API is named once; the causes left"
+                            + " out do not take the places of real ones",
+                    wrong.size() == 3 && wrong.stream().map(d -> d.values().get("mod")).distinct().count() == 3
+                            && wrong.stream().allMatch(d -> List.of("bettergrass", "fabric-api", "sodium")
+                            .contains(d.values().get("mod"))));
+            check("each cause shows its own line",
+                    wrong.size() == 3 && !wrong.get(0).line().equals(wrong.get(1).line())
+                            && wrong.stream().allMatch(d -> d.line().contains("(" + d.values().get("mod") + ")")
+                                    || d.line().contains("fabric-command-api-v2")));
+            check("a mod no jar names is called what the loader called it",
+                    wrong.stream().anyMatch(d -> d.title().contains("BetterGrassify") || d.cause().contains("BetterGrassify")));
+            check("the module's jar can be switched off", wrong.stream()
+                    .filter(d -> "fabric-api".equals(d.values().get("mod")))
+                    .flatMap(d -> d.fixes().stream())
+                    .filter(f -> f.kind() == com.hexadron.launcher.crash.CrashFix.Kind.DISABLE_MOD)
+                    .map(f -> com.hexadron.launcher.crash.CrashFixes.prepare(f, null, mods, -1, null))
+                    .anyMatch(p -> p.isPresent() && p.get().targets().stream()
+                            .anyMatch(t -> t.fileName().equals(fabricApi.fileName()))));
+
+            // A switched-off copy built for another version is not switched back on.
+            ModScan.setEnabled(dir, fabricApi, false);
+            var afterOff = ModScan.scan(dir, "1.18.1");
+            var install = com.hexadron.launcher.crash.CrashFixes.prepare(
+                    new com.hexadron.launcher.crash.CrashFix(com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD, "fabric-api"),
+                    null, afterOff, -1, null);
+            check("a missing mod whose switched-off copy is for another version is installed, not switched on",
+                    install.isPresent() && install.get().fix().kind() == com.hexadron.launcher.crash.CrashFix.Kind.INSTALL_MOD);
+            check("and before the launch nothing a 26.1 mod needs is asked for",
+                    com.hexadron.launcher.mods.Requirements.missing(afterOff, LoaderType.FABRIC, "1.18.1").isEmpty());
+            check("words for a build do not repeat the mod's name",
+                    "[1.18.1] Fabric API 0.46.6+1.18".equals(com.hexadron.launcher.core.LauncherService
+                            .buildLabelForCheck("Fabric API", "[1.18.1] Fabric API 0.46.6+1.18"))
+                            && "Sodium 0.5.3".equals(com.hexadron.launcher.core.LauncherService
+                            .buildLabelForCheck("Sodium", "0.5.3")));
+        } catch (IOException e) {
+            check("the mods-for-another-version crash could be set up: " + e, false);
         }
     }
 

@@ -91,13 +91,20 @@ public final class Requirements {
             Set<String> ids = provided(mod.path(), ModScan.descriptorOf(mod.path()).modId());
             if (mod.enabled()) {
                 present.addAll(ids);
-            } else {
+            } else if (mod.verdict() != VersionRanges.Verdict.DOES_NOT_MATCH) {
+                // A switched-off copy for another Minecraft version is not
+                // offered back: it was switched off for that, most likely, and
+                // switching it on crashes the game the other way. The
+                // requirement is then installed for this version instead.
                 ids.forEach(id -> off.putIfAbsent(id, mod));
             }
         }
         Set<String> reported = new LinkedHashSet<>();
         for (ModEntry mod : mods) {
-            if (!mod.enabled() || wrongLoader.contains(mod)) {
+            // A mod for another Minecraft version will not load whatever it
+            // is given, so what it needs is not worth installing: the warning
+            // about the mod itself is the one that matters.
+            if (!mod.enabled() || wrongLoader.contains(mod) || mod.isWrongVersion()) {
                 continue;
             }
             for (String need : required(mod)) {

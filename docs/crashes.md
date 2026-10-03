@@ -42,7 +42,7 @@ The built-in rule file is `launcher/src/main/resources/crash/rules.json`. It kno
 | Java could not reserve the heap (32-bit Java, too large a limit) | all | **Let the launcher choose Java**, **Lower memory** |
 | Required mod missing | Fabric, Forge (1.12 and 1.13+), NeoForge | Shown together in the **Required mods are missing** block (see below): **Install all required mods**, **Switch off the mods that need them**, a web search for each mod not found |
 | Mod needs another version of a mod | Fabric, Forge, NeoForge | **Switch off** the mod. When the other "mod" is the loader itself (`forge`, `neoforge`, `fabricloader`): **Update to** *loader version* first |
-| Mod for another Minecraft version | Fabric, Forge, NeoForge | **Replace with** the build of the same project for this version and loader (see below), **Switch off** the mod |
+| Mod for another Minecraft version | Fabric, Forge, NeoForge | **Replace with** the build of the same project for this version and loader (see below), **Switch off** the mod. A module of a jar (`fabric-command-api-v2` inside Fabric API) is put on that jar, and the jar is named once. When there is a Minecraft version that all the mods fit (see [mods.md](mods.md#when-the-mods-stay)), a cause **The mods are for Minecraft** *version* comes first with **Move the instance to Minecraft** *version*, and that move is the whole of **Fix and play** |
 | Mod built for another game or loader version: the mods.toml names a mod, but no class has this loader's `@Mod` (`The Mod File X has mods that were not found`, for example a NeoForge 1.20.4 jar in a NeoForge 1.20.1 profile); a NeoForge entrypoint class that is not in the file; a mixin config the jar declares but does not have | Forge 1.17+, NeoForge | **Replace with** the right build, **Switch off** the file |
 | Mod needs a newer loader (`needs language provider javafml:47`, `lowcodefml`, `minecraft`; a mixin config that asks for a newer Mixin behaviour) | Forge 1.17+, NeoForge | **Update to** *loader version*, **Switch off** the file |
 | Mod needs a newer Fabric or Quilt Loader (`requires version 0.19.5 or later of mod 'Fabric Loader' (fabricloader), but only the wrong version is present: 0.19.3`) | Fabric, Quilt | **Update to** *loader version*: the newest stable build for this Minecraft version, or the newest build at least as new as the mod asks when no stable one is; not offered when no build is new enough or when it is the version that just ran. **Switch off** the mod |
@@ -117,6 +117,15 @@ NeoForge for Minecraft 1.20.1 is the Forge of 1.20.1 under a new name and loads 
 The Forge and NeoForge mod-loading errors are matched in the game log, in the game output and in the crash report (`Failure message: Mod x requires y ...`), so a crash is explained even when only the report is left. A file named in a long path is named whole: the file name is taken from the full path before the value is shortened for the window.
 
 These fixes are added by the launcher to the causes (`CrashFixes.withDerived`), not written in the rule file. A launcher refuses a whole rule file that names a fix kind it does not know, so a rule that used the new kinds would stop every older launcher from taking any rule update.
+
+
+### What a mod for another Minecraft version says it needs
+
+A mod for another Minecraft version does not load whatever else is done, so what it asks for is not a cause. The launcher leaves out, for such a mod (named by the loader as for another version, or ruled out by its own jar): the Java version it needs (Fabric API for 26.1 asks for Java 25), mods it needs that are missing, and versions of other mods or of the loader it needs. Each one left out is written to `logs/launcher.log` (`left out: that mod is for another Minecraft version`). The causes are found first and left out after, so they do not take the places of the four causes shown. Before the launch, **Install and play** also skips what such a mod needs.
+
+A missing mod whose switched-off copy is for another Minecraft version is installed for this version, not switched on: the copy was most likely switched off for that reason.
+
+Each cause shows its own line under **Found**. A mod that no jar in the folder names is called by the name in the loader's line (`Mod 'BetterGrassify' (bettergrass)`).
 
 ## Checks before the launch
 

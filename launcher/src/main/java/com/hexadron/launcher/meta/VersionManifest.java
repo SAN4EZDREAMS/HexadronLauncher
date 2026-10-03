@@ -122,6 +122,23 @@ public record VersionManifest(String latestRelease, String latestSnapshot, List<
         }
     }
 
+    /**
+     * The copy {@link #fetch} last saved, without going to the network: for a
+     * question asked on the interface thread, which must not wait for a
+     * download. Empty when there is none, or it does not read.
+     */
+    public static Optional<VersionManifest> cached(GameDirs dirs) {
+        Path cacheFile = dirs.cache().resolve("version_manifest_v2.json");
+        if (!Files.isRegularFile(cacheFile)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(parse(Json.read(cacheFile)));
+        } catch (IOException | RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
     public Optional<Entry> find(String versionId) {
         return versions.stream().filter(v -> v.id().equals(versionId)).findFirst();
     }

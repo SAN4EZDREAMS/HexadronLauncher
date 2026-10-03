@@ -73,7 +73,15 @@ public record CrashFix(Kind kind, String value) {
          * when a jar is for another version or loader: the platform that knows
          * the file usually has the right build of it too.
          */
-        REPLACE_BUILD("replaceBuild", List.of("file"));
+        REPLACE_BUILD("replaceBuild", List.of("file")),
+        /**
+         * Move the profile to another Minecraft version, taking its mods with
+         * it. Offered when the mods agree on a version the profile is not on:
+         * one move instead of replacing or switching off each of them. Never
+         * written in the rule file - the launcher adds it itself - so a rule
+         * file stays readable by launchers that do not know it.
+         */
+        SET_MINECRAFT("setMinecraft", List.of("version"));
 
         private final String key;
         private final List<String> params;

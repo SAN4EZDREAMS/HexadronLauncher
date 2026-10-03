@@ -189,6 +189,18 @@ final class CrashDialog {
         if (diagnoses.isEmpty()) {
             return List.of();
         }
+        // A move to another Minecraft version answers every "this mod is for
+        // another version" at once, and does not go together with their own
+        // fixes: replacing each mod with its build for the version the profile
+        // is leaving, or switching it off, would undo the move. So when it is
+        // offered, it is the whole one-click answer.
+        for (CrashAnalyzer.Diagnosis diagnosis : diagnoses) {
+            for (CrashFixes.Prepared fix : fixes.getOrDefault(diagnosis, List.of())) {
+                if (fix.fix().kind() == CrashFix.Kind.SET_MINECRAFT) {
+                    return List.of(fix);
+                }
+            }
+        }
         List<CrashFixes.Prepared> all = new java.util.ArrayList<>();
         java.util.Set<String> same = new java.util.HashSet<>();
         for (CrashAnalyzer.Diagnosis diagnosis : diagnoses) {
@@ -322,6 +334,7 @@ final class CrashDialog {
             case DISABLE_SHADERS -> I18n.t("crash.fix.disableShaders", fix.subject());
             case UPDATE_MOD -> I18n.t("crash.fix.updateMod", fix.subject());
             case REPLACE_BUILD -> I18n.t("crash.fix.replaceBuild", fix.subject());
+            case SET_MINECRAFT -> I18n.t("crash.fix.setMinecraft", fix.subject());
         };
     }
 

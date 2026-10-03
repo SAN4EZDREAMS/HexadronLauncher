@@ -2954,6 +2954,88 @@
         "cause": "模组 {mod} 需要 {loader}（要求：{need}），但此配置运行的是 {have}。",
         "fix": "在此配置中更新 {loader}，或禁用 {mod}。"
       }
+    },
+    "instanceVersion": {
+      "en": {
+        "title": "The mods are for Minecraft {version}",
+        "cause": "This instance is on Minecraft {have}, but its mods are made for {version}.",
+        "fix": "Move the instance to Minecraft {version}: the launcher installs that version and takes the mods with it. Or replace or switch off the mods below."
+      },
+      "uk": {
+        "title": "Моди зроблено для Minecraft {version}",
+        "cause": "Збірка стоїть на Minecraft {have}, а її моди зроблено для {version}.",
+        "fix": "Переведіть збірку на Minecraft {version}: лаунчер встановить цю версію й перенесе моди. Або замініть чи вимкніть моди нижче."
+      },
+      "ru": {
+        "title": "Моды сделаны для Minecraft {version}",
+        "cause": "Сборка стоит на Minecraft {have}, а её моды сделаны для {version}.",
+        "fix": "Переведите сборку на Minecraft {version}: лаунчер установит эту версию и перенесёт моды. Или замените либо отключите моды ниже."
+      },
+      "de": {
+        "title": "Die Mods sind für Minecraft {version}",
+        "cause": "Diese Instanz ist auf Minecraft {have}, aber ihre Mods sind für {version} gemacht.",
+        "fix": "Stellen Sie die Instanz auf Minecraft {version} um: Der Launcher installiert diese Version und nimmt die Mods mit. Oder ersetzen oder deaktivieren Sie die Mods unten."
+      },
+      "es": {
+        "title": "Los mods son para Minecraft {version}",
+        "cause": "Esta instancia está en Minecraft {have}, pero sus mods están hechos para {version}.",
+        "fix": "Pasa la instancia a Minecraft {version}: el launcher instala esa versión y se lleva los mods. O sustituye o desactiva los mods de abajo."
+      },
+      "fr": {
+        "title": "Les mods sont pour Minecraft {version}",
+        "cause": "Cette instance est en Minecraft {have}, mais ses mods sont faits pour {version}.",
+        "fix": "Passez l'instance à Minecraft {version} : le launcher installe cette version et emporte les mods. Ou remplacez ou désactivez les mods ci-dessous."
+      },
+      "it": {
+        "title": "Le mod sono per Minecraft {version}",
+        "cause": "Questa istanza è su Minecraft {have}, ma le sue mod sono fatte per {version}.",
+        "fix": "Porta l'istanza a Minecraft {version}: il launcher installa quella versione e sposta le mod. Oppure sostituisci o disattiva le mod qui sotto."
+      },
+      "pl": {
+        "title": "Mody są do Minecrafta {version}",
+        "cause": "Ta instancja jest na Minecrafcie {have}, a jej mody są zrobione do {version}.",
+        "fix": "Przenieś instancję na Minecrafta {version}: launcher zainstaluje tę wersję i przeniesie mody. Albo zastąp lub wyłącz mody poniżej."
+      },
+      "pt": {
+        "title": "Os mods são para o Minecraft {version}",
+        "cause": "Esta instância está no Minecraft {have}, mas os seus mods são feitos para {version}.",
+        "fix": "Passe a instância para o Minecraft {version}: o launcher instala essa versão e leva os mods. Ou substitua ou desative os mods abaixo."
+      },
+      "tr": {
+        "title": "Modlar Minecraft {version} için",
+        "cause": "Bu kurulum Minecraft {have} sürümünde, ama modları {version} için yapılmış.",
+        "fix": "Kurulumu Minecraft {version} sürümüne taşıyın: başlatıcı bu sürümü kurar ve modları da taşır. Ya da aşağıdaki modları değiştirin veya kapatın."
+      },
+      "id": {
+        "title": "Mod-modnya untuk Minecraft {version}",
+        "cause": "Instans ini memakai Minecraft {have}, tetapi mod-modnya dibuat untuk {version}.",
+        "fix": "Pindahkan instans ke Minecraft {version}: launcher memasang versi itu dan membawa mod-modnya. Atau ganti atau matikan mod di bawah."
+      },
+      "vi": {
+        "title": "Các mod dành cho Minecraft {version}",
+        "cause": "Bản cài này đang ở Minecraft {have}, nhưng các mod của nó làm cho {version}.",
+        "fix": "Chuyển bản cài sang Minecraft {version}: launcher sẽ cài phiên bản đó và mang theo các mod. Hoặc thay hay tắt các mod bên dưới."
+      },
+      "hi": {
+        "title": "मॉड Minecraft {version} के लिए हैं",
+        "cause": "यह इंस्टेंस Minecraft {have} पर है, पर इसके मॉड {version} के लिए बने हैं।",
+        "fix": "इंस्टेंस को Minecraft {version} पर ले जाएँ: लॉन्चर वह संस्करण लगाएगा और मॉड साथ ले जाएगा। या नीचे के मॉड बदलें या बंद करें।"
+      },
+      "ja": {
+        "title": "MOD は Minecraft {version} 用です",
+        "cause": "このインスタンスは Minecraft {have} ですが、MOD は {version} 用に作られています。",
+        "fix": "インスタンスを Minecraft {version} に移してください。ランチャーがそのバージョンを入れ、MOD も一緒に移します。または下の MOD を置き換えるか無効にしてください。"
+      },
+      "ko": {
+        "title": "모드가 Minecraft {version}용입니다",
+        "cause": "이 인스턴스는 Minecraft {have}이지만 모드는 {version}용으로 만들어졌습니다.",
+        "fix": "인스턴스를 Minecraft {version}(으)로 옮기세요. 런처가 그 버전을 설치하고 모드도 함께 옮깁니다. 또는 아래 모드를 교체하거나 끄세요."
+      },
+      "zh": {
+        "title": "这些模组适用于 Minecraft {version}",
+        "cause": "此实例为 Minecraft {have}，但其模组是为 {version} 制作的。",
+        "fix": "将实例迁移到 Minecraft {version}：启动器会安装该版本并一并迁移模组。或者替换或禁用下面的模组。"
+      }
     }
   },
   "rules": [
@@ -3013,7 +3095,7 @@
           "contains": [
             "(java), but only the wrong version"
           ],
-          "regex": "requires (?:version |any )?(?<java>\\d+)(?:\\.x version| or later)? of (?:\\w+ )?'[^']*' \\(java\\), but only the wrong version is present: (?<have>\\d+)"
+          "regex": "(?:\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ )?requires (?:version |any )?(?<java>\\d+)(?:\\.x version| or later)? of (?:\\w+ )?'[^']*' \\(java\\), but only the wrong version is present: (?<have>\\d+)"
         }
       ],
       "fixes": [
@@ -3256,7 +3338,7 @@
           "contains": [
             "which is missing!"
           ],
-          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?:\\w+ )?(?:'[^']*' \\()?(?<dep>[a-z0-9_.\\-]+)\\)?, which is missing!",
+          "regex": "(?:Mod '(?<modname>[^']{1,100})' )?\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?:\\w+ )?(?:'[^']*' \\()?(?<dep>[a-z0-9_.\\-]+)\\)?, which is missing!",
           "repeat": true
         }
       ],
@@ -3362,7 +3444,7 @@
           "contains": [
             "(minecraft), but only the wrong version"
           ],
-          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?:\\w+ )?'[^']*' \\(minecraft\\), but only the wrong version",
+          "regex": "(?:Mod '(?<modname>[^']{1,100})' )?\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?:\\w+ )?'[^']*' \\(minecraft\\), but only the wrong version",
           "repeat": true
         }
       ],
@@ -3384,7 +3466,7 @@
             "(fabricloader), but only the wrong version",
             "(quilt_loader), but only the wrong version"
           ],
-          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires (?<need>.+?) of (?:\\w+ )?'(?<loader>[^']*)' \\((?:fabricloader|quilt_loader)\\), but only the wrong version is present: (?<have>[^!\\s]+)",
+          "regex": "(?:Mod '(?<modname>[^']{1,100})' )?\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires (?<need>.+?) of (?:\\w+ )?'(?<loader>[^']*)' \\((?:fabricloader|quilt_loader)\\), but only the wrong version is present: (?<have>[^!\\s]+)",
           "repeat": true
         }
       ],
@@ -3450,7 +3532,7 @@
           "contains": [
             ", but only the wrong version"
           ],
-          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?:\\w+ )?'[^']*' \\((?<dep>(?!minecraft\\)|java\\)|fabricloader\\)|quilt_loader\\))[a-z0-9_.\\-]+)\\), but only the wrong version",
+          "regex": "(?:Mod '(?<modname>[^']{1,100})' )?\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ requires .+? of (?:\\w+ )?'[^']*' \\((?<dep>(?!minecraft\\)|java\\)|fabricloader\\)|quilt_loader\\))[a-z0-9_.\\-]+)\\), but only the wrong version",
           "repeat": true
         }
       ],
@@ -3514,7 +3596,7 @@
           "contains": [
             "is incompatible with"
           ],
-          "regex": "\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ is incompatible with .+? of '[^']*' \\((?<other>[a-z0-9_.\\-]+)\\), yet",
+          "regex": "(?:Mod '(?<modname>[^']{1,100})' )?\\((?<mod>[a-z0-9_.\\-]+)\\) \\S+ is incompatible with .+? of '[^']*' \\((?<other>[a-z0-9_.\\-]+)\\), yet",
           "repeat": true
         }
       ],

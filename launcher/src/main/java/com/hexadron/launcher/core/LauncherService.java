@@ -317,7 +317,29 @@ public final class LauncherService {
     public java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> analyzeCrash(
             Profile profile, com.hexadron.launcher.crash.CrashEvidence evidence, String language,
             long quietMillis) {
-        return analyzeCrash(modsOf(profile), crashRules.current(), profile.loader(), evidence, language, quietMillis);
+        java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> found = analyzeCrash(
+                modsOf(profile), crashRules.current(), profile.loader(), evidence, language, quietMillis);
+        // Mods for another Minecraft version, and a version they all fit: the
+        // move is the answer to all of them at once, and goes first.
+        if (found.stream().anyMatch(d -> "wrongMinecraft".equals(d.textId()))) {
+            java.util.Optional<String> target = versionToMoveTo(profile, true);
+            if (target.isPresent()) {
+                java.util.Optional<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> move =
+                        com.hexadron.launcher.crash.CrashAnalyzer.describe(crashRules.current(), language,
+                                "instance-version", 99, "instanceVersion",
+                                java.util.Map.of("version", target.get(), "have", profile.minecraftVersion()),
+                                java.util.List.of(new com.hexadron.launcher.crash.CrashFix(
+                                        com.hexadron.launcher.crash.CrashFix.Kind.SET_MINECRAFT, target.get())),
+                                com.hexadron.launcher.crash.CrashRules.Source.OUTPUT, "");
+                if (move.isPresent()) {
+                    java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> withMove =
+                            new java.util.ArrayList<>(found);
+                    withMove.add(0, move.get());
+                    return java.util.List.copyOf(withMove);
+                }
+            }
+        }
+        return found;
     }
 
     /**
@@ -332,16 +354,22 @@ public final class LauncherService {
             LoaderType loader, com.hexadron.launcher.crash.CrashEvidence evidence, String language,
             long quietMillis) {
         String loaderKey = loader == null ? "" : loader.name().toLowerCase(java.util.Locale.ROOT);
+        java.util.function.UnaryOperator<String> names = id -> {
+            // A mod that is not in the folder is named by the library
+            // list when it knows it: "HBM's Nuclear Tech Mod", not "hbm".
+            String name = com.hexadron.launcher.crash.CrashFixes.displayName(mods, id);
+            return name == null || name.equals(id)
+                    ? rules.libraryForMod(id, loaderKey).map(com.hexadron.launcher.crash.CrashRules.Library::name)
+                            .orElse(id)
+                    : name;
+        };
         java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> found = new java.util.ArrayList<>(
-                com.hexadron.launcher.crash.CrashAnalyzer.analyze(evidence, rules, language, id -> {
-                    // A mod that is not in the folder is named by the library
-                    // list when it knows it: "HBM's Nuclear Tech Mod", not "hbm".
-                    String name = com.hexadron.launcher.crash.CrashFixes.displayName(mods, id);
-                    return name == null || name.equals(id)
-                            ? rules.libraryForMod(id, loaderKey).map(com.hexadron.launcher.crash.CrashRules.Library::name)
-                                    .orElse(id)
-                            : name;
-                }));
+                withoutConsequences(byFile(com.hexadron.launcher.crash.CrashAnalyzer.analyze(
+                        evidence, rules, language, names, com.hexadron.launcher.crash.CrashAnalyzer.MAX_DIAGNOSES * 3),
+                        mods, rules, language, names), mods));
+        while (found.size() > com.hexadron.launcher.crash.CrashAnalyzer.MAX_DIAGNOSES) {
+            found.remove(found.size() - 1);
+        }
 
         // A cause that stopped the loader explains what crashed after it. Forge
         // 1.12 with a mod installed twice draws its error screen, a mod hooked
@@ -450,6 +478,195 @@ public final class LauncherService {
         return found.stream()
                 .map(d -> com.hexadron.launcher.crash.CrashFixes.withDerived(d, loader))
                 .toList();
+    }
+
+    /** The causes whose value is a mod id: the ones a module id can stand in. */
+    private static final java.util.Set<String> MOD_CAUSES = java.util.Set.of(
+            "wrongMinecraft", "depVersion", "loaderVersion", "javaOld", "missingDep", "mixin", "modStartup");
+
+    /**
+     * Causes that name a module, put on the file that carries it.
+     *
+     * <p>Fabric reports every mod it loads, and the modules inside a jar are
+     * mods to it: Fabric API for another Minecraft version is reported as
+     * fabric-command-api-v2, fabric-renderer-api-v1 and forty more, none of
+     * which is a file in the folder - so none could be switched off or
+     * replaced, and the window offered nothing for them. Each is put on the
+     * jar it is inside, and the jar is then named once, not once per module.
+     */
+    static java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> byFile(
+            java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> found,
+            java.util.List<com.hexadron.launcher.mods.ModEntry> mods, com.hexadron.launcher.crash.CrashRules rules,
+            String language, java.util.function.UnaryOperator<String> names) {
+        java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> out = new java.util.ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis diagnosis : found) {
+            com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis kept = diagnosis;
+            String id = diagnosis.values().get("mod");
+            if (id != null && MOD_CAUSES.contains(diagnosis.textId())
+                    && com.hexadron.launcher.crash.CrashFixes.byModId(mods, id).isEmpty()) {
+                String owner = ownerOf(mods, id);
+                if (owner != null) {
+                    java.util.Map<String, String> values = new java.util.LinkedHashMap<>(diagnosis.values());
+                    values.put("mod", owner);
+                    values.remove("modname");
+                    kept = com.hexadron.launcher.crash.CrashAnalyzer.withValues(diagnosis, values, rules, language, names)
+                            .orElse(diagnosis);
+                }
+            }
+            if (seen.add(kept.textId() + "\n" + kept.cause())) {
+                out.add(kept);
+            }
+        }
+        return out;
+    }
+
+    /** The mod id of the jar that carries this module inside it, or null. A switched-on jar first. */
+    static String ownerOf(java.util.List<com.hexadron.launcher.mods.ModEntry> mods, String moduleId) {
+        String wanted = moduleId.trim().toLowerCase(java.util.Locale.ROOT);
+        String fallback = null;
+        for (com.hexadron.launcher.mods.ModEntry mod : mods) {
+            String own = com.hexadron.launcher.mods.ModScan.descriptorOf(mod.path()).modId();
+            if (own == null || own.equalsIgnoreCase(wanted)) {
+                continue;
+            }
+            if (com.hexadron.launcher.mods.Requirements.provided(mod.path(), own).contains(wanted)) {
+                if (mod.enabled()) {
+                    return own;
+                }
+                if (fallback == null) {
+                    fallback = own;
+                }
+            }
+        }
+        return fallback;
+    }
+
+    /**
+     * Leaves out what a mod for another Minecraft version says it needs.
+     *
+     * <p>Such a mod will not load whatever else is done, so its requirements
+     * are not causes. Two of them were offered as fixes and both did harm:
+     * Fabric API built for 26.1 asks for Java 25, and the window offered to
+     * start a 1.18.1 profile on Java 25; a 26.1 mod asks for Fabric API, and
+     * the window offered to switch back on the Fabric API that had just been
+     * switched off for being for 26.1. What is left is the cause itself -
+     * the mod is for another version - with its own fixes.
+     */
+    static java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> withoutConsequences(
+            java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> found,
+            java.util.List<com.hexadron.launcher.mods.ModEntry> mods) {
+        java.util.Set<String> wrong = new java.util.HashSet<>();
+        for (com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis diagnosis : found) {
+            if ("wrongMinecraft".equals(diagnosis.textId()) && diagnosis.values().get("mod") != null) {
+                wrong.add(diagnosis.values().get("mod").toLowerCase(java.util.Locale.ROOT));
+            }
+        }
+        for (com.hexadron.launcher.mods.ModEntry mod : mods) {
+            if (mod.isWrongVersion()) {
+                String own = com.hexadron.launcher.mods.ModScan.descriptorOf(mod.path()).modId();
+                if (own != null) {
+                    wrong.addAll(com.hexadron.launcher.mods.Requirements.provided(mod.path(), own));
+                    wrong.add(own.toLowerCase(java.util.Locale.ROOT));
+                }
+            }
+        }
+        if (wrong.isEmpty()) {
+            return found;
+        }
+        java.util.List<com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis> kept = new java.util.ArrayList<>();
+        for (com.hexadron.launcher.crash.CrashAnalyzer.Diagnosis diagnosis : found) {
+            String asker = diagnosis.values().get("mod");
+            boolean consequence = asker != null && !"minecraft".equalsIgnoreCase(asker)
+                    && wrong.contains(asker.toLowerCase(java.util.Locale.ROOT))
+                    && ("javaOld".equals(diagnosis.textId()) || "missingDep".equals(diagnosis.textId())
+                        || "depVersion".equals(diagnosis.textId()) || "loaderVersion".equals(diagnosis.textId()));
+            if (consequence) {
+                LauncherLog.info("Crash analysis: " + diagnosis.ruleId() + " for " + asker
+                        + " left out: that mod is for another Minecraft version");
+            } else {
+                kept.add(diagnosis);
+            }
+        }
+        return kept;
+    }
+
+    /**
+     * A Minecraft version to move this profile to so its mods load, or empty.
+     *
+     * <p>The recorded previous version first, when going back fixes it. Then
+     * the version the mods themselves ask for: the newest release that every
+     * mod now for another version accepts and no switched-on mod rules out.
+     * A profile moved to 1.18.1 with a folder of 26.1 mods - or the other way
+     * round - is answered by one move, rather than by replacing or switching
+     * off every mod in it.
+     *
+     * @param network true to fetch the version list when it can; false to
+     *                use only the copy on disk, for the interface thread
+     */
+    public java.util.Optional<String> versionToMoveTo(Profile profile, boolean network) {
+        java.util.Optional<String> back = versionToGoBackTo(profile);
+        if (back.isPresent()) {
+            return back;
+        }
+        java.util.List<com.hexadron.launcher.mods.ModEntry> mods = modsIn(profile);
+        java.util.List<com.hexadron.launcher.mods.ModEntry> wrong = com.hexadron.launcher.mods.ModScan.wrongVersion(mods);
+        if (wrong.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        java.util.Optional<VersionManifest> manifest = java.util.Optional.empty();
+        if (network) {
+            try {
+                manifest = java.util.Optional.of(minecraftVersions());
+            } catch (IOException | RuntimeException e) {
+                manifest = java.util.Optional.empty();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return java.util.Optional.empty();
+            }
+        }
+        if (manifest.isEmpty()) {
+            manifest = VersionManifest.cached(dirs);
+        }
+        if (manifest.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        java.util.List<com.hexadron.launcher.mods.ModEntry> on = mods.stream()
+                .filter(com.hexadron.launcher.mods.ModEntry::enabled).toList();
+        for (VersionManifest.Entry release : manifest.get().releases()) {
+            String version = release.id();
+            if (version.equals(profile.minecraftVersion())) {
+                continue;
+            }
+            boolean allWrongFit = wrong.stream().allMatch(mod -> com.hexadron.launcher.mods.ModScan
+                    .descriptorOf(mod.path()).worksWith(version) == com.hexadron.launcher.mods.VersionRanges.Verdict.MATCHES);
+            if (!allWrongFit) {
+                continue;
+            }
+            boolean noneBroken = on.stream().noneMatch(mod -> com.hexadron.launcher.mods.ModScan
+                    .descriptorOf(mod.path()).worksWith(version) == com.hexadron.launcher.mods.VersionRanges.Verdict.DOES_NOT_MATCH);
+            if (noneBroken) {
+                return java.util.Optional.of(version);
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    /** {@link #buildLabel}, for the self-check. */
+    public static String buildLabelForCheck(String title, String displayName) {
+        return buildLabel(title, displayName);
+    }
+
+    /** Words for a build: "Fabric API 0.46.6+1.18", not "Fabric API Fabric API 0.46.6+1.18". */
+    static String buildLabel(String title, String displayName) {
+        if (displayName == null || displayName.isBlank()) {
+            return title == null ? "" : title;
+        }
+        if (title == null || title.isBlank()
+                || displayName.toLowerCase(java.util.Locale.ROOT).contains(title.toLowerCase(java.util.Locale.ROOT))) {
+            return displayName;
+        }
+        return title + " " + displayName;
     }
 
     /**
@@ -566,7 +783,7 @@ public final class LauncherService {
                 ready = withinLookupTime(() -> {
                     try {
                         return replacementFor(profile, offline.targets().get(0)).map(update -> offline.resolved(
-                                update.title() + " " + update.next().displayName(), update.next().versionId()));
+                                buildLabel(update.title(), update.next().displayName()), update.next().versionId()));
                     } catch (IOException e) {
                         return java.util.Optional.empty();
                     } catch (InterruptedException e) {
@@ -580,7 +797,7 @@ public final class LauncherService {
                 ready = withinLookupTime(() -> {
                     try {
                         return updateFor(profile, offline.fix().value()).map(update -> offline.resolved(
-                                update.title() + " " + update.next().displayName(), update.next().versionId()));
+                                buildLabel(update.title(), update.next().displayName()), update.next().versionId()));
                     } catch (IOException e) {
                         return java.util.Optional.empty();
                     } catch (InterruptedException e) {
@@ -869,6 +1086,14 @@ public final class LauncherService {
                                 + " for this Minecraft version and loader was found"));
                 done = "Crash fix: replaced " + prepared.targets().get(0).fileName() + ": "
                         + applyModUpdates(profile, java.util.List.of(update), progress);
+            }
+            case SET_MINECRAFT -> {
+                String before = profile.minecraftVersion();
+                ModInstaller.Migration migration = moveToVersion(profile, fix.value(), progress);
+                migration.updated().forEach(note -> progress.log("  %s", note));
+                migration.switchedOff().forEach(note -> progress.log("  %s", note));
+                installProfile(profile, progress);
+                done = "Crash fix: moved from Minecraft " + before + " to " + fix.value();
             }
             case DISABLE_SHADERS -> {
                 java.util.List<String> changed = com.hexadron.launcher.crash.CrashFixes.applyDisableShaders(prepared);

@@ -95,7 +95,8 @@ public final class CrashFixes {
             CrashFix.Kind.UPDATE_LOADER, CrashFix.Kind.RESET_CONFIG, CrashFix.Kind.REMOVE_JVM_ARGUMENT,
             CrashFix.Kind.JAVA, CrashFix.Kind.AUTOMATIC_JAVA, CrashFix.Kind.DISABLE_DUPLICATES,
             CrashFix.Kind.REINSTALL, CrashFix.Kind.RAISE_MEMORY, CrashFix.Kind.LOWER_MEMORY,
-            CrashFix.Kind.DISABLE_SHADERS, CrashFix.Kind.UPDATE_MOD, CrashFix.Kind.REPLACE_BUILD);
+            CrashFix.Kind.DISABLE_SHADERS, CrashFix.Kind.UPDATE_MOD, CrashFix.Kind.REPLACE_BUILD,
+            CrashFix.Kind.SET_MINECRAFT);
 
     /**
      * The fix to apply without asking the player to choose: the only one
@@ -288,6 +289,10 @@ public final class CrashFixes {
                     ? Optional.empty()
                     : Optional.of(new Prepared(fix, profile.loader().displayName(), List.of(), List.of(), 0));
             case RESET_CONFIG -> configFiles(fix, gameDir);
+            case SET_MINECRAFT -> profile == null || fix.value().isBlank()
+                    || fix.value().equals(profile.minecraftVersion())
+                    ? Optional.empty()
+                    : Optional.of(new Prepared(fix, "Minecraft " + fix.value(), List.of(), List.of(), 0));
             case REMOVE_JVM_ARGUMENT -> jvmArguments(fix, profile);
             case DISABLE_SHADERS -> shaderSettings(fix, gameDir);
             // Looked up by the service, which can ask the platforms.
@@ -398,6 +403,12 @@ public final class CrashFixes {
         if (copies.stream().anyMatch(ModEntry::enabled)) {
             return Optional.empty();
         }
+        // A copy built for another Minecraft version is not switched back on:
+        // it was most likely switched off for exactly that, and switching it on
+        // would crash the game the other way. The right build is installed.
+        copies = copies.stream()
+                .filter(copy -> copy.verdict() != com.hexadron.launcher.mods.VersionRanges.Verdict.DOES_NOT_MATCH)
+                .toList();
         if (!copies.isEmpty()) {
             ModEntry keep = newestCopy(copies);
             return switchOn(new CrashFix(CrashFix.Kind.ENABLE_FILE, keep.fileName()), List.of(keep));
